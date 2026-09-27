@@ -59,10 +59,10 @@ export default function CheckinsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
             <Clock className="w-6 h-6 text-blue-600" />
-            <span>Check-in Tracker</span>
+            <span>Availability</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Track real-time check-in status for teams and adjudicators prior to draw generation.
+            Mark teams, adjudicators, and venues available for the current round before generating the draw.
           </p>
         </div>
 

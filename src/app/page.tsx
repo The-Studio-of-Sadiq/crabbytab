@@ -4,18 +4,13 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Trophy,
   Plus,
   Sparkles,
   ArrowRight,
-  Shield,
   Layers,
-  Calendar,
-  Users,
-  CheckCircle2,
-  Settings,
 } from "lucide-react";
 import { TournamentFormat } from "@/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface StoredTournamentSummary {
   slug: string;
@@ -26,6 +21,7 @@ interface StoredTournamentSummary {
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, loading, logout } = useAuth();
   const [tournaments, setTournaments] = useState<StoredTournamentSummary[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [name, setName] = useState("");
@@ -68,6 +64,10 @@ export default function HomePage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      router.push("/login");
+      return;
+    }
     if (!name.trim() || !slug.trim()) return;
 
     const formattedSlug = slug
@@ -101,13 +101,36 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Tournament</span>
-            </button>
+            {loading ? null : user ? (
+              <>
+                <span className="hidden sm:inline text-xs text-gray-300">{user.email}</span>
+                <button
+                  onClick={() => logout()}
+                  className="text-xs text-gray-300 hover:text-white"
+                >
+                  Sign out
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create Tournament</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="text-xs text-gray-300 hover:text-white">
+                  Sign in
+                </Link>
+                <Link
+                  href="/register"
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+                >
+                  <span>Create account</span>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -122,10 +145,19 @@ export default function HomePage() {
                 Welcome to CrabbyTab Debate Tabulation
               </h2>
               <p className="text-sm text-gray-600 max-w-2xl">
-                A high-performance, serverless clone of Tabbycat running entirely on client compute and Firebase Firestore. Supports British Parliamentary (BP), Australs, and Asian Parliamentary (UADC) formats with Hungarian matching and real-time analytics.
+                A serverless Tabbycat-style tab: public draw and standings for participants, a staff tab room for directors,
+                and pairing/allocation computed on this machine — not on a Django server.
               </p>
             </div>
             <div className="flex items-center space-x-3 shrink-0">
+              {!user && !loading && (
+                <Link
+                  href="/login"
+                  className="inline-flex items-center px-4 py-2.5 border border-gray-300 text-gray-800 rounded-md text-xs font-bold"
+                >
+                  Sign in to tab room
+                </Link>
+              )}
               <Link
                 href="/wudc-demo"
                 className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shadow-xs transition"

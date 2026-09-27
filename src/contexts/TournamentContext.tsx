@@ -258,7 +258,7 @@ export function TournamentProvider({
     setTournament(t);
     persistLocal("meta", t);
     try {
-      if (db && db.type) {
+      if (db) {
         await setDoc(doc(db, "tournaments", t.id), t, { merge: true });
       }
     } catch (e) {

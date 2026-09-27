@@ -84,6 +84,30 @@ export default function TournamentDashboardPage() {
         </div>
       </div>
 
+      <ol className="grid grid-cols-1 md:grid-cols-7 gap-2 text-[11px]">
+        {[
+          { n: "1", t: "Availability", h: `/${tournament?.slug}/checkins` },
+          { n: "2", t: "Generate draw", h: `/${tournament?.slug}/draw` },
+          { n: "3", t: "Allocate", h: `/${tournament?.slug}/allocation` },
+          { n: "4", t: "Display", h: `/${tournament?.slug}/display` },
+          { n: "5", t: "Motions", h: `/${tournament?.slug}/motions` },
+          { n: "6", t: "Results", h: `/${tournament?.slug}/results` },
+          { n: "7", t: "Standings", h: `/${tournament?.slug}/standings` },
+        ].map((step) => (
+          <li key={step.n}>
+            <Link
+              href={step.h}
+              className="flex items-center space-x-2 border border-[#d0d7de] rounded px-2 py-2 hover:border-blue-400 hover:bg-blue-50"
+            >
+              <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
+                {step.n}
+              </span>
+              <span className="font-semibold text-gray-800">{step.t}</span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+
       {/* Active Round Action Hero Card */}
       {activeRound ? (
         <div className="bg-gradient-to-br from-blue-50 to-indigo-50/40 rounded-lg border border-blue-200 p-5 shadow-xs">
