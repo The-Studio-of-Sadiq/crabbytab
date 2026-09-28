@@ -6,8 +6,12 @@ import { AuthProvider } from "@/contexts/AuthContext";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "CrabbyTab — Debate Tournament Tabulation Software",
+  title: "CrabbyTab",
   description: "Next.js serverless clone of Tabbycat for British Parliamentary and parliamentary debate tournament tabulation.",
+  openGraph: {
+    title: "CrabbyTab",
+    description: "Next.js serverless clone of Tabbycat for British Parliamentary and parliamentary debate tournament tabulation.",
+  },
 };
 
 export default function RootLayout({

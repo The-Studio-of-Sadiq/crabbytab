@@ -1,0 +1,8 @@
+{
+  "name": "CrabbyTab",
+  "description": "Next.js serverless clone of Tabbycat for British Parliamentary and parliamentary debate tournament tabulation.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

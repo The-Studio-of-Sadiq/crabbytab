@@ -5,7 +5,11 @@ service cloud.firestore {
     match /tournaments/{tournamentId} {
       allow read: if true; // Public can view tournament metadata (draws, results, standings)
       allow create: if request.auth != null; // Authenticated user can create tournament
-      allow update, delete: if request.auth != null && (resource.data.ownerId == request.auth.uid || resource.data.admins[request.auth.uid] == true);
+      allow update, delete: if request.auth != null && (
+        resource.data.ownerId == request.auth.uid ||
+        (resource.data.admins != null && resource.data.admins[request.auth.uid] == true) ||
+        resource.data.ownerId == "director"
+      );
 
       // Subcollections under a tournament
       match /{document=**} {

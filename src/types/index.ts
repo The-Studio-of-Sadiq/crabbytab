@@ -30,6 +30,7 @@ export interface Tournament {
   seq?: number;
   active: boolean;
   ownerId: string;
+  ownerEmail?: string;
   admins: Record<string, boolean>;
   preferences: TournamentPreferences;
   createdAt: string;

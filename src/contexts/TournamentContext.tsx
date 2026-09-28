@@ -14,22 +14,24 @@ import {
   FeedbackSubmission,
   TeamStandingRow,
   SpeakerStandingRow,
-  TournamentFormat,
 } from "@/types";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   collection,
   doc,
   setDoc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
+  where,
 } from "firebase/firestore";
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
-import { generateDemoTournament, DemoTournamentBundle } from "@/lib/demo/generator";
+import { generateDemoTournament } from "@/lib/demo/generator";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -49,6 +51,7 @@ export interface TournamentContextType {
   speakerStandings: SpeakerStandingRow[];
   replyStandings: SpeakerStandingRow[];
   breakResults: BreakCategoryResult[];
+  isOwnerOrAdmin: boolean;
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
@@ -85,6 +88,7 @@ export function TournamentProvider({
   tournamentSlug: string;
   children: React.ReactNode;
 }) {
+  const { user } = useAuth();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -101,27 +105,75 @@ export function TournamentProvider({
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
 
   // Helper to persist state to local storage
-  const persistLocal = useCallback((key: string, data: any) => {
-    try {
-      localStorage.setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
-    } catch (e) {
-      console.warn("LocalStorage save error:", e);
-    }
-  }, [storagePrefix]);
+  const persistLocal = useCallback(
+    (key: string, data: any) => {
+      if (typeof window === "undefined") return;
+      try {
+        localStorage.setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
+      } catch (e) {
+        console.warn("LocalStorage save error:", e);
+      }
+    },
+    [storagePrefix]
+  );
 
-  // Load initial data
+  // Sync bundle to Firestore
+  const syncBundleToFirestore = useCallback(
+    async (
+      targetTournId: string,
+      data: {
+        rounds?: Round[];
+        teams?: Team[];
+        adjudicators?: Adjudicator[];
+        venues?: Venue[];
+        motions?: Motion[];
+        breakCategories?: BreakCategory[];
+        debates?: Debate[];
+        ballots?: BallotSubmission[];
+        feedback?: FeedbackSubmission[];
+      }
+    ) => {
+      if (!db || !targetTournId) return;
+      try {
+        const bundleDoc = doc(db, "tournaments", targetTournId, "data", "bundle");
+        await setDoc(
+          bundleDoc,
+          {
+            ...data,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        // Also touch tournament document
+        await setDoc(
+          doc(db, "tournaments", targetTournId),
+          { updatedAt: new Date().toISOString() },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn("Error syncing bundle to Firestore:", err);
+      }
+    },
+    []
+  );
+
+  // Load initial data from LocalStorage & Firestore
   useEffect(() => {
     let isMounted = true;
+    let unsubscribeTournament: (() => void) | null = null;
+    let unsubscribeBundle: (() => void) | null = null;
 
     async function loadData() {
       setLoading(true);
 
-      // Check LocalStorage cache first
+      // 1. Read local cache first for instant UI response
+      let localTournament: Tournament | null = null;
       try {
         const localT = localStorage.getItem(`${storagePrefix}_meta`);
         if (localT) {
-          const parsedT = JSON.parse(localT);
-          if (isMounted) setTournament(parsedT);
+          localTournament = JSON.parse(localT);
+          if (isMounted) setTournament(localTournament);
         }
 
         const localRounds = localStorage.getItem(`${storagePrefix}_rounds`);
@@ -158,71 +210,246 @@ export function TournamentProvider({
         console.warn("Error reading local storage cache:", e);
       }
 
-      // If no tournament exists yet, initialize a default one or demo bundle
-      const localTCheck = localStorage.getItem(`${storagePrefix}_meta`);
-      if (!localTCheck) {
-        // Auto-generate default tournament shell
-        const defaultT: Tournament = {
-          id: `tourn-${tournamentSlug}`,
-          name: tournamentSlug === "wudc-demo" ? "World Universities Debating Championship (Demo)" : `${tournamentSlug.toUpperCase()} Tournament`,
-          shortName: tournamentSlug === "wudc-demo" ? "WUDC Demo" : tournamentSlug.toUpperCase(),
-          slug: tournamentSlug,
-          format: "bp",
-          active: true,
-          ownerId: "director",
-          admins: { director: true },
-          preferences: {
-            teamsInDebate: 4,
-            substantiveSpeakers: 2,
-            replyScoresEnabled: false,
-            minSpeakerScore: 68,
-            maxSpeakerScore: 84,
-            stepSpeakerScore: 1,
-            minReplyScore: 34,
-            maxReplyScore: 42,
-            drawRule: "power_paired",
-            sideAllocationRule: "balanced",
-            ballotDoubleEntry: false,
-            publicDraw: true,
-            publicResults: true,
-            publicStandings: true,
-            publicMotions: true,
-            feedbackEnabled: true,
-            feedbackMinScore: 1,
-            feedbackMaxScore: 10,
-          },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+      // 2. Fetch from Firestore if configured
+      let firestoreTournId = `tourn-${tournamentSlug}`;
+      let firestoreFound = false;
 
-        if (tournamentSlug === "wudc-demo") {
-          const bundle = generateDemoTournament("World Universities Debating Championship (Demo)", "wudc-demo", "bp");
-          if (isMounted) {
-            setTournament(bundle.tournament);
-            setRounds(bundle.rounds);
-            setActiveRound(bundle.rounds[bundle.rounds.length - 1] || null);
-            setTeams(bundle.teams);
-            setAdjudicators(bundle.adjudicators);
-            setVenues(bundle.venues);
-            setMotions(bundle.motions);
-            setBreakCategories(bundle.breakCategories);
-            setDebates(bundle.debates);
-            setBallots(bundle.ballots);
+      if (db) {
+        try {
+          let tData: Tournament | null = null;
 
-            persistLocal("meta", bundle.tournament);
-            persistLocal("rounds", bundle.rounds);
-            persistLocal("teams", bundle.teams);
-            persistLocal("adjudicators", bundle.adjudicators);
-            persistLocal("venues", bundle.venues);
-            persistLocal("motions", bundle.motions);
-            persistLocal("breaks", bundle.breakCategories);
-            persistLocal("debates", bundle.debates);
-            persistLocal("ballots", bundle.ballots);
+          // Check by standard ID `tourn-<slug>`
+          const directSnap = await getDoc(doc(db, "tournaments", firestoreTournId));
+          if (directSnap.exists()) {
+            tData = directSnap.data() as Tournament;
+            firestoreFound = true;
+          } else {
+            // Also check by raw slug as document ID
+            const rawSnap = await getDoc(doc(db, "tournaments", tournamentSlug));
+            if (rawSnap.exists()) {
+              tData = rawSnap.data() as Tournament;
+              firestoreTournId = tournamentSlug;
+              firestoreFound = true;
+            } else {
+              // Query by slug field
+              const q = query(collection(db, "tournaments"), where("slug", "==", tournamentSlug));
+              const querySnap = await getDocs(q);
+              if (!querySnap.empty) {
+                tData = querySnap.docs[0].data() as Tournament;
+                firestoreTournId = querySnap.docs[0].id;
+                firestoreFound = true;
+              }
+            }
           }
+
+          if (tData && isMounted) {
+            setTournament(tData);
+            persistLocal("meta", tData);
+
+            // Fetch bundle
+            const bundleRef = doc(db, "tournaments", firestoreTournId, "data", "bundle");
+            const bundleSnap = await getDoc(bundleRef);
+
+            if (bundleSnap.exists() && isMounted) {
+              const b = bundleSnap.data();
+              if (b.rounds && Array.isArray(b.rounds)) {
+                setRounds(b.rounds);
+                persistLocal("rounds", b.rounds);
+                if (b.rounds.length > 0) {
+                  setActiveRound(b.rounds[b.rounds.length - 1]);
+                }
+              }
+              if (b.teams && Array.isArray(b.teams)) {
+                setTeams(b.teams);
+                persistLocal("teams", b.teams);
+              }
+              if (b.adjudicators && Array.isArray(b.adjudicators)) {
+                setAdjudicators(b.adjudicators);
+                persistLocal("adjudicators", b.adjudicators);
+              }
+              if (b.venues && Array.isArray(b.venues)) {
+                setVenues(b.venues);
+                persistLocal("venues", b.venues);
+              }
+              if (b.motions && Array.isArray(b.motions)) {
+                setMotions(b.motions);
+                persistLocal("motions", b.motions);
+              }
+              if (b.breakCategories && Array.isArray(b.breakCategories)) {
+                setBreakCategories(b.breakCategories);
+                persistLocal("breaks", b.breakCategories);
+              }
+              if (b.debates && Array.isArray(b.debates)) {
+                setDebates(b.debates);
+                persistLocal("debates", b.debates);
+              }
+              if (b.ballots && Array.isArray(b.ballots)) {
+                setBallots(b.ballots);
+                persistLocal("ballots", b.ballots);
+              }
+              if (b.feedback && Array.isArray(b.feedback)) {
+                setFeedback(b.feedback);
+                persistLocal("feedback", b.feedback);
+              }
+            } else {
+              // If bundle doesn't exist in Firestore yet, but we had local data, backfill Firestore
+              const curRounds = localStorage.getItem(`${storagePrefix}_rounds`);
+              const curTeams = localStorage.getItem(`${storagePrefix}_teams`);
+              if (curRounds || curTeams) {
+                syncBundleToFirestore(firestoreTournId, {
+                  rounds: curRounds ? JSON.parse(curRounds) : [],
+                  teams: curTeams ? JSON.parse(curTeams) : [],
+                  adjudicators: localStorage.getItem(`${storagePrefix}_adjudicators`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_adjudicators`)!)
+                    : [],
+                  venues: localStorage.getItem(`${storagePrefix}_venues`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_venues`)!)
+                    : [],
+                  motions: localStorage.getItem(`${storagePrefix}_motions`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_motions`)!)
+                    : [],
+                  breakCategories: localStorage.getItem(`${storagePrefix}_breaks`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_breaks`)!)
+                    : [],
+                  debates: localStorage.getItem(`${storagePrefix}_debates`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_debates`)!)
+                    : [],
+                  ballots: localStorage.getItem(`${storagePrefix}_ballots`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_ballots`)!)
+                    : [],
+                  feedback: localStorage.getItem(`${storagePrefix}_feedback`)
+                    ? JSON.parse(localStorage.getItem(`${storagePrefix}_feedback`)!)
+                    : [],
+                });
+              }
+            }
+
+            // Real-time listener for tournament doc
+            unsubscribeTournament = onSnapshot(doc(db, "tournaments", firestoreTournId), (snap) => {
+              if (snap.exists() && isMounted) {
+                const fresh = snap.data() as Tournament;
+                setTournament(fresh);
+                persistLocal("meta", fresh);
+              }
+            });
+
+            // Real-time listener for data bundle
+            unsubscribeBundle = onSnapshot(bundleRef, (snap) => {
+              if (snap.exists() && isMounted) {
+                const b = snap.data();
+                if (b.rounds && Array.isArray(b.rounds)) {
+                  setRounds(b.rounds);
+                  persistLocal("rounds", b.rounds);
+                }
+                if (b.teams && Array.isArray(b.teams)) {
+                  setTeams(b.teams);
+                  persistLocal("teams", b.teams);
+                }
+                if (b.adjudicators && Array.isArray(b.adjudicators)) {
+                  setAdjudicators(b.adjudicators);
+                  persistLocal("adjudicators", b.adjudicators);
+                }
+                if (b.venues && Array.isArray(b.venues)) {
+                  setVenues(b.venues);
+                  persistLocal("venues", b.venues);
+                }
+                if (b.motions && Array.isArray(b.motions)) {
+                  setMotions(b.motions);
+                  persistLocal("motions", b.motions);
+                }
+                if (b.breakCategories && Array.isArray(b.breakCategories)) {
+                  setBreakCategories(b.breakCategories);
+                  persistLocal("breaks", b.breakCategories);
+                }
+                if (b.debates && Array.isArray(b.debates)) {
+                  setDebates(b.debates);
+                  persistLocal("debates", b.debates);
+                }
+                if (b.ballots && Array.isArray(b.ballots)) {
+                  setBallots(b.ballots);
+                  persistLocal("ballots", b.ballots);
+                }
+                if (b.feedback && Array.isArray(b.feedback)) {
+                  setFeedback(b.feedback);
+                  persistLocal("feedback", b.feedback);
+                }
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("Error fetching tournament from Firestore:", err);
+        }
+      }
+
+      // 3. Fallback: If tournament was neither in Firestore nor in localStorage
+      const curLocalCheck = localStorage.getItem(`${storagePrefix}_meta`);
+      if (!firestoreFound && !curLocalCheck && isMounted) {
+        if (tournamentSlug === "wudc-demo") {
+          const bundle = generateDemoTournament(
+            "World Universities Debating Championship (Demo)",
+            "wudc-demo",
+            "bp"
+          );
+          setTournament(bundle.tournament);
+          setRounds(bundle.rounds);
+          setActiveRound(bundle.rounds[bundle.rounds.length - 1] || null);
+          setTeams(bundle.teams);
+          setAdjudicators(bundle.adjudicators);
+          setVenues(bundle.venues);
+          setMotions(bundle.motions);
+          setBreakCategories(bundle.breakCategories);
+          setDebates(bundle.debates);
+          setBallots(bundle.ballots);
+
+          persistLocal("meta", bundle.tournament);
+          persistLocal("rounds", bundle.rounds);
+          persistLocal("teams", bundle.teams);
+          persistLocal("adjudicators", bundle.adjudicators);
+          persistLocal("venues", bundle.venues);
+          persistLocal("motions", bundle.motions);
+          persistLocal("breaks", bundle.breakCategories);
+          persistLocal("debates", bundle.debates);
+          persistLocal("ballots", bundle.ballots);
         } else {
-          if (isMounted) {
-            setTournament(defaultT);
-            persistLocal("meta", defaultT);
+          // Initialize a fresh tournament
+          const defaultT: Tournament = {
+            id: `tourn-${tournamentSlug}`,
+            name: `${tournamentSlug.toUpperCase()} Tournament`,
+            shortName: tournamentSlug.toUpperCase(),
+            slug: tournamentSlug,
+            format: "bp",
+            active: true,
+            ownerId: user?.uid || "director",
+            admins: user?.uid ? { [user.uid]: true } : { director: true },
+            preferences: {
+              teamsInDebate: 4,
+              substantiveSpeakers: 2,
+              replyScoresEnabled: false,
+              minSpeakerScore: 68,
+              maxSpeakerScore: 84,
+              stepSpeakerScore: 1,
+              minReplyScore: 34,
+              maxReplyScore: 42,
+              drawRule: "power_paired",
+              sideAllocationRule: "balanced",
+              ballotDoubleEntry: false,
+              publicDraw: true,
+              publicResults: true,
+              publicStandings: true,
+              publicMotions: true,
+              feedbackEnabled: true,
+              feedbackMinScore: 1,
+              feedbackMaxScore: 10,
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          setTournament(defaultT);
+          persistLocal("meta", defaultT);
+
+          if (db && user) {
+            setDoc(doc(db, "tournaments", defaultT.id), defaultT, { merge: true }).catch(console.warn);
           }
         }
       }
@@ -234,10 +461,23 @@ export function TournamentProvider({
 
     return () => {
       isMounted = false;
+      if (unsubscribeTournament) unsubscribeTournament();
+      if (unsubscribeBundle) unsubscribeBundle();
     };
-  }, [tournamentSlug, storagePrefix, persistLocal]);
+  }, [tournamentSlug, storagePrefix, persistLocal, syncBundleToFirestore, user]);
 
-  // Dynamic Standings Recalculation (Memoized, instantaneous in-browser compute)
+  // Is the current user an owner or admin of this tournament?
+  const isOwnerOrAdmin = useMemo(() => {
+    if (!tournament) return false;
+    if (!user) return tournament.ownerId === "director";
+    return (
+      tournament.ownerId === user.uid ||
+      tournament.ownerId === "director" ||
+      Boolean(tournament.admins && tournament.admins[user.uid])
+    );
+  }, [tournament, user]);
+
+  // Dynamic Standings Recalculation (Instantaneous in-browser compute)
   const standingsResult = useMemo(() => {
     if (!tournament) return { teams: [], speakers: [], replies: [] };
     return calculateStandings(tournament, rounds, teams, debates, ballots);
@@ -289,6 +529,7 @@ export function TournamentProvider({
     setRounds(updated);
     setActiveRound(newRound);
     persistLocal("rounds", updated);
+    syncBundleToFirestore(tournament?.id || `tourn-${tournamentSlug}`, { rounds: updated });
     return newRound;
   };
 
@@ -297,6 +538,7 @@ export function TournamentProvider({
     setRounds(updated);
     if (activeRound?.id === round.id) setActiveRound(round);
     persistLocal("rounds", updated);
+    syncBundleToFirestore(tournament?.id || `tourn-${tournamentSlug}`, { rounds: updated });
   };
 
   const generateDraw = async (roundId: string) => {
@@ -350,12 +592,17 @@ export function TournamentProvider({
 
     // Update round draw status
     const updatedRound: Round = { ...round, drawStatus: "draft" };
-    await updateRound(updatedRound);
+    const updatedRounds = rounds.map((r) => (r.id === round.id ? updatedRound : r));
+    setRounds(updatedRounds);
+    setActiveRound(updatedRound);
+    persistLocal("rounds", updatedRounds);
+
+    syncBundleToFirestore(tournament.id, { debates: updatedDebates, rounds: updatedRounds });
   };
 
   const autoAllocate = async (roundId: string, panelSize: number = 1) => {
     const roundDebates = debates.filter((d) => d.roundId === roundId);
-    if (roundDebates.length === 0) return;
+    if (roundDebates.length === 0 || !tournament) return;
 
     const teamsMap = new Map<string, Team>();
     teams.forEach((t) => teamsMap.set(t.id, t));
@@ -388,17 +635,20 @@ export function TournamentProvider({
     const updated = [...otherDebates, ...updatedRoundDebates];
     setDebates(updated);
     persistLocal("debates", updated);
+    syncBundleToFirestore(tournament.id, { debates: updated });
   };
 
   const updateDebate = async (debate: Debate) => {
     const updated = debates.map((d) => (d.id === debate.id ? debate : d));
     setDebates(updated);
     persistLocal("debates", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { debates: updated });
   };
 
   const updateDebates = async (newDebates: Debate[]) => {
     setDebates(newDebates);
     persistLocal("debates", newDebates);
+    if (tournament) syncBundleToFirestore(tournament.id, { debates: newDebates });
   };
 
   const submitBallot = async (ballot: BallotSubmission) => {
@@ -416,12 +666,19 @@ export function TournamentProvider({
 
     // Update debate result status
     const debate = debates.find((d) => d.id === ballot.debateId);
+    let updatedDebates = debates;
     if (debate) {
       const updatedDebate: Debate = {
         ...debate,
         resultStatus: ballot.confirmed ? "confirmed" : "draft",
       };
-      await updateDebate(updatedDebate);
+      updatedDebates = debates.map((d) => (d.id === debate.id ? updatedDebate : d));
+      setDebates(updatedDebates);
+      persistLocal("debates", updatedDebates);
+    }
+
+    if (tournament) {
+      syncBundleToFirestore(tournament.id, { ballots: updatedBallots, debates: updatedDebates });
     }
   };
 
@@ -439,8 +696,16 @@ export function TournamentProvider({
     persistLocal("ballots", updatedBallots);
 
     const debate = debates.find((d) => d.id === debateId);
+    let updatedDebates = debates;
     if (debate) {
-      await updateDebate({ ...debate, resultStatus: "confirmed" });
+      const updatedDebate: Debate = { ...debate, resultStatus: "confirmed" };
+      updatedDebates = debates.map((d) => (d.id === debate.id ? updatedDebate : d));
+      setDebates(updatedDebates);
+      persistLocal("debates", updatedDebates);
+    }
+
+    if (tournament) {
+      syncBundleToFirestore(tournament.id, { ballots: updatedBallots, debates: updatedDebates });
     }
   };
 
@@ -453,18 +718,21 @@ export function TournamentProvider({
     const updated = [...teams, newTeam];
     setTeams(updated);
     persistLocal("teams", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { teams: updated });
   };
 
   const updateTeam = async (team: Team) => {
     const updated = teams.map((t) => (t.id === team.id ? team : t));
     setTeams(updated);
     persistLocal("teams", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { teams: updated });
   };
 
   const deleteTeam = async (teamId: string) => {
     const updated = teams.filter((t) => t.id !== teamId);
     setTeams(updated);
     persistLocal("teams", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { teams: updated });
   };
 
   const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
@@ -476,18 +744,21 @@ export function TournamentProvider({
     const updated = [...adjudicators, newAdj];
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { adjudicators: updated });
   };
 
   const updateAdjudicator = async (adj: Adjudicator) => {
     const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { adjudicators: updated });
   };
 
   const deleteAdjudicator = async (adjId: string) => {
     const updated = adjudicators.filter((a) => a.id !== adjId);
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { adjudicators: updated });
   };
 
   const addVenue = async (venueData: Omit<Venue, "id" | "tournamentId">) => {
@@ -499,18 +770,21 @@ export function TournamentProvider({
     const updated = [...venues, newVenue];
     setVenues(updated);
     persistLocal("venues", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { venues: updated });
   };
 
   const updateVenue = async (venue: Venue) => {
     const updated = venues.map((v) => (v.id === venue.id ? venue : v));
     setVenues(updated);
     persistLocal("venues", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { venues: updated });
   };
 
   const deleteVenue = async (venueId: string) => {
     const updated = venues.filter((v) => v.id !== venueId);
     setVenues(updated);
     persistLocal("venues", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { venues: updated });
   };
 
   const addMotion = async (motionData: Omit<Motion, "id" | "tournamentId">) => {
@@ -522,17 +796,20 @@ export function TournamentProvider({
     const updated = [...motions, newMotion];
     setMotions(updated);
     persistLocal("motions", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { motions: updated });
   };
 
   const updateMotion = async (motion: Motion) => {
     const updated = motions.map((m) => (m.id === motion.id ? motion : m));
     setMotions(updated);
     persistLocal("motions", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { motions: updated });
   };
 
   const saveBreakCategories = async (cats: BreakCategory[]) => {
     setBreakCategories(cats);
     persistLocal("breaks", cats);
+    if (tournament) syncBundleToFirestore(tournament.id, { breakCategories: cats });
   };
 
   const addFeedback = async (fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => {
@@ -545,6 +822,7 @@ export function TournamentProvider({
     const updated = [...feedback, newFb];
     setFeedback(updated);
     persistLocal("feedback", updated);
+    if (tournament) syncBundleToFirestore(tournament.id, { feedback: updated });
   };
 
   const loadDemoData = async () => {
@@ -574,6 +852,19 @@ export function TournamentProvider({
     persistLocal("breaks", bundle.breakCategories);
     persistLocal("debates", bundle.debates);
     persistLocal("ballots", bundle.ballots);
+
+    if (tournament) {
+      syncBundleToFirestore(tournament.id, {
+        rounds: bundle.rounds,
+        teams: bundle.teams,
+        adjudicators: bundle.adjudicators,
+        venues: bundle.venues,
+        motions: bundle.motions,
+        breakCategories: bundle.breakCategories,
+        debates: bundle.debates,
+        ballots: bundle.ballots,
+      });
+    }
   };
 
   return (
@@ -596,6 +887,7 @@ export function TournamentProvider({
         speakerStandings,
         replyStandings,
         breakResults,
+        isOwnerOrAdmin,
         saveTournament,
         createRound,
         updateRound,
