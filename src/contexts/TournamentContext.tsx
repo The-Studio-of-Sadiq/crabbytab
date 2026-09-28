@@ -585,8 +585,20 @@ export function TournamentProvider({
     }
   };
 
-  const createRound = async (name: string, abbr: string, stage: "preliminary" | "elimination") => {
+  const createRound = async (
+    name: string,
+    abbr: string,
+    stage: "preliminary" | "elimination",
+    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
+  ) => {
     const nextSeq = rounds.length + 1;
+    const defaultDrawRule = tournament?.preferences?.drawRule || "power_paired";
+    const mappedDrawType =
+      customDrawType ||
+      (nextSeq === 1 && defaultDrawRule === "power_paired"
+        ? "random"
+        : (defaultDrawRule as any));
+
     const newRound: Round = {
       id: `round-${tournament?.id || tournamentSlug}-${nextSeq}`,
       tournamentId: tournament?.id || tournamentSlug,
@@ -594,7 +606,7 @@ export function TournamentProvider({
       name,
       abbreviation: abbr,
       stage,
-      drawType: nextSeq === 1 ? "random" : "power_paired",
+      drawType: mappedDrawType,
       drawStatus: "none",
       feedbackWeight: 1.0,
       silent: false,

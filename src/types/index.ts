@@ -192,6 +192,7 @@ export interface BallotSubmission {
   confirmed: boolean;
   discarded: boolean;
   submitterType: "tabroom" | "public" | "judge";
+  submitterId?: string;
   submitterName?: string;
   motionId?: string;
   motionText?: string;

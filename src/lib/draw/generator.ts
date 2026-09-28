@@ -12,6 +12,7 @@ import {
 } from "@/types";
 import { generatePowerPairedDraw, MatchupHistory } from "./powerPaired";
 import { allocateSidesForDebate } from "./sideAllocator";
+import { generateRoundRobinDraw } from "./roundRobin";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -73,20 +74,79 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
   const history = buildMatchupHistory(pastDebates);
   const sortedVenues = [...venues].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
+
+  // Handle Manual draw: create empty debates with room ranks and venues
+  if (round.drawType === "manual") {
+    const numDebates = totalTeams / teamsPerDebate;
+    const debates: Debate[] = [];
+    const sidesList: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+
+    for (let idx = 0; idx < numDebates; idx++) {
+      const venue = sortedVenues[idx];
+      const emptyTeamsSlot: Record<string, any> = {};
+      sidesList.forEach((s) => {
+        emptyTeamsSlot[s] = {
+          teamId: "",
+          teamName: "Unassigned",
+          side: s,
+        };
+      });
+
+      const debateObj: Debate = {
+        id: `debate-${round.id}-${idx + 1}`,
+        tournamentId: tournament.id,
+        roundId: round.id,
+        roundSeq: round.seq,
+        venueName: venue?.name || `Room ${idx + 1}`,
+        bracket: 0,
+        roomRank: idx + 1,
+        importance: 0,
+        resultStatus: "none" as DebateResultStatus,
+        sidesConfirmed: false,
+        flags: [],
+        teams: emptyTeamsSlot as Record<DebateSide, any>,
+        adjudicators: {
+          panellistIds: [],
+          panellistNames: [],
+          traineeIds: [],
+          traineeNames: [],
+        },
+      };
+
+      if (venue?.id) {
+        debateObj.venueId = venue.id;
+      }
+      debates.push(debateObj);
+    }
+
+    return debates;
+  }
 
   let debateDrafts: {
     bracket: number;
     teamsWithSides: Record<DebateSide, Team>;
   }[] = [];
 
-  if (round.seq === 1 || round.drawType === "random") {
-    // Round 1 or Random: Shuffle teams randomly
+  if (round.drawType === "round_robin") {
+    if (isBP) {
+      throw new Error("Round-robin scheduling is only supported for two-team formats.");
+    }
+    const rrMatchups = generateRoundRobinDraw(activeTeams, round.seq, history.sides, tournament.format, sideRule);
+    debateDrafts = rrMatchups;
+  } else if (
+    round.drawType === "random" ||
+    round.seq === 1 ||
+    !standings ||
+    standings.length === 0 ||
+    standings.every((s) => s.points === 0 && s.totalSpeakerScore === 0)
+  ) {
+    // Round 1, random drawType, or no standings yet: Shuffle teams randomly
     const shuffled = [...activeTeams].sort(() => Math.random() - 0.5);
     const numDebates = shuffled.length / teamsPerDebate;
 
     for (let i = 0; i < numDebates; i++) {
       const group = shuffled.slice(i * teamsPerDebate, (i + 1) * teamsPerDebate);
-      const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
       const teamsWithSides = allocateSidesForDebate(group, history.sides, tournament.format, sideRule);
       debateDrafts.push({
         bracket: 0,
@@ -95,7 +155,6 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
   } else {
     // Power-paired Swiss draw for subsequent preliminary rounds
-    const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
     const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule);
     debateDrafts = powerDraw.map((p) => ({
       bracket: p.bracket,

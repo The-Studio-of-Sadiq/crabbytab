@@ -4,16 +4,23 @@ import React, { useEffect, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
 import { DebateSide } from "@/types";
-import { Monitor } from "lucide-react";
+import { Monitor, Lock } from "lucide-react";
 
 export default function DisplayPage() {
-  const { tournament, activeRound, debates, motions } = useTournament();
+  const { tournament, activeRound, debates, motions, isOwnerOrAdmin } = useTournament();
   const [scale, setScale] = useState(1);
   const [autoScroll, setAutoScroll] = useState(true);
 
   const isBP = tournament?.format === "bp";
-  const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
-  const motion = activeRound ? motions.find((m) => m.rounds && m.rounds.includes(activeRound.id)) : null;
+  const prefs = tournament?.preferences;
+
+  // S1: Staff pages always show everything.
+  // For non-staff (general display viewers), require publicDraw to be enabled AND round draw to be released.
+  const showDraw = isOwnerOrAdmin || (prefs?.publicDraw !== false && activeRound?.drawStatus === "confirmed");
+  const showMotion = isOwnerOrAdmin || prefs?.publicMotions !== false;
+
+  const roundDebates = activeRound && showDraw ? debates.filter((d) => d.roundId === activeRound.id) : [];
+  const motion = activeRound && showMotion ? motions.find((m) => m.rounds && m.rounds.includes(activeRound.id)) : null;
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
   useEffect(() => {
@@ -45,19 +52,19 @@ export default function DisplayPage() {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setScale((s) => Math.max(0.8, s - 0.1))}
-            className="px-3 py-1 bg-gray-700 rounded text-sm"
+            className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
           >
             A−
           </button>
           <button
             onClick={() => setScale((s) => Math.min(1.6, s + 0.1))}
-            className="px-3 py-1 bg-gray-700 rounded text-sm"
+            className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
           >
             A+
           </button>
           <button
             onClick={() => setAutoScroll((v) => !v)}
-            className="px-3 py-1 bg-gray-700 rounded text-sm"
+            className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
           >
             {autoScroll ? "Pause scroll" : "Auto-scroll"}
           </button>
@@ -65,7 +72,15 @@ export default function DisplayPage() {
       </div>
 
       <div id="display-scroll" className="overflow-y-auto max-h-[calc(100vh-9rem)] pr-2" style={{ fontSize: `${scale}rem` }}>
-        {roundDebates.length === 0 ? (
+        {!showDraw ? (
+          <div className="bg-[#22272e] border border-gray-700 rounded-lg p-10 text-center text-gray-400 flex flex-col items-center justify-center space-y-2">
+            <Lock className="w-8 h-8 text-gray-500" />
+            <p className="font-semibold text-base">Public draw display is currently disabled.</p>
+            <p className="text-xs text-gray-500">
+              The tournament organizers have not released this round or public draw visibility is turned off.
+            </p>
+          </div>
+        ) : roundDebates.length === 0 ? (
           <p className="text-gray-400">No draw for this round yet. Generate it from Availability → Draw.</p>
         ) : (
           <div className="space-y-3">

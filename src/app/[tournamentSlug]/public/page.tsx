@@ -15,7 +15,10 @@ import {
   Search,
   Sparkles,
   ExternalLink,
+  FileCheck2,
+  Lock,
 } from "lucide-react";
+import { DebateSide } from "@/types";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -27,21 +30,52 @@ export default function PublicTournamentPage() {
     rounds,
     setActiveRound,
     debates,
+    ballots,
     teamStandings,
     speakerStandings,
     motions,
     breakResults,
   } = useTournament();
 
-  const [activeTab, setActiveTab] = useState<"draw" | "standings" | "motions" | "break">("draw");
+  const isBP = tournament?.format === "bp";
+  const prefs = tournament?.preferences;
+
+  // S1: Public toggles
+  const showPublicDraw = prefs?.publicDraw !== false;
+  const showPublicResults = prefs?.publicResults !== false;
+  const showPublicStandings = prefs?.publicStandings !== false;
+  const showPublicMotions = prefs?.publicMotions !== false;
+
+  // Available tabs based on preferences
+  const availableTabs: ("draw" | "results" | "standings" | "motions" | "break")[] = [];
+  if (showPublicDraw) availableTabs.push("draw");
+  if (showPublicResults) availableTabs.push("results");
+  if (showPublicStandings) availableTabs.push("standings");
+  if (showPublicMotions) availableTabs.push("motions");
+  availableTabs.push("break"); // Break is always an available public tab
+
+  const [activeTab, setActiveTab] = useState<"draw" | "results" | "standings" | "motions" | "break">(
+    availableTabs[0] || "draw"
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isBP = tournament?.format === "bp";
+  // Only released debates/rounds
   const releasedDebates = activeRound
     ? debates.filter((d) => d.roundId === activeRound.id && activeRound.drawStatus === "confirmed")
     : [];
 
-  const releasedMotions = motions.filter((m) => m.released !== false);
+  const roundResultsReleased = Boolean(activeRound?.resultsReleased || activeRound?.drawStatus === "confirmed");
+
+  const releasedMotions = motions.filter(
+    (m) => m.released !== false && (!activeRound || (m.rounds && m.rounds.includes(activeRound.id)) || !m.rounds || m.rounds.length === 0)
+  );
+
+  const ballotMap = new Map<string, any>();
+  ballots.forEach((b) => {
+    if (b.confirmed && !b.discarded) {
+      ballotMap.set(b.debateId, b);
+    }
+  });
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
@@ -49,7 +83,10 @@ export default function PublicTournamentPage() {
       <header className="bg-[#24292e] text-white border-b border-[#1b1f23] py-4 px-6 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Link href="/" className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-sm text-white">
+            <Link
+              href="/"
+              className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-sm text-white"
+            >
               CT
             </Link>
             <div>
@@ -72,44 +109,64 @@ export default function PublicTournamentPage() {
         </div>
       </header>
 
-      {/* Navigation Pills */}
+      {/* Navigation Pills (S1: hide matching sections if toggle is off) */}
       <div className="bg-white border-b border-[#d0d7de] sticky top-14 z-40">
         <div className="max-w-6xl mx-auto px-6 py-2.5 flex items-center space-x-2 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab("draw")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "draw"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-            <span>Draw</span>
-          </button>
+          {showPublicDraw && (
+            <button
+              onClick={() => setActiveTab("draw")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "draw"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              <span>Draw</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("standings")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "standings"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Trophy className="w-3.5 h-3.5" />
-            <span>Standings Tab</span>
-          </button>
+          {showPublicResults && (
+            <button
+              onClick={() => setActiveTab("results")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "results"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <FileCheck2 className="w-3.5 h-3.5" />
+              <span>Results & Scores</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab("motions")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "motions"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Lightbulb className="w-3.5 h-3.5" />
-            <span>Motions ({releasedMotions.length})</span>
-          </button>
+          {showPublicStandings && (
+            <button
+              onClick={() => setActiveTab("standings")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "standings"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5" />
+              <span>Standings Tab</span>
+            </button>
+          )}
+
+          {showPublicMotions && (
+            <button
+              onClick={() => setActiveTab("motions")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "motions"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Lightbulb className="w-3.5 h-3.5" />
+              <span>Motions ({releasedMotions.length})</span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab("break")}
@@ -128,7 +185,7 @@ export default function PublicTournamentPage() {
       {/* Main Public Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
         {/* 1. Draw View */}
-        {activeTab === "draw" && (
+        {showPublicDraw && activeTab === "draw" && (
           <div className="space-y-4">
             <div className="flex items-center space-x-2 overflow-x-auto pb-1">
               <span className="text-xs font-bold text-gray-500 uppercase mr-1">Round:</span>
@@ -149,7 +206,7 @@ export default function PublicTournamentPage() {
 
             {releasedDebates.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
-                The draw for {activeRound?.name || "this round"} has not been released yet.
+                The draw for {activeRound?.name || "this round"} has not been released to the public yet.
               </div>
             ) : (
               <div className="space-y-3">
@@ -205,8 +262,122 @@ export default function PublicTournamentPage() {
           </div>
         )}
 
-        {/* 2. Standings View */}
-        {activeTab === "standings" && (
+        {/* 2. Results & Scores View (S1: publicResults) */}
+        {showPublicResults && activeTab === "results" && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
+              <span className="text-xs font-bold text-gray-500 uppercase mr-1">Round:</span>
+              {rounds.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setActiveRound(r)}
+                  className={`px-3 py-1 text-xs font-bold rounded border ${
+                    activeRound?.id === r.id
+                      ? "bg-blue-600 text-white border-blue-700"
+                      : "bg-white text-gray-700 border-gray-300"
+                  }`}
+                >
+                  {r.name}
+                </button>
+              ))}
+            </div>
+
+            {!roundResultsReleased || releasedDebates.length === 0 ? (
+              <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
+                Results for {activeRound?.name || "this round"} have not been released to the public yet.
+              </div>
+            ) : (
+              <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
+                <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
+                  {activeRound?.name} Official Confirmed Results
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left tabby-table">
+                    <thead>
+                      <tr>
+                        <th>Venue</th>
+                        {isBP ? (
+                          <>
+                            <th>Opening Gov (1st/2nd/3rd/4th)</th>
+                            <th>Opening Opp</th>
+                            <th>Closing Gov</th>
+                            <th>Closing Opp</th>
+                          </>
+                        ) : (
+                          <>
+                            <th>Affirmative</th>
+                            <th>Negative</th>
+                          </>
+                        )}
+                        <th className="text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {releasedDebates.map((d) => {
+                        const ballot = ballotMap.get(d.id);
+                        return (
+                          <tr key={d.id} className="hover:bg-gray-50">
+                            <td className="font-bold text-xs text-gray-900">{d.venueName}</td>
+                            {isBP ? (
+                              (["OG", "OO", "CG", "CO"] as DebateSide[]).map((side) => {
+                                const tSlot = d.teams[side];
+                                const tScore = ballot?.teamScores?.[side];
+                                return (
+                                  <td key={side} className="text-xs">
+                                    <div className="font-semibold text-gray-900">
+                                      {tSlot?.teamName || "—"}
+                                    </div>
+                                    {tScore && (
+                                      <div className="text-[11px] text-gray-500 font-mono">
+                                        Rank {tScore.rank} &bull; {tScore.points} pts &bull;{" "}
+                                        {tScore.totalSpeakerScore} spks
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })
+                            ) : (
+                              (["AFF", "NEG"] as DebateSide[]).map((side) => {
+                                const tSlot = d.teams[side];
+                                const tScore = ballot?.teamScores?.[side];
+                                return (
+                                  <td key={side} className="text-xs">
+                                    <div className="font-semibold text-gray-900">
+                                      {tSlot?.teamName || "—"}
+                                    </div>
+                                    {tScore && (
+                                      <div className="text-[11px] text-gray-500 font-mono">
+                                        {tScore.win ? "WIN" : "LOSS"} &bull; {tScore.totalSpeakerScore} spks
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })
+                            )}
+                            <td className="text-center">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                                  ballot?.confirmed
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-gray-100 text-gray-600"
+                                }`}
+                              >
+                                {ballot?.confirmed ? "Confirmed" : "Pending"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 3. Standings View (S1: publicStandings) */}
+        {showPublicStandings && activeTab === "standings" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
               Team Standings Tab
@@ -244,33 +415,44 @@ export default function PublicTournamentPage() {
           </div>
         )}
 
-        {/* 3. Motions View */}
-        {activeTab === "motions" && (
+        {/* 4. Motions View (S1: publicMotions) */}
+        {showPublicMotions && activeTab === "motions" && (
           <div className="space-y-4">
-            {releasedMotions.map((m) => (
-              <div key={m.id} className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs">
-                <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                  {m.reference || "Motion"}
-                </span>
-                <blockquote className="text-base font-bold text-gray-900 my-2.5 pl-3 border-l-4 border-amber-500">
-                  &ldquo;{m.text}&rdquo;
-                </blockquote>
-                {m.infoSlide && (
-                  <div className="mt-2 p-3 bg-amber-50/50 rounded border border-amber-200 text-xs text-amber-950">
-                    <strong className="block text-[10px] uppercase font-bold text-amber-800">Infoslide:</strong>
-                    <p>{m.infoSlide}</p>
-                  </div>
-                )}
+            {releasedMotions.length === 0 ? (
+              <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
+                No motions have been released to the public yet.
               </div>
-            ))}
+            ) : (
+              releasedMotions.map((m) => (
+                <div key={m.id} className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs">
+                  <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                    {m.reference || "Motion"}
+                  </span>
+                  <blockquote className="text-base font-bold text-gray-900 my-2.5 pl-3 border-l-4 border-amber-500">
+                    &ldquo;{m.text}&rdquo;
+                  </blockquote>
+                  {m.infoSlide && (
+                    <div className="mt-2 p-3 bg-amber-50/50 rounded border border-amber-200 text-xs text-amber-950">
+                      <strong className="block text-[10px] uppercase font-bold text-amber-800">
+                        Infoslide:
+                      </strong>
+                      <p>{m.infoSlide}</p>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         )}
 
-        {/* 4. Break View */}
+        {/* 5. Break View */}
         {activeTab === "break" && (
           <div className="space-y-6">
             {breakResults.map((res) => (
-              <div key={res.category.id} className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
+              <div
+                key={res.category.id}
+                className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden"
+              >
                 <div className="p-3 bg-purple-50 border-b border-purple-200 font-bold text-xs text-purple-900">
                   {res.category.name} Breaking Teams (Top {res.category.breakSize})
                 </div>

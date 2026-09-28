@@ -9,22 +9,46 @@ import {
   CheckCircle2,
   Users2,
   Search,
+  Lock,
+  AlertTriangle,
 } from "lucide-react";
+import { validateFeedbackScore } from "@/lib/scoring/validator";
 
 export default function FeedbackPage() {
   const { tournament, adjudicators, feedback, addFeedback } = useTournament();
+  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
+  const minScore = tournament?.preferences?.feedbackMinScore ?? 1;
+  const maxScore = tournament?.preferences?.feedbackMaxScore ?? 10;
+
   const [showModal, setShowModal] = useState(false);
   const [targetAdjId, setTargetAdjId] = useState("");
   const [sourceName, setSourceName] = useState("");
   const [sourceType, setSourceType] = useState<"team" | "adjudicator">("team");
-  const [score, setScore] = useState(7);
+  const [score, setScore] = useState(Math.round((minScore + maxScore) / 2));
   const [agree, setAgree] = useState(true);
   const [comments, setComments] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [formError, setFormError] = useState("");
 
   const handleCreateFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetAdjId || !sourceName.trim()) return;
+    setFormError("");
+
+    if (!feedbackEnabled) {
+      setFormError("Feedback submissions are currently disabled by the tournament organizers.");
+      return;
+    }
+
+    if (!targetAdjId || !sourceName.trim()) {
+      setFormError("Please select a judge and enter your name or team.");
+      return;
+    }
+
+    const check = validateFeedbackScore(score, tournament?.preferences);
+    if (!check.valid && check.error) {
+      setFormError(check.error);
+      return;
+    }
 
     const targetAdj = adjudicators.find((a) => a.id === targetAdjId);
 
@@ -63,6 +87,22 @@ export default function FeedbackPage() {
     a.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // S7: When feedbackEnabled is off, hide page content and block submission
+  if (!feedbackEnabled) {
+    return (
+      <div className="bg-white border border-[#d0d7de] rounded-lg p-12 text-center max-w-xl mx-auto my-12 shadow-xs space-y-3">
+        <div className="w-12 h-12 bg-pink-50 text-pink-500 rounded-full flex items-center justify-center mx-auto">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold text-gray-900">Feedback System Disabled</h2>
+        <p className="text-xs text-gray-600">
+          Adjudicator feedback is currently disabled in the tournament configuration. Tab directors
+          can re-enable feedback anytime from Tournament Configuration.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -73,12 +113,16 @@ export default function FeedbackPage() {
             <span>Adjudicator Feedback & Ratings</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Track real-time judge feedback submitted by debaters, chairs, and panellists.
+            Track real-time judge feedback submitted by debaters, chairs, and panellists. (Valid score range: {minScore}–{maxScore})
           </p>
         </div>
 
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => {
+            setScore(Math.round((minScore + maxScore) / 2));
+            setFormError("");
+            setShowModal(true);
+          }}
           className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded text-xs shadow-xs transition"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -138,24 +182,22 @@ export default function FeedbackPage() {
               {filteredAdjs.map((adj, idx) => {
                 const stat = adjFeedbackMap.get(adj.id);
                 const avg = stat && stat.count > 0 ? (stat.totalScore / stat.count).toFixed(2) : "—";
-                const agreePct = stat && stat.count > 0 ? Math.round((stat.agrees / stat.count) * 100) : null;
+                const agreeRate = stat && stat.count > 0 ? `${Math.round((stat.agrees / stat.count) * 100)}%` : "—";
 
                 return (
                   <tr key={adj.id} className="hover:bg-gray-50">
                     <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
                     <td className="font-bold text-gray-900 text-xs">{adj.name}</td>
-                    <td className="text-xs text-gray-600">{adj.institutionName || "Independent"}</td>
+                    <td className="text-xs text-gray-600">{adj.institutionName || "—"}</td>
                     <td className="text-center font-mono text-xs text-gray-700">
                       {adj.baseScore?.toFixed(1) || "5.0"}
                     </td>
-                    <td className="text-center font-mono text-xs text-gray-700">
+                    <td className="text-center font-mono text-xs font-semibold text-gray-900">
                       {stat?.count || 0}
                     </td>
-                    <td className="text-right font-mono font-bold text-xs text-pink-700">
-                      {avg}
-                    </td>
-                    <td className="text-center font-mono text-xs">
-                      {agreePct !== null ? `${agreePct}%` : "—"}
+                    <td className="text-right font-mono font-bold text-xs text-pink-600">{avg}</td>
+                    <td className="text-center font-mono text-xs text-emerald-600 font-semibold">
+                      {agreeRate}
                     </td>
                   </tr>
                 );
@@ -165,24 +207,32 @@ export default function FeedbackPage() {
         </div>
       </div>
 
-      {/* Add Feedback Modal */}
+      {/* Submit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+            <h3 className="text-base font-bold text-gray-900 border-b border-gray-100 pb-2 flex items-center space-x-2">
               <MessageSquareHeart className="w-5 h-5 text-pink-600" />
               <span>Submit Adjudicator Feedback</span>
             </h3>
-            <form onSubmit={handleCreateFeedback} className="space-y-3 text-sm">
+
+            {formError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateFeedback} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Target Judge</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Select Judge</label>
                 <select
                   required
                   value={targetAdjId}
                   onChange={(e) => setTargetAdjId(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-500 font-semibold"
                 >
-                  <option value="">-- Select Judge --</option>
+                  <option value="">-- Select Adjudicator --</option>
                   {adjudicators.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.institutionName || "Independent"})
@@ -205,13 +255,15 @@ export default function FeedbackPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Score (1-10)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Score ({minScore}–{maxScore})
+                  </label>
                   <input
                     type="number"
-                    min="1"
-                    max="10"
+                    min={minScore}
+                    max={maxScore}
                     value={score}
-                    onChange={(e) => setScore(parseInt(e.target.value, 10) || 7)}
+                    onChange={(e) => setScore(parseInt(e.target.value, 10) || minScore)}
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                 </div>
@@ -251,7 +303,7 @@ export default function FeedbackPage() {
                   type="submit"
                   className="px-4 py-1.5 text-xs font-bold text-white bg-pink-600 hover:bg-pink-700 rounded shadow-xs"
                 >
-                  Submit Feedback
+                  Save Feedback
                 </button>
               </div>
             </form>

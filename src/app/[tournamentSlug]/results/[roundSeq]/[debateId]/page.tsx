@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { SideBadge } from "@/components/ui/SideBadge";
 import {
   FileCheck2,
@@ -13,8 +14,14 @@ import {
   Lightbulb,
   MapPin,
   Users,
+  GitCompare,
+  Check,
 } from "lucide-react";
 import { BallotSubmission, DebateSide, Team } from "@/types";
+import {
+  validateSpeakerScore,
+  validateReplyScore,
+} from "@/lib/scoring/validator";
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -23,6 +30,7 @@ export default function BallotEntryPage() {
   const roundSeq = parseInt(params.roundSeq as string, 10);
   const debateId = params.debateId as string;
 
+  const { user } = useAuth();
   const {
     tournament,
     debates,
@@ -31,24 +39,51 @@ export default function BallotEntryPage() {
     motions,
     ballots,
     submitBallot,
+    confirmBallot,
   } = useTournament();
 
   const debate = debates.find((d) => d.id === debateId);
   const round = rounds.find((r) => r.seq === roundSeq);
   const isBP = tournament?.format === "bp";
+  const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
+  const isDoubleEntryEnabled = Boolean(tournament?.preferences?.ballotDoubleEntry);
 
-  const existingBallot = ballots.find((b) => b.debateId === debateId);
+  // All ballots for this debate
+  const debateBallots = ballots.filter((b) => b.debateId === debateId && !b.discarded);
+  const draftBallot = debateBallots.find((b) => !b.confirmed);
+  const confirmedBallot = debateBallots.find((b) => b.confirmed);
+
+  // Active ballot to display or edit
+  const existingBallot = draftBallot || confirmedBallot;
 
   // Form State
   const [selectedMotionId, setSelectedMotionId] = useState<string>(
     existingBallot?.motionId || debate?.motionId || ""
   );
 
-  const [scores, setScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }[]>>({});
+  // Substantive speaker scores: { side: [{ speakerId, speakerName, score }] }
+  const [scores, setScores] = useState<
+    Record<string, { speakerId: string; speakerName: string; score: number }[]>
+  >({});
+
+  // Reply speaker scores: { side: { speakerId, speakerName, score } }
+  const [replyScores, setReplyScores] = useState<
+    Record<string, { speakerId: string; speakerName: string; score: number }>
+  >({});
+
   const [ranks, setRanks] = useState<Record<string, number>>({});
-  const [isConfirmed, setIsConfirmed] = useState<boolean>(existingBallot?.confirmed || false);
+  const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [scoreErrors, setScoreErrors] = useState<Record<string, string>>({});
+
+  // Diff Resolution State for Double Entry
+  const [showDiffModal, setShowDiffModal] = useState(false);
+  const [diffFields, setDiffFields] = useState<
+    { field: string; val1: any; val2: any; choice: 1 | 2 }[]
+  >([]);
+  const [pendingCandidateBallot, setPendingCandidateBallot] =
+    useState<BallotSubmission | null>(null);
 
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
   const teamsMap = new Map<string, Team>();
@@ -59,6 +94,7 @@ export default function BallotEntryPage() {
     if (!debate) return;
 
     const initialScores: Record<string, any[]> = {};
+    const initialReplyScores: Record<string, any> = {};
     const initialRanks: Record<string, number> = {};
 
     sides.forEach((side, idx) => {
@@ -68,17 +104,38 @@ export default function BallotEntryPage() {
       const existingSpeakerScores = existingBallot?.speakerScores?.[side];
 
       if (existingTeamScore) {
-        initialRanks[side] = existingTeamScore.rank || (isBP ? 4 - existingTeamScore.points : existingTeamScore.win ? 1 : 2);
+        initialRanks[side] =
+          existingTeamScore.rank ||
+          (isBP ? 4 - existingTeamScore.points : existingTeamScore.win ? 1 : 2);
       } else {
         initialRanks[side] = idx + 1;
       }
 
+      const numSubstantive =
+        tournament?.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
+
       if (existingSpeakerScores && existingSpeakerScores.length > 0) {
-        initialScores[side] = existingSpeakerScores;
+        const substantive = existingSpeakerScores.filter((s) => s.position <= numSubstantive);
+        initialScores[side] = substantive;
+
+        const reply = existingSpeakerScores.find((s) => s.position === 4);
+        if (reply) {
+          initialReplyScores[side] = {
+            speakerId: reply.speakerId,
+            speakerName: reply.speakerName,
+            score: reply.score,
+          };
+        } else if (replyEnabled) {
+          const spk = team?.speakers?.[0]; // Default reply speaker to 1st or 2nd speaker
+          initialReplyScores[side] = {
+            speakerId: spk?.id || `reply-${side}`,
+            speakerName: spk?.name || `${teamSlot?.teamName || side} Reply`,
+            score: 38,
+          };
+        }
       } else {
-        const numSpeakers = tournament?.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
         const defaultScores = [];
-        for (let pos = 1; pos <= numSpeakers; pos++) {
+        for (let pos = 1; pos <= numSubstantive; pos++) {
           const spk = team?.speakers?.[pos - 1];
           defaultScores.push({
             speakerId: spk?.id || `spk-${side}-${pos}`,
@@ -87,15 +144,22 @@ export default function BallotEntryPage() {
           });
         }
         initialScores[side] = defaultScores;
+
+        if (replyEnabled) {
+          const replySpk = team?.speakers?.[0];
+          initialReplyScores[side] = {
+            speakerId: replySpk?.id || `reply-${side}`,
+            speakerName: replySpk?.name || `${teamSlot?.teamName || side} Reply`,
+            score: 38,
+          };
+        }
       }
     });
 
     setScores(initialScores);
+    setReplyScores(initialReplyScores);
     setRanks(initialRanks);
-    if (existingBallot) {
-      setIsConfirmed(existingBallot.confirmed);
-    }
-  }, [debate, existingBallot, isBP]);
+  }, [debate, existingBallot, isBP, replyEnabled, tournament?.preferences?.substantiveSpeakers]);
 
   if (!debate) {
     return (
@@ -119,6 +183,62 @@ export default function BallotEntryPage() {
       score: value,
     };
     setScores(updated);
+
+    // Validate score immediately
+    const check = validateSpeakerScore(value, tournament?.preferences);
+    setScoreErrors((prev) => {
+      const copy = { ...prev };
+      const key = `${side}-${index}`;
+      if (!check.valid && check.error) {
+        copy[key] = check.error;
+      } else {
+        delete copy[key];
+      }
+      return copy;
+    });
+  };
+
+  const handleReplyScoreChange = (side: string, value: number) => {
+    const current = replyScores[side] || {
+      speakerId: `reply-${side}`,
+      speakerName: "Reply Speaker",
+      score: 38,
+    };
+    setReplyScores({
+      ...replyScores,
+      [side]: { ...current, score: value },
+    });
+
+    const check = validateReplyScore(value, tournament?.preferences);
+    setScoreErrors((prev) => {
+      const copy = { ...prev };
+      const key = `${side}-reply`;
+      if (!check.valid && check.error) {
+        copy[key] = check.error;
+      } else {
+        delete copy[key];
+      }
+      return copy;
+    });
+  };
+
+  const handleReplySpeakerChange = (side: string, speakerId: string) => {
+    const teamSlot = debate.teams[side as DebateSide];
+    const team = teamSlot ? teamsMap.get(teamSlot.teamId) : null;
+    const spk = team?.speakers?.find((s) => s.id === speakerId);
+    const current = replyScores[side] || {
+      speakerId,
+      speakerName: spk?.name || "Reply Speaker",
+      score: 38,
+    };
+    setReplyScores({
+      ...replyScores,
+      [side]: {
+        ...current,
+        speakerId,
+        speakerName: spk?.name || current.speakerName,
+      },
+    });
   };
 
   const handleRankChange = (side: string, rank: number) => {
@@ -126,14 +246,40 @@ export default function BallotEntryPage() {
   };
 
   const calculateTeamTotal = (side: string) => {
-    return (scores[side] || []).reduce((sum, spk) => sum + (spk?.score || 0), 0);
+    const substantive = (scores[side] || []).reduce((sum, spk) => sum + (spk?.score || 0), 0);
+    const reply = replyEnabled ? replyScores[side]?.score || 0 : 0;
+    return substantive + reply;
+  };
+
+  const validateAllScores = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    sides.forEach((side) => {
+      const spkScores = scores[side] || [];
+      spkScores.forEach((s, idx) => {
+        const check = validateSpeakerScore(s.score, tournament?.preferences);
+        if (!check.valid && check.error) {
+          errors[`${side}-${idx}`] = check.error;
+        }
+      });
+
+      if (replyEnabled && replyScores[side]) {
+        const check = validateReplyScore(replyScores[side].score, tournament?.preferences);
+        if (!check.valid && check.error) {
+          errors[`${side}-reply`] = check.error;
+        }
+      }
+    });
+
+    setScoreErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
 
-    // Validate distinct ranks for BP
+    // 1. Validate distinct ranks for BP
     if (isBP) {
       const rankValues = Object.values(ranks);
       const uniqueRanks = new Set(rankValues);
@@ -141,6 +287,12 @@ export default function BallotEntryPage() {
         setErrorMessage("Each team in a BP debate must be assigned a unique rank from 1st to 4th.");
         return;
       }
+    }
+
+    // 2. Validate all score inputs
+    if (!validateAllScores()) {
+      setErrorMessage("Please fix invalid speaker scores before saving the ballot.");
+      return;
     }
 
     setIsSubmitting(true);
@@ -151,16 +303,28 @@ export default function BallotEntryPage() {
       sides.forEach((side) => {
         const teamSlot = debate.teams[side];
         const spkScores = scores[side] || [];
-        const total = spkScores.reduce((sum, s) => sum + s.score, 0);
-        const rank = ranks[side] || 1;
+        const replyEntry = replyEnabled && replyScores[side] ? replyScores[side] : null;
 
-        speakerScoresRecord[side] = spkScores.map((s, pos) => ({
+        const allSpkList = spkScores.map((s, pos) => ({
           speakerId: s.speakerId,
           speakerName: s.speakerName,
           position: pos + 1,
           score: s.score,
         }));
 
+        if (replyEntry) {
+          allSpkList.push({
+            speakerId: replyEntry.speakerId,
+            speakerName: replyEntry.speakerName,
+            position: 4,
+            score: replyEntry.score,
+          });
+        }
+
+        speakerScoresRecord[side] = allSpkList;
+
+        const total = allSpkList.reduce((sum, s) => sum + s.score, 0);
+        const rank = ranks[side] || 1;
         const pts = isBP ? (rank === 1 ? 3 : rank === 2 ? 2 : rank === 3 ? 1 : 0) : rank === 1 ? 1 : 0;
 
         teamScoresRecord[side] = {
@@ -175,28 +339,139 @@ export default function BallotEntryPage() {
       });
 
       const motionObj = motions.find((m) => m.id === selectedMotionId);
+      const candidateVersion = (existingBallot?.version || 0) + 1;
 
+      // S3: Double-entry check
+      if (isDoubleEntryEnabled) {
+        if (!existingBallot) {
+          // First entry: Save as draft (version 1)
+          const firstBallot: BallotSubmission = {
+            id: `ballot-${debate.id}-v1`,
+            tournamentId: tournament?.id || tournamentSlug,
+            roundId: debate.roundId,
+            debateId: debate.id,
+            version: 1,
+            confirmed: false,
+            discarded: false,
+            submitterType: "tabroom",
+            submitterId: user?.uid || "staff-user",
+            submitterName: user?.email || "Tab Staff",
+            motionId: selectedMotionId,
+            motionText: motionObj?.text || debate.motionText,
+            speakerScores: speakerScoresRecord,
+            teamScores: teamScoresRecord,
+            chairId: debate.adjudicators?.chairId,
+            timestamp: new Date().toISOString(),
+          };
+
+          await submitBallot(firstBallot);
+          router.push(`/${tournamentSlug}/results`);
+          return;
+        }
+
+        // Second entry: compare against existing draft ballot
+        const diffs: { field: string; val1: any; val2: any; choice: 1 | 2 }[] = [];
+
+        // Check motion difference
+        if (existingBallot.motionId !== selectedMotionId) {
+          diffs.push({
+            field: "Motion",
+            val1: existingBallot.motionText || existingBallot.motionId || "None",
+            val2: motionObj?.text || selectedMotionId || "None",
+            choice: 2,
+          });
+        }
+
+        // Check team ranks / scores differences
+        sides.forEach((side) => {
+          const t1 = existingBallot.teamScores?.[side];
+          const t2 = teamScoresRecord[side];
+          if (t1 && t2 && t1.rank !== t2.rank) {
+            diffs.push({
+              field: `${side} Rank / Result`,
+              val1: `${t1.rank} (${t1.points} pts)`,
+              val2: `${t2.rank} (${t2.points} pts)`,
+              choice: 2,
+            });
+          }
+
+          const spks1 = existingBallot.speakerScores?.[side] || [];
+          const spks2 = speakerScoresRecord[side] || [];
+          spks2.forEach((s2, pos) => {
+            const s1 = spks1[pos];
+            if (s1 && s1.score !== s2.score) {
+              diffs.push({
+                field: `${side} ${s2.speakerName} (Pos ${s2.position}) Score`,
+                val1: s1.score,
+                val2: s2.score,
+                choice: 2,
+              });
+            }
+          });
+        });
+
+        const secondBallot: BallotSubmission = {
+          id: `ballot-${debate.id}-v${candidateVersion}`,
+          tournamentId: tournament?.id || tournamentSlug,
+          roundId: debate.roundId,
+          debateId: debate.id,
+          version: candidateVersion,
+          confirmed: true,
+          discarded: false,
+          submitterType: "tabroom",
+          submitterId: user?.uid || "staff-user-2",
+          submitterName: user?.email || "Second Verifier",
+          motionId: selectedMotionId,
+          motionText: motionObj?.text || debate.motionText,
+          speakerScores: speakerScoresRecord,
+          teamScores: teamScoresRecord,
+          chairId: debate.adjudicators?.chairId,
+          timestamp: new Date().toISOString(),
+          confirmedBy: user?.email || "Tab Director",
+          confirmedTimestamp: new Date().toISOString(),
+        };
+
+        if (diffs.length > 0) {
+          // Fields differ: present diff resolution modal
+          setDiffFields(diffs);
+          setPendingCandidateBallot(secondBallot);
+          setShowDiffModal(true);
+          return;
+        }
+
+        // No differences: confirm candidate ballot
+        await submitBallot(secondBallot);
+        await confirmBallot(secondBallot.id, debate.id);
+        router.push(`/${tournamentSlug}/results`);
+        return;
+      }
+
+      // Standard Single-Entry submission
       const ballotPayload: BallotSubmission = {
         id: existingBallot?.id || `ballot-${debate.id}-v1`,
         tournamentId: tournament?.id || tournamentSlug,
         roundId: debate.roundId,
         debateId: debate.id,
-        version: (existingBallot?.version || 0) + 1,
+        version: candidateVersion,
         confirmed: isConfirmed,
         discarded: false,
         submitterType: "tabroom",
-        submitterName: "Tab Room Official",
+        submitterId: user?.uid || "staff-user",
+        submitterName: user?.email || "Tab Official",
         motionId: selectedMotionId,
         motionText: motionObj?.text || debate.motionText,
         speakerScores: speakerScoresRecord,
         teamScores: teamScoresRecord,
         chairId: debate.adjudicators?.chairId,
         timestamp: new Date().toISOString(),
-        confirmedBy: isConfirmed ? "Tab Director" : undefined,
+        confirmedBy: isConfirmed ? user?.email || "Tab Director" : undefined,
         confirmedTimestamp: isConfirmed ? new Date().toISOString() : undefined,
       };
 
       await submitBallot(ballotPayload);
+      if (isConfirmed) {
+        await confirmBallot(ballotPayload.id, debate.id);
+      }
       router.push(`/${tournamentSlug}/results`);
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to submit ballot.");
@@ -204,6 +479,35 @@ export default function BallotEntryPage() {
       setIsSubmitting(false);
     }
   };
+
+  const handleResolveDiffAndConfirm = async () => {
+    if (!pendingCandidateBallot || !existingBallot) return;
+    setIsSubmitting(true);
+    try {
+      // Picked candidate ballot as base
+      const finalConfirmedBallot: BallotSubmission = {
+        ...pendingCandidateBallot,
+        confirmed: true,
+        confirmedBy: user?.email || "Tab Director",
+        confirmedTimestamp: new Date().toISOString(),
+      };
+
+      await submitBallot(finalConfirmedBallot);
+      await confirmBallot(finalConfirmedBallot.id, debate.id);
+      setShowDiffModal(false);
+      router.push(`/${tournamentSlug}/results`);
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to confirm resolved ballot.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isSameUserWarning =
+    isDoubleEntryEnabled &&
+    existingBallot &&
+    user?.uid &&
+    existingBallot.submitterId === user.uid;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -241,18 +545,39 @@ export default function BallotEntryPage() {
             </div>
 
             <div className="flex items-center space-x-2">
+              {isDoubleEntryEnabled && existingBallot && !existingBallot.confirmed && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 uppercase">
+                  Double-Entry Mode (Pass 2 of 2)
+                </span>
+              )}
+              {isDoubleEntryEnabled && !existingBallot && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 uppercase">
+                  Double-Entry Mode (Pass 1 of 2)
+                </span>
+              )}
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
-                  isConfirmed
+                  existingBallot?.confirmed
                     ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
                     : "bg-amber-100 text-amber-800 border border-amber-300"
                 }`}
               >
-                {isConfirmed ? "Confirmed Ballot" : "Draft Ballot"}
+                {existingBallot?.confirmed ? "Confirmed Ballot" : "Draft Ballot"}
               </span>
             </div>
           </div>
         </div>
+
+        {/* Warning if second entry is by the same user */}
+        {isSameUserWarning && (
+          <div className="m-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              <strong>Notice:</strong> You entered the first draft of this ballot. Double entry
+              recommends a different user enter the second verification pass, but you may proceed.
+            </span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="m-4 p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
@@ -286,9 +611,11 @@ export default function BallotEntryPage() {
           <div className="space-y-5">
             {sides.map((side) => {
               const teamSlot = debate.teams[side];
+              const team = teamSlot ? teamsMap.get(teamSlot.teamId) : null;
               const sideScores = scores[side] || [];
               const teamTotal = calculateTeamTotal(side);
               const rank = ranks[side] || 1;
+              const reply = replyScores[side];
 
               return (
                 <div
@@ -332,38 +659,108 @@ export default function BallotEntryPage() {
                     </div>
                   </div>
 
-                  {/* Speaker Inputs */}
+                  {/* Substantive Speaker Inputs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {sideScores.map((spk, pos) => (
-                      <div
-                        key={pos}
-                        className="bg-white border border-gray-200 rounded p-2.5 flex items-center justify-between"
-                      >
-                        <div>
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
-                            Speaker {pos + 1}
-                          </span>
-                          <span className="text-xs font-semibold text-gray-800">
-                            {spk.speakerName}
-                          </span>
+                    {sideScores.map((spk, pos) => {
+                      const errKey = `${side}-${pos}`;
+                      const hasErr = Boolean(scoreErrors[errKey]);
+
+                      return (
+                        <div
+                          key={pos}
+                          className={`bg-white border rounded p-2.5 flex flex-col justify-between transition ${
+                            hasErr ? "border-red-400 bg-red-50/20" : "border-gray-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                                Speaker {pos + 1}
+                              </span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {spk.speakerName}
+                              </span>
+                            </div>
+                            <div className="flex items-center space-x-1.5">
+                              <label className="text-xs font-medium text-gray-500">Score:</label>
+                              <input
+                                type="number"
+                                step={tournament?.preferences?.stepSpeakerScore ?? 1}
+                                min={tournament?.preferences?.minSpeakerScore ?? 68}
+                                max={tournament?.preferences?.maxSpeakerScore ?? 84}
+                                value={spk.score}
+                                onChange={(e) =>
+                                  handleScoreChange(side, pos, parseFloat(e.target.value) || 0)
+                                }
+                                className={`w-16 border rounded px-2 py-1 text-xs font-bold font-mono text-center focus:outline-none focus:ring-2 ${
+                                  hasErr
+                                    ? "border-red-500 focus:ring-red-400 bg-red-50"
+                                    : "border-gray-300 focus:ring-blue-500"
+                                }`}
+                              />
+                            </div>
+                          </div>
+                          {hasErr && (
+                            <span className="text-[10px] text-red-600 mt-1 font-medium">
+                              {scoreErrors[errKey]}
+                            </span>
+                          )}
                         </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* S4: Reply Speech Input (Two-team formats when replyScoresEnabled) */}
+                  {replyEnabled && reply && (
+                    <div
+                      className={`bg-indigo-50/50 border rounded p-2.5 flex flex-col justify-between transition ${
+                        scoreErrors[`${side}-reply`] ? "border-red-400" : "border-indigo-200"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                            Reply Speech
+                          </span>
+                          <select
+                            value={reply.speakerId}
+                            onChange={(e) => handleReplySpeakerChange(side, e.target.value)}
+                            className="text-xs font-semibold bg-white border border-indigo-200 rounded px-2 py-1"
+                          >
+                            {(team?.speakers || []).map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} (Reply)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
                         <div className="flex items-center space-x-1.5">
-                          <label className="text-xs font-medium text-gray-500">Score:</label>
+                          <label className="text-xs font-medium text-gray-600">Reply Score:</label>
                           <input
                             type="number"
-                            step="0.5"
-                            min="50"
-                            max="100"
-                            value={spk.score}
+                            step={(tournament?.preferences?.stepSpeakerScore ?? 1) / 2}
+                            min={tournament?.preferences?.minReplyScore ?? 34}
+                            max={tournament?.preferences?.maxReplyScore ?? 42}
+                            value={reply.score}
                             onChange={(e) =>
-                              handleScoreChange(side, pos, parseFloat(e.target.value) || 0)
+                              handleReplyScoreChange(side, parseFloat(e.target.value) || 0)
                             }
-                            className="w-16 border border-gray-300 rounded px-2 py-1 text-xs font-bold font-mono text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className={`w-16 border rounded px-2 py-1 text-xs font-bold font-mono text-center focus:outline-none focus:ring-2 ${
+                              scoreErrors[`${side}-reply`]
+                                ? "border-red-500 bg-red-50 focus:ring-red-400"
+                                : "border-indigo-300 focus:ring-indigo-500"
+                            }`}
                           />
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      {scoreErrors[`${side}-reply`] && (
+                        <span className="text-[10px] text-red-600 mt-1 font-medium">
+                          {scoreErrors[`${side}-reply`]}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Team Total Calculation */}
                   <div className="flex justify-end text-xs font-semibold text-gray-700 pt-1">
@@ -375,40 +772,133 @@ export default function BallotEntryPage() {
             })}
           </div>
 
-          {/* Official Confirmation Checkbox */}
-          <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
-            <label className="flex items-center space-x-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isConfirmed}
-                onChange={(e) => setIsConfirmed(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
-              />
-              <span className="text-xs font-bold text-gray-800">
-                Confirm this ballot as official tab room record
-              </span>
-            </label>
+          {/* Official Confirmation Checkbox (When double entry is off) */}
+          {!isDoubleEntryEnabled && (
+            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+              <label className="flex items-center space-x-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isConfirmed}
+                  onChange={(e) => setIsConfirmed(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <span className="text-xs font-bold text-gray-800">
+                  Confirm this ballot as official tab room record
+                </span>
+              </label>
 
-            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/${tournamentSlug}/results`)}
+                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-xs transition disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSubmitting ? "Saving..." : "Save Ballot"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Double Entry Submission Actions */}
+          {isDoubleEntryEnabled && (
+            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+              <span className="text-xs text-gray-500">
+                {!existingBallot
+                  ? "Double entry required: saving will create Pass 1 (Draft)."
+                  : "Double entry pass 2: saving will compare and confirm."}
+              </span>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/${tournamentSlug}/results`)}
+                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-xs transition disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>
+                    {!existingBallot ? "Save Draft (Pass 1)" : "Verify & Confirm (Pass 2)"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+        </form>
+      </div>
+
+      {/* S3: Diff Resolution Modal */}
+      {showDiffModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 space-y-4">
+            <div className="flex items-center space-x-2 text-amber-600 border-b border-gray-100 pb-3">
+              <GitCompare className="w-5 h-5" />
+              <h3 className="text-base font-bold text-gray-900">
+                Double Entry Conflict Resolution
+              </h3>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              The second ballot entry differs from the first draft. Review the field differences
+              below and confirm which version to officially record in the tab:
+            </p>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden text-xs">
+              <table className="w-full text-left">
+                <thead className="bg-gray-100 text-gray-700">
+                  <tr>
+                    <th className="p-2.5 font-bold">Field</th>
+                    <th className="p-2.5 font-bold">First Entry (Pass 1)</th>
+                    <th className="p-2.5 font-bold">Second Entry (Pass 2)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-mono">
+                  {diffFields.map((d, idx) => (
+                    <tr key={idx} className="hover:bg-amber-50/40">
+                      <td className="p-2.5 font-sans font-semibold text-gray-900">{d.field}</td>
+                      <td className="p-2.5 text-gray-700 bg-red-50/40">{String(d.val1)}</td>
+                      <td className="p-2.5 text-gray-900 font-bold bg-emerald-50/40">
+                        {String(d.val2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => router.push(`/${tournamentSlug}/results`)}
-                className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition"
+                onClick={() => setShowDiffModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded"
               >
-                Cancel
+                Go Back & Adjust
               </button>
               <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow-xs transition disabled:opacity-50"
+                type="button"
+                onClick={handleResolveDiffAndConfirm}
+                className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
               >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSubmitting ? "Saving..." : "Save Ballot"}</span>
+                <Check className="w-4 h-4" />
+                <span>Confirm & Save Pass 2 Version</span>
               </button>
             </div>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

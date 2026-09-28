@@ -70,8 +70,10 @@ function NavLink({
 }
 
 export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
-  const { activeRound, rounds, setActiveRound, debates, ballots, teams } = useTournament();
+  const { tournament, activeRound, rounds, setActiveRound, debates, ballots, teams } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
+
+  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
 
   const expandedRoundId = useMemo(() => {
     if (activeRound?.id) return activeRound.id;
@@ -121,7 +123,9 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             label="Overview"
             exact
           />
-          <NavLink href={`/${tournamentSlug}/feedback`} icon={MessageSquareHeart} label="Feedback" />
+          {feedbackEnabled && (
+            <NavLink href={`/${tournamentSlug}/feedback`} icon={MessageSquareHeart} label="Feedback" />
+          )}
           <NavLink href={`/${tournamentSlug}/standings`} icon={Trophy} label="Standings" />
           <NavLink href={`/${tournamentSlug}/break`} icon={Award} label="Break" />
           <NavLink href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
