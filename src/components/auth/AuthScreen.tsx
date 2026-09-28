@@ -11,7 +11,9 @@ type Mode = "login" | "register" | "reset";
 export function AuthScreen({ mode }: { mode: Mode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/";
+  // Only allow same-site paths, so a crafted ?next=//evil.com can't redirect off-site.
+  const rawNext = searchParams.get("next") || "";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/tournaments";
   const { configured, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
 
   const [name, setName] = useState("");

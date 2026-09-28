@@ -16,7 +16,7 @@ import {
   Clock,
   User as UserIcon,
 } from "lucide-react";
-import { TournamentFormat, Tournament } from "@/types";
+import { TournamentFormat } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import {
@@ -24,7 +24,6 @@ import {
   onSnapshot,
   getDocs,
   doc,
-  setDoc,
   deleteDoc,
 } from "firebase/firestore";
 
@@ -47,13 +46,9 @@ export default function HomePage() {
   const [filterTab, setFilterTab] = useState<"all" | "mine">("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Create Modal State
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [format, setFormat] = useState<TournamentFormat>("bp");
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
+  // Creating a tournament happens in the guided setup wizard.
+  const goCreate = () =>
+    router.push(user ? "/tournaments/new" : "/login?next=/tournaments/new");
 
   // Scan localStorage for local copies
   const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
@@ -208,79 +203,6 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [loadTournaments, getLocalTournaments, user]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateError("");
-
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-
-    if (!name.trim() || !slug.trim()) {
-      setCreateError("Please provide both tournament name and slug.");
-      return;
-    }
-
-    const formattedSlug = slug
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9-]/g, "-");
-
-    setIsCreating(true);
-
-    const newTournament: Tournament = {
-      id: `tourn-${formattedSlug}`,
-      name: name.trim(),
-      shortName: name.trim().slice(0, 15),
-      slug: formattedSlug,
-      format,
-      active: true,
-      ownerId: user.uid,
-      ownerEmail: user.email || "",
-      admins: { [user.uid]: true },
-      preferences: {
-        teamsInDebate: format === "bp" ? 4 : 2,
-        substantiveSpeakers: format === "bp" ? 2 : 3,
-        replyScoresEnabled: format !== "bp",
-        minSpeakerScore: 68,
-        maxSpeakerScore: 84,
-        stepSpeakerScore: 1,
-        minReplyScore: 34,
-        maxReplyScore: 42,
-        drawRule: "power_paired",
-        sideAllocationRule: "balanced",
-        ballotDoubleEntry: false,
-        publicDraw: true,
-        publicResults: true,
-        publicStandings: true,
-        publicMotions: true,
-        feedbackEnabled: true,
-        feedbackMinScore: 1,
-        feedbackMaxScore: 10,
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    try {
-      // 1. Save to local storage
-      localStorage.setItem(`crabbytab_t_${formattedSlug}_meta`, JSON.stringify(newTournament));
-
-      // 2. Save to Firestore if connected
-      if (db) {
-        await setDoc(doc(db, "tournaments", newTournament.id), newTournament, { merge: true });
-      }
-
-      setShowCreateModal(false);
-      router.push(`/${formattedSlug}`);
-    } catch (err: any) {
-      console.error("Error creating tournament:", err);
-      setCreateError(err.message || "Failed to create tournament. Please try again.");
-      setIsCreating(false);
-    }
-  };
-
   const handleDelete = async (t: StoredTournamentSummary) => {
     if (t.slug === "wudc-demo") {
       alert("The demo tournament cannot be deleted.");
@@ -316,13 +238,6 @@ export default function HomePage() {
 
     // Refresh list
     setTournaments((prev) => prev.filter((item) => item.slug !== t.slug));
-  };
-
-  const handleNameChange = (val: string) => {
-    setName(val);
-    if (!slug || slug === name.toLowerCase().replace(/[^a-z0-9-]/g, "-")) {
-      setSlug(val.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
-    }
   };
 
   const filteredTournaments = tournaments.filter((t) => {
@@ -375,12 +290,7 @@ export default function HomePage() {
                   Sign out
                 </button>
                 <button
-                  onClick={() => {
-                    setName("");
-                    setSlug("");
-                    setCreateError("");
-                    setShowCreateModal(true);
-                  }}
+                  onClick={goCreate}
                   className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
                 >
                   <Plus className="w-4 h-4" />
@@ -521,11 +431,7 @@ export default function HomePage() {
             </p>
             {user ? (
               <button
-                onClick={() => {
-                  setName("");
-                  setSlug("");
-                  setShowCreateModal(true);
-                }}
+                onClick={goCreate}
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
               >
                 <Plus className="w-4 h-4" />
@@ -638,93 +544,6 @@ export default function HomePage() {
       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
         CrabbyTab — Serverless Tabbycat Clone &bull; Powered by Next.js 15 &bull; Realtime Cloud Firestore
       </footer>
-
-      {/* Create Tournament Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Plus className="w-5 h-5 text-blue-600" />
-              <span>Create New Tournament</span>
-            </h3>
-
-            {createError && (
-              <div className="mb-4 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2.5">
-                {createError}
-              </div>
-            )}
-
-            <form onSubmit={handleCreate} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Full Tournament Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Australasian Debating Championship 2026"
-                  value={name}
-                  onChange={(e) => handleNameChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  URL Slug (Sub-directory)
-                </label>
-                <div className="flex items-center">
-                  <span className="bg-gray-100 border border-r-0 border-gray-300 rounded-l px-3 py-2 text-xs text-gray-500 font-mono">
-                    /
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="australs2026"
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-                    className="w-full border border-gray-300 rounded-r px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Tournament Format
-                </label>
-                <select
-                  value={format}
-                  onChange={(e) => setFormat(e.target.value as TournamentFormat)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="bp">British Parliamentary (BP) — 4 teams, 2 speakers/team</option>
-                  <option value="uadc">Asian Parliamentary (UADC) — 2 teams, 3 speakers + reply</option>
-                  <option value="australs">Australs Format — 2 teams, 3 speakers + reply</option>
-                  <option value="wsdc">World Schools (WSDC) — 2 teams, 3 speakers + reply</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  disabled={isCreating}
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50 inline-flex items-center space-x-1.5"
-                >
-                  {isCreating ? <span>Creating...</span> : <span>Launch Tournament</span>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
