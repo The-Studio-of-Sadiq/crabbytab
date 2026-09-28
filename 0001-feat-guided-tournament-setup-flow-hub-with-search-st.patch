@@ -1,0 +1,1843 @@
+From af37c09fc2f7dbdc13add904ccf100edbb73780b Mon Sep 17 00:00:00 2001
+From: Claude <claude@example.com>
+Date: Mon, 28 Sep 2026 08:46:34 +0000
+Subject: [PATCH] feat: guided tournament setup flow (hub with search +
+ step-by-step wizard)
+
+- /tournaments hub after login: search existing tournaments, list your own, create new
+- /tournaments/new wizard: basics, format, scoring, rounds, breaks, public/feedback, review
+- Creates tournament, rounds and break categories atomically (Firestore transaction) with slug availability check
+- Reserved slugs blocked; new tournaments are always owned by the signed-in user
+- Login/register default to /tournaments; sanitise ?next= to same-site paths
+- Remove old single-step create modal from the home page
+---
+ src/app/page.tsx                          | 193 +----
+ src/app/tournaments/new/page.tsx          |  18 +
+ src/app/tournaments/page.tsx              | 259 +++++++
+ src/components/auth/AuthScreen.tsx        |   4 +-
+ src/components/setup/SetupShell.tsx       |  67 ++
+ src/components/setup/TournamentWizard.tsx | 891 ++++++++++++++++++++++
+ src/lib/setup/presets.ts                  | 267 +++++++
+ src/types/index.ts                        |   1 +
+ 8 files changed, 1512 insertions(+), 188 deletions(-)
+ create mode 100644 src/app/tournaments/new/page.tsx
+ create mode 100644 src/app/tournaments/page.tsx
+ create mode 100644 src/components/setup/SetupShell.tsx
+ create mode 100644 src/components/setup/TournamentWizard.tsx
+ create mode 100644 src/lib/setup/presets.ts
+
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 6122a05..83b97bc 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -16,7 +16,7 @@ import {
+   Clock,
+   User as UserIcon,
+ } from "lucide-react";
+-import { TournamentFormat, Tournament } from "@/types";
++import { TournamentFormat } from "@/types";
+ import { useAuth } from "@/contexts/AuthContext";
+ import { db } from "@/lib/firebase";
+ import {
+@@ -24,7 +24,6 @@ import {
+   onSnapshot,
+   getDocs,
+   doc,
+-  setDoc,
+   deleteDoc,
+ } from "firebase/firestore";
+ 
+@@ -47,13 +46,9 @@ export default function HomePage() {
+   const [filterTab, setFilterTab] = useState<"all" | "mine">("all");
+   const [isRefreshing, setIsRefreshing] = useState(false);
+ 
+-  // Create Modal State
+-  const [showCreateModal, setShowCreateModal] = useState(false);
+-  const [name, setName] = useState("");
+-  const [slug, setSlug] = useState("");
+-  const [format, setFormat] = useState<TournamentFormat>("bp");
+-  const [isCreating, setIsCreating] = useState(false);
+-  const [createError, setCreateError] = useState("");
++  // Creating a tournament happens in the guided setup wizard.
++  const goCreate = () =>
++    router.push(user ? "/tournaments/new" : "/login?next=/tournaments/new");
+ 
+   // Scan localStorage for local copies
+   const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
+@@ -208,79 +203,6 @@ export default function HomePage() {
+     return () => unsubscribe();
+   }, [loadTournaments, getLocalTournaments, user]);
+ 
+-  const handleCreate = async (e: React.FormEvent) => {
+-    e.preventDefault();
+-    setCreateError("");
+-
+-    if (!user) {
+-      router.push("/login");
+-      return;
+-    }
+-
+-    if (!name.trim() || !slug.trim()) {
+-      setCreateError("Please provide both tournament name and slug.");
+-      return;
+-    }
+-
+-    const formattedSlug = slug
+-      .toLowerCase()
+-      .trim()
+-      .replace(/[^a-z0-9-]/g, "-");
+-
+-    setIsCreating(true);
+-
+-    const newTournament: Tournament = {
+-      id: `tourn-${formattedSlug}`,
+-      name: name.trim(),
+-      shortName: name.trim().slice(0, 15),
+-      slug: formattedSlug,
+-      format,
+-      active: true,
+-      ownerId: user.uid,
+-      ownerEmail: user.email || "",
+-      admins: { [user.uid]: true },
+-      preferences: {
+-        teamsInDebate: format === "bp" ? 4 : 2,
+-        substantiveSpeakers: format === "bp" ? 2 : 3,
+-        replyScoresEnabled: format !== "bp",
+-        minSpeakerScore: 68,
+-        maxSpeakerScore: 84,
+-        stepSpeakerScore: 1,
+-        minReplyScore: 34,
+-        maxReplyScore: 42,
+-        drawRule: "power_paired",
+-        sideAllocationRule: "balanced",
+-        ballotDoubleEntry: false,
+-        publicDraw: true,
+-        publicResults: true,
+-        publicStandings: true,
+-        publicMotions: true,
+-        feedbackEnabled: true,
+-        feedbackMinScore: 1,
+-        feedbackMaxScore: 10,
+-      },
+-      createdAt: new Date().toISOString(),
+-      updatedAt: new Date().toISOString(),
+-    };
+-
+-    try {
+-      // 1. Save to local storage
+-      localStorage.setItem(`crabbytab_t_${formattedSlug}_meta`, JSON.stringify(newTournament));
+-
+-      // 2. Save to Firestore if connected
+-      if (db) {
+-        await setDoc(doc(db, "tournaments", newTournament.id), newTournament, { merge: true });
+-      }
+-
+-      setShowCreateModal(false);
+-      router.push(`/${formattedSlug}`);
+-    } catch (err: any) {
+-      console.error("Error creating tournament:", err);
+-      setCreateError(err.message || "Failed to create tournament. Please try again.");
+-      setIsCreating(false);
+-    }
+-  };
+-
+   const handleDelete = async (t: StoredTournamentSummary) => {
+     if (t.slug === "wudc-demo") {
+       alert("The demo tournament cannot be deleted.");
+@@ -318,13 +240,6 @@ export default function HomePage() {
+     setTournaments((prev) => prev.filter((item) => item.slug !== t.slug));
+   };
+ 
+-  const handleNameChange = (val: string) => {
+-    setName(val);
+-    if (!slug || slug === name.toLowerCase().replace(/[^a-z0-9-]/g, "-")) {
+-      setSlug(val.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
+-    }
+-  };
+-
+   const filteredTournaments = tournaments.filter((t) => {
+     if (filterTab === "mine") {
+       if (!user) return false;
+@@ -375,12 +290,7 @@ export default function HomePage() {
+                   Sign out
+                 </button>
+                 <button
+-                  onClick={() => {
+-                    setName("");
+-                    setSlug("");
+-                    setCreateError("");
+-                    setShowCreateModal(true);
+-                  }}
++                  onClick={goCreate}
+                   className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+                 >
+                   <Plus className="w-4 h-4" />
+@@ -521,11 +431,7 @@ export default function HomePage() {
+             </p>
+             {user ? (
+               <button
+-                onClick={() => {
+-                  setName("");
+-                  setSlug("");
+-                  setShowCreateModal(true);
+-                }}
++                onClick={goCreate}
+                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
+               >
+                 <Plus className="w-4 h-4" />
+@@ -638,93 +544,6 @@ export default function HomePage() {
+       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
+         CrabbyTab — Serverless Tabbycat Clone &bull; Powered by Next.js 15 &bull; Realtime Cloud Firestore
+       </footer>
+-
+-      {/* Create Tournament Modal */}
+-      {showCreateModal && (
+-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
+-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
+-              <Plus className="w-5 h-5 text-blue-600" />
+-              <span>Create New Tournament</span>
+-            </h3>
+-
+-            {createError && (
+-              <div className="mb-4 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2.5">
+-                {createError}
+-              </div>
+-            )}
+-
+-            <form onSubmit={handleCreate} className="space-y-4 text-sm">
+-              <div>
+-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+-                  Full Tournament Name
+-                </label>
+-                <input
+-                  type="text"
+-                  required
+-                  placeholder="e.g. Australasian Debating Championship 2026"
+-                  value={name}
+-                  onChange={(e) => handleNameChange(e.target.value)}
+-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                />
+-              </div>
+-
+-              <div>
+-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+-                  URL Slug (Sub-directory)
+-                </label>
+-                <div className="flex items-center">
+-                  <span className="bg-gray-100 border border-r-0 border-gray-300 rounded-l px-3 py-2 text-xs text-gray-500 font-mono">
+-                    /
+-                  </span>
+-                  <input
+-                    type="text"
+-                    required
+-                    placeholder="australs2026"
+-                    value={slug}
+-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+-                    className="w-full border border-gray-300 rounded-r px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                  />
+-                </div>
+-              </div>
+-
+-              <div>
+-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+-                  Tournament Format
+-                </label>
+-                <select
+-                  value={format}
+-                  onChange={(e) => setFormat(e.target.value as TournamentFormat)}
+-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                >
+-                  <option value="bp">British Parliamentary (BP) — 4 teams, 2 speakers/team</option>
+-                  <option value="uadc">Asian Parliamentary (UADC) — 2 teams, 3 speakers + reply</option>
+-                  <option value="australs">Australs Format — 2 teams, 3 speakers + reply</option>
+-                  <option value="wsdc">World Schools (WSDC) — 2 teams, 3 speakers + reply</option>
+-                </select>
+-              </div>
+-
+-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
+-                <button
+-                  type="button"
+-                  disabled={isCreating}
+-                  onClick={() => setShowCreateModal(false)}
+-                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
+-                >
+-                  Cancel
+-                </button>
+-                <button
+-                  type="submit"
+-                  disabled={isCreating}
+-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50 inline-flex items-center space-x-1.5"
+-                >
+-                  {isCreating ? <span>Creating...</span> : <span>Launch Tournament</span>}
+-                </button>
+-              </div>
+-            </form>
+-          </div>
+-        </div>
+-      )}
+     </div>
+   );
+ }
+diff --git a/src/app/tournaments/new/page.tsx b/src/app/tournaments/new/page.tsx
+new file mode 100644
+index 0000000..9a254f9
+--- /dev/null
++++ b/src/app/tournaments/new/page.tsx
+@@ -0,0 +1,18 @@
++"use client";
++
++import { SetupShell, useRequireLogin } from "@/components/setup/SetupShell";
++import { TournamentWizard } from "@/components/setup/TournamentWizard";
++
++export default function NewTournamentPage() {
++  const { ready } = useRequireLogin("/tournaments/new");
++
++  return (
++    <SetupShell>
++      {ready ? (
++        <TournamentWizard />
++      ) : (
++        <p className="text-sm text-gray-500">Checking your session...</p>
++      )}
++    </SetupShell>
++  );
++}
+diff --git a/src/app/tournaments/page.tsx b/src/app/tournaments/page.tsx
+new file mode 100644
+index 0000000..140b6e5
+--- /dev/null
++++ b/src/app/tournaments/page.tsx
+@@ -0,0 +1,259 @@
++"use client";
++
++import React, { useEffect, useRef, useState } from "react";
++import Link from "next/link";
++import { ArrowRight, Loader2, Plus, Search } from "lucide-react";
++import {
++  FieldPath,
++  collection,
++  endAt,
++  getDocs,
++  limit,
++  orderBy,
++  query,
++  startAt,
++  where,
++} from "firebase/firestore";
++import type { Tournament } from "@/types";
++import { useAuth } from "@/contexts/AuthContext";
++import { db } from "@/lib/firebase";
++import { getFormatPreset } from "@/lib/setup/presets";
++import { SetupShell, useRequireLogin } from "@/components/setup/SetupShell";
++
++type Summary = Pick<Tournament, "id" | "name" | "slug" | "format" | "createdAt" | "ownerId" | "admins">;
++
++function toSummary(id: string, data: Record<string, any>): Summary {
++  const slug: string = data.slug || id.replace(/^tourn-/, "");
++  return {
++    id,
++    slug,
++    name: data.name || slug,
++    format: data.format || "bp",
++    createdAt: data.createdAt || "",
++    ownerId: data.ownerId || "",
++    admins: data.admins || {},
++  };
++}
++
++function mergeById(lists: Summary[][]): Summary[] {
++  const map = new Map<string, Summary>();
++  lists.flat().forEach((t) => map.set(t.id, t));
++  return Array.from(map.values());
++}
++
++function TournamentRow({ t, uid }: { t: Summary; uid?: string }) {
++  const isMine = Boolean(uid && (t.ownerId === uid || t.admins[uid]));
++  return (
++    <li>
++      <Link
++        href={`/${t.slug}`}
++        className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
++      >
++        <div className="min-w-0">
++          <p className="text-sm font-semibold text-gray-900 truncate">{t.name}</p>
++          <p className="text-xs text-gray-500">
++            <span className="font-mono">/{t.slug}</span> · {getFormatPreset(t.format).label}
++          </p>
++        </div>
++        <div className="flex items-center space-x-3 shrink-0">
++          {isMine && (
++            <span className="text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
++              {t.ownerId === uid ? "Owner" : "Admin"}
++            </span>
++          )}
++          <ArrowRight className="w-4 h-4 text-gray-400" />
++        </div>
++      </Link>
++    </li>
++  );
++}
++
++export default function TournamentsHubPage() {
++  const { ready } = useRequireLogin("/tournaments");
++  const { user, configured } = useAuth();
++
++  const [mine, setMine] = useState<Summary[]>([]);
++  const [loadingMine, setLoadingMine] = useState(true);
++
++  const [term, setTerm] = useState("");
++  const [results, setResults] = useState<Summary[] | null>(null);
++  const [searching, setSearching] = useState(false);
++  const [searchError, setSearchError] = useState("");
++  const searchSeq = useRef(0);
++
++  // "Your tournaments": owned or administered by the signed-in user.
++  useEffect(() => {
++    if (!ready) return;
++    if (!db || !user) {
++      setLoadingMine(false);
++      return;
++    }
++    let cancelled = false;
++    (async () => {
++      try {
++        const col = collection(db!, "tournaments");
++        const [owned, admin] = await Promise.all([
++          getDocs(query(col, where("ownerId", "==", user.uid), limit(50))),
++          getDocs(query(col, where(new FieldPath("admins", user.uid), "==", true), limit(50))),
++        ]);
++        if (cancelled) return;
++        const list = mergeById([
++          owned.docs.map((d) => toSummary(d.id, d.data())),
++          admin.docs.map((d) => toSummary(d.id, d.data())),
++        ]).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
++        setMine(list);
++      } catch (e) {
++        console.warn("Could not load your tournaments:", e);
++      } finally {
++        if (!cancelled) setLoadingMine(false);
++      }
++    })();
++    return () => {
++      cancelled = true;
++    };
++  }, [ready, user]);
++
++  // Search: prefix match on slug and on the lowercase name, debounced.
++  useEffect(() => {
++    const q = term.trim().toLowerCase();
++    if (!q) {
++      setResults(null);
++      setSearchError("");
++      setSearching(false);
++      return;
++    }
++    if (!db) return;
++
++    const seq = ++searchSeq.current;
++    setSearching(true);
++    const handle = setTimeout(async () => {
++      try {
++        const col = collection(db!, "tournaments");
++        const byField = (field: string) =>
++          getDocs(query(col, orderBy(field), startAt(q), endAt(q + "\uf8ff"), limit(20)));
++        const [bySlug, byName] = await Promise.all([byField("slug"), byField("nameLower")]);
++        if (seq !== searchSeq.current) return; // a newer search superseded this one
++        setResults(
++          mergeById([
++            bySlug.docs.map((d) => toSummary(d.id, d.data())),
++            byName.docs.map((d) => toSummary(d.id, d.data())),
++          ])
++        );
++        setSearchError("");
++      } catch (e) {
++        console.warn("Search failed:", e);
++        if (seq === searchSeq.current) setSearchError("Search failed. Check your connection and try again.");
++      } finally {
++        if (seq === searchSeq.current) setSearching(false);
++      }
++    }, 300);
++    return () => clearTimeout(handle);
++  }, [term]);
++
++  return (
++    <SetupShell>
++      {!ready ? (
++        <p className="text-sm text-gray-500">Checking your session...</p>
++      ) : (
++        <div className="space-y-8">
++          <div>
++            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
++              {user?.displayName ? `Welcome, ${user.displayName}` : "Welcome"}
++            </h1>
++            <p className="text-sm text-gray-600 mt-1">
++              Open an existing tournament or set up a new one.
++            </p>
++          </div>
++
++          {/* Create */}
++          <Link
++            href="/tournaments/new"
++            className="flex items-center justify-between bg-white border border-[#d0d7de] rounded-lg shadow-xs p-5 hover:border-blue-500 transition-colors"
++          >
++            <div className="flex items-center space-x-3">
++              <div className="w-10 h-10 rounded bg-blue-600 text-white flex items-center justify-center">
++                <Plus className="w-5 h-5" />
++              </div>
++              <div>
++                <p className="text-sm font-bold text-gray-900">Create a new tournament</p>
++                <p className="text-xs text-gray-600">
++                  A guided setup for the format, scoring, rounds and breaks.
++                </p>
++              </div>
++            </div>
++            <ArrowRight className="w-4 h-4 text-gray-400" />
++          </Link>
++
++          {/* Search */}
++          <section>
++            <h2 className="text-sm font-bold text-gray-900 mb-2">Find an existing tournament</h2>
++            {!configured || !db ? (
++              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
++                Firebase isn&apos;t configured, so there&apos;s nothing to search. Copy{" "}
++                <code className="font-mono">.env.example</code> to <code className="font-mono">.env.local</code> and
++                fill in your Firebase keys.
++              </p>
++            ) : (
++              <>
++                <div className="relative">
++                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
++                  <input
++                    type="search"
++                    value={term}
++                    onChange={(e) => setTerm(e.target.value)}
++                    placeholder="Search by tournament name or URL slug"
++                    className="w-full border border-gray-300 rounded pl-9 pr-9 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
++                  />
++                  {searching && (
++                    <Loader2 className="w-4 h-4 text-gray-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
++                  )}
++                </div>
++                <p className="text-[11px] text-gray-500 mt-1">Matches the start of the name or slug.</p>
++
++                {searchError && <p className="text-xs text-red-700 mt-2">{searchError}</p>}
++
++                {results && (
++                  <div className="mt-3 bg-white border border-[#d0d7de] rounded-lg shadow-xs">
++                    {results.length === 0 && !searching ? (
++                      <p className="px-4 py-6 text-sm text-gray-500 text-center">
++                        No tournaments start with &ldquo;{term.trim()}&rdquo;.
++                      </p>
++                    ) : (
++                      <ul className="divide-y divide-[#eaeef2]">
++                        {results.map((t) => (
++                          <TournamentRow key={t.id} t={t} uid={user?.uid} />
++                        ))}
++                      </ul>
++                    )}
++                  </div>
++                )}
++              </>
++            )}
++          </section>
++
++          {/* Mine */}
++          {db && (
++            <section>
++              <h2 className="text-sm font-bold text-gray-900 mb-2">Your tournaments</h2>
++              <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs">
++                {loadingMine ? (
++                  <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading...</p>
++                ) : mine.length === 0 ? (
++                  <p className="px-4 py-6 text-sm text-gray-500 text-center">
++                    You don&apos;t own or administer any tournaments yet.
++                  </p>
++                ) : (
++                  <ul className="divide-y divide-[#eaeef2]">
++                    {mine.map((t) => (
++                      <TournamentRow key={t.id} t={t} uid={user?.uid} />
++                    ))}
++                  </ul>
++                )}
++              </div>
++            </section>
++          )}
++        </div>
++      )}
++    </SetupShell>
++  );
++}
+diff --git a/src/components/auth/AuthScreen.tsx b/src/components/auth/AuthScreen.tsx
+index 967a67d..c4bea3e 100644
+--- a/src/components/auth/AuthScreen.tsx
++++ b/src/components/auth/AuthScreen.tsx
+@@ -11,7 +11,9 @@ type Mode = "login" | "register" | "reset";
+ export function AuthScreen({ mode }: { mode: Mode }) {
+   const router = useRouter();
+   const searchParams = useSearchParams();
+-  const next = searchParams.get("next") || "/";
++  // Only allow same-site paths, so a crafted ?next=//evil.com can't redirect off-site.
++  const rawNext = searchParams.get("next") || "";
++  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/tournaments";
+   const { configured, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
+ 
+   const [name, setName] = useState("");
+diff --git a/src/components/setup/SetupShell.tsx b/src/components/setup/SetupShell.tsx
+new file mode 100644
+index 0000000..4e71bc1
+--- /dev/null
++++ b/src/components/setup/SetupShell.tsx
+@@ -0,0 +1,67 @@
++"use client";
++
++import React from "react";
++import Link from "next/link";
++import { useRouter } from "next/navigation";
++import { LogOut } from "lucide-react";
++import { useAuth } from "@/contexts/AuthContext";
++
++export function SetupShell({
++  children,
++  maxWidth = "max-w-3xl",
++}: {
++  children: React.ReactNode;
++  maxWidth?: string;
++}) {
++  const router = useRouter();
++  const { user, logout } = useAuth();
++
++  return (
++    <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
++      <header className="bg-[#24292e] text-white py-4 px-6">
++        <div className="max-w-6xl mx-auto flex items-center justify-between">
++          <Link href="/tournaments" className="inline-flex items-center space-x-2">
++            <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-sm">
++              CT
++            </div>
++            <span className="font-bold">CrabbyTab</span>
++          </Link>
++          {user && (
++            <div className="flex items-center space-x-3 text-xs text-gray-300">
++              <span className="hidden sm:inline">{user.email}</span>
++              <button
++                onClick={async () => {
++                  await logout();
++                  router.replace("/login");
++                }}
++                className="inline-flex items-center space-x-1 px-2 py-1 rounded hover:bg-white/10"
++              >
++                <LogOut className="w-3.5 h-3.5" />
++                <span>Sign out</span>
++              </button>
++            </div>
++          )}
++        </div>
++      </header>
++      <main className={`flex-1 w-full ${maxWidth} mx-auto px-4 py-10`}>{children}</main>
++    </div>
++  );
++}
++
++/**
++ * Sends signed-out visitors to /login and returns whether the page may render.
++ * When Firebase isn't configured the app runs in local-only mode, so there is
++ * no login to require.
++ */
++export function useRequireLogin(nextPath: string): { ready: boolean } {
++  const router = useRouter();
++  const { user, loading, configured } = useAuth();
++
++  React.useEffect(() => {
++    if (!loading && configured && !user) {
++      router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
++    }
++  }, [loading, configured, user, router, nextPath]);
++
++  return { ready: !loading && (!configured || Boolean(user)) };
++}
+diff --git a/src/components/setup/TournamentWizard.tsx b/src/components/setup/TournamentWizard.tsx
+new file mode 100644
+index 0000000..4dec2b0
+--- /dev/null
++++ b/src/components/setup/TournamentWizard.tsx
+@@ -0,0 +1,891 @@
++"use client";
++
++import React, { useMemo, useState } from "react";
++import { useRouter } from "next/navigation";
++import {
++  ArrowLeft,
++  ArrowRight,
++  Check,
++  Loader2,
++  Plus,
++  Trash2,
++} from "lucide-react";
++import {
++  collection,
++  doc,
++  getDocs,
++  limit,
++  query,
++  runTransaction,
++  where,
++} from "firebase/firestore";
++import type { Tournament, TournamentFormat, TournamentPreferences } from "@/types";
++import { useAuth } from "@/contexts/AuthContext";
++import { db } from "@/lib/firebase";
++import {
++  BreakDraft,
++  FORMAT_PRESETS,
++  PrelimDrawRule,
++  SCORE_DEFAULTS,
++  buildBreakCategories,
++  buildRounds,
++  eliminationRoundCount,
++  getFormatPreset,
++  isPowerOfTwo,
++  slugify,
++  validateSlug,
++} from "@/lib/setup/presets";
++
++/* -------------------------------------------------------------------------- */
++/* State                                                                      */
++/* -------------------------------------------------------------------------- */
++
++interface WizardState {
++  name: string;
++  shortName: string;
++  slug: string;
++  slugTouched: boolean;
++  format: TournamentFormat;
++  substantiveSpeakers: number;
++  replyScoresEnabled: boolean;
++  minSpeakerScore: number;
++  maxSpeakerScore: number;
++  stepSpeakerScore: number;
++  minReplyScore: number;
++  maxReplyScore: number;
++  prelimRounds: number;
++  drawRule: PrelimDrawRule;
++  sideAllocationRule: TournamentPreferences["sideAllocationRule"];
++  breaks: BreakDraft[];
++  ballotDoubleEntry: boolean;
++  publicDraw: boolean;
++  publicResults: boolean;
++  publicStandings: boolean;
++  publicMotions: boolean;
++  feedbackEnabled: boolean;
++  feedbackMinScore: number;
++  feedbackMaxScore: number;
++}
++
++let breakKeyCounter = 0;
++const newBreakKey = () => `brk-${++breakKeyCounter}`;
++
++function initialState(): WizardState {
++  const preset = getFormatPreset("bp");
++  return {
++    name: "",
++    shortName: "",
++    slug: "",
++    slugTouched: false,
++    format: "bp",
++    substantiveSpeakers: preset.substantiveSpeakers,
++    replyScoresEnabled: preset.replyScoresEnabled,
++    ...SCORE_DEFAULTS,
++    prelimRounds: 5,
++    drawRule: "power_paired",
++    sideAllocationRule: "balanced",
++    breaks: [{ key: newBreakKey(), name: "Open", breakSize: 8, reserveSize: 2, isGeneral: true }],
++    ballotDoubleEntry: false,
++    publicDraw: true,
++    publicResults: true,
++    publicStandings: true,
++    publicMotions: true,
++    feedbackEnabled: true,
++    feedbackMinScore: 1,
++    feedbackMaxScore: 10,
++  };
++}
++
++const STEPS = [
++  "Basics",
++  "Format",
++  "Scoring",
++  "Rounds",
++  "Breaks",
++  "Public & feedback",
++  "Review",
++] as const;
++
++const BREAK_SIZE_OPTIONS = [2, 4, 8, 16, 32, 64];
++
++/* -------------------------------------------------------------------------- */
++/* Small UI helpers                                                           */
++/* -------------------------------------------------------------------------- */
++
++const inputCls =
++  "w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
++
++function Field({
++  label,
++  hint,
++  children,
++}: {
++  label: string;
++  hint?: string;
++  children: React.ReactNode;
++}) {
++  return (
++    <div>
++      <label className="block text-xs font-semibold text-gray-700 mb-1">{label}</label>
++      {children}
++      {hint && <p className="text-[11px] text-gray-500 mt-1">{hint}</p>}
++    </div>
++  );
++}
++
++function NumberInput({
++  value,
++  onChange,
++  min,
++  max,
++  step,
++}: {
++  value: number;
++  onChange: (n: number) => void;
++  min?: number;
++  max?: number;
++  step?: number;
++}) {
++  return (
++    <input
++      type="number"
++      className={inputCls}
++      value={Number.isFinite(value) ? value : ""}
++      min={min}
++      max={max}
++      step={step}
++      onChange={(e) => onChange(e.target.value === "" ? NaN : Number(e.target.value))}
++    />
++  );
++}
++
++function Toggle({
++  checked,
++  onChange,
++  label,
++  hint,
++}: {
++  checked: boolean;
++  onChange: (v: boolean) => void;
++  label: string;
++  hint?: string;
++}) {
++  return (
++    <label className="flex items-start space-x-3 cursor-pointer">
++      <input
++        type="checkbox"
++        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
++        checked={checked}
++        onChange={(e) => onChange(e.target.checked)}
++      />
++      <span>
++        <span className="block text-sm font-medium text-gray-900">{label}</span>
++        {hint && <span className="block text-xs text-gray-500">{hint}</span>}
++      </span>
++    </label>
++  );
++}
++
++/* -------------------------------------------------------------------------- */
++/* Wizard                                                                     */
++/* -------------------------------------------------------------------------- */
++
++export function TournamentWizard() {
++  const router = useRouter();
++  const { user, configured } = useAuth();
++
++  const [s, setS] = useState<WizardState>(initialState);
++  const [step, setStep] = useState(0);
++  const [error, setError] = useState("");
++  const [busy, setBusy] = useState(false);
++
++  const patch = (p: Partial<WizardState>) => setS((prev) => ({ ...prev, ...p }));
++
++  const preset = getFormatPreset(s.format);
++  const teamsInDebate = preset.teamsInDebate;
++
++  const maxBreakSize = useMemo(
++    () => s.breaks.reduce((m, b) => Math.max(m, b.breakSize), 0),
++    [s.breaks]
++  );
++
++  const previewRounds = useMemo(
++    () =>
++      buildRounds({
++        tournamentId: "preview",
++        prelimRounds: Number.isInteger(s.prelimRounds) && s.prelimRounds > 0 ? s.prelimRounds : 0,
++        maxBreakSize,
++        teamsInDebate,
++        drawRule: s.drawRule,
++      }),
++    [s.prelimRounds, maxBreakSize, teamsInDebate, s.drawRule]
++  );
++
++  /* ------------------------------ handlers ------------------------------ */
++
++  const handleNameChange = (name: string) => {
++    patch({
++      name,
++      slug: s.slugTouched ? s.slug : slugify(name),
++    });
++  };
++
++  const handleFormatChange = (format: TournamentFormat) => {
++    const p = getFormatPreset(format);
++    // Clamp existing break sizes to what the new format can run.
++    const breaks = s.breaks.map((b) =>
++      b.breakSize < p.teamsInDebate ? { ...b, breakSize: p.teamsInDebate } : b
++    );
++    patch({
++      format,
++      substantiveSpeakers: p.substantiveSpeakers,
++      replyScoresEnabled: p.replyScoresEnabled,
++      breaks,
++    });
++  };
++
++  const updateBreak = (key: string, p: Partial<BreakDraft>) =>
++    patch({ breaks: s.breaks.map((b) => (b.key === key ? { ...b, ...p } : b)) });
++
++  const addBreak = () =>
++    patch({
++      breaks: [
++        ...s.breaks,
++        {
++          key: newBreakKey(),
++          name: "",
++          breakSize: Math.max(4, teamsInDebate),
++          reserveSize: 1,
++          isGeneral: false,
++        },
++      ],
++    });
++
++  const removeBreak = (key: string) =>
++    patch({ breaks: s.breaks.filter((b) => b.key !== key) });
++
++  /* ----------------------------- validation ----------------------------- */
++
++  /** Returns "" when the step is valid. `slugAvailable` is checked separately. */
++  const validateStep = (index: number): string => {
++    switch (index) {
++      case 0: {
++        if (s.name.trim().length < 3) return "Give the tournament a name (at least 3 characters).";
++        return validateSlug(s.slug);
++      }
++      case 2: {
++        if (!Number.isInteger(s.substantiveSpeakers) || s.substantiveSpeakers < 1 || s.substantiveSpeakers > 6)
++          return "Speakers per team must be a whole number from 1 to 6.";
++        if (!(s.stepSpeakerScore > 0)) return "The score step must be greater than 0.";
++        if (!(s.minSpeakerScore < s.maxSpeakerScore))
++          return "The minimum speaker score must be lower than the maximum.";
++        if (s.stepSpeakerScore > s.maxSpeakerScore - s.minSpeakerScore)
++          return "The score step can't be larger than the score range.";
++        if (s.replyScoresEnabled && !(s.minReplyScore < s.maxReplyScore))
++          return "The minimum reply score must be lower than the maximum.";
++        return "";
++      }
++      case 3: {
++        if (!Number.isInteger(s.prelimRounds) || s.prelimRounds < 1 || s.prelimRounds > 20)
++          return "Preliminary rounds must be a whole number from 1 to 20.";
++        return "";
++      }
++      case 4: {
++        const names = new Set<string>();
++        for (const b of s.breaks) {
++          const n = b.name.trim().toLowerCase();
++          if (!n) return "Every break category needs a name.";
++          if (names.has(n)) return `There are two break categories called "${b.name.trim()}".`;
++          names.add(n);
++          if (!isPowerOfTwo(b.breakSize) || b.breakSize < teamsInDebate)
++            return `Break size for "${b.name.trim()}" must be a power of two and at least ${teamsInDebate}.`;
++          if (!Number.isInteger(b.reserveSize) || b.reserveSize < 0)
++            return `Reserve size for "${b.name.trim()}" must be 0 or more.`;
++        }
++        return "";
++      }
++      case 5: {
++        if (s.feedbackEnabled && !(s.feedbackMinScore < s.feedbackMaxScore))
++          return "The minimum feedback score must be lower than the maximum.";
++        return "";
++      }
++      default:
++        return "";
++    }
++  };
++
++  const checkSlugAvailable = async (): Promise<string> => {
++    // Local-only copies would be silently overwritten, so block those too.
++    try {
++      if (localStorage.getItem(`crabbytab_t_${s.slug}_meta`)) {
++        return `"${s.slug}" already exists on this device. Choose a different slug.`;
++      }
++    } catch {
++      // localStorage unavailable: nothing to check
++    }
++    if (!db) return "";
++    try {
++      const snap = await getDocs(
++        query(collection(db, "tournaments"), where("slug", "==", s.slug), limit(1))
++      );
++      if (!snap.empty) return `"${s.slug}" is already taken. Choose a different slug.`;
++    } catch (e) {
++      console.warn("Slug availability check failed:", e);
++      // The create transaction re-checks atomically, so don't block here.
++    }
++    return "";
++  };
++
++  /* ----------------------------- navigation ----------------------------- */
++
++  const goNext = async () => {
++    setError("");
++    const problem = validateStep(step);
++    if (problem) {
++      setError(problem);
++      return;
++    }
++    if (step === 0) {
++      setBusy(true);
++      const taken = await checkSlugAvailable();
++      setBusy(false);
++      if (taken) {
++        setError(taken);
++        return;
++      }
++    }
++    setStep((n) => Math.min(n + 1, STEPS.length - 1));
++  };
++
++  const goBack = () => {
++    setError("");
++    setStep((n) => Math.max(n - 1, 0));
++  };
++
++  /* ------------------------------- create ------------------------------- */
++
++  const handleCreate = async () => {
++    setError("");
++
++    // Re-validate every step so a skipped-over problem can't slip through.
++    for (const i of [0, 2, 3, 4, 5]) {
++      const problem = validateStep(i);
++      if (problem) {
++        setStep(i);
++        setError(problem);
++        return;
++      }
++    }
++
++    if (configured && !user) {
++      router.replace("/login?next=/tournaments/new");
++      return;
++    }
++
++    setBusy(true);
++    const id = `tourn-${s.slug}`;
++    const now = new Date().toISOString();
++
++    // Signed-in owner when Firebase is configured. Without Firebase the app
++    // runs in local-only mode, where "director" is the only possible owner.
++    const ownerId = user?.uid ?? "director";
++
++    const tournament: Tournament = {
++      id,
++      name: s.name.trim(),
++      nameLower: s.name.trim().toLowerCase(),
++      shortName: (s.shortName.trim() || s.name.trim()).slice(0, 15),
++      slug: s.slug,
++      format: s.format,
++      active: true,
++      ownerId,
++      admins: { [ownerId]: true },
++      preferences: {
++        teamsInDebate,
++        substantiveSpeakers: s.substantiveSpeakers,
++        replyScoresEnabled: s.replyScoresEnabled,
++        minSpeakerScore: s.minSpeakerScore,
++        maxSpeakerScore: s.maxSpeakerScore,
++        stepSpeakerScore: s.stepSpeakerScore,
++        minReplyScore: s.minReplyScore,
++        maxReplyScore: s.maxReplyScore,
++        drawRule: s.drawRule,
++        sideAllocationRule: s.sideAllocationRule,
++        ballotDoubleEntry: s.ballotDoubleEntry,
++        publicDraw: s.publicDraw,
++        publicResults: s.publicResults,
++        publicStandings: s.publicStandings,
++        publicMotions: s.publicMotions,
++        feedbackEnabled: s.feedbackEnabled,
++        feedbackMinScore: s.feedbackMinScore,
++        feedbackMaxScore: s.feedbackMaxScore,
++      },
++      createdAt: now,
++      updatedAt: now,
++    };
++
++    const rounds = buildRounds({
++      tournamentId: id,
++      prelimRounds: s.prelimRounds,
++      maxBreakSize,
++      teamsInDebate,
++      drawRule: s.drawRule,
++    });
++    const breakCategories = buildBreakCategories(id, s.breaks);
++
++    try {
++      if (db) {
++        // Atomic: refuse to overwrite a tournament someone else created
++        // between the availability check and now.
++        const tRef = doc(db, "tournaments", id);
++        const bundleRef = doc(db, "tournaments", id, "data", "bundle");
++        await runTransaction(db, async (tx) => {
++          const existing = await tx.get(tRef);
++          if (existing.exists()) {
++            throw new Error(`"${s.slug}" was just taken by another tournament. Go back and pick a new slug.`);
++          }
++          tx.set(tRef, tournament);
++          tx.set(bundleRef, {
++            rounds,
++            breakCategories,
++            teams: [],
++            adjudicators: [],
++            venues: [],
++            motions: [],
++            debates: [],
++            ballots: [],
++            feedback: [],
++            updatedAt: now,
++          });
++        });
++      }
++
++      // Local cache, same keys TournamentContext reads.
++      const prefix = `crabbytab_t_${s.slug}`;
++      localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournament));
++      localStorage.setItem(`${prefix}_rounds`, JSON.stringify(rounds));
++      localStorage.setItem(`${prefix}_breaks`, JSON.stringify(breakCategories));
++
++      router.push(`/${s.slug}`);
++    } catch (e: unknown) {
++      console.error("Error creating tournament:", e);
++      setError(e instanceof Error ? e.message : "Failed to create the tournament. Please try again.");
++      setBusy(false);
++    }
++  };
++
++  /* ------------------------------- render ------------------------------- */
++
++  const isLast = step === STEPS.length - 1;
++
++  return (
++    <div>
++      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Create a tournament</h1>
++      <p className="text-sm text-gray-600 mt-1 mb-6">
++        Answer a few questions and CrabbyTab will set up the rounds and break categories for you.
++      </p>
++
++      {/* Stepper */}
++      <ol className="flex flex-wrap gap-2 mb-6">
++        {STEPS.map((label, i) => {
++          const done = i < step;
++          const current = i === step;
++          return (
++            <li
++              key={label}
++              className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
++                current
++                  ? "bg-blue-600 text-white border-blue-600"
++                  : done
++                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
++                    : "bg-white text-gray-500 border-[#d0d7de]"
++              }`}
++            >
++              <span
++                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
++                  current ? "bg-white/25" : done ? "bg-emerald-200" : "bg-gray-100"
++                }`}
++              >
++                {done ? <Check className="w-3 h-3" /> : i + 1}
++              </span>
++              <span>{label}</span>
++            </li>
++          );
++        })}
++      </ol>
++
++      <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs p-6 space-y-5">
++        {error && (
++          <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2.5">
++            {error}
++          </div>
++        )}
++
++        {/* Step 0 - Basics */}
++        {step === 0 && (
++          <>
++            <Field label="Tournament name">
++              <input
++                type="text"
++                className={inputCls}
++                placeholder="e.g. Australasian Debating Championship 2026"
++                value={s.name}
++                onChange={(e) => handleNameChange(e.target.value)}
++                autoFocus
++              />
++            </Field>
++            <Field label="Short name" hint="Shown in tight spaces. Up to 15 characters. Optional.">
++              <input
++                type="text"
++                className={inputCls}
++                maxLength={15}
++                placeholder="e.g. Australs 26"
++                value={s.shortName}
++                onChange={(e) => patch({ shortName: e.target.value })}
++              />
++            </Field>
++            <Field
++              label="URL slug"
++              hint="Participants will visit this address to see the draw and results. It can't be changed later."
++            >
++              <div className="flex items-center">
++                <span className="bg-gray-100 border border-r-0 border-gray-300 rounded-l px-3 py-2 text-xs text-gray-500 font-mono">
++                  /
++                </span>
++                <input
++                  type="text"
++                  className="w-full border border-gray-300 rounded-r px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
++                  placeholder="australs2026"
++                  value={s.slug}
++                  onChange={(e) =>
++                    patch({
++                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40),
++                      slugTouched: true,
++                    })
++                  }
++                />
++              </div>
++            </Field>
++          </>
++        )}
++
++        {/* Step 1 - Format */}
++        {step === 1 && (
++          <div className="space-y-3">
++            <p className="text-sm text-gray-700">
++              Pick the debating format. This sets sensible defaults for the next steps, which you can still change.
++            </p>
++            {FORMAT_PRESETS.map((f) => (
++              <label
++                key={f.id}
++                className={`flex items-start space-x-3 p-3 border rounded cursor-pointer ${
++                  s.format === f.id ? "border-blue-500 bg-blue-50" : "border-[#d0d7de] hover:bg-gray-50"
++                }`}
++              >
++                <input
++                  type="radio"
++                  name="format"
++                  className="mt-1"
++                  checked={s.format === f.id}
++                  onChange={() => handleFormatChange(f.id)}
++                />
++                <span>
++                  <span className="block text-sm font-semibold text-gray-900">{f.label}</span>
++                  <span className="block text-xs text-gray-600">{f.blurb}</span>
++                </span>
++              </label>
++            ))}
++          </div>
++        )}
++
++        {/* Step 2 - Scoring */}
++        {step === 2 && (
++          <>
++            <Field label="Substantive speakers per team">
++              <NumberInput
++                value={s.substantiveSpeakers}
++                onChange={(n) => patch({ substantiveSpeakers: n })}
++                min={1}
++                max={6}
++              />
++            </Field>
++            <div className="grid grid-cols-3 gap-4">
++              <Field label="Minimum speaker score">
++                <NumberInput value={s.minSpeakerScore} onChange={(n) => patch({ minSpeakerScore: n })} />
++              </Field>
++              <Field label="Maximum speaker score">
++                <NumberInput value={s.maxSpeakerScore} onChange={(n) => patch({ maxSpeakerScore: n })} />
++              </Field>
++              <Field label="Score step" hint="e.g. 1 or 0.5">
++                <NumberInput value={s.stepSpeakerScore} onChange={(n) => patch({ stepSpeakerScore: n })} step={0.5} />
++              </Field>
++            </div>
++            <Toggle
++              checked={s.replyScoresEnabled}
++              onChange={(v) => patch({ replyScoresEnabled: v })}
++              label="Reply speeches are scored"
++              hint="Used by Asian Parliamentary, Australs and World Schools."
++            />
++            {s.replyScoresEnabled && (
++              <div className="grid grid-cols-2 gap-4">
++                <Field label="Minimum reply score">
++                  <NumberInput value={s.minReplyScore} onChange={(n) => patch({ minReplyScore: n })} />
++                </Field>
++                <Field label="Maximum reply score">
++                  <NumberInput value={s.maxReplyScore} onChange={(n) => patch({ maxReplyScore: n })} />
++                </Field>
++              </div>
++            )}
++          </>
++        )}
++
++        {/* Step 3 - Rounds */}
++        {step === 3 && (
++          <>
++            <Field label="Number of preliminary rounds">
++              <NumberInput value={s.prelimRounds} onChange={(n) => patch({ prelimRounds: n })} min={1} max={20} />
++            </Field>
++            <Field
++              label="Draw method"
++              hint="With power pairing, Round 1 is random (there are no standings yet) and later rounds pair teams by standing."
++            >
++              <select
++                className={inputCls}
++                value={s.drawRule}
++                onChange={(e) => patch({ drawRule: e.target.value as PrelimDrawRule })}
++              >
++                <option value="power_paired">Power-paired (Swiss)</option>
++                <option value="random">Random</option>
++                <option value="round_robin">Round robin</option>
++              </select>
++            </Field>
++            <Field label="Side allocation">
++              <select
++                className={inputCls}
++                value={s.sideAllocationRule}
++                onChange={(e) =>
++                  patch({ sideAllocationRule: e.target.value as TournamentPreferences["sideAllocationRule"] })
++                }
++              >
++                <option value="balanced">Balanced (equalise sides over the tournament)</option>
++                <option value="random">Random</option>
++              </select>
++            </Field>
++            <Toggle
++              checked={s.ballotDoubleEntry}
++              onChange={(v) => patch({ ballotDoubleEntry: v })}
++              label="Require double entry of ballots"
++              hint="Two people enter each result and they must match before it is confirmed."
++            />
++          </>
++        )}
++
++        {/* Step 4 - Breaks */}
++        {step === 4 && (
++          <>
++            <p className="text-sm text-gray-700">
++              Break categories decide who advances to elimination rounds. Elimination rounds are created
++              automatically from the largest break size.
++            </p>
++            <div className="space-y-3">
++              {s.breaks.map((b) => (
++                <div key={b.key} className="border border-[#d0d7de] rounded p-3 space-y-3">
++                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
++                    <Field label="Name">
++                      <input
++                        type="text"
++                        className={inputCls}
++                        placeholder="e.g. Open, ESL, Novice"
++                        value={b.name}
++                        onChange={(e) => updateBreak(b.key, { name: e.target.value })}
++                      />
++                    </Field>
++                    <Field label="Teams that break">
++                      <select
++                        className={inputCls}
++                        value={b.breakSize}
++                        onChange={(e) => updateBreak(b.key, { breakSize: Number(e.target.value) })}
++                      >
++                        {BREAK_SIZE_OPTIONS.filter((n) => n >= teamsInDebate).map((n) => (
++                          <option key={n} value={n}>
++                            {n}
++                          </option>
++                        ))}
++                      </select>
++                    </Field>
++                    <Field label="Reserve size">
++                      <NumberInput
++                        value={b.reserveSize}
++                        onChange={(n) => updateBreak(b.key, { reserveSize: n })}
++                        min={0}
++                      />
++                    </Field>
++                  </div>
++                  <div className="flex items-center justify-between">
++                    <Toggle
++                      checked={b.isGeneral}
++                      onChange={(v) => updateBreak(b.key, { isGeneral: v })}
++                      label="General (open) break"
++                    />
++                    <button
++                      type="button"
++                      onClick={() => removeBreak(b.key)}
++                      className="inline-flex items-center space-x-1 text-xs text-red-600 hover:text-red-800"
++                    >
++                      <Trash2 className="w-3.5 h-3.5" />
++                      <span>Remove</span>
++                    </button>
++                  </div>
++                </div>
++              ))}
++              {s.breaks.length === 0 && (
++                <p className="text-xs text-gray-500">
++                  No break categories. The tournament will have preliminary rounds only.
++                </p>
++              )}
++            </div>
++            <button
++              type="button"
++              onClick={addBreak}
++              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
++            >
++              <Plus className="w-4 h-4" />
++              <span>Add break category</span>
++            </button>
++          </>
++        )}
++
++        {/* Step 5 - Public & feedback */}
++        {step === 5 && (
++          <>
++            <div>
++              <h3 className="text-sm font-bold text-gray-900 mb-3">What the public can see</h3>
++              <div className="space-y-3">
++                <Toggle checked={s.publicDraw} onChange={(v) => patch({ publicDraw: v })} label="Draw" />
++                <Toggle checked={s.publicMotions} onChange={(v) => patch({ publicMotions: v })} label="Motions" />
++                <Toggle checked={s.publicResults} onChange={(v) => patch({ publicResults: v })} label="Results" />
++                <Toggle checked={s.publicStandings} onChange={(v) => patch({ publicStandings: v })} label="Standings" />
++              </div>
++            </div>
++            <div>
++              <h3 className="text-sm font-bold text-gray-900 mb-3">Adjudicator feedback</h3>
++              <Toggle
++                checked={s.feedbackEnabled}
++                onChange={(v) => patch({ feedbackEnabled: v })}
++                label="Collect feedback on adjudicators"
++              />
++              {s.feedbackEnabled && (
++                <div className="grid grid-cols-2 gap-4 mt-3">
++                  <Field label="Minimum feedback score">
++                    <NumberInput value={s.feedbackMinScore} onChange={(n) => patch({ feedbackMinScore: n })} />
++                  </Field>
++                  <Field label="Maximum feedback score">
++                    <NumberInput value={s.feedbackMaxScore} onChange={(n) => patch({ feedbackMaxScore: n })} />
++                  </Field>
++                </div>
++              )}
++            </div>
++          </>
++        )}
++
++        {/* Step 6 - Review */}
++        {step === 6 && (
++          <div className="space-y-5 text-sm">
++            <dl className="grid grid-cols-3 gap-y-2">
++              <dt className="text-gray-500">Name</dt>
++              <dd className="col-span-2 font-medium">{s.name.trim()}</dd>
++              <dt className="text-gray-500">Address</dt>
++              <dd className="col-span-2 font-mono">/{s.slug}</dd>
++              <dt className="text-gray-500">Format</dt>
++              <dd className="col-span-2">{preset.label}</dd>
++              <dt className="text-gray-500">Speakers</dt>
++              <dd className="col-span-2">
++                {s.substantiveSpeakers} per team
++                {s.replyScoresEnabled ? " + reply" : ""}, scored {s.minSpeakerScore} to {s.maxSpeakerScore} in
++                steps of {s.stepSpeakerScore}
++                {s.replyScoresEnabled ? ` (reply ${s.minReplyScore} to ${s.maxReplyScore})` : ""}
++              </dd>
++              <dt className="text-gray-500">Draw</dt>
++              <dd className="col-span-2">
++                {s.drawRule.replace("_", " ")}, {s.sideAllocationRule} sides
++              </dd>
++              <dt className="text-gray-500">Breaks</dt>
++              <dd className="col-span-2">
++                {s.breaks.length === 0
++                  ? "None"
++                  : s.breaks.map((b) => `${b.name.trim()} (${b.breakSize})`).join(", ")}
++              </dd>
++            </dl>
++
++            <div>
++              <h3 className="text-sm font-bold text-gray-900 mb-2">
++                Rounds that will be created ({previewRounds.length})
++              </h3>
++              <div className="flex flex-wrap gap-1.5">
++                {previewRounds.map((r) => (
++                  <span
++                    key={r.id}
++                    className={`px-2 py-1 rounded text-xs border ${
++                      r.stage === "elimination"
++                        ? "bg-amber-50 border-amber-200 text-amber-900"
++                        : "bg-gray-50 border-[#d0d7de] text-gray-700"
++                    }`}
++                  >
++                    {r.name}
++                  </span>
++                ))}
++              </div>
++              {maxBreakSize > 0 && eliminationRoundCount(maxBreakSize, teamsInDebate) === 0 && (
++                <p className="text-xs text-amber-700 mt-2">
++                  The largest break size is too small for this format, so no elimination rounds will be created.
++                </p>
++              )}
++            </div>
++
++            {!configured && (
++              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-2.5">
++                Firebase isn&apos;t configured, so this tournament will be saved on this device only.
++              </p>
++            )}
++          </div>
++        )}
++
++        {/* Buttons */}
++        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
++          <button
++            type="button"
++            onClick={step === 0 ? () => router.push("/tournaments") : goBack}
++            disabled={busy}
++            className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-50"
++          >
++            <ArrowLeft className="w-3.5 h-3.5" />
++            <span>{step === 0 ? "Cancel" : "Back"}</span>
++          </button>
++
++          {isLast ? (
++            <button
++              type="button"
++              onClick={handleCreate}
++              disabled={busy}
++              className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
++            >
++              {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
++              <span>{busy ? "Creating..." : "Create tournament"}</span>
++            </button>
++          ) : (
++            <button
++              type="button"
++              onClick={goNext}
++              disabled={busy}
++              className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
++            >
++              {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
++              <span>Next</span>
++              <ArrowRight className="w-3.5 h-3.5" />
++            </button>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/lib/setup/presets.ts b/src/lib/setup/presets.ts
+new file mode 100644
+index 0000000..bdf54f2
+--- /dev/null
++++ b/src/lib/setup/presets.ts
+@@ -0,0 +1,267 @@
++import type {
++  BreakCategory,
++  DrawType,
++  Round,
++  TournamentFormat,
++  TournamentPreferences,
++} from "@/types";
++
++/* -------------------------------------------------------------------------- */
++/* Formats                                                                    */
++/* -------------------------------------------------------------------------- */
++
++export interface FormatPreset {
++  id: TournamentFormat;
++  label: string;
++  blurb: string;
++  teamsInDebate: 4 | 2;
++  substantiveSpeakers: number;
++  replyScoresEnabled: boolean;
++}
++
++export const FORMAT_PRESETS: FormatPreset[] = [
++  {
++    id: "bp",
++    label: "British Parliamentary (BP)",
++    blurb: "4 teams per room, 2 speakers per team, no reply speeches.",
++    teamsInDebate: 4,
++    substantiveSpeakers: 2,
++    replyScoresEnabled: false,
++  },
++  {
++    id: "uadc",
++    label: "Asian Parliamentary (UADC)",
++    blurb: "2 teams per room, 3 speakers plus a reply speech.",
++    teamsInDebate: 2,
++    substantiveSpeakers: 3,
++    replyScoresEnabled: true,
++  },
++  {
++    id: "australs",
++    label: "Australs",
++    blurb: "2 teams per room, 3 speakers plus a reply speech.",
++    teamsInDebate: 2,
++    substantiveSpeakers: 3,
++    replyScoresEnabled: true,
++  },
++  {
++    id: "wsdc",
++    label: "World Schools (WSDC)",
++    blurb: "2 teams per room, 3 speakers plus a reply speech.",
++    teamsInDebate: 2,
++    substantiveSpeakers: 3,
++    replyScoresEnabled: true,
++  },
++  {
++    id: "custom_2team",
++    label: "Custom two-team format",
++    blurb: "2 teams per room. Set the speaker count and scoring yourself.",
++    teamsInDebate: 2,
++    substantiveSpeakers: 3,
++    replyScoresEnabled: true,
++  },
++];
++
++export function getFormatPreset(format: TournamentFormat): FormatPreset {
++  return FORMAT_PRESETS.find((f) => f.id === format) ?? FORMAT_PRESETS[0];
++}
++
++/** Same score ranges the app already used when a tournament was created. */
++export const SCORE_DEFAULTS = {
++  minSpeakerScore: 68,
++  maxSpeakerScore: 84,
++  stepSpeakerScore: 1,
++  minReplyScore: 34,
++  maxReplyScore: 42,
++};
++
++/* -------------------------------------------------------------------------- */
++/* Slugs                                                                      */
++/* -------------------------------------------------------------------------- */
++
++/**
++ * Slugs that would collide with app routes (or the demo), so a tournament
++ * could never be opened at its own URL.
++ */
++export const RESERVED_SLUGS = new Set([
++  "login",
++  "register",
++  "forgot-password",
++  "tournaments",
++  "new",
++  "api",
++  "admin",
++  "wudc-demo",
++]);
++
++export function slugify(input: string): string {
++  return input
++    .toLowerCase()
++    .trim()
++    .replace(/[^a-z0-9]+/g, "-")
++    .replace(/^-+|-+$/g, "")
++    .slice(0, 40);
++}
++
++/** Returns an error message, or "" when the slug is acceptable. */
++export function validateSlug(slug: string): string {
++  if (slug.length < 3) return "The URL slug must be at least 3 characters.";
++  if (slug.length > 40) return "The URL slug must be 40 characters or fewer.";
++  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
++    return "Use only lowercase letters, numbers and single hyphens.";
++  }
++  if (RESERVED_SLUGS.has(slug)) return `"${slug}" is reserved. Please choose another slug.`;
++  return "";
++}
++
++/* -------------------------------------------------------------------------- */
++/* Break sizes and elimination rounds                                         */
++/* -------------------------------------------------------------------------- */
++
++export function isPowerOfTwo(n: number): boolean {
++  return Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0;
++}
++
++/**
++ * Number of elimination rounds needed to reduce `breakSize` teams to a winner.
++ * BP rooms hold 4 teams and 2 advance, so 4 teams is already a final.
++ * Two-team formats halve the field every round.
++ */
++export function eliminationRoundCount(breakSize: number, teamsInDebate: 4 | 2): number {
++  if (!isPowerOfTwo(breakSize) || breakSize < teamsInDebate) return 0;
++  const log = Math.log2(breakSize);
++  return teamsInDebate === 4 ? log - 1 : log;
++}
++
++const ELIMINATION_LABELS = [
++  { name: "Grand Final", abbr: "GF" },
++  { name: "Semifinals", abbr: "SF" },
++  { name: "Quarterfinals", abbr: "QF" },
++  { name: "Octofinals", abbr: "OF" },
++  { name: "Double Octofinals", abbr: "DOF" },
++  { name: "Triple Octofinals", abbr: "TOF" },
++];
++
++/** Labels in playing order (earliest elimination round first). */
++export function eliminationRoundLabels(count: number): { name: string; abbr: string }[] {
++  const labels: { name: string; abbr: string }[] = [];
++  for (let i = count - 1; i >= 0; i--) {
++    labels.push(
++      ELIMINATION_LABELS[i] ?? { name: `Elimination ${count - i}`, abbr: `E${count - i}` }
++    );
++  }
++  return labels;
++}
++
++/* -------------------------------------------------------------------------- */
++/* Builders                                                                   */
++/* -------------------------------------------------------------------------- */
++
++export type PrelimDrawRule = Extract<DrawType, "power_paired" | "random" | "round_robin">;
++
++/**
++ * Builds the preliminary and elimination rounds. IDs follow the same pattern
++ * as `createRound` in TournamentContext so the rest of the app treats them
++ * identically to hand-made rounds.
++ */
++export function buildRounds(opts: {
++  tournamentId: string;
++  prelimRounds: number;
++  maxBreakSize: number;
++  teamsInDebate: 4 | 2;
++  drawRule: PrelimDrawRule;
++}): Round[] {
++  const { tournamentId, prelimRounds, maxBreakSize, teamsInDebate, drawRule } = opts;
++  const now = new Date().toISOString();
++  const rounds: Round[] = [];
++
++  const base = (seq: number) => ({
++    id: `round-${tournamentId}-${seq}`,
++    tournamentId,
++    seq,
++    feedbackWeight: 1.0,
++    silent: false,
++    motionsReleased: false,
++    resultsReleased: false,
++    completed: false,
++    drawStatus: "none" as const,
++    createdAt: now,
++  });
++
++  for (let i = 1; i <= prelimRounds; i++) {
++    rounds.push({
++      ...base(i),
++      name: `Round ${i}`,
++      abbreviation: `R${i}`,
++      stage: "preliminary",
++      // Power pairing needs standings, so the first round is random.
++      drawType: i === 1 && drawRule === "power_paired" ? "random" : drawRule,
++    });
++  }
++
++  const elimLabels = eliminationRoundLabels(eliminationRoundCount(maxBreakSize, teamsInDebate));
++  elimLabels.forEach((label, idx) => {
++    rounds.push({
++      ...base(prelimRounds + idx + 1),
++      name: label.name,
++      abbreviation: label.abbr,
++      stage: "elimination",
++      drawType: "elimination",
++    });
++  });
++
++  return rounds;
++}
++
++export interface BreakDraft {
++  key: string;
++  name: string;
++  breakSize: number;
++  reserveSize: number;
++  isGeneral: boolean;
++}
++
++export function buildBreakCategories(
++  tournamentId: string,
++  drafts: BreakDraft[]
++): BreakCategory[] {
++  const used = new Set<string>();
++  return drafts.map((d, idx) => {
++    let slug = slugify(d.name) || `break-${idx + 1}`;
++    while (used.has(slug)) slug = `${slug}-${idx + 1}`;
++    used.add(slug);
++    return {
++      id: `bc-${slug}-${tournamentId}`,
++      tournamentId,
++      name: d.name.trim(),
++      slug,
++      seq: idx + 1,
++      breakSize: d.breakSize,
++      reserveSize: d.reserveSize,
++      isGeneral: d.isGeneral,
++      priority: d.isGeneral ? 10 : Math.max(1, 9 - idx),
++    };
++  });
++}
++
++export function defaultPreferences(
++  format: TournamentFormat
++): TournamentPreferences {
++  const preset = getFormatPreset(format);
++  return {
++    teamsInDebate: preset.teamsInDebate,
++    substantiveSpeakers: preset.substantiveSpeakers,
++    replyScoresEnabled: preset.replyScoresEnabled,
++    ...SCORE_DEFAULTS,
++    drawRule: "power_paired",
++    sideAllocationRule: "balanced",
++    ballotDoubleEntry: false,
++    publicDraw: true,
++    publicResults: true,
++    publicStandings: true,
++    publicMotions: true,
++    feedbackEnabled: true,
++    feedbackMinScore: 1,
++    feedbackMaxScore: 10,
++  };
++}
+diff --git a/src/types/index.ts b/src/types/index.ts
+index da6805c..a374bfa 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -24,6 +24,7 @@ export interface TournamentPreferences {
+ export interface Tournament {
+   id: string;
+   name: string;
++  nameLower?: string; // lowercase name, used for prefix search on the tournaments hub
+   shortName: string;
+   slug: string;
+   format: TournamentFormat;
+-- 
+2.43.0
+
