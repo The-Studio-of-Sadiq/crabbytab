@@ -36,6 +36,7 @@ export interface Tournament {
   preferences: TournamentPreferences;
   createdAt: string;
   updatedAt: string;
+  migratedAt?: string;
 }
 
 export type RoundStage = "preliminary" | "elimination";

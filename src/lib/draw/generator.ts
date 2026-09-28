@@ -86,7 +86,8 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
     for (let i = 0; i < numDebates; i++) {
       const group = shuffled.slice(i * teamsPerDebate, (i + 1) * teamsPerDebate);
-      const teamsWithSides = allocateSidesForDebate(group, history.sides, tournament.format);
+      const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
+      const teamsWithSides = allocateSidesForDebate(group, history.sides, tournament.format, sideRule);
       debateDrafts.push({
         bracket: 0,
         teamsWithSides,
@@ -94,7 +95,8 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
   } else {
     // Power-paired Swiss draw for subsequent preliminary rounds
-    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format);
+    const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
+    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule);
     debateDrafts = powerDraw.map((p) => ({
       bracket: p.bracket,
       teamsWithSides: p.teamsWithSides,
@@ -114,12 +116,11 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       };
     });
 
-    return {
+    const debateObj: Debate = {
       id: `debate-${round.id}-${idx + 1}`,
       tournamentId: tournament.id,
       roundId: round.id,
       roundSeq: round.seq,
-      venueId: venue?.id,
       venueName: venue?.name || `Room ${idx + 1}`,
       bracket: draft.bracket,
       roomRank: idx + 1,
@@ -135,5 +136,11 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         traineeNames: [],
       },
     };
+
+    if (venue?.id) {
+      debateObj.venueId = venue.id;
+    }
+
+    return debateObj;
   });
 }

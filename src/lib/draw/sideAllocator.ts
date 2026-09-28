@@ -83,13 +83,23 @@ export function calculateSidePenalty(history: DebateSide[], candidateSide: Debat
 export function allocateSidesForDebate(
   teams: Team[],
   teamHistories: Map<string, DebateSide[]>,
-  format: "bp" | "uadc" | string
+  format: "bp" | "uadc" | string,
+  rule: "balanced" | "random" = "balanced"
 ): Record<DebateSide, Team> {
   const isBP = format === "bp";
   const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
 
   if (teams.length !== sides.length) {
     throw new Error(`Expected ${sides.length} teams for side allocation, got ${teams.length}`);
+  }
+
+  if (rule === "random") {
+    const shuffledSides = [...sides].sort(() => Math.random() - 0.5);
+    const result: Partial<Record<DebateSide, Team>> = {};
+    for (let i = 0; i < teams.length; i++) {
+      result[shuffledSides[i]] = teams[i];
+    }
+    return result as Record<DebateSide, Team>;
   }
 
   // Generate all permutations of sides

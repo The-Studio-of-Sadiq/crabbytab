@@ -50,7 +50,8 @@ export function generatePowerPairedDraw(
   teams: Team[],
   standings: TeamStandingRow[],
   history: MatchupHistory,
-  format: TournamentFormat
+  format: TournamentFormat,
+  sideRule: "balanced" | "random" = "balanced"
 ): PairedDebateDraft[] {
   const teamsPerDebate = format === "bp" ? 4 : 2;
   const totalTeams = teams.length;
@@ -153,7 +154,7 @@ export function generatePowerPairedDraw(
 
     // Allocate sides for each debate
     for (const group of bestBracketGrouping) {
-      const teamsWithSides = allocateSidesForDebate(group, history.sides, format);
+      const teamsWithSides = allocateSidesForDebate(group, history.sides, format, sideRule);
       pairedDebates.push({
         bracket: bracketPts,
         teams: group,

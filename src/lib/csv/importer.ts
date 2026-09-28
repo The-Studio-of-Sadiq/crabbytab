@@ -29,6 +29,19 @@ export interface VenueCsvRow {
   category?: string;
 }
 
+function getField(row: Record<string, string>, ...aliases: string[]): string {
+  for (const alias of aliases) {
+    if (row[alias] !== undefined) return row[alias];
+    const lowerAlias = alias.toLowerCase();
+    for (const key of Object.keys(row)) {
+      if (key.toLowerCase() === lowerAlias) {
+        return row[key];
+      }
+    }
+  }
+  return "";
+}
+
 /**
  * Parses CSV text to Teams and Speakers array.
  */
@@ -37,19 +50,19 @@ export function parseTeamsCsv(csvContent: string, tournamentId: string): Team[] 
   const teams: Team[] = [];
 
   parsed.data.forEach((row, idx) => {
-    const name = row.name || row.team || row.Team || `Team ${idx + 1}`;
-    const instName = row.institution || row.Institution || row.inst || "";
+    const name = getField(row, "name", "team", "Team") || `Team ${idx + 1}`;
+    const instName = getField(row, "institution", "Institution", "inst", "Inst");
     const speakers = [];
 
     // Extract speaker 1, 2, 3, etc.
-    const spk1 = row.speaker1 || row.Speaker1 || row.speaker_1 || row["Speaker 1"];
-    if (spk1) speakers.push({ id: `spk-${Date.now()}-${idx}-1`, name: spk1.trim(), email: row.speaker1_email });
+    const spk1 = getField(row, "speaker1", "Speaker1", "speaker_1", "Speaker 1");
+    if (spk1) speakers.push({ id: `spk-${Date.now()}-${idx}-1`, name: spk1.trim(), email: getField(row, "speaker1_email", "Speaker 1 Email") });
 
-    const spk2 = row.speaker2 || row.Speaker2 || row.speaker_2 || row["Speaker 2"];
-    if (spk2) speakers.push({ id: `spk-${Date.now()}-${idx}-2`, name: spk2.trim(), email: row.speaker2_email });
+    const spk2 = getField(row, "speaker2", "Speaker2", "speaker_2", "Speaker 2");
+    if (spk2) speakers.push({ id: `spk-${Date.now()}-${idx}-2`, name: spk2.trim(), email: getField(row, "speaker2_email", "Speaker 2 Email") });
 
-    const spk3 = row.speaker3 || row.Speaker3 || row.speaker_3 || row["Speaker 3"];
-    if (spk3) speakers.push({ id: `spk-${Date.now()}-${idx}-3`, name: spk3.trim(), email: row.speaker3_email });
+    const spk3 = getField(row, "speaker3", "Speaker3", "speaker_3", "Speaker 3");
+    if (spk3) speakers.push({ id: `spk-${Date.now()}-${idx}-3`, name: spk3.trim(), email: getField(row, "speaker3_email", "Speaker 3 Email") });
 
     // If no numbered speakers, check single speakers column or default
     if (speakers.length === 0) {
@@ -57,15 +70,17 @@ export function parseTeamsCsv(csvContent: string, tournamentId: string): Team[] 
       speakers.push({ id: `spk-${Date.now()}-${idx}-2`, name: `${name} Speaker 2` });
     }
 
+    const category = getField(row, "category", "Category");
+
     teams.push({
       id: `team-${Date.now()}-${idx}`,
       tournamentId,
       name: name.trim(),
-      codeName: row.code || row.Code,
-      institutionName: instName.trim(),
+      codeName: getField(row, "code", "Code") || undefined,
+      institutionName: instName.trim() || undefined,
       speakers,
       breakCategories: [],
-      speakerCategories: row.category ? [row.category.toLowerCase().trim()] : [],
+      speakerCategories: category ? [category.toLowerCase().trim()] : [],
       checkedIn: true,
     });
   });
@@ -81,17 +96,22 @@ export function parseAdjudicatorsCsv(csvContent: string, tournamentId: string): 
   const adjs: Adjudicator[] = [];
 
   parsed.data.forEach((row, idx) => {
-    const name = row.name || row.Name || row.adjudicator || row.Adjudicator || `Judge ${idx + 1}`;
-    const scoreVal = parseFloat(row.score || row.Score || row.rating || "5.0") || 5.0;
-    const isTrainee = String(row.trainee || row.Trainee || "").toLowerCase() === "true" || String(row.trainee || "").toLowerCase() === "yes";
-    const isIndep = String(row.independent || row.Independent || "").toLowerCase() === "true" || String(row.independent || "").toLowerCase() === "yes";
+    const name = getField(row, "name", "Name", "adjudicator", "Adjudicator", "judge", "Judge") || `Judge ${idx + 1}`;
+    const scoreRaw = getField(row, "score", "Score", "rating", "Rating", "baseScore") || "5.0";
+    const scoreVal = parseFloat(scoreRaw) || 5.0;
+
+    const traineeRaw = getField(row, "trainee", "Trainee").toLowerCase();
+    const isTrainee = traineeRaw === "true" || traineeRaw === "yes" || traineeRaw === "1";
+
+    const indepRaw = getField(row, "independent", "Independent", "indep").toLowerCase();
+    const isIndep = indepRaw === "true" || indepRaw === "yes" || indepRaw === "1";
 
     adjs.push({
       id: `adj-${Date.now()}-${idx}`,
       tournamentId,
       name: name.trim(),
-      email: row.email || row.Email,
-      institutionName: (row.institution || row.Institution || "").trim(),
+      email: getField(row, "email", "Email") || undefined,
+      institutionName: getField(row, "institution", "Institution", "inst", "Inst").trim() || undefined,
       baseScore: scoreVal,
       trainee: isTrainee,
       independent: isIndep,
@@ -111,15 +131,17 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
   const venues: Venue[] = [];
 
   parsed.data.forEach((row, idx) => {
-    const name = row.name || row.Name || row.room || row.Room || `Room ${idx + 1}`;
-    const priority = parseInt(row.priority || row.Priority || "10", 10) || 10;
+    const name = getField(row, "name", "Name", "room", "Room", "venue", "Venue") || `Room ${idx + 1}`;
+    const priorityRaw = getField(row, "priority", "Priority") || "10";
+    const priority = parseInt(priorityRaw, 10) || 10;
+    const category = getField(row, "category", "Category") || undefined;
 
     venues.push({
       id: `venue-${Date.now()}-${idx}`,
       tournamentId,
       name: name.trim(),
       priority,
-      category: row.category || row.Category,
+      category,
       available: true,
     });
   });

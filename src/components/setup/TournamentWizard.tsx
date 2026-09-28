@@ -435,28 +435,22 @@ export function TournamentWizard() {
 
     try {
       if (db) {
+        const firestoreDb = db;
         // Atomic: refuse to overwrite a tournament someone else created
         // between the availability check and now.
-        const tRef = doc(db, "tournaments", id);
-        const bundleRef = doc(db, "tournaments", id, "data", "bundle");
-        await runTransaction(db, async (tx) => {
+        const tRef = doc(firestoreDb, "tournaments", id);
+        await runTransaction(firestoreDb, async (tx) => {
           const existing = await tx.get(tRef);
           if (existing.exists()) {
             throw new Error(`"${s.slug}" was just taken by another tournament. Go back and pick a new slug.`);
           }
           tx.set(tRef, tournament);
-          tx.set(bundleRef, {
-            rounds,
-            breakCategories,
-            teams: [],
-            adjudicators: [],
-            venues: [],
-            motions: [],
-            debates: [],
-            ballots: [],
-            feedback: [],
-            updatedAt: now,
-          });
+          for (const r of rounds) {
+            tx.set(doc(firestoreDb, "tournaments", id, "rounds", r.id), r);
+          }
+          for (const bc of breakCategories) {
+            tx.set(doc(firestoreDb, "tournaments", id, "breakCategories", bc.id), bc);
+          }
         });
       }
 
