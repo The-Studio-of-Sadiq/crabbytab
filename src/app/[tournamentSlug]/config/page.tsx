@@ -12,6 +12,14 @@ import {
   FileCheck2,
 } from "lucide-react";
 import { TournamentPreferences, TournamentFormat } from "@/types";
+import { PrecedenceEditor, ExtraMetricsEditor } from "@/components/setup/PrecedenceEditor";
+import {
+  TEAM_METRIC_LABELS,
+  SPEAKER_METRIC_LABELS,
+  BP_ONLY_TEAM_METRICS,
+  TWO_TEAM_ONLY_TEAM_METRICS,
+} from "@/lib/standings/metrics";
+import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
 
 export default function ConfigPage() {
   const { tournament, saveTournament } = useTournament();
@@ -194,6 +202,77 @@ export default function ConfigPage() {
                 <option value={0.5}>0.5 (Half points: 74.5, 75.0...)</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        {/* Standings rules */}
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-5">
+          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+            <Sliders className="w-4 h-4 text-blue-600" />
+            <span>Standings Rules</span>
+          </h3>
+          <p className="text-xs text-gray-600">
+            The order teams and speakers are ranked in. Leave empty to use the format&apos;s default. This also
+            decides power-paired draws and who breaks.
+          </p>
+
+          <div>
+            <h4 className="text-xs font-bold text-gray-800 mb-2">Team ranking</h4>
+            <PrecedenceEditor
+              value={prefs.teamStandingsPrecedence ?? []}
+              onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
+              labels={TEAM_METRIC_LABELS}
+              disabledIds={format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS}
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Default for this format: {resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" \u2192 ")}
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-bold text-gray-800 mb-2">Extra team metrics (shown, not ranked on)</h4>
+            <ExtraMetricsEditor
+              value={prefs.teamStandingsExtra ?? []}
+              onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
+              labels={TEAM_METRIC_LABELS}
+              exclude={prefs.teamStandingsPrecedence ?? []}
+            />
+          </div>
+
+          <div className="border-t border-gray-100 pt-4">
+            <h4 className="text-xs font-bold text-gray-800 mb-2">Speaker ranking</h4>
+            <PrecedenceEditor
+              value={prefs.speakerStandingsPrecedence ?? []}
+              onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
+              labels={SPEAKER_METRIC_LABELS}
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              Default: {resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" \u2192 ")}
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-bold text-gray-800 mb-2">Extra speaker metrics (shown, not ranked on)</h4>
+            <ExtraMetricsEditor
+              value={prefs.speakerStandingsExtra ?? []}
+              onChange={(speakerStandingsExtra) => setPrefs((p) => ({ ...p, speakerStandingsExtra }))}
+              labels={SPEAKER_METRIC_LABELS}
+              exclude={prefs.speakerStandingsPrecedence ?? []}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Speaker trim (for speaks_trimmed_mean)
+            </label>
+            <input
+              type="number"
+              min={0}
+              className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs"
+              value={prefs.speakerTrim ?? 0}
+              onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Number(e.target.value) || 0) }))}
+            />
+            <p className="text-[11px] text-gray-500 mt-1">Number of a speaker&apos;s lowest scores dropped before averaging.</p>
           </div>
         </div>
 

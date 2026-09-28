@@ -25,6 +25,7 @@ function createStanding(teamId: string, teamName: string, points: number, speaks
     averageSpeakerScore: speaks / 2,
     breakCategories: [],
     roundResults: [],
+    metrics: {} as any,
   };
 }
 

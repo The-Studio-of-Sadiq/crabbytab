@@ -1,5 +1,30 @@
 export type TournamentFormat = "bp" | "uadc" | "australs" | "wsdc" | "custom_2team";
 
+export type TeamMetricId =
+  | "wins"
+  | "points"
+  | "speaks_sum"
+  | "speaks_avg"
+  | "speaks_ind_avg"
+  | "speaks_stddev"
+  | "margin_sum"
+  | "margin_avg"
+  | "draw_strength_wins"
+  | "draw_strength_speaks"
+  | "firsts"
+  | "seconds"
+  | "thirds"
+  | "pullups";
+
+export type SpeakerMetricId =
+  | "speaks_sum"
+  | "speaks_avg"
+  | "speaks_stddev"
+  | "speaks_trimmed_mean"
+  | "speeches_count"
+  | "reply_sum"
+  | "reply_avg";
+
 export interface TournamentPreferences {
   teamsInDebate: 4 | 2;
   substantiveSpeakers: number; // 2 for BP, 3 for UADC/Australs/WSDC
@@ -19,6 +44,14 @@ export interface TournamentPreferences {
   feedbackEnabled: boolean;
   feedbackMinScore: number;
   feedbackMaxScore: number;
+  /** Up to 8 metric ids, most important first. Empty/absent -> format default. */
+  teamStandingsPrecedence?: TeamMetricId[];
+  /** Shown on the standings page but not used to rank. */
+  teamStandingsExtra?: TeamMetricId[];
+  speakerStandingsPrecedence?: SpeakerMetricId[];
+  speakerStandingsExtra?: SpeakerMetricId[];
+  /** Number of lowest speaker scores dropped from speaks_trimmed_mean. */
+  speakerTrim?: number;
 }
 
 export interface Tournament {
@@ -134,6 +167,8 @@ export interface DebateTeamSlot {
   side: DebateSide;
   points?: number; // 3, 2, 1, 0 for BP; 1 or 0 for 2-team
   speakerScoreTotal?: number;
+  /** Set by the draw generator when this team was moved up from a lower bracket to fill a room. */
+  pulledUp?: boolean;
 }
 
 export interface DebateAdjudicatorSlot {
@@ -269,7 +304,11 @@ export interface TeamStandingRow {
     rank?: number;
     win?: boolean;
     opponentNames?: string[];
+    opponentTeamIds?: string[];
+    pulledUp?: boolean;
   }[];
+  /** Every team metric, keyed by id, computed regardless of which are used for ranking. */
+  metrics: Record<TeamMetricId, number>;
 }
 
 export interface SpeakerStandingRow {
@@ -289,6 +328,7 @@ export interface SpeakerStandingRow {
     score: number;
     position: number;
   }[];
+  metrics: Record<SpeakerMetricId, number>;
 }
 
 export interface AdjudicatorStandingRow {

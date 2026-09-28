@@ -7,7 +7,11 @@ import {
   Debate,
   Round,
   DebateSide,
+  TeamMetricId,
 } from "@/types";
+import { TeamRoundAccum, computeSpeakerMetrics, computeTeamMetrics } from "./metrics";
+import { assignSharedRanks, compareByPrecedence, resolveSpeakerPrecedence, resolveTeamPrecedence } from "./precedence";
+import { TEAM_METRIC_DIRECTION, SPEAKER_METRIC_DIRECTION } from "./metrics";
 
 export interface StandingsCalculationResult {
   teams: TeamStandingRow[];
@@ -15,8 +19,17 @@ export interface StandingsCalculationResult {
   replies: SpeakerStandingRow[];
 }
 
+/** BP places a team's points onto a 1st-4th finish; two-team formats have no such notion. */
+function bpRankInRoom(points: number): number {
+  return points === 3 ? 1 : points === 2 ? 2 : points === 1 ? 3 : 4;
+}
+
 /**
- * Computes official Tabbycat standings for teams, speakers, and reply speakers.
+ * Computes standings for teams, speakers, and reply speakers. Ranking uses
+ * the tournament's configured metric precedence (`teamStandingsPrecedence` /
+ * `speakerStandingsPrecedence`), falling back to the format's traditional
+ * default chain when none is set. See `src/lib/standings/metrics.ts` for the
+ * metric definitions and `precedence.ts` for how the chain is applied.
  */
 export function calculateStandings(
   tournament: Tournament,
@@ -27,13 +40,18 @@ export function calculateStandings(
 ): StandingsCalculationResult {
   const isBP = tournament.format === "bp";
 
-  // Filter only confirmed and non-discarded ballots
   const validBallots = ballots.filter((b) => b.confirmed && !b.discarded);
   const ballotMap = new Map<string, BallotSubmission>();
   validBallots.forEach((b) => ballotMap.set(b.debateId, b));
 
-  // 1. Team Standings Calculation
+  const isReplyPosition = tournament.preferences?.replyScoresEnabled && !isBP;
+
+  /* ---------------------------------------------------------------------- */
+  /* 1. Accumulate raw per-round data for every team                        */
+  /* ---------------------------------------------------------------------- */
+
   const teamRowsMap = new Map<string, TeamStandingRow>();
+  const teamRoundAccum = new Map<string, TeamRoundAccum[]>();
 
   for (const team of teams) {
     teamRowsMap.set(team.id, {
@@ -53,13 +71,16 @@ export function calculateStandings(
       wins: 0,
       losses: 0,
       roundResults: [],
+      metrics: {} as Record<TeamMetricId, number>,
     });
+    teamRoundAccum.set(team.id, []);
   }
 
-  // Iterate debates and add ballot scores
   for (const debate of debates) {
     const ballot = ballotMap.get(debate.id);
     if (!ballot) continue;
+
+    const slotsInDebate = Object.values(debate.teams).filter((slot) => slot?.teamId);
 
     for (const [sideKey, teamSlot] of Object.entries(debate.teams)) {
       if (!teamSlot || !teamSlot.teamId) continue;
@@ -69,9 +90,15 @@ export function calculateStandings(
       const side = sideKey as DebateSide;
       const teamScore = ballot.teamScores[side];
       const speakerScores = ballot.speakerScores[side] || [];
-      const totalSpeakersScore = speakerScores.reduce((sum, spk) => sum + (spk.score || 0), 0);
+      const substantiveScores = speakerScores
+        .filter((sc) => !(isReplyPosition && sc.position === 4))
+        .map((sc) => sc.score || 0);
+      const totalSpeakersScore = substantiveScores.reduce((sum, sc) => sum + sc, 0);
 
       const pts = teamScore ? teamScore.points || 0 : 0;
+      const win = isBP ? pts >= 2 : Boolean(teamScore?.win) || pts === 1;
+      const margin = isBP ? 0 : teamScore?.margin || 0;
+
       teamRow.points += pts;
       teamRow.totalSpeakerScore += totalSpeakersScore;
 
@@ -81,15 +108,26 @@ export function calculateStandings(
         else if (pts === 1) teamRow.thirdPlaces!++;
         else teamRow.fourthPlaces!++;
       } else {
-        if (teamScore?.win || pts === 1) {
-          teamRow.wins!++;
-        } else {
-          teamRow.losses!++;
-        }
-        teamRow.margins! += teamScore?.margin || 0;
+        if (win) teamRow.wins!++;
+        else teamRow.losses!++;
+        teamRow.margins! += margin;
       }
 
-      // Record round results
+      const opponentTeamIds = slotsInDebate
+        .filter((slot) => slot!.teamId !== teamSlot.teamId)
+        .map((slot) => slot!.teamId);
+
+      teamRoundAccum.get(teamSlot.teamId)!.push({
+        points: pts,
+        win,
+        speaksSum: totalSpeakersScore,
+        individualScores: substantiveScores,
+        margin,
+        opponentTeamIds,
+        pulledUp: Boolean(teamSlot.pulledUp),
+        rankInRoom: isBP ? bpRankInRoom(pts) : undefined,
+      });
+
       teamRow.roundResults.push({
         roundSeq: debate.roundSeq,
         side,
@@ -97,65 +135,56 @@ export function calculateStandings(
         speakerScore: totalSpeakersScore,
         rank: teamScore?.rank,
         win: teamScore?.win,
+        opponentTeamIds,
       });
     }
   }
 
-  // Finalize team averages and sort
-  const teamList = Array.from(teamRowsMap.values());
-  for (const row of teamList) {
-    const roundsCount = row.roundResults.length;
-    const speakersPerTeam = tournament.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
+  /* ---------------------------------------------------------------------- */
+  /* 2. Base sums (for draw strength) and legacy averageSpeakerScore         */
+  /* ---------------------------------------------------------------------- */
+
+  const speakersPerTeam = tournament.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
+  const opponentWins = new Map<string, number>();
+  const opponentSpeaksSum = new Map<string, number>();
+
+  for (const team of teams) {
+    const rows = teamRoundAccum.get(team.id)!;
+    opponentWins.set(team.id, rows.filter((r) => r.win).length);
+    opponentSpeaksSum.set(team.id, rows.reduce((s, r) => s + (r.speaksSum ?? 0), 0));
+
+    const row = teamRowsMap.get(team.id)!;
+    const roundsCount = rows.length;
     const totalSpeeches = roundsCount * speakersPerTeam;
     row.averageSpeakerScore = totalSpeeches > 0 ? Number((row.totalSpeakerScore / totalSpeeches).toFixed(2)) : 0;
   }
 
-  // Multi-tier sorting according to metric chain
-  teamList.sort((a, b) => {
-    // Tier 1: Total Points
-    if (b.points !== a.points) return b.points - a.points;
+  /* ---------------------------------------------------------------------- */
+  /* 3. Full metrics, sort by the resolved precedence, rank with shared ties */
+  /* ---------------------------------------------------------------------- */
 
-    // Tier 2: Total Speaker Score
-    if (Math.abs(b.totalSpeakerScore - a.totalSpeakerScore) > 0.001) {
-      return b.totalSpeakerScore - a.totalSpeakerScore;
-    }
+  const teamPrecedence = resolveTeamPrecedence(tournament.format, tournament.preferences);
+  const ctx = { opponentWins, opponentSpeaksSum };
 
-    // Tier 3: Rank counts for BP (1sts, then 2nds, then 3rds)
-    if (isBP) {
-      if ((b.firstPlaces || 0) !== (a.firstPlaces || 0)) return (b.firstPlaces || 0) - (a.firstPlaces || 0);
-      if ((b.secondPlaces || 0) !== (a.secondPlaces || 0)) return (b.secondPlaces || 0) - (a.secondPlaces || 0);
-      if ((b.thirdPlaces || 0) !== (a.thirdPlaces || 0)) return (b.thirdPlaces || 0) - (a.thirdPlaces || 0);
-    } else {
-      // Margins for 2-team
-      if ((b.margins || 0) !== (a.margins || 0)) return (b.margins || 0) - (a.margins || 0);
-    }
-
-    return a.teamName.localeCompare(b.teamName);
-  });
-
-  // Assign ranks (handling ties)
-  let currentRank = 1;
-  for (let i = 0; i < teamList.length; i++) {
-    if (i > 0) {
-      const prev = teamList[i - 1];
-      const cur = teamList[i];
-      const isTied =
-        cur.points === prev.points &&
-        Math.abs(cur.totalSpeakerScore - prev.totalSpeakerScore) < 0.001 &&
-        (isBP ? cur.firstPlaces === prev.firstPlaces : cur.margins === prev.margins);
-
-      rowRank: if (!isTied) {
-        currentRank = i + 1;
-      }
-    }
-    teamList[i].rank = currentRank;
+  const teamList = Array.from(teamRowsMap.values());
+  for (const row of teamList) {
+    row.metrics = computeTeamMetrics(teamRoundAccum.get(row.teamId)!, ctx);
   }
 
-  // 2. Speaker Standings Calculation
+  teamList.sort((a, b) => {
+    const byMetric = compareByPrecedence(a.metrics, b.metrics, teamPrecedence, TEAM_METRIC_DIRECTION);
+    return byMetric !== 0 ? byMetric : a.teamName.localeCompare(b.teamName);
+  });
+  assignSharedRanks(teamList, (row) => row.metrics, teamPrecedence, (row, rank) => (row.rank = rank));
+
+  /* ---------------------------------------------------------------------- */
+  /* 4. Speaker and reply standings                                          */
+  /* ---------------------------------------------------------------------- */
+
   const speakerRowsMap = new Map<string, SpeakerStandingRow>();
   const replyRowsMap = new Map<string, SpeakerStandingRow>();
+  const speakerScoresByRound = new Map<string, { substantive: number[]; reply: number[] }>();
 
-  // Register all speakers from all teams
   for (const team of teams) {
     for (const spk of team.speakers || []) {
       speakerRowsMap.set(spk.id, {
@@ -170,22 +199,20 @@ export function calculateStandings(
         averageScore: 0,
         speechesCount: 0,
         scoresByRound: [],
+        metrics: {} as any,
       });
+      speakerScoresByRound.set(spk.id, { substantive: [], reply: [] });
     }
   }
 
-  // Tally individual scores from confirmed ballots
   for (const debate of debates) {
     const ballot = ballotMap.get(debate.id);
     if (!ballot) continue;
 
-    for (const [sideKey, scoresList] of Object.entries(ballot.speakerScores || {})) {
-      const isReplyPosition = tournament.preferences?.replyScoresEnabled && !isBP;
-
+    for (const [, scoresList] of Object.entries(ballot.speakerScores || {})) {
       for (const entry of scoresList) {
         if (!entry.speakerId || !entry.score) continue;
 
-        // Check if this is a reply speech position (position 4 in 3-speaker 2-team format)
         if (isReplyPosition && entry.position === 4) {
           if (!replyRowsMap.has(entry.speakerId)) {
             const team = teams.find((t) => t.speakers?.some((s) => s.id === entry.speakerId));
@@ -201,18 +228,16 @@ export function calculateStandings(
               averageScore: 0,
               speechesCount: 0,
               scoresByRound: [],
+              metrics: {} as any,
             });
+            speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
           }
           const repRow = replyRowsMap.get(entry.speakerId)!;
           repRow.totalScore += entry.score;
           repRow.speechesCount++;
-          repRow.scoresByRound.push({
-            roundSeq: debate.roundSeq,
-            score: entry.score,
-            position: entry.position,
-          });
+          repRow.scoresByRound.push({ roundSeq: debate.roundSeq, score: entry.score, position: entry.position });
+          speakerScoresByRound.get(entry.speakerId)!.reply.push(entry.score);
         } else {
-          // Standard substantive speaker
           let spkRow = speakerRowsMap.get(entry.speakerId);
           if (!spkRow) {
             const team = teams.find((t) => t.speakers?.some((s) => s.id === entry.speakerId));
@@ -228,54 +253,42 @@ export function calculateStandings(
               averageScore: 0,
               speechesCount: 0,
               scoresByRound: [],
+              metrics: {} as any,
             };
             speakerRowsMap.set(entry.speakerId, spkRow);
+            speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
           }
           spkRow.totalScore += entry.score;
           spkRow.speechesCount++;
-          spkRow.scoresByRound.push({
-            roundSeq: debate.roundSeq,
-            score: entry.score,
-            position: entry.position,
-          });
+          spkRow.scoresByRound.push({ roundSeq: debate.roundSeq, score: entry.score, position: entry.position });
+          speakerScoresByRound.get(entry.speakerId)!.substantive.push(entry.score);
         }
       }
     }
   }
 
-  // Sort and rank substantive speakers
-  const speakerList = Array.from(speakerRowsMap.values());
-  for (const spk of speakerList) {
-    spk.averageScore = spk.speechesCount > 0 ? Number((spk.totalScore / spk.speechesCount).toFixed(2)) : 0;
-  }
+  const trim = Math.max(0, tournament.preferences?.speakerTrim ?? 0);
+  const speakerPrecedence = resolveSpeakerPrecedence(tournament.preferences);
 
-  speakerList.sort((a, b) => {
-    if (Math.abs(b.totalScore - a.totalScore) > 0.001) return b.totalScore - a.totalScore;
-    if (Math.abs(b.averageScore - a.averageScore) > 0.001) return b.averageScore - a.averageScore;
-    return a.speakerName.localeCompare(b.speakerName);
-  });
-
-  let spkRank = 1;
-  for (let i = 0; i < speakerList.length; i++) {
-    if (i > 0 && Math.abs(speakerList[i].totalScore - speakerList[i - 1].totalScore) > 0.001) {
-      spkRank = i + 1;
+  const finalizeSpeakerList = (rowsMap: Map<string, SpeakerStandingRow>, isReplyList: boolean) => {
+    const list = Array.from(rowsMap.values());
+    for (const row of list) {
+      const scores = speakerScoresByRound.get(row.speakerId) ?? { substantive: [], reply: [] };
+      row.averageScore = row.speechesCount > 0 ? Number((row.totalScore / row.speechesCount).toFixed(2)) : 0;
+      row.metrics = isReplyList
+        ? computeSpeakerMetrics(scores.reply, [], trim)
+        : computeSpeakerMetrics(scores.substantive, scores.reply, trim);
     }
-    speakerList[i].rank = spkRank;
-  }
+    list.sort((a, b) => {
+      const byMetric = compareByPrecedence(a.metrics, b.metrics, speakerPrecedence, SPEAKER_METRIC_DIRECTION);
+      return byMetric !== 0 ? byMetric : a.speakerName.localeCompare(b.speakerName);
+    });
+    assignSharedRanks(list, (row) => row.metrics, speakerPrecedence, (row, rank) => (row.rank = rank));
+    return list;
+  };
 
-  // Sort and rank reply speakers
-  const replyList = Array.from(replyRowsMap.values());
-  for (const rep of replyList) {
-    rep.averageScore = rep.speechesCount > 0 ? Number((rep.totalScore / rep.speechesCount).toFixed(2)) : 0;
-  }
-  replyList.sort((a, b) => b.totalScore - a.totalScore);
-  let repRank = 1;
-  for (let i = 0; i < replyList.length; i++) {
-    if (i > 0 && Math.abs(replyList[i].totalScore - replyList[i - 1].totalScore) > 0.001) {
-      repRank = i + 1;
-    }
-    replyList[i].rank = repRank;
-  }
+  const speakerList = finalizeSpeakerList(speakerRowsMap, false);
+  const replyList = finalizeSpeakerList(replyRowsMap, true);
 
   return {
     teams: teamList,
