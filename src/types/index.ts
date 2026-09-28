@@ -24,6 +24,7 @@ export interface TournamentPreferences {
 export interface Tournament {
   id: string;
   name: string;
+  nameLower?: string; // lowercase name, used for prefix search on the tournaments hub
   shortName: string;
   slug: string;
   format: TournamentFormat;
