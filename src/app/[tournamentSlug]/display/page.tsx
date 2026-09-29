@@ -24,7 +24,7 @@ export default function DisplayPage() {
     ? motions.find(
         (item) =>
           item.rounds?.includes(activeRound.id) &&
-          (isOwnerOrAdmin || item.released !== false)
+          (isOwnerOrAdmin || item.released === true)
       )
     : null;
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];

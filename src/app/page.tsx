@@ -26,6 +26,7 @@ import {
   doc,
   deleteDoc,
 } from "firebase/firestore";
+import { safeJsonParse } from "@/lib/safeJson";
 
 interface StoredTournamentSummary {
   id?: string;
@@ -69,8 +70,9 @@ export default function HomePage() {
       const key = localStorage.key(i);
       if (key && key.startsWith("crabbytab_t_") && key.endsWith("_meta")) {
         try {
-          const item = JSON.parse(localStorage.getItem(key) || "{}");
-          if (item.slug && item.slug !== "wudc-demo") {
+          const parsedItem = safeJsonParse<Record<string, any> | null>(localStorage.getItem(key), null);
+          if (parsedItem && typeof parsedItem === "object" && parsedItem.slug && parsedItem.slug !== "wudc-demo") {
+            const item = parsedItem as Record<string, any>;
             list.push({
               id: item.id || `tourn-${item.slug}`,
               slug: item.slug,

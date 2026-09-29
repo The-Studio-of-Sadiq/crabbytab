@@ -74,7 +74,7 @@ export default function PublicTournamentPage() {
   const roundResultsReleased = Boolean(activeRound?.resultsReleased && !activeRound.silent);
 
   const releasedMotions = motions
-    .filter((motion) => motion.released !== false)
+    .filter((motion) => motion.released === true)
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
 
   const publicRoundIds = new Set(

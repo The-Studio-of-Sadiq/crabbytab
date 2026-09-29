@@ -38,6 +38,7 @@ import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { generateDemoTournament } from "@/lib/demo/generator";
+import { safeJsonParse } from "@/lib/safeJson";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -64,6 +65,7 @@ export interface TournamentContextType {
   saveTournament: (t: Tournament) => Promise<void>;
   createRound: (name: string, abbr: string, stage: "preliminary" | "elimination") => Promise<Round>;
   setPreliminaryRoundCount: (count: number) => Promise<void>;
+  deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
   generateDraw: (roundId: string) => Promise<void>;
   autoAllocate: (roundId: string, panelSize?: number) => Promise<void>;
@@ -204,46 +206,49 @@ export function TournamentProvider({
       let localTournament: Tournament | null = null;
       try {
         const localT = localStorage.getItem(`${storagePrefix}_meta`);
-        if (localT) {
-          localTournament = JSON.parse(localT);
+        const parsedTournament = safeJsonParse<Tournament | null>(localT, null);
+        if (parsedTournament) {
+          localTournament = parsedTournament;
           if (isMounted) setTournament(localTournament);
         }
 
         const localRounds = localStorage.getItem(`${storagePrefix}_rounds`);
         if (localRounds && isMounted) {
-          const parsed = JSON.parse(localRounds);
-          setRounds(parsed);
-          if (parsed.length > 0) {
-            setActiveRound(parsed.find((round: Round) => !round.cancelled) || null);
+          const parsed = safeJsonParse<Round[]>(localRounds, []);
+          if (Array.isArray(parsed)) {
+            setRounds(parsed);
+            if (parsed.length > 0) {
+              setActiveRound(parsed.find((round: Round) => !round.cancelled) || null);
+            }
           }
         }
 
         const localTeams = localStorage.getItem(`${storagePrefix}_teams`);
-        if (localTeams && isMounted) setTeams(JSON.parse(localTeams));
+        if (localTeams && isMounted) setTeams(safeJsonParse<Team[]>(localTeams, []));
 
         const localAdjs = localStorage.getItem(`${storagePrefix}_adjudicators`);
-        if (localAdjs && isMounted) setAdjudicators(JSON.parse(localAdjs));
+        if (localAdjs && isMounted) setAdjudicators(safeJsonParse<Adjudicator[]>(localAdjs, []));
 
         const localVenues = localStorage.getItem(`${storagePrefix}_venues`);
-        if (localVenues && isMounted) setVenues(JSON.parse(localVenues));
+        if (localVenues && isMounted) setVenues(safeJsonParse<Venue[]>(localVenues, []));
 
         const localMotions = localStorage.getItem(`${storagePrefix}_motions`);
-        if (localMotions && isMounted) setMotions(JSON.parse(localMotions));
+        if (localMotions && isMounted) setMotions(safeJsonParse<Motion[]>(localMotions, []));
 
         const localBreaks = localStorage.getItem(`${storagePrefix}_breaks`);
-        if (localBreaks && isMounted) setBreakCategories(JSON.parse(localBreaks));
+        if (localBreaks && isMounted) setBreakCategories(safeJsonParse<BreakCategory[]>(localBreaks, []));
 
         const localDebates = localStorage.getItem(`${storagePrefix}_debates`);
-        if (localDebates && isMounted) setDebates(JSON.parse(localDebates));
+        if (localDebates && isMounted) setDebates(safeJsonParse<Debate[]>(localDebates, []));
 
         const localBallots = localStorage.getItem(`${storagePrefix}_ballots`);
-        if (localBallots && isMounted) setBallots(JSON.parse(localBallots));
+        if (localBallots && isMounted) setBallots(safeJsonParse<BallotSubmission[]>(localBallots, []));
 
         const localFeedback = localStorage.getItem(`${storagePrefix}_feedback`);
-        if (localFeedback && isMounted) setFeedback(JSON.parse(localFeedback));
+        if (localFeedback && isMounted) setFeedback(safeJsonParse<FeedbackSubmission[]>(localFeedback, []));
 
         const localInstitutions = localStorage.getItem(`${storagePrefix}_institutions`);
-        if (localInstitutions && isMounted) setInstitutions(JSON.parse(localInstitutions));
+        if (localInstitutions && isMounted) setInstitutions(safeJsonParse<Institution[]>(localInstitutions, []));
       } catch (e) {
         console.warn("Error reading local storage cache:", e);
       }
@@ -627,12 +632,16 @@ export function TournamentProvider({
   };
 
   const updateRound = async (round: Round) => {
+    if (db && tournament?.id) {
+      await setDoc(
+        doc(db, "tournaments", tournament.id, "rounds", round.id),
+        cleanUndefined(round)
+      );
+    }
     const updated = rounds.map((r) => (r.id === round.id ? round : r));
     setRounds(updated);
     if (activeRound?.id === round.id) setActiveRound(round);
     persistLocal("rounds", updated);
-
-    await setFirestoreDoc("rounds", round.id, round);
   };
 
   const setPreliminaryRoundCount = async (count: number) => {
@@ -700,18 +709,29 @@ export function TournamentProvider({
       roundSeq: seqByRoundId.get(debate.roundId) ?? debate.roundSeq,
     }));
 
+    const changedDebates = updatedDebates.filter(
+      (debate, index) => debate.roundSeq !== debates[index].roundSeq
+    );
+    if (db && tournament?.id) {
+      const ops: Array<(batch: WriteBatch) => void> = [];
+      ordered.forEach((round) => {
+        ops.push((batch) =>
+          batch.set(doc(db!, "tournaments", tournament.id, "rounds", round.id), cleanUndefined(round))
+        );
+      });
+      changedDebates.forEach((debate) => {
+        ops.push((batch) =>
+          batch.set(doc(db!, "tournaments", tournament.id, "debates", debate.id), cleanUndefined(debate))
+        );
+      });
+      await commitChunkedBatches(ops);
+    }
+
     setRounds(ordered);
     persistLocal("rounds", ordered);
-    await Promise.all(ordered.map((round) => setFirestoreDoc("rounds", round.id, round)));
-
-    if (updatedDebates.some((debate, index) => debate.roundSeq !== debates[index].roundSeq)) {
+    if (changedDebates.length > 0) {
       setDebates(updatedDebates);
       persistLocal("debates", updatedDebates);
-      await Promise.all(
-        updatedDebates
-          .filter((debate, index) => debate.roundSeq !== debates[index].roundSeq)
-          .map((debate) => setFirestoreDoc("debates", debate.id, debate))
-      );
     }
 
     setActiveRound((current) => {
@@ -719,6 +739,106 @@ export function TournamentProvider({
       if (updatedActive && !updatedActive.cancelled) return updatedActive;
       return [...prelims, ...eliminations].at(-1) || null;
     });
+  };
+
+  const deleteRound = async (roundId: string) => {
+    const roundToDelete = rounds.find((round) => round.id === roundId);
+    if (!roundToDelete) return;
+
+    let preliminarySeq = 0;
+    const remainingRounds = rounds
+      .filter((round) => round.id !== roundId)
+      .sort((a, b) => a.seq - b.seq)
+      .map((round, index) => {
+        let name = round.name;
+        let abbreviation = round.abbreviation;
+        if (round.stage === "preliminary") {
+          preliminarySeq += 1;
+          if (/^Round \d+$/.test(name)) name = `Round ${preliminarySeq}`;
+          if (/^R\d+$/.test(abbreviation)) abbreviation = `R${preliminarySeq}`;
+        }
+        return { ...round, seq: index + 1, name, abbreviation };
+      });
+    const remainingRoundIds = new Set(remainingRounds.map((round) => round.id));
+    const deletedDebates = debates.filter((debate) => debate.roundId === roundId);
+    const deletedDebateIds = new Set(deletedDebates.map((debate) => debate.id));
+    const deletedBallots = ballots.filter(
+      (ballot) => ballot.roundId === roundId || deletedDebateIds.has(ballot.debateId)
+    );
+    const deletedFeedback = feedback.filter(
+      (submission) => submission.roundId === roundId || deletedDebateIds.has(submission.debateId)
+    );
+    const oldDebateSeqById = new Map(debates.map((debate) => [debate.id, debate.roundSeq]));
+    const updatedDebates = debates
+      .filter((debate) => remainingRoundIds.has(debate.roundId))
+      .map((debate) => ({
+        ...debate,
+        roundSeq: remainingRounds.find((round) => round.id === debate.roundId)?.seq ?? debate.roundSeq,
+      }));
+    const updatedMotions = motions.map((motion) => ({
+      ...motion,
+      rounds: (motion.rounds || []).filter((assignedRoundId) => assignedRoundId !== roundId),
+    }));
+    const changedMotions = updatedMotions.filter((motion, index) =>
+      motions[index].rounds?.includes(roundId)
+    );
+
+    if (db && tournament?.id) {
+      const ops: Array<(batch: WriteBatch) => void> = [];
+      ops.push((batch) =>
+        batch.delete(doc(db!, "tournaments", tournament.id, "rounds", roundId))
+      );
+      deletedDebates.forEach((debate) => {
+        ops.push((batch) =>
+          batch.delete(doc(db!, "tournaments", tournament.id, "debates", debate.id))
+        );
+      });
+      deletedBallots.forEach((ballot) => {
+        ops.push((batch) =>
+          batch.delete(doc(db!, "tournaments", tournament.id, "ballots", ballot.id))
+        );
+      });
+      deletedFeedback.forEach((submission) => {
+        ops.push((batch) =>
+          batch.delete(doc(db!, "tournaments", tournament.id, "feedback", submission.id))
+        );
+      });
+      remainingRounds.forEach((round) => {
+        ops.push((batch) =>
+          batch.set(doc(db!, "tournaments", tournament.id, "rounds", round.id), round)
+        );
+      });
+      updatedDebates.forEach((debate, index) => {
+        if (debate.roundSeq !== oldDebateSeqById.get(debate.id)) {
+          ops.push((batch) =>
+            batch.set(doc(db!, "tournaments", tournament.id, "debates", debate.id), cleanUndefined(debate))
+          );
+        }
+      });
+      changedMotions.forEach((motion) => {
+        ops.push((batch) =>
+          batch.set(doc(db!, "tournaments", tournament.id, "motions", motion.id), cleanUndefined(motion))
+        );
+      });
+      await commitChunkedBatches(ops);
+    }
+
+    setRounds(remainingRounds);
+    setDebates(updatedDebates);
+    setBallots(ballots.filter((ballot) => !deletedBallots.some((removed) => removed.id === ballot.id)));
+    const updatedFeedback = feedback.filter(
+      (submission) => !deletedFeedback.some((removed) => removed.id === submission.id)
+    );
+    setFeedback(updatedFeedback);
+    setMotions(updatedMotions);
+    persistLocal("rounds", remainingRounds);
+    persistLocal("debates", updatedDebates);
+    persistLocal("ballots", ballots.filter((ballot) => !deletedBallots.some((removed) => removed.id === ballot.id)));
+    persistLocal("feedback", updatedFeedback);
+    persistLocal("motions", updatedMotions);
+    if (activeRound?.id === roundId) {
+      setActiveRound(remainingRounds.filter((round) => !round.cancelled).at(-1) || null);
+    }
   };
 
   const generateDraw = async (roundId: string) => {
@@ -1174,10 +1294,15 @@ export function TournamentProvider({
   };
 
   const updateMotion = async (motion: Motion) => {
+    if (db && tournament?.id) {
+      await setDoc(
+        doc(db, "tournaments", tournament.id, "motions", motion.id),
+        cleanUndefined(motion)
+      );
+    }
     const updated = motions.map((m) => (m.id === motion.id ? motion : m));
     setMotions(updated);
     persistLocal("motions", updated);
-    await setFirestoreDoc("motions", motion.id, motion);
   };
 
   const deleteMotion = async (motionId: string) => {
@@ -1291,6 +1416,7 @@ export function TournamentProvider({
         saveTournament,
         createRound,
         setPreliminaryRoundCount,
+        deleteRound,
         updateRound,
         generateDraw,
         autoAllocate,

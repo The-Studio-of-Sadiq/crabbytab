@@ -25,8 +25,10 @@ import {
   UserX,
   Layers,
 } from "lucide-react";
+import { safeJsonParse } from "@/lib/safeJson";
 import { DebateSide, Debate, Team, Venue, Adjudicator } from "@/types";
 import { calculateAdjDebateConflict } from "@/lib/draw/allocator";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 interface DragPayload {
   type: "team";
@@ -60,6 +62,9 @@ export default function DrawPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAllocating, setIsAllocating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
+  const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
+  const [isSavingDrawRelease, setIsSavingDrawRelease] = useState(false);
+  const [drawReleaseError, setDrawReleaseError] = useState("");
 
   // Drag & Drop state
   const [draggingItem, setDraggingItem] = useState<DragPayload | null>(null);
@@ -180,13 +185,21 @@ export default function DrawPage() {
   };
 
   // Toggle release
-  const toggleReleaseDraw = async () => {
-    if (!activeRound) return;
-    const updated = {
-      ...activeRound,
-      drawStatus: (activeRound.drawStatus === "confirmed" ? "draft" : "confirmed") as any,
-    };
-    await updateRound(updated);
+  const confirmDrawRelease = async () => {
+    if (!activeRound || pendingDrawRelease === null) return;
+    setIsSavingDrawRelease(true);
+    setDrawReleaseError("");
+    try {
+      await updateRound({
+        ...activeRound,
+        drawStatus: pendingDrawRelease ? "confirmed" : "draft",
+      });
+      setPendingDrawRelease(null);
+    } catch {
+      setDrawReleaseError("The draw visibility change could not be saved. Please try again.");
+    } finally {
+      setIsSavingDrawRelease(false);
+    }
   };
 
   // Add new empty debate room
@@ -298,7 +311,8 @@ export default function DrawPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload: DragPayload = JSON.parse(raw);
+    const payload = safeJsonParse<DragPayload | null>(raw, null);
+    if (!payload) return;
 
     const targetDebate = roundDebates.find((d) => d.id === targetDebateId);
     if (!targetDebate) return;
@@ -389,7 +403,8 @@ export default function DrawPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload: DragPayload = JSON.parse(raw);
+    const payload = safeJsonParse<DragPayload | null>(raw, null);
+    if (!payload) return;
 
     if (payload.sourceType === "debate" && payload.debateId && payload.side) {
       await handleRemoveTeamFromSlot(payload.debateId, payload.side);
@@ -441,7 +456,7 @@ export default function DrawPage() {
           </button>
 
           <button
-            onClick={toggleReleaseDraw}
+            onClick={() => setPendingDrawRelease(activeRound?.drawStatus !== "confirmed")}
             disabled={roundDebates.length === 0}
             className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-bold border transition disabled:opacity-50 ${
               activeRound?.drawStatus === "confirmed"
@@ -461,6 +476,7 @@ export default function DrawPage() {
               </>
             )}
           </button>
+          {drawReleaseError && <p role="alert" className="text-xs text-red-600">{drawReleaseError}</p>}
 
           <button
             onClick={() => window.print()}
@@ -855,6 +871,19 @@ export default function DrawPage() {
             );
           })}
         </div>
+      )}
+      {pendingDrawRelease !== null && activeRound && (
+        <ConfirmActionDialog
+          title={pendingDrawRelease ? "Publish this draw?" : "Unpublish this draw?"}
+          description={pendingDrawRelease
+            ? `Publishing ${activeRound.name} makes its room and team assignments visible on the public tab.`
+            : `Unpublishing ${activeRound.name} immediately hides its draw from the public tab.`}
+          confirmLabel={pendingDrawRelease ? "Yes, publish draw" : "Yes, unpublish draw"}
+          onConfirm={confirmDrawRelease}
+          onCancel={() => setPendingDrawRelease(null)}
+          isBusy={isSavingDrawRelease}
+          error={drawReleaseError}
+        />
       )}
     </div>
   );

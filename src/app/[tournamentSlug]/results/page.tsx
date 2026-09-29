@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
@@ -17,6 +17,7 @@ import {
   Lock,
 } from "lucide-react";
 import { DebateSide } from "@/types";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 export default function ResultsOverviewPage() {
   const {
@@ -42,6 +43,23 @@ export default function ResultsOverviewPage() {
     (d) => ballotMap.get(d.id)?.confirmed
   ).length;
   const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
+  const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publicationError, setPublicationError] = useState("");
+
+  const confirmPublication = async () => {
+    if (!activeRound || pendingPublication === null) return;
+    setIsPublishing(true);
+    setPublicationError("");
+    try {
+      await updateRound({ ...activeRound, resultsReleased: pendingPublication });
+      setPendingPublication(null);
+    } catch {
+      setPublicationError("The round publication could not be saved. Please try again.");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -271,7 +289,13 @@ export default function ResultsOverviewPage() {
             <input
               type="checkbox"
               checked={Boolean(activeRound.silent)}
-              onChange={(event) => updateRound({ ...activeRound, silent: event.target.checked })}
+              onChange={(event) =>
+                updateRound({
+                  ...activeRound,
+                  silent: event.target.checked,
+                  resultsReleased: false,
+                })
+              }
               className="mt-0.5 rounded border-gray-300 text-blue-600"
             />
             <span>
@@ -282,7 +306,7 @@ export default function ResultsOverviewPage() {
           <div className="flex flex-col items-start sm:items-end gap-1.5">
             <button
               type="button"
-              onClick={() => updateRound({ ...activeRound, resultsReleased: !activeRound.resultsReleased })}
+              onClick={() => setPendingPublication(!activeRound.resultsReleased)}
               disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
               className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
                 activeRound.resultsReleased
@@ -300,8 +324,22 @@ export default function ResultsOverviewPage() {
                 ? "Ballots are saved; publish when ready."
                 : "Confirm every ballot before publishing."}
             </span>
+            {publicationError && <span className="text-[11px] text-red-600">{publicationError}</span>}
           </div>
         </div>
+      )}
+      {pendingPublication !== null && activeRound && (
+        <ConfirmActionDialog
+          title={pendingPublication ? "Publish round results?" : "Unpublish round results?"}
+          description={pendingPublication
+            ? `Publishing ${activeRound.name} makes its team outcomes and scores visible on the public tab.`
+            : `Unpublishing ${activeRound.name} immediately hides its outcomes and scores from the public tab.`}
+          confirmLabel={pendingPublication ? "Yes, publish results" : "Yes, unpublish results"}
+          onConfirm={confirmPublication}
+          onCancel={() => setPendingPublication(null)}
+          isBusy={isPublishing}
+          error={publicationError}
+        />
       )}
     </div>
   );

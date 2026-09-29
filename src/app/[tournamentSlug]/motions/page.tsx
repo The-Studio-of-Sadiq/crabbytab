@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { Motion } from "@/types";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 export default function MotionsPage() {
   const { tournament, motions, rounds, addMotion, updateMotion, deleteMotion } = useTournament();
@@ -40,6 +41,9 @@ export default function MotionsPage() {
   const [newInfoSlide, setNewInfoSlide] = useState("");
   const [newRef, setNewRef] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
+  const [motionPendingRelease, setMotionPendingRelease] = useState<Motion | null>(null);
+  const [isSavingRelease, setIsSavingRelease] = useState(false);
+  const [releaseError, setReleaseError] = useState("");
 
   const filteredMotions = useMemo(() => {
     return motions.filter((m) => {
@@ -86,7 +90,22 @@ export default function MotionsPage() {
 
   // Toggle Release
   const toggleMotionRelease = async (motion: Motion) => {
-    await updateMotion({ ...motion, released: !motion.released });
+    setMotionPendingRelease(motion);
+    setReleaseError("");
+  };
+
+  const confirmMotionRelease = async () => {
+    if (!motionPendingRelease) return;
+    setIsSavingRelease(true);
+    setReleaseError("");
+    try {
+      await updateMotion({ ...motionPendingRelease, released: !motionPendingRelease.released });
+      setMotionPendingRelease(null);
+    } catch {
+      setReleaseError("The motion visibility change could not be saved. Please try again.");
+    } finally {
+      setIsSavingRelease(false);
+    }
   };
 
   // CSV File Handler
@@ -305,6 +324,8 @@ export default function MotionsPage() {
         )}
       </div>
 
+      {releaseError && <p role="alert" className="text-xs text-red-700">{releaseError}</p>}
+
       {/* Add Motion Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
@@ -459,18 +480,6 @@ export default function MotionsPage() {
                 </select>
               </div>
 
-              <div className="flex items-center space-x-2 pt-1">
-                <label className="flex items-center space-x-2 cursor-pointer text-xs font-semibold text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={editingMotion.released}
-                    onChange={(e) => setEditingMotion({ ...editingMotion, released: e.target.checked })}
-                    className="rounded border-gray-300 text-blue-600"
-                  />
-                  <span>Released to Public</span>
-                </label>
-              </div>
-
               <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
@@ -568,6 +577,19 @@ export default function MotionsPage() {
             </div>
           </div>
         </div>
+      )}
+      {motionPendingRelease && (
+        <ConfirmActionDialog
+          title={motionPendingRelease.released ? "Unpublish this motion?" : "Publish this motion?"}
+          description={motionPendingRelease.released
+            ? `Unpublishing ${motionPendingRelease.reference || "this motion"} immediately removes it from the public motions page and presentation.`
+            : `Publishing ${motionPendingRelease.reference || "this motion"} makes it visible on the public motions page and presentation.`}
+          confirmLabel={motionPendingRelease.released ? "Yes, unpublish motion" : "Yes, publish motion"}
+          onConfirm={confirmMotionRelease}
+          onCancel={() => setMotionPendingRelease(null)}
+          isBusy={isSavingRelease}
+          error={releaseError}
+        />
       )}
     </div>
   );

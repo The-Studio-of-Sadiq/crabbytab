@@ -10,7 +10,9 @@ import {
   Eye,
   Shuffle,
   FileCheck2,
+  Trash2,
 } from "lucide-react";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { TournamentPreferences, TournamentFormat } from "@/types";
 import { PrecedenceEditor, ExtraMetricsEditor } from "@/components/setup/PrecedenceEditor";
 import {
@@ -23,7 +25,15 @@ import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings
 import { OddBracketMethod, PairingMethod, ConflictAvoidance, PullupRestriction } from "@/types";
 
 export default function ConfigPage() {
-  const { tournament, saveTournament, rounds, setPreliminaryRoundCount } = useTournament();
+  const {
+    tournament,
+    saveTournament,
+    rounds,
+    debates,
+    ballots,
+    setPreliminaryRoundCount,
+    deleteRound,
+  } = useTournament();
 
   const [format, setFormat] = useState<TournamentFormat>(tournament?.format || "bp");
   const [prefs, setPrefs] = useState<TournamentPreferences>(
@@ -53,7 +63,16 @@ export default function ConfigPage() {
   const [prelimRoundCount, setPrelimRoundCount] = useState(0);
   const [isSavingRoundCount, setIsSavingRoundCount] = useState(false);
   const [roundCountError, setRoundCountError] = useState("");
+  const [roundToDeleteId, setRoundToDeleteId] = useState("");
+  const [showDeleteRoundConfirm, setShowDeleteRoundConfirm] = useState(false);
+  const [isDeletingRound, setIsDeletingRound] = useState(false);
+  const [deleteRoundError, setDeleteRoundError] = useState("");
   const activePrelimCount = rounds.filter((round) => round.stage === "preliminary").length;
+  const roundToDelete = rounds.find((round) => round.id === roundToDeleteId);
+  const debatesToDelete = roundToDelete ? debates.filter((debate) => debate.roundId === roundToDelete.id) : [];
+  const ballotsToDelete = roundToDelete
+    ? ballots.filter((ballot) => ballot.roundId === roundToDelete.id || debatesToDelete.some((debate) => debate.id === ballot.debateId))
+    : [];
 
   useEffect(() => {
     setPrelimRoundCount(activePrelimCount);
@@ -73,6 +92,21 @@ export default function ConfigPage() {
       setRoundCountError("Could not update the preliminary round count.");
     } finally {
       setIsSavingRoundCount(false);
+    }
+  };
+
+  const handleRoundDelete = async () => {
+    if (!roundToDelete) return;
+    setIsDeletingRound(true);
+    setDeleteRoundError("");
+    try {
+      await deleteRound(roundToDelete.id);
+      setRoundToDeleteId("");
+      setShowDeleteRoundConfirm(false);
+    } catch {
+      setDeleteRoundError("The round could not be deleted from the database. Please try again.");
+    } finally {
+      setIsDeletingRound(false);
     }
   };
 
@@ -211,6 +245,34 @@ export default function ConfigPage() {
             Canceled rounds keep their ballots and can be restored by increasing this count. Elimination rounds remain; their sequence numbers adjust as needed.
           </p>
           {roundCountError && <p className="text-xs text-red-600">{roundCountError}</p>}
+          <div className="border-t border-gray-100 pt-3 space-y-2">
+            <label className="block text-xs font-semibold text-gray-700" htmlFor="delete-round-select">
+              Delete a round
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                id="delete-round-select"
+                value={roundToDeleteId}
+                onChange={(event) => setRoundToDeleteId(event.target.value)}
+                className="w-full sm:max-w-xs border border-gray-300 rounded px-3 py-2 text-xs bg-white"
+              >
+                <option value="">Choose a round</option>
+                {rounds.map((round) => (
+                  <option key={round.id} value={round.id}>{round.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowDeleteRoundConfirm(true)}
+                disabled={!roundToDelete || isDeletingRound}
+                className="inline-flex items-center justify-center gap-1.5 rounded border border-red-300 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Round
+              </button>
+            </div>
+            {deleteRoundError && <p role="alert" className="text-xs text-red-600">{deleteRoundError}</p>}
+          </div>
         </div>
 
         {/* 2. Speaker Score Bounds */}
@@ -515,6 +577,18 @@ export default function ConfigPage() {
           </button>
         </div>
       </form>
+      {showDeleteRoundConfirm && roundToDelete && (
+        <ConfirmActionDialog
+          title={`Delete ${roundToDelete.name}?`}
+          description={`This permanently deletes the round, ${debatesToDelete.length} debate(s), and ${ballotsToDelete.length} ballot(s), and removes motion assignments to this round. This cannot be undone.`}
+          confirmLabel="Yes, delete round"
+          onConfirm={handleRoundDelete}
+          onCancel={() => setShowDeleteRoundConfirm(false)}
+          variant="danger"
+          isBusy={isDeletingRound}
+          error={deleteRoundError}
+        />
+      )}
     </div>
   );
 }

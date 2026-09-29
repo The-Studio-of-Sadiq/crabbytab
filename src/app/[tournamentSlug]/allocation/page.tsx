@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Layers,
 } from "lucide-react";
+import { safeJsonParse } from "@/lib/safeJson";
 
 interface JudgeDragPayload {
   type: "judge";
@@ -358,7 +359,8 @@ export default function AllocationPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload: JudgeDragPayload = JSON.parse(raw);
+    const payload = safeJsonParse<JudgeDragPayload | null>(raw, null);
+    if (!payload) return;
 
     const adj = adjsMap.get(payload.adjId);
     if (!adj) return;
@@ -380,7 +382,8 @@ export default function AllocationPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload: JudgeDragPayload = JSON.parse(raw);
+    const payload = safeJsonParse<JudgeDragPayload | null>(raw, null);
+    if (!payload) return;
 
     if (payload.sourceDebateId) {
       if (payload.sourceType === "chair") {
