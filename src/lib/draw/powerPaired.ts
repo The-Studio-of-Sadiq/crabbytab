@@ -18,7 +18,9 @@ export interface PairedDebateDraft {
  */
 function calculateDebateClashPenalty(
   teams: Team[],
-  history: MatchupHistory
+  history: MatchupHistory,
+  repeatMatchupPenalty: number,
+  institutionClashPenalty: number
 ): number {
   let penalty = 0;
   const n = teams.length;
@@ -31,12 +33,12 @@ function calculateDebateClashPenalty(
       // Repeat matchup penalty (heavy)
       const pastOpponents = history.opponents.get(t1.id);
       if (pastOpponents && pastOpponents.has(t2.id)) {
-        penalty += 1000;
+        penalty += repeatMatchupPenalty;
       }
 
       // Institutional clash penalty
       if (t1.institutionId && t2.institutionId && t1.institutionId === t2.institutionId) {
-        penalty += 200;
+        penalty += institutionClashPenalty;
       }
     }
   }
@@ -51,7 +53,11 @@ export function generatePowerPairedDraw(
   standings: TeamStandingRow[],
   history: MatchupHistory,
   format: TournamentFormat,
-  sideRule: "balanced" | "random" = "balanced"
+  sideRule: "balanced" | "random" = "balanced",
+  penalties: { repeatMatchupPenalty: number; institutionClashPenalty: number } = {
+    repeatMatchupPenalty: 1000,
+    institutionClashPenalty: 200,
+  }
 ): PairedDebateDraft[] {
   const teamsPerDebate = format === "bp" ? 4 : 2;
   const totalTeams = teams.length;
@@ -142,7 +148,7 @@ export function generatePowerPairedDraw(
       for (let d = 0; d < debatesInBracket; d++) {
         const group = shuffled.slice(d * teamsPerDebate, (d + 1) * teamsPerDebate);
         candidateGroups.push(group);
-        currentPenalty += calculateDebateClashPenalty(group, history);
+        currentPenalty += calculateDebateClashPenalty(group, history, penalties.repeatMatchupPenalty, penalties.institutionClashPenalty);
       }
 
       if (currentPenalty < bestScore) {

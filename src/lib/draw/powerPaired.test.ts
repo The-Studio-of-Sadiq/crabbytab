@@ -137,3 +137,50 @@ describe("Power-Paired Draw (powerPaired)", () => {
     });
   });
 });
+
+describe("Power-Paired Draw: configurable clash penalties", () => {
+  it("defaults to the historic 1000/200 penalties when none are passed", () => {
+    const teams = ["t1", "t2", "t3", "t4"].map((id) => createTeam(id, id));
+    const standings = teams.map((t, i) => createStanding(t.id, t.name, 3, 150 - i));
+    const history: MatchupHistory = {
+      opponents: new Map([["t1", new Set(["t2"])], ["t2", new Set(["t1"])]]),
+      sides: new Map(),
+    };
+    const draw = generatePowerPairedDraw(teams, standings, history, "uadc");
+    draw.forEach((d) => {
+      const ids = d.teams.map((t) => t.id);
+      expect(ids.includes("t1") && ids.includes("t2")).toBe(false);
+    });
+  });
+
+  it("a custom (lower) institution penalty can be outweighed by other constraints", () => {
+    // With institutionClashPenalty set to 0, an institution clash is no longer
+    // avoided when it's the only way to also avoid a (heavily-penalized) rematch.
+    const t1 = createTeam("t1", "Team 1", "instA");
+    const t2 = createTeam("t2", "Team 2", "instA");
+    const t3 = createTeam("t3", "Team 3", "instB");
+    const t4 = createTeam("t4", "Team 4", "instB");
+    const teams = [t1, t2, t3, t4];
+    const standings = [
+      createStanding("t1", "Team 1", 3, 150),
+      createStanding("t2", "Team 2", 3, 149),
+      createStanding("t3", "Team 3", 3, 148),
+      createStanding("t4", "Team 4", 3, 147),
+    ];
+    // t3 and t4 have already met, so the only rematch-free grouping puts the
+    // two instA teams together instead.
+    const history: MatchupHistory = {
+      opponents: new Map([["t3", new Set(["t4"])], ["t4", new Set(["t3"])]]),
+      sides: new Map(),
+    };
+    const draw = generatePowerPairedDraw(teams, standings, history, "uadc", "balanced", {
+      repeatMatchupPenalty: 1000,
+      institutionClashPenalty: 0,
+    });
+    const rematchAvoided = draw.every((d) => {
+      const ids = d.teams.map((t) => t.id);
+      return !(ids.includes("t3") && ids.includes("t4"));
+    });
+    expect(rematchAvoided).toBe(true);
+  });
+});

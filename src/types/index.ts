@@ -25,6 +25,24 @@ export type SpeakerMetricId =
   | "reply_sum"
   | "reply_avg";
 
+export type OddBracketMethod =
+  | "pullup_top"
+  | "pullup_bottom"
+  | "pullup_middle"
+  | "pullup_random"
+  | "intermediate"
+  | "intermediate_bubble";
+
+export type PairingMethod = "slide" | "fold" | "adjacent" | "random" | "fold_top_adjacent_rest";
+
+export type ConflictAvoidance = "off" | "one_up_one_down" | "min_cost";
+
+export type PullupRestriction =
+  | "none"
+  | "least_pulled"
+  | "lowest_draw_strength_speaks"
+  | "lowest_draw_strength_wins";
+
 export interface TournamentPreferences {
   teamsInDebate: 4 | 2;
   substantiveSpeakers: number; // 2 for BP, 3 for UADC/Australs/WSDC
@@ -52,6 +70,15 @@ export interface TournamentPreferences {
   speakerStandingsExtra?: SpeakerMetricId[];
   /** Number of lowest speaker scores dropped from speaks_trimmed_mean. */
   speakerTrim?: number;
+
+  /** Two-team draw generation options (C2). BP keeps its own cost-based pairing. */
+  oddBracketMethod?: OddBracketMethod;
+  pairingMethod?: PairingMethod;
+  conflictAvoidance?: ConflictAvoidance;
+  pullupRestriction?: PullupRestriction;
+  /** Overrides the hardcoded 1000/200 clash penalties used by the BP draw. */
+  repeatMatchupPenalty?: number;
+  institutionClashPenalty?: number;
 }
 
 export interface Tournament {

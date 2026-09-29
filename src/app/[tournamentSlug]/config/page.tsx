@@ -20,6 +20,7 @@ import {
   TWO_TEAM_ONLY_TEAM_METRICS,
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
+import { OddBracketMethod, PairingMethod, ConflictAvoidance, PullupRestriction } from "@/types";
 
 export default function ConfigPage() {
   const { tournament, saveTournament } = useTournament();
@@ -275,6 +276,122 @@ export default function ConfigPage() {
             <p className="text-[11px] text-gray-500 mt-1">Number of a speaker&apos;s lowest scores dropped before averaging.</p>
           </div>
         </div>
+
+        {/* BP clash penalties (C2) */}
+        {format === "bp" && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+              <Sliders className="w-4 h-4 text-blue-600" />
+              <span>Draw Generation</span>
+            </h3>
+            <p className="text-xs text-gray-600">
+              How heavily the BP draw penalizes a rematch or an institution clash when searching for a
+              clean grouping within a bracket.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Repeat matchup penalty</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                  value={prefs.repeatMatchupPenalty ?? 1000}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, repeatMatchupPenalty: Math.max(0, Number(e.target.value) || 0) }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Institution clash penalty</label>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                  value={prefs.institutionClashPenalty ?? 200}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, institutionClashPenalty: Math.max(0, Number(e.target.value) || 0) }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Two-team draw generation (C2) */}
+        {format !== "bp" && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+              <Sliders className="w-4 h-4 text-blue-600" />
+              <span>Draw Generation</span>
+            </h3>
+            <p className="text-xs text-gray-600">
+              How preliminary draws are built for two-team rounds. Brackets are grouped by wins.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Pairing within a bracket</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                  value={prefs.pairingMethod ?? "fold"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, pairingMethod: e.target.value as PairingMethod }))}
+                >
+                  <option value="fold">Fold (strongest vs weakest)</option>
+                  <option value="slide">Slide (top half vs bottom half)</option>
+                  <option value="adjacent">Adjacent (1v2, 3v4, ...)</option>
+                  <option value="fold_top_adjacent_rest">Fold top room, adjacent for the rest</option>
+                  <option value="random">Random within bracket</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Odd bracket resolution</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                  value={prefs.oddBracketMethod ?? "pullup_top"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
+                >
+                  <option value="pullup_top">Pull up the top team from below</option>
+                  <option value="pullup_bottom">Pull up the bottom team from below</option>
+                  <option value="pullup_middle">Pull up the middle team from below</option>
+                  <option value="pullup_random">Pull up a random team from below</option>
+                  <option value="intermediate">Intermediate bubble room (top team)</option>
+                  <option value="intermediate_bubble">Intermediate bubble room (restricted)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Who can be pulled up</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                  value={prefs.pullupRestriction ?? "none"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, pullupRestriction: e.target.value as PullupRestriction }))}
+                >
+                  <option value="none">No restriction</option>
+                  <option value="least_pulled">Teams pulled up the fewest times so far</option>
+                  <option value="lowest_draw_strength_speaks">Lowest draw strength (speaks)</option>
+                  <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Narrows the candidates before the odd bracket rule above picks one.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Conflict avoidance</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                  value={prefs.conflictAvoidance ?? "one_up_one_down"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
+                >
+                  <option value="off">Off</option>
+                  <option value="one_up_one_down">One up, one down (fast, local swaps)</option>
+                  <option value="min_cost">Minimum cost (slower, finds the true best)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 3. Public Visibility Controls */}
         <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">

@@ -13,6 +13,7 @@ import {
 import { generatePowerPairedDraw, MatchupHistory } from "./powerPaired";
 import { allocateSidesForDebate } from "./sideAllocator";
 import { generateRoundRobinDraw } from "./roundRobin";
+import { generateTwoTeamDraw } from "./twoTeamDraw";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -153,10 +154,28 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         teamsWithSides,
       });
     }
-  } else {
-    // Power-paired Swiss draw for subsequent preliminary rounds
-    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule);
+  } else if (isBP) {
+    // BP keeps its cost-based clash-minimizing approach, with configurable penalties.
+    const penalties = {
+      repeatMatchupPenalty: tournament.preferences?.repeatMatchupPenalty ?? 1000,
+      institutionClashPenalty: tournament.preferences?.institutionClashPenalty ?? 200,
+    };
+    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule, penalties);
     debateDrafts = powerDraw.map((p) => ({
+      bracket: p.bracket,
+      teamsWithSides: p.teamsWithSides,
+    }));
+  } else {
+    // Two-team formats: full C2 pipeline (bracket by wins -> resolve odd brackets
+    // -> pair -> avoid conflicts -> allocate sides), each stage configurable.
+    const twoTeamDraw = generateTwoTeamDraw(activeTeams, standings, history, tournament.format, {
+      pairingMethod: tournament.preferences?.pairingMethod,
+      oddBracketMethod: tournament.preferences?.oddBracketMethod,
+      conflictAvoidance: tournament.preferences?.conflictAvoidance,
+      pullupRestriction: tournament.preferences?.pullupRestriction,
+      sideRule,
+    });
+    debateDrafts = twoTeamDraw.map((p) => ({
       bracket: p.bracket,
       teamsWithSides: p.teamsWithSides,
     }));
