@@ -11,6 +11,7 @@ import {
   TournamentFormat,
   DebateSide,
   BPSide,
+  Institution,
 } from "@/types";
 import { generateRoundDraw } from "../draw/generator";
 import { autoAllocateAdjudicators } from "../draw/allocator";
@@ -21,6 +22,7 @@ export interface DemoTournamentBundle {
   rounds: Round[];
   teams: Team[];
   adjudicators: Adjudicator[];
+  institutions: Institution[];
   venues: Venue[];
   motions: Motion[];
   breakCategories: BreakCategory[];
@@ -109,18 +111,19 @@ export function generateDemoTournament(
     },
   ];
 
-  // 3. Teams & Speakers (16 teams)
-  const sampleInstitutions = [
-    { name: "Oxford Union", code: "Oxford" },
-    { name: "Cambridge Union", code: "Cambridge" },
-    { name: "Harvard Debating Union", code: "Harvard" },
-    { name: "Sydney Debating Society", code: "Sydney" },
-    { name: "Yale Debate Association", code: "Yale" },
-    { name: "London School of Economics", code: "LSE" },
-    { name: "Melbourne Debating Society", code: "Melbourne" },
-    { name: "Stanford Debate Society", code: "Stanford" },
+  // 3. Institutions
+  const sampleInstitutions: Institution[] = [
+    { id: `inst-${tournamentId}-oxford`, tournamentId, name: "Oxford Union", code: "Oxford", region: "UK" },
+    { id: `inst-${tournamentId}-cambridge`, tournamentId, name: "Cambridge Union", code: "Cambridge", region: "UK" },
+    { id: `inst-${tournamentId}-harvard`, tournamentId, name: "Harvard Debating Union", code: "Harvard", region: "North America" },
+    { id: `inst-${tournamentId}-sydney`, tournamentId, name: "Sydney Debating Society", code: "Sydney", region: "Australasia" },
+    { id: `inst-${tournamentId}-yale`, tournamentId, name: "Yale Debate Association", code: "Yale", region: "North America" },
+    { id: `inst-${tournamentId}-lse`, tournamentId, name: "London School of Economics", code: "LSE", region: "UK" },
+    { id: `inst-${tournamentId}-melbourne`, tournamentId, name: "Melbourne Debating Society", code: "Melbourne", region: "Australasia" },
+    { id: `inst-${tournamentId}-stanford`, tournamentId, name: "Stanford Debate Society", code: "Stanford", region: "North America" },
   ];
 
+  // 4. Teams & Speakers (16 teams)
   const teams: Team[] = [];
   let tIdx = 1;
 
@@ -164,6 +167,7 @@ export function generateDemoTournament(
         tournamentId,
         name: `${inst.code} ${suffix}`,
         codeName: `${inst.code} ${suffix}`,
+        institutionId: inst.id,
         institutionName: inst.name,
         speakers,
         breakCategories: eligibleBreaks,
@@ -175,27 +179,29 @@ export function generateDemoTournament(
     }
   }
 
-  // 4. Adjudicators (8 judges)
+  // 5. Adjudicators (8 judges with realistic affiliations and conflicts)
   const sampleJudges = [
-    { name: "Eleanor Vance (Chief Adj)", score: 9.0, trainee: false },
-    { name: "Marcus Brody", score: 8.5, trainee: false },
-    { name: "Aria Montgomery", score: 8.0, trainee: false },
-    { name: "David Kim", score: 7.5, trainee: false },
-    { name: "Sophie Dupont", score: 7.0, trainee: false },
-    { name: "Lucas Silva", score: 6.5, trainee: false },
-    { name: "Zara Chen", score: 5.5, trainee: true },
-    { name: "Oliver Smith", score: 5.0, trainee: true },
+    { name: "Eleanor Vance (Chief Adj)", score: 9.0, trainee: false, inst: sampleInstitutions[0] }, // Oxford
+    { name: "Marcus Brody", score: 8.5, trainee: false, inst: sampleInstitutions[1] }, // Cambridge
+    { name: "Aria Montgomery", score: 8.0, trainee: false, inst: sampleInstitutions[4] }, // Yale
+    { name: "David Kim", score: 7.5, trainee: false, inst: sampleInstitutions[2] }, // Harvard
+    { name: "Sophie Dupont", score: 7.0, trainee: false, inst: sampleInstitutions[3] }, // Sydney
+    { name: "Lucas Silva", score: 6.5, trainee: false, inst: null }, // Independent
+    { name: "Zara Chen", score: 5.5, trainee: true, inst: sampleInstitutions[0] }, // Oxford Trainee
+    { name: "Oliver Smith", score: 5.0, trainee: true, inst: null }, // Independent Trainee
   ];
 
   const adjudicators: Adjudicator[] = sampleJudges.map((j, idx) => ({
     id: `adj-${tournamentId}-${idx + 1}`,
     tournamentId,
     name: j.name,
+    institutionId: j.inst?.id,
+    institutionName: j.inst?.name,
     baseScore: j.score,
     trainee: j.trainee,
-    independent: idx % 2 === 0,
+    independent: !j.inst,
     checkedIn: true,
-    conflicts: [],
+    conflicts: j.inst ? [{ institutionId: j.inst.id, type: "institution" }] : [],
   }));
 
   // 5. Venues (4 to 8 rooms)
@@ -385,6 +391,7 @@ export function generateDemoTournament(
     rounds,
     teams,
     adjudicators,
+    institutions: sampleInstitutions,
     venues,
     motions,
     breakCategories,

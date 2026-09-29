@@ -20,47 +20,86 @@ export interface AdjudicatorAllocationResult {
   conflicts: string[];
 }
 
+export interface AdjDebateConflictResult {
+  penalty: number;
+  reasons: string[];
+  hasClash: boolean;
+  hasInstitutionalClash: boolean;
+  hasPersonalClash: boolean;
+  hasHistoryClash: boolean;
+}
+
 /**
  * Calculates conflict penalty between an adjudicator and a debate's teams/institutions.
  */
 export function calculateAdjDebateConflict(
   adj: Adjudicator,
   debateTeams: Team[],
-  pastAdjudicatorTeams: Map<string, Set<string>> // adjId -> Set of teamIds
-): { penalty: number; reasons: string[] } {
+  pastAdjudicatorTeams: Map<string, Set<string>> = new Map() // adjId -> Set of teamIds
+): AdjDebateConflictResult {
   let penalty = 0;
   const reasons: string[] = [];
+  let hasInstitutionalClash = false;
+  let hasPersonalClash = false;
+  let hasHistoryClash = false;
 
   for (const team of debateTeams) {
-    // 1. Direct Institutional Conflict
-    if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-      penalty += 10000;
-      reasons.push(`Affiliated with ${team.institutionName || team.name}`);
+    if (!team) continue;
+
+    // 1. Direct Institutional Conflict (unless judge is explicitly marked independent with no institution)
+    if (!adj.independent) {
+      if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
+        penalty += 10000;
+        hasInstitutionalClash = true;
+        reasons.push(`Institutional clash with ${team.name} (${team.institutionName || "Same Institution"})`);
+      } else if (
+        adj.institutionName &&
+        team.institutionName &&
+        adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
+      ) {
+        penalty += 10000;
+        hasInstitutionalClash = true;
+        reasons.push(`Institutional clash with ${team.name} (${team.institutionName})`);
+      }
     }
 
-    // 2. Declared personal conflicts
-    if (adj.conflicts) {
+    // 2. Declared conflicts (personal, institutional, etc.)
+    if (adj.conflicts && adj.conflicts.length > 0) {
       for (const conflict of adj.conflicts) {
         if (conflict.teamId && conflict.teamId === team.id) {
           penalty += 10000;
-          reasons.push(`Personal clash with ${team.name}`);
+          hasPersonalClash = true;
+          reasons.push(`Personal clash with team "${team.name}"`);
         }
-        if (conflict.institutionId && team.institutionId && conflict.institutionId === team.institutionId) {
+        if (
+          conflict.institutionId &&
+          ((team.institutionId && conflict.institutionId === team.institutionId) ||
+            (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
+        ) {
           penalty += 8000;
-          reasons.push(`Institution clash with ${team.name}`);
+          hasInstitutionalClash = true;
+          reasons.push(`Declared institutional clash with ${team.name}`);
         }
       }
     }
 
-    // 3. Past debate history clash (adjudicated this team before)
+    // 3. Past debate history clash (adjudicated this team in earlier rounds)
     const judgedTeams = pastAdjudicatorTeams.get(adj.id);
     if (judgedTeams && judgedTeams.has(team.id)) {
       penalty += 500;
-      reasons.push(`Already judged ${team.name}`);
+      hasHistoryClash = true;
+      reasons.push(`Previously judged ${team.name}`);
     }
   }
 
-  return { penalty, reasons };
+  return {
+    penalty,
+    reasons,
+    hasClash: reasons.length > 0,
+    hasInstitutionalClash,
+    hasPersonalClash,
+    hasHistoryClash,
+  };
 }
 
 /**

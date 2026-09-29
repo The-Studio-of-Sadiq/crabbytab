@@ -53,6 +53,7 @@ export interface TournamentContextType {
   debates: Debate[];
   ballots: BallotSubmission[];
   feedback: FeedbackSubmission[];
+  institutions: Institution[];
   teamStandings: TeamStandingRow[];
   speakerStandings: SpeakerStandingRow[];
   replyStandings: SpeakerStandingRow[];
@@ -69,6 +70,9 @@ export interface TournamentContextType {
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission) => Promise<void>;
   confirmBallot: (ballotId: string, debateId: string) => Promise<void>;
+  addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
+  updateInstitution: (inst: Institution) => Promise<void>;
+  deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
   updateTeam: (team: Team) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
@@ -143,6 +147,7 @@ export function TournamentProvider({
   const [debates, setDebates] = useState<Debate[]>([]);
   const [ballots, setBallots] = useState<BallotSubmission[]>([]);
   const [feedback, setFeedback] = useState<FeedbackSubmission[]>([]);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
 
@@ -232,6 +237,9 @@ export function TournamentProvider({
 
         const localFeedback = localStorage.getItem(`${storagePrefix}_feedback`);
         if (localFeedback && isMounted) setFeedback(JSON.parse(localFeedback));
+
+        const localInstitutions = localStorage.getItem(`${storagePrefix}_institutions`);
+        if (localInstitutions && isMounted) setInstitutions(JSON.parse(localInstitutions));
       } catch (e) {
         console.warn("Error reading local storage cache:", e);
       }
@@ -249,6 +257,7 @@ export function TournamentProvider({
           setActiveRound(bundle.rounds[bundle.rounds.length - 1] || null);
           setTeams(bundle.teams);
           setAdjudicators(bundle.adjudicators);
+          setInstitutions(bundle.institutions);
           setVenues(bundle.venues);
           setMotions(bundle.motions);
           setBreakCategories(bundle.breakCategories);
@@ -259,6 +268,7 @@ export function TournamentProvider({
           persistLocal("rounds", bundle.rounds);
           persistLocal("teams", bundle.teams);
           persistLocal("adjudicators", bundle.adjudicators);
+          persistLocal("institutions", bundle.institutions);
           persistLocal("venues", bundle.venues);
           persistLocal("motions", bundle.motions);
           persistLocal("breaks", bundle.breakCategories);
@@ -458,28 +468,7 @@ export function TournamentProvider({
             subscribeSubcollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
 
             // 11. institutions
-            let firstInstitutions = true;
-            const unsubInst = onSnapshot(
-              collection(db!, "tournaments", firestoreTournId, "institutions"),
-              (snap) => {
-                if (isMounted) {
-                  const insts = snap.docs.map((d) => d.data() as Institution);
-                  persistLocal("institutions", insts);
-                }
-                if (firstInstitutions) {
-                  firstInstitutions = false;
-                  markListenerReady();
-                }
-              },
-              (err) => {
-                console.warn("Institutions listener error:", err);
-                if (firstInstitutions) {
-                  firstInstitutions = false;
-                  markListenerReady();
-                }
-              }
-            );
-            unsubscribers.push(unsubInst);
+            subscribeSubcollection<Institution>("institutions", "institutions", setInstitutions);
           }
         } catch (err) {
           console.warn("Error fetching tournament from Firestore:", err);
@@ -956,6 +945,32 @@ export function TournamentProvider({
     }
   };
 
+  const addInstitution = async (instData: Omit<Institution, "id" | "tournamentId">) => {
+    const newInst: Institution = {
+      ...instData,
+      id: `inst-${Date.now()}-${institutions.length + 1}`,
+      tournamentId: tournament?.id || tournamentSlug,
+    };
+    const updated = [...institutions, newInst];
+    setInstitutions(updated);
+    persistLocal("institutions", updated);
+    await setFirestoreDoc("institutions", newInst.id, newInst);
+  };
+
+  const updateInstitution = async (inst: Institution) => {
+    const updated = institutions.map((i) => (i.id === inst.id ? inst : i));
+    setInstitutions(updated);
+    persistLocal("institutions", updated);
+    await setFirestoreDoc("institutions", inst.id, inst);
+  };
+
+  const deleteInstitution = async (instId: string) => {
+    const updated = institutions.filter((i) => i.id !== instId);
+    setInstitutions(updated);
+    persistLocal("institutions", updated);
+    await deleteFirestoreDoc("institutions", instId);
+  };
+
   const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
     const newTeam: Team = {
       ...teamData,
@@ -1101,6 +1116,7 @@ export function TournamentProvider({
     persistLocal("rounds", bundle.rounds);
     persistLocal("teams", bundle.teams);
     persistLocal("adjudicators", bundle.adjudicators);
+    persistLocal("institutions", bundle.institutions);
     persistLocal("venues", bundle.venues);
     persistLocal("motions", bundle.motions);
     persistLocal("breaks", bundle.breakCategories);
@@ -1120,6 +1136,7 @@ export function TournamentProvider({
       addItems("rounds", bundle.rounds);
       addItems("teams", bundle.teams);
       addItems("adjudicators", bundle.adjudicators);
+      addItems("institutions", bundle.institutions);
       addItems("venues", bundle.venues);
       addItems("motions", bundle.motions);
       addItems("breakCategories", bundle.breakCategories);
@@ -1140,6 +1157,7 @@ export function TournamentProvider({
         setActiveRound,
         teams,
         adjudicators,
+        institutions,
         venues,
         motions,
         breakCategories,
@@ -1160,6 +1178,9 @@ export function TournamentProvider({
         updateDebates,
         submitBallot,
         confirmBallot,
+        addInstitution,
+        updateInstitution,
+        deleteInstitution,
         addTeam,
         updateTeam,
         deleteTeam,

@@ -150,6 +150,30 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
 }
 
 /**
+ * Parses CSV text to Institutions array.
+ */
+export function parseInstitutionsCsv(csvContent: string, tournamentId: string): Institution[] {
+  const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
+  const insts: Institution[] = [];
+
+  parsed.data.forEach((row, idx) => {
+    const name = getField(row, "name", "Name", "institution", "Institution") || `Institution ${idx + 1}`;
+    const code = getField(row, "code", "Code", "abbr", "Abbr") || name.substring(0, 4).toUpperCase();
+    const region = getField(row, "region", "Region") || undefined;
+
+    insts.push({
+      id: `inst-${Date.now()}-${idx}`,
+      tournamentId,
+      name: name.trim(),
+      code: code.trim(),
+      region: region ? region.trim() : undefined,
+    });
+  });
+
+  return insts;
+}
+
+/**
  * Exports standings to downloadable CSV file.
  */
 export function exportStandingsToCsv(standings: TeamStandingRow[], tournamentName: string) {
