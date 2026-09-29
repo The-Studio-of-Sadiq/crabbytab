@@ -19,9 +19,11 @@ import { BreakCategory } from "@/types";
 export default function BreakPage() {
   const {
     tournament,
+    teams,
     breakCategories,
     breakResults,
     saveBreakCategories,
+    generateBreak,
     createRound,
     generateDraw,
   } = useTournament();
@@ -33,6 +35,11 @@ export default function BreakPage() {
   const [newCatReserveSize, setNewCatReserveSize] = useState(2);
   const [newCatIsGeneral, setNewCatIsGeneral] = useState(false);
   const [newCatPriority, setNewCatPriority] = useState(5);
+  const [isGeneratingBreak, setIsGeneratingBreak] = useState(false);
+  const [breakGenerationError, setBreakGenerationError] = useState("");
+
+  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
+  const eliminatedTeamsCount = teams.filter((team) => team.breakStatus === "eliminated").length;
 
   const selectedResult =
     breakResults.find((r) => r.category.slug === activeCategorySlug) ||
@@ -69,7 +76,7 @@ export default function BreakPage() {
   };
 
   const handleGenerateOutRound = async () => {
-    if (!selectedResult) return;
+    if (!selectedResult || !breakHasBeenGenerated) return;
     const stageName =
       selectedResult.category.breakSize === 16
         ? "Octo-Finals"
@@ -82,10 +89,24 @@ export default function BreakPage() {
     const round = await createRound(
       `${selectedResult.category.name} ${stageName}`,
       `${selectedResult.category.name.charAt(0)}${stageName.charAt(0)}F`,
-      "elimination"
+      "elimination",
+      undefined,
+      selectedResult.category.id
     );
 
     alert(`Created ${round.name}. You can now generate pairings in Draw & Matchups.`);
+  };
+
+  const handleGenerateBreak = async () => {
+    setIsGeneratingBreak(true);
+    setBreakGenerationError("");
+    try {
+      await generateBreak();
+    } catch {
+      setBreakGenerationError("The break could not be saved. Please try again.");
+    } finally {
+      setIsGeneratingBreak(false);
+    }
   };
 
   return (
@@ -164,13 +185,33 @@ export default function BreakPage() {
                 </p>
               </div>
 
-              <button
-                onClick={handleGenerateOutRound}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-              >
-                <Shuffle className="w-3.5 h-3.5" />
-                <span>Create Elimination Round</span>
-              </button>
+              <div className="flex flex-col items-end gap-1.5">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateBreak}
+                    disabled={isGeneratingBreak || breakResults.length === 0}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{isGeneratingBreak ? "Generating..." : breakHasBeenGenerated ? "Regenerate Break" : "Generate Break"}</span>
+                  </button>
+                  <button
+                    onClick={handleGenerateOutRound}
+                    disabled={!breakHasBeenGenerated}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
+                  >
+                    <Shuffle className="w-3.5 h-3.5" />
+                    <span>Create Elimination Round</span>
+                  </button>
+                </div>
+                {breakGenerationError && <span role="alert" className="text-[11px] text-red-600">{breakGenerationError}</span>}
+                {breakHasBeenGenerated && (
+                  <span className="text-[11px] text-gray-500">
+                    {selectedResult.breakingTeams.length} qualifiers for this category; {eliminatedTeamsCount} teams eliminated overall
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">

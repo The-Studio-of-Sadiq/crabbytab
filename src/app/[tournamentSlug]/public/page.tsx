@@ -25,6 +25,7 @@ import {
 import { DebateSide } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks } from "@/lib/breakqual/calculator";
+import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -72,20 +73,21 @@ export default function PublicTournamentPage() {
     : [];
 
   const roundResultsReleased = Boolean(activeRound?.resultsReleased && !activeRound.silent);
+  const roundTeamSpeaksReleased = Boolean(roundResultsReleased && activeRound?.teamSpeaksReleased);
 
   const releasedMotions = motions
     .filter((motion) => motion.released === true)
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
 
-  const publicRoundIds = new Set(
-    rounds.filter((round) => round.resultsReleased && !round.silent).map((round) => round.id)
-  );
+  const publicRounds = rounds.filter((round) => round.resultsReleased && !round.silent);
+  const publicRoundIds = new Set(publicRounds.map((round) => round.id));
+  const showAggregateTeamScores = canShowAggregateTeamScores(rounds);
   const publicBallots = ballots.filter(
     (ballot) => ballot.confirmed && !ballot.discarded && publicRoundIds.has(ballot.roundId)
   );
   const publicDebates = debates.filter((debate) => publicRoundIds.has(debate.roundId));
   const publicStandings = tournament
-    ? calculateStandings(tournament, rounds.filter((round) => publicRoundIds.has(round.id)), teams, publicDebates, publicBallots)
+    ? calculateStandings(tournament, publicRounds, teams, publicDebates, publicBallots)
     : { teams: [], speakers: [], replies: [] };
   const publicBreakResults = calculateBreaks(breakCategories, teams, publicStandings.teams);
 
@@ -365,8 +367,10 @@ export default function PublicTournamentPage() {
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
-                                        Rank {tScore.rank} &bull; {tScore.points} pts &bull;{" "}
-                                        {tScore.totalSpeakerScore} spks
+                                        Rank {tScore.rank}
+                                        {roundTeamSpeaksReleased && (
+                                          <> &bull; {tScore.points} pts &bull; {tScore.totalSpeakerScore} spks</>
+                                        )}
                                       </div>
                                     )}
                                   </td>
@@ -383,7 +387,8 @@ export default function PublicTournamentPage() {
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
-                                        {tScore.win ? "WIN" : "LOSS"} &bull; {tScore.totalSpeakerScore} spks
+                                        {tScore.win ? "WIN" : "LOSS"}
+                                        {roundTeamSpeaksReleased && <> &bull; {tScore.totalSpeakerScore} spks</>}
                                       </div>
                                     )}
                                   </td>
@@ -425,9 +430,9 @@ export default function PublicTournamentPage() {
                     <th className="w-12 text-center">#</th>
                     <th>Team</th>
                     <th>Institution</th>
-                    <th className="text-right">Points</th>
-                    <th className="text-right">Total Speaks</th>
-                    <th className="text-right">Avg Speaks</th>
+                    {showAggregateTeamScores && <th className="text-right">Points</th>}
+                    {showAggregateTeamScores && <th className="text-right">Total Speaks</th>}
+                    {showAggregateTeamScores && <th className="text-right">Avg Speaks</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -436,13 +441,17 @@ export default function PublicTournamentPage() {
                       <td className="text-center font-mono font-bold text-xs">{t.rank}</td>
                       <td className="font-bold text-gray-900 text-xs">{t.teamName}</td>
                       <td className="text-xs text-gray-600">{t.institutionCode || "—"}</td>
-                      <td className="text-right font-mono font-bold text-sm text-blue-600">{t.points}</td>
-                      <td className="text-right font-mono font-semibold text-xs text-gray-800">
-                        {t.totalSpeakerScore.toFixed(1)}
-                      </td>
-                      <td className="text-right font-mono text-xs text-gray-600">
-                        {t.averageSpeakerScore.toFixed(2)}
-                      </td>
+                      {showAggregateTeamScores && <td className="text-right font-mono font-bold text-sm text-blue-600">{t.points}</td>}
+                      {showAggregateTeamScores && (
+                        <td className="text-right font-mono font-semibold text-xs text-gray-800">
+                          {t.totalSpeakerScore.toFixed(1)}
+                        </td>
+                      )}
+                      {showAggregateTeamScores && (
+                        <td className="text-right font-mono text-xs text-gray-600">
+                          {t.averageSpeakerScore.toFixed(2)}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -511,8 +520,8 @@ export default function PublicTournamentPage() {
                         <th className="w-16 text-center">Seed</th>
                         <th>Team</th>
                         <th>Institution</th>
-                        <th className="text-right">Points</th>
-                        <th className="text-right">Total Speaks</th>
+                        {showAggregateTeamScores && <th className="text-right">Points</th>}
+                        {showAggregateTeamScores && <th className="text-right">Total Speaks</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -523,12 +532,16 @@ export default function PublicTournamentPage() {
                           </td>
                           <td className="font-bold text-gray-900 text-xs">{b.team.name}</td>
                           <td className="text-xs text-gray-600">{b.team.institutionName || "—"}</td>
-                          <td className="text-right font-mono font-bold text-xs text-blue-600">
-                            {b.standing.points} pts
-                          </td>
-                          <td className="text-right font-mono text-xs text-gray-800">
-                            {b.standing.totalSpeakerScore.toFixed(1)}
-                          </td>
+                          {showAggregateTeamScores && (
+                            <td className="text-right font-mono font-bold text-xs text-blue-600">
+                              {b.standing.points} pts
+                            </td>
+                          )}
+                          {showAggregateTeamScores && (
+                            <td className="text-right font-mono text-xs text-gray-800">
+                              {b.standing.totalSpeakerScore.toFixed(1)}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

@@ -46,6 +46,9 @@ export default function ResultsOverviewPage() {
   const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publicationError, setPublicationError] = useState("");
+  const [pendingTeamSpeaksPublication, setPendingTeamSpeaksPublication] = useState<boolean | null>(null);
+  const [isPublishingTeamSpeaks, setIsPublishingTeamSpeaks] = useState(false);
+  const [teamSpeaksPublicationError, setTeamSpeaksPublicationError] = useState("");
 
   const confirmPublication = async () => {
     if (!activeRound || pendingPublication === null) return;
@@ -58,6 +61,20 @@ export default function ResultsOverviewPage() {
       setPublicationError("The round publication could not be saved. Please try again.");
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  const confirmTeamSpeaksPublication = async () => {
+    if (!activeRound || pendingTeamSpeaksPublication === null) return;
+    setIsPublishingTeamSpeaks(true);
+    setTeamSpeaksPublicationError("");
+    try {
+      await updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication });
+      setPendingTeamSpeaksPublication(null);
+    } catch {
+      setTeamSpeaksPublicationError("Team-speaks publication could not be saved. Please try again.");
+    } finally {
+      setIsPublishingTeamSpeaks(false);
     }
   };
 
@@ -294,6 +311,7 @@ export default function ResultsOverviewPage() {
                   ...activeRound,
                   silent: event.target.checked,
                   resultsReleased: false,
+                  teamSpeaksReleased: false,
                 })
               }
               className="mt-0.5 rounded border-gray-300 text-blue-600"
@@ -325,6 +343,27 @@ export default function ResultsOverviewPage() {
                 : "Confirm every ballot before publishing."}
             </span>
             {publicationError && <span className="text-[11px] text-red-600">{publicationError}</span>}
+            <button
+              type="button"
+              onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
+              disabled={!activeRound.teamSpeaksReleased && !allBallotsConfirmed}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+                activeRound.teamSpeaksReleased
+                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+              }`}
+            >
+              {activeRound.teamSpeaksReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {activeRound.teamSpeaksReleased ? "Unpublish Team Speaks" : "Publish Team Speaks"}
+            </button>
+            <span className="text-[11px] text-gray-500">
+              {activeRound.teamSpeaksReleased
+                ? "Team scores are published for this round."
+                : allBallotsConfirmed
+                ? "Publish team scores separately when ready."
+                : "Confirm every ballot before publishing team scores."}
+            </span>
+            {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
           </div>
         </div>
       )}
@@ -332,13 +371,26 @@ export default function ResultsOverviewPage() {
         <ConfirmActionDialog
           title={pendingPublication ? "Publish round results?" : "Unpublish round results?"}
           description={pendingPublication
-            ? `Publishing ${activeRound.name} makes its team outcomes and scores visible on the public tab.`
-            : `Unpublishing ${activeRound.name} immediately hides its outcomes and scores from the public tab.`}
+            ? `Publishing ${activeRound.name} makes its team outcomes visible on the public tab. Team scores are controlled separately.`
+            : `Unpublishing ${activeRound.name} immediately hides its outcomes from the public tab.`}
           confirmLabel={pendingPublication ? "Yes, publish results" : "Yes, unpublish results"}
           onConfirm={confirmPublication}
           onCancel={() => setPendingPublication(null)}
           isBusy={isPublishing}
           error={publicationError}
+        />
+      )}
+      {pendingTeamSpeaksPublication !== null && activeRound && (
+        <ConfirmActionDialog
+          title={pendingTeamSpeaksPublication ? "Publish team speaks?" : "Unpublish team speaks?"}
+          description={pendingTeamSpeaksPublication
+            ? `Publishing team speaks for ${activeRound.name} makes team score values available on the public tab.`
+            : `Unpublishing team speaks for ${activeRound.name} hides its team score values from the public tab.`}
+          confirmLabel={pendingTeamSpeaksPublication ? "Yes, publish team speaks" : "Yes, unpublish team speaks"}
+          onConfirm={confirmTeamSpeaksPublication}
+          onCancel={() => setPendingTeamSpeaksPublication(null)}
+          isBusy={isPublishingTeamSpeaks}
+          error={teamSpeaksPublicationError}
         />
       )}
     </div>

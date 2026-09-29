@@ -116,6 +116,8 @@ export interface Round {
   silent: boolean;
   motionsReleased: boolean;
   resultsReleased: boolean;
+  teamSpeaksReleased?: boolean;
+  breakCategoryId?: string;
   cancelled?: boolean;
   completed: boolean;
   createdAt: string;
@@ -140,6 +142,8 @@ export interface Team {
   id: string;
   tournamentId: string;
   name: string;
+  breakStatus?: "breaking" | "eliminated";
+  breakCategoryIds?: string[];
   codeName?: string;
   institutionId?: string;
   institutionName?: string;

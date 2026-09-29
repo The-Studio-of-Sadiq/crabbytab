@@ -28,6 +28,7 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { DebateSide, Debate, Team, Venue, Adjudicator } from "@/types";
 import { calculateAdjDebateConflict } from "@/lib/draw/allocator";
+import { getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 interface DragPayload {
@@ -95,8 +96,9 @@ export default function DrawPage() {
 
   // Unassigned teams list
   const unassignedTeams = useMemo(() => {
-    return teams.filter((t) => !assignedTeamIds.has(t.id) && t.checkedIn !== false);
-  }, [teams, assignedTeamIds]);
+    const eligibleTeams = getEligibleTeamsForRound(teams, activeRound);
+    return eligibleTeams.filter((t) => !assignedTeamIds.has(t.id) && t.checkedIn !== false);
+  }, [teams, assignedTeamIds, activeRound]);
 
   const filteredDebates = roundDebates.filter((d) => {
     if (!searchQuery.trim()) return true;
@@ -339,6 +341,13 @@ export default function DrawPage() {
 
     // Case 2: Dragged from another Debate Slot (or same debate, different slot)
     if (payload.sourceType === "debate" && payload.debateId && payload.side) {
+      if (
+        activeRound?.stage === "elimination" &&
+        !getEligibleTeamsForRound(teams, activeRound).some((team) => team.id === payload.teamId)
+      ) {
+        setDraggingItem(null);
+        return;
+      }
       const sourceDebateId = payload.debateId;
       const sourceSide = payload.side;
 
@@ -567,7 +576,7 @@ export default function DrawPage() {
 
               {unassignedTeams.length === 0 && (
                 <span className="text-xs text-gray-400 italic">
-                  All checked-in teams are currently allocated to debate rooms.
+                  All eligible teams are currently allocated to debate rooms.
                 </span>
               )}
             </div>

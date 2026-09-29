@@ -16,6 +16,29 @@ export interface BreakCategoryResult {
   reserveTeams: BreakingTeamEntry[];
 }
 
+export function applyBreakStatuses(
+  teams: Team[],
+  results: BreakCategoryResult[]
+): Team[] {
+  const categoryIdsByTeam = new Map<string, string[]>();
+  for (const result of results) {
+    for (const entry of result.breakingTeams) {
+      const categoryIds = categoryIdsByTeam.get(entry.team.id) || [];
+      categoryIds.push(result.category.id);
+      categoryIdsByTeam.set(entry.team.id, categoryIds);
+    }
+  }
+
+  return teams.map((team) => {
+    const breakCategoryIds = categoryIdsByTeam.get(team.id) || [];
+    return {
+      ...team,
+      breakStatus: breakCategoryIds.length > 0 ? "breaking" : "eliminated",
+      breakCategoryIds,
+    };
+  });
+}
+
 /**
  * Calculates breaking and reserve teams for each break category according to priority rules.
  */

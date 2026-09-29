@@ -36,7 +36,7 @@ import {
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
-import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
+import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { generateDemoTournament } from "@/lib/demo/generator";
 import { safeJsonParse } from "@/lib/safeJson";
 
@@ -63,7 +63,13 @@ export interface TournamentContextType {
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
-  createRound: (name: string, abbr: string, stage: "preliminary" | "elimination") => Promise<Round>;
+  createRound: (
+    name: string,
+    abbr: string,
+    stage: "preliminary" | "elimination",
+    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual",
+    breakCategoryId?: string
+  ) => Promise<Round>;
   setPreliminaryRoundCount: (count: number) => Promise<void>;
   deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
@@ -89,6 +95,7 @@ export interface TournamentContextType {
   updateMotion: (motion: Motion) => Promise<void>;
   deleteMotion: (motionId: string) => Promise<void>;
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
+  generateBreak: () => Promise<void>;
   addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
   loadDemoData: () => Promise<void>;
 }
@@ -595,7 +602,8 @@ export function TournamentProvider({
     name: string,
     abbr: string,
     stage: "preliminary" | "elimination",
-    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
+    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual",
+    breakCategoryId?: string
   ) => {
     const nextSeq = rounds.length + 1;
     const defaultDrawRule = tournament?.preferences?.drawRule || "power_paired";
@@ -618,8 +626,10 @@ export function TournamentProvider({
       silent: false,
       motionsReleased: false,
       resultsReleased: false,
+      teamSpeaksReleased: false,
       completed: false,
       createdAt: new Date().toISOString(),
+      breakCategoryId,
     };
 
     const updated = [...rounds, newRound];
@@ -1011,8 +1021,8 @@ export function TournamentProvider({
     persistLocal("ballots", updatedBallots);
 
     const ballotRound = rounds.find((round) => round.id === finalBallot.roundId);
-    if (ballotRound?.resultsReleased) {
-      await updateRound({ ...ballotRound, resultsReleased: false });
+    if (ballotRound?.resultsReleased || ballotRound?.teamSpeaksReleased) {
+      await updateRound({ ...ballotRound, resultsReleased: false, teamSpeaksReleased: false });
     }
 
     // Update debate result status
@@ -1325,6 +1335,21 @@ export function TournamentProvider({
     }
   };
 
+  const generateBreak = async () => {
+    if (breakResults.length === 0) return;
+    const updatedTeams = applyBreakStatuses(teams, breakResults);
+    setTeams(updatedTeams);
+    persistLocal("teams", updatedTeams);
+    if (db && tournament?.id) {
+      const ops: Array<(batch: WriteBatch) => void> = [];
+      for (const team of updatedTeams) {
+        const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
+        ops.push((batch) => batch.set(ref, cleanUndefined(team)));
+      }
+      await commitChunkedBatches(ops);
+    }
+  };
+
   const addFeedback = async (fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => {
     const newFb: FeedbackSubmission = {
       ...fbData,
@@ -1440,6 +1465,7 @@ export function TournamentProvider({
         updateMotion,
         deleteMotion,
         saveBreakCategories,
+        generateBreak,
         addFeedback,
         loadDemoData,
       }}

@@ -24,6 +24,20 @@ export interface GenerateDrawParams {
   standings: TeamStandingRow[];
 }
 
+export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Team[] {
+  if (!round || round.stage !== "elimination") return teams;
+
+  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
+  if (!breakHasBeenGenerated) return teams;
+
+  const { breakCategoryId } = round;
+  if (breakCategoryId) {
+    return teams.filter((team) => team.breakCategoryIds?.includes(breakCategoryId));
+  }
+
+  return teams.filter((team) => team.breakStatus === "breaking");
+}
+
 /**
  * Builds historical matchup graph and side histories from all completed debates.
  */
@@ -60,7 +74,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const teamsPerDebate = isBP ? 4 : 2;
 
   // Filter checked-in teams (or all active if checkins aren't used)
-  const activeTeams = teams.filter((t) => t.checkedIn !== false);
+  const activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
   const totalTeams = activeTeams.length;
 
   if (totalTeams < teamsPerDebate) {
