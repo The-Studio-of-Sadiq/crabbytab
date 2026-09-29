@@ -131,6 +131,20 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           <NavLink href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
         </div>
 
+        <div className="space-y-0.5">
+          <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            Setup
+          </div>
+          <NavLink
+            href={`/${tournamentSlug}/participants`}
+            icon={UserCheck}
+            label="Participants"
+            badge={`${teams.length} teams`}
+          />
+          <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
+          <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
+        </div>
+
         <div className="space-y-1">
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
             Rounds
@@ -198,20 +212,6 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
               </div>
             );
           })}
-        </div>
-
-        <div className="space-y-0.5">
-          <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-            Setup
-          </div>
-          <NavLink
-            href={`/${tournamentSlug}/participants`}
-            icon={UserCheck}
-            label="Participants"
-            badge={`${teams.length} teams`}
-          />
-          <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
-          <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
         </div>
       </nav>
 

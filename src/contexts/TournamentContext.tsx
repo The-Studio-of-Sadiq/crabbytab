@@ -84,6 +84,7 @@ export interface TournamentContextType {
   deleteVenue: (venueId: string) => Promise<void>;
   addMotion: (motion: Omit<Motion, "id" | "tournamentId">) => Promise<void>;
   updateMotion: (motion: Motion) => Promise<void>;
+  deleteMotion: (motionId: string) => Promise<void>;
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
   addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
   loadDemoData: () => Promise<void>;
@@ -1068,6 +1069,13 @@ export function TournamentProvider({
     await setFirestoreDoc("motions", motion.id, motion);
   };
 
+  const deleteMotion = async (motionId: string) => {
+    const updated = motions.filter((m) => m.id !== motionId);
+    setMotions(updated);
+    persistLocal("motions", updated);
+    await deleteFirestoreDoc("motions", motionId);
+  };
+
   const saveBreakCategories = async (cats: BreakCategory[]) => {
     setBreakCategories(cats);
     persistLocal("breaks", cats);
@@ -1192,6 +1200,7 @@ export function TournamentProvider({
         deleteVenue,
         addMotion,
         updateMotion,
+        deleteMotion,
         saveBreakCategories,
         addFeedback,
         loadDemoData,

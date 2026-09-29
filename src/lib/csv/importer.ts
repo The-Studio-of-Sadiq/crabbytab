@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import { Team, Adjudicator, Institution, Venue, TeamStandingRow, SpeakerStandingRow } from "@/types";
+import { Team, Adjudicator, Institution, Venue, Motion, Round, TeamStandingRow, SpeakerStandingRow } from "@/types";
 
 export interface TeamCsvRow {
   name: string;
@@ -171,6 +171,61 @@ export function parseInstitutionsCsv(csvContent: string, tournamentId: string): 
   });
 
   return insts;
+}
+
+/**
+ * Parses CSV text to Motions array.
+ */
+export function parseMotionsCsv(
+  csvContent: string,
+  tournamentId: string,
+  rounds: Round[] = []
+): Motion[] {
+  const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
+  const motions: Motion[] = [];
+
+  parsed.data.forEach((row, idx) => {
+    const text = getField(row, "text", "motion", "Motion", "motion_text", "Motion Text", "Text");
+    if (!text.trim()) return;
+
+    const reference =
+      getField(row, "reference", "ref", "Reference", "topic", "Topic", "tag", "Tag") ||
+      `Motion ${idx + 1}`;
+    const infoSlide =
+      getField(row, "infoslide", "info_slide", "info", "Infoslide", "Info Slide", "context", "Context") ||
+      undefined;
+    const roundRaw = getField(row, "round", "Round", "round_abbr", "round_seq", "round_name");
+
+    const matchedRounds: string[] = [];
+    if (roundRaw && rounds.length > 0) {
+      const q = roundRaw.trim().toLowerCase();
+      const matched = rounds.find(
+        (r) =>
+          r.id.toLowerCase() === q ||
+          r.name.toLowerCase() === q ||
+          r.abbreviation.toLowerCase() === q ||
+          `r${r.seq}` === q ||
+          `${r.seq}` === q ||
+          `round ${r.seq}` === q
+      );
+      if (matched) {
+        matchedRounds.push(matched.id);
+      }
+    }
+
+    motions.push({
+      id: `motion-${Date.now()}-${idx}`,
+      tournamentId,
+      text: text.trim(),
+      reference: reference.trim(),
+      infoSlide: infoSlide ? infoSlide.trim() : undefined,
+      rounds: matchedRounds,
+      seq: idx + 1,
+      released: false, // Don't make them public by default
+    });
+  });
+
+  return motions;
 }
 
 /**
