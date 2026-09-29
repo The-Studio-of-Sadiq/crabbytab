@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Plus,
-  Sparkles,
   ArrowRight,
   Layers,
   RefreshCw,
@@ -55,15 +54,6 @@ export default function HomePage() {
   const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
     const list: StoredTournamentSummary[] = [];
 
-    // Always include the demo tournament
-    list.push({
-      id: "tourn-wudc-demo",
-      slug: "wudc-demo",
-      name: "World Universities Debating Championship (Demo)",
-      format: "bp",
-      createdAt: new Date().toISOString(),
-    });
-
     if (typeof window === "undefined") return list;
 
     for (let i = 0; i < localStorage.length; i++) {
@@ -71,7 +61,7 @@ export default function HomePage() {
       if (key && key.startsWith("crabbytab_t_") && key.endsWith("_meta")) {
         try {
           const parsedItem = safeJsonParse<Record<string, any> | null>(localStorage.getItem(key), null);
-          if (parsedItem && typeof parsedItem === "object" && parsedItem.slug && parsedItem.slug !== "wudc-demo") {
+          if (parsedItem && typeof parsedItem === "object" && parsedItem.slug) {
             const item = parsedItem as Record<string, any>;
             list.push({
               id: item.id || `tourn-${item.slug}`,
@@ -140,12 +130,9 @@ export default function HomePage() {
       }
     }
 
-    const merged = Array.from(map.values()).sort((a, b) => {
-      // Demo tournament stays top or bottom, sort rest by date descending
-      if (a.slug === "wudc-demo") return -1;
-      if (b.slug === "wudc-demo") return 1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    const merged = Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 
     setTournaments(merged);
     setLoadingTournaments(false);
@@ -188,11 +175,9 @@ export default function HomePage() {
           });
         });
 
-        const merged = Array.from(map.values()).sort((a, b) => {
-          if (a.slug === "wudc-demo") return -1;
-          if (b.slug === "wudc-demo") return 1;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
 
         setTournaments(merged);
         setLoadingTournaments(false);
@@ -206,11 +191,6 @@ export default function HomePage() {
   }, [loadTournaments, getLocalTournaments, user]);
 
   const handleDelete = async (t: StoredTournamentSummary) => {
-    if (t.slug === "wudc-demo") {
-      alert("The demo tournament cannot be deleted.");
-      return;
-    }
-
     if (!confirm(`Are you sure you want to delete tournament "${t.name}"? This action cannot be undone.`)) {
       return;
     }
@@ -345,14 +325,6 @@ export default function HomePage() {
                   Sign in to tab room
                 </Link>
               )}
-              <Link
-                href="/wudc-demo"
-                className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shadow-xs transition"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Launch Demo Tournament</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
             </div>
           </div>
         </div>
@@ -428,7 +400,7 @@ export default function HomePage() {
             </h4>
             <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
               {filterTab === "mine"
-                ? "Create a new debate tournament or launch the demo tournament to get started."
+                ? "Create a new debate tournament to get started."
                 : "Create a tournament to begin tabulating debates."}
             </p>
             {user ? (
@@ -453,8 +425,6 @@ export default function HomePage() {
             {filteredTournaments.map((t) => {
               const isMine =
                 Boolean(user && (t.ownerId === user.uid || (user.email && t.ownerEmail === user.email) || t.isOwner));
-              const isDemo = t.slug === "wudc-demo";
-
               return (
                 <div
                   key={t.slug}
@@ -472,11 +442,6 @@ export default function HomePage() {
                           <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <Shield className="w-3 h-3 text-emerald-600" />
                             <span>Director</span>
-                          </span>
-                        )}
-                        {isDemo && (
-                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-700">
-                            Demo
                           </span>
                         )}
                       </div>
@@ -516,7 +481,7 @@ export default function HomePage() {
                         <ExternalLink className="w-3 h-3" />
                       </Link>
 
-                      {isMine && !isDemo && (
+                      {isMine && (
                         <button
                           onClick={() => handleDelete(t)}
                           className="p-1 text-gray-400 hover:text-red-600 transition rounded"

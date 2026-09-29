@@ -39,7 +39,6 @@ import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
-import { generateDemoTournament } from "@/lib/demo/generator";
 import { safeJsonParse } from "@/lib/safeJson";
 
 export interface TournamentContextType {
@@ -99,7 +98,6 @@ export interface TournamentContextType {
   generateBreak: (categoryId: string) => Promise<Round | null>;
   proceedToNextEliminationRound: (roundId: string) => Promise<Round | null>;
   addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
-  loadDemoData: () => Promise<void>;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -260,41 +258,6 @@ export function TournamentProvider({
         if (localInstitutions && isMounted) setInstitutions(safeJsonParse<Institution[]>(localInstitutions, []));
       } catch (e) {
         console.warn("Error reading local storage cache:", e);
-      }
-
-      // Check if this is the in-memory/local demo tournament
-      if (tournamentSlug === "wudc-demo") {
-        if (!localTournament && isMounted) {
-          const bundle = generateDemoTournament(
-            "World Universities Debating Championship (Demo)",
-            "wudc-demo",
-            "bp"
-          );
-          setTournament(bundle.tournament);
-          setRounds(bundle.rounds);
-          setActiveRound(bundle.rounds[bundle.rounds.length - 1] || null);
-          setTeams(bundle.teams);
-          setAdjudicators(bundle.adjudicators);
-          setInstitutions(bundle.institutions);
-          setVenues(bundle.venues);
-          setMotions(bundle.motions);
-          setBreakCategories(bundle.breakCategories);
-          setDebates(bundle.debates);
-          setBallots(bundle.ballots);
-
-          persistLocal("meta", bundle.tournament);
-          persistLocal("rounds", bundle.rounds);
-          persistLocal("teams", bundle.teams);
-          persistLocal("adjudicators", bundle.adjudicators);
-          persistLocal("institutions", bundle.institutions);
-          persistLocal("venues", bundle.venues);
-          persistLocal("motions", bundle.motions);
-          persistLocal("breaks", bundle.breakCategories);
-          persistLocal("debates", bundle.debates);
-          persistLocal("ballots", bundle.ballots);
-        }
-        if (isMounted) setLoading(false);
-        return;
       }
 
       // 2. Fetch from Firestore if configured
@@ -1457,59 +1420,6 @@ export function TournamentProvider({
     await setFirestoreDoc("feedback", newFb.id, newFb);
   };
 
-  const loadDemoData = async () => {
-    const bundle = generateDemoTournament(
-      tournament?.name || "World Universities Debating Championship (Demo)",
-      tournamentSlug,
-      tournament?.format || "bp"
-    );
-
-    setTournament(bundle.tournament);
-    setRounds(bundle.rounds);
-    setActiveRound(bundle.rounds[bundle.rounds.length - 1] || null);
-    setTeams(bundle.teams);
-    setAdjudicators(bundle.adjudicators);
-    setVenues(bundle.venues);
-    setMotions(bundle.motions);
-    setBreakCategories(bundle.breakCategories);
-    setDebates(bundle.debates);
-    setBallots(bundle.ballots);
-
-    persistLocal("meta", bundle.tournament);
-    persistLocal("rounds", bundle.rounds);
-    persistLocal("teams", bundle.teams);
-    persistLocal("adjudicators", bundle.adjudicators);
-    persistLocal("institutions", bundle.institutions);
-    persistLocal("venues", bundle.venues);
-    persistLocal("motions", bundle.motions);
-    persistLocal("breaks", bundle.breakCategories);
-    persistLocal("debates", bundle.debates);
-    persistLocal("ballots", bundle.ballots);
-
-    if (db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-
-      const addItems = <T extends { id: string }>(subcoll: string, items: T[]) => {
-        for (const item of items) {
-          const ref = doc(db!, "tournaments", tournament.id, subcoll, item.id);
-          ops.push((batch) => batch.set(ref, cleanUndefined(item)));
-        }
-      };
-
-      addItems("rounds", bundle.rounds);
-      addItems("teams", bundle.teams);
-      addItems("adjudicators", bundle.adjudicators);
-      addItems("institutions", bundle.institutions);
-      addItems("venues", bundle.venues);
-      addItems("motions", bundle.motions);
-      addItems("breakCategories", bundle.breakCategories);
-      addItems("debates", bundle.debates);
-      addItems("ballots", bundle.ballots);
-
-      await commitChunkedBatches(ops);
-    }
-  };
-
   return (
     <TournamentContext.Provider
       value={{
@@ -1562,7 +1472,6 @@ export function TournamentProvider({
         generateBreak,
         proceedToNextEliminationRound,
         addFeedback,
-        loadDemoData,
       }}
     >
       {children}

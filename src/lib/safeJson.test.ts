@@ -3,7 +3,7 @@ import { safeJsonParse } from "./safeJson";
 
 describe("safeJsonParse", () => {
   it("returns parsed values for valid JSON", () => {
-    expect(safeJsonParse('{"slug":"demo"}', { slug: "fallback" })).toEqual({ slug: "demo" });
+    expect(safeJsonParse('{"slug":"sample"}', { slug: "fallback" })).toEqual({ slug: "sample" });
   });
 
   it("returns fallback for malformed JSON", () => {

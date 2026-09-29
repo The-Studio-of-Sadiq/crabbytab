@@ -10,7 +10,6 @@ import {
   FileCheck2,
   Trophy,
   ArrowRight,
-  Sparkles,
   Users,
   MapPin,
   Lightbulb,
@@ -33,7 +32,6 @@ export default function TournamentDashboardPage() {
     motions,
     generateDraw,
     autoAllocate,
-    loadDemoData,
   } = useTournament();
 
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
@@ -64,15 +62,6 @@ export default function TournamentDashboardPage() {
         </div>
 
         <div className="flex items-center space-x-2">
-          {teams.length === 0 && (
-            <button
-              onClick={() => loadDemoData()}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-xs transition"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Load Demo Data</span>
-            </button>
-          )}
           <Link
             href={`/${tournament?.slug}/public`}
             target="_blank"

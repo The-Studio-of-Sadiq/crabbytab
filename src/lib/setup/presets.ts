@@ -80,8 +80,8 @@ export const SCORE_DEFAULTS = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Slugs that would collide with app routes (or the demo), so a tournament
- * could never be opened at its own URL.
+ * Slugs that would collide with app routes, so a tournament could never be
+ * opened at its own URL.
  */
 export const RESERVED_SLUGS = new Set([
   "login",
@@ -91,7 +91,6 @@ export const RESERVED_SLUGS = new Set([
   "new",
   "api",
   "admin",
-  "wudc-demo",
 ]);
 
 export function slugify(input: string): string {

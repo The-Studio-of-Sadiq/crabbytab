@@ -8,7 +8,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ExternalLink,
   Plus,
-  Sparkles,
   Layers,
   ChevronDown,
   LogOut,
@@ -17,7 +16,7 @@ import {
 
 export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   const router = useRouter();
-  const { tournament, rounds, activeRound, setActiveRound, createRound, loadDemoData } = useTournament();
+  const { tournament, rounds, activeRound, setActiveRound, createRound } = useTournament();
   const { user, logout } = useAuth();
   const [showRoundModal, setShowRoundModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -114,20 +113,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
 
           {/* Right Actions */}
           <div className="flex items-center space-x-3">
-            {/* Load Demo Data Action */}
-            <button
-              onClick={() => {
-                if (confirm("Populate this tournament with 16 demo teams, judges, rounds, and completed ballots?")) {
-                  loadDemoData();
-                }
-              }}
-              className="hidden lg:inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded bg-emerald-700/80 hover:bg-emerald-600 text-white border border-emerald-600 transition"
-              title="Populate demo tournament data"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Load Demo</span>
-            </button>
-
             {/* Public View Link */}
             <Link
               href={`/${tournamentSlug}/public`}

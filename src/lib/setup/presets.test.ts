@@ -64,7 +64,6 @@ describe("Setup Presets (setup/presets)", () => {
     it("rejects reserved slugs", () => {
       expect(validateSlug("login")).toBe('"login" is reserved. Please choose another slug.');
       expect(validateSlug("tournaments")).toBe('"tournaments" is reserved. Please choose another slug.');
-      expect(validateSlug("wudc-demo")).toBe('"wudc-demo" is reserved. Please choose another slug.');
     });
   });
 
