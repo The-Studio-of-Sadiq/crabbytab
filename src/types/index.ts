@@ -117,7 +117,8 @@ export interface Round {
   motionsReleased: boolean;
   resultsReleased: boolean;
   teamSpeaksReleased?: boolean;
-  breakCategoryId?: string;
+  breakCategoryIds?: string[];
+  eliminationAdvanced?: boolean;
   cancelled?: boolean;
   completed: boolean;
   createdAt: string;
@@ -144,6 +145,7 @@ export interface Team {
   name: string;
   breakStatus?: "breaking" | "eliminated";
   breakCategoryIds?: string[];
+  eliminatedInRoundId?: string;
   codeName?: string;
   institutionId?: string;
   institutionName?: string;
@@ -219,6 +221,7 @@ export interface Debate {
   tournamentId: string;
   roundId: string;
   roundSeq: number;
+  breakCategoryId?: string;
   venueId?: string;
   venueName?: string;
   bracket: number; // e.g., 6 points bracket in round 3

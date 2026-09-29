@@ -133,6 +133,21 @@ export function eliminationRoundCount(breakSize: number, teamsInDebate: 4 | 2): 
   return teamsInDebate === 4 ? log - 1 : log;
 }
 
+export function buildBreakCategorySchedule(
+  categories: BreakCategory[],
+  totalEliminationRounds: number,
+  teamsInDebate: 4 | 2
+): string[][] {
+  return Array.from({ length: totalEliminationRounds }, (_, roundIndex) =>
+    categories
+      .filter((category) => {
+        const categoryRounds = eliminationRoundCount(category.breakSize, teamsInDebate);
+        return categoryRounds > 0 && roundIndex >= totalEliminationRounds - categoryRounds;
+      })
+      .map((category) => category.id)
+  );
+}
+
 const ELIMINATION_LABELS = [
   { name: "Grand Final", abbr: "GF" },
   { name: "Semifinals", abbr: "SF" },

@@ -21,6 +21,8 @@ import { BallotSubmission, DebateSide, Team } from "@/types";
 import {
   validateSpeakerScore,
   validateReplyScore,
+  assignTwoTeamRank,
+  hasUniqueTeamRanks,
 } from "@/lib/scoring/validator";
 
 export default function BallotEntryPage() {
@@ -155,6 +157,10 @@ export default function BallotEntryPage() {
       }
     });
 
+    if (!isBP && !hasUniqueTeamRanks(initialRanks, sides)) {
+      initialRanks[sides[1]] = initialRanks[sides[0]] === 1 ? 2 : 1;
+    }
+
     setScores(initialScores);
     setReplyScores(initialReplyScores);
     setRanks(initialRanks);
@@ -241,7 +247,9 @@ export default function BallotEntryPage() {
   };
 
   const handleRankChange = (side: string, rank: number) => {
-    setRanks((prev) => ({ ...prev, [side]: rank }));
+    setRanks((prev) => isBP
+      ? { ...prev, [side]: rank }
+      : assignTwoTeamRank(prev, side, rank, sides));
   };
 
   const calculateTeamTotal = (side: string) => {
@@ -278,14 +286,12 @@ export default function BallotEntryPage() {
     e.preventDefault();
     setErrorMessage("");
 
-    // 1. Validate distinct ranks for BP
-    if (isBP) {
-      const rankValues = Object.values(ranks);
-      const uniqueRanks = new Set(rankValues);
-      if (uniqueRanks.size !== 4) {
-        setErrorMessage("Each team in a BP debate must be assigned a unique rank from 1st to 4th.");
-        return;
-      }
+    // 1. Validate unique outcomes for each format
+    if (!hasUniqueTeamRanks(ranks, sides)) {
+      setErrorMessage(isBP
+        ? "Each team in a BP debate must be assigned a unique rank from 1st to 4th."
+        : "One team must win and the other must lose.");
+      return;
     }
 
     // 2. Validate all score inputs

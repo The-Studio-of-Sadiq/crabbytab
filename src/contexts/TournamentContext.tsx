@@ -33,10 +33,12 @@ import {
   runTransaction,
   WriteBatch,
 } from "firebase/firestore";
-import { generateRoundDraw } from "@/lib/draw/generator";
+import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
+import { applyEliminationAdvancement, getAdvancingTeamIds } from "@/lib/draw/elimination";
 import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
+import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { generateDemoTournament } from "@/lib/demo/generator";
 import { safeJsonParse } from "@/lib/safeJson";
 
@@ -67,8 +69,7 @@ export interface TournamentContextType {
     name: string,
     abbr: string,
     stage: "preliminary" | "elimination",
-    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual",
-    breakCategoryId?: string
+    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
   ) => Promise<Round>;
   setPreliminaryRoundCount: (count: number) => Promise<void>;
   deleteRound: (roundId: string) => Promise<void>;
@@ -95,7 +96,8 @@ export interface TournamentContextType {
   updateMotion: (motion: Motion) => Promise<void>;
   deleteMotion: (motionId: string) => Promise<void>;
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
-  generateBreak: () => Promise<void>;
+  generateBreak: (categoryId: string) => Promise<Round | null>;
+  proceedToNextEliminationRound: (roundId: string) => Promise<Round | null>;
   addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
   loadDemoData: () => Promise<void>;
 }
@@ -602,8 +604,7 @@ export function TournamentProvider({
     name: string,
     abbr: string,
     stage: "preliminary" | "elimination",
-    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual",
-    breakCategoryId?: string
+    customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
   ) => {
     const nextSeq = rounds.length + 1;
     const defaultDrawRule = tournament?.preferences?.drawRule || "power_paired";
@@ -629,7 +630,6 @@ export function TournamentProvider({
       teamSpeaksReleased: false,
       completed: false,
       createdAt: new Date().toISOString(),
-      breakCategoryId,
     };
 
     const updated = [...rounds, newRound];
@@ -1335,19 +1335,113 @@ export function TournamentProvider({
     }
   };
 
-  const generateBreak = async () => {
-    if (breakResults.length === 0) return;
+  const generateBreak = async (categoryId: string) => {
+    if (breakResults.length === 0 || !tournament) return null;
+    const category = breakCategories.find((item) => item.id === categoryId);
+    if (!category) return null;
+
+    const teamsInDebate = tournament.preferences?.teamsInDebate || (tournament.format === "bp" ? 4 : 2);
+    const maxBreakSize = Math.max(0, ...breakCategories.map((item) => item.breakSize));
+    const roundCount = eliminationRoundCount(maxBreakSize, teamsInDebate);
+    if (roundCount === 0) throw new Error("No valid elimination-round sequence is configured for these break sizes.");
+
+    const eliminationRounds = rounds
+      .filter((round) => round.stage === "elimination" && !round.cancelled)
+      .sort((a, b) => a.seq - b.seq);
+    if (eliminationRounds.length < roundCount) {
+      throw new Error("The pre-created elimination rounds do not cover the configured break size.");
+    }
+
+    const schedule = buildBreakCategorySchedule(breakCategories, roundCount, teamsInDebate);
+    const roundIndexById = new Map(eliminationRounds.map((round, index) => [round.id, index]));
+    const updatedRounds = rounds.map((round) => {
+      if (round.stage !== "elimination" || round.cancelled) return round;
+      const index = roundIndexById.get(round.id);
+      if (index === undefined) return round;
+      return {
+        ...round,
+        breakCategoryIds: index < roundCount ? schedule[index] : [],
+        eliminationAdvanced: false,
+      };
+    });
+    const firstCategoryRound = updatedRounds.find(
+      (round) => round.stage === "elimination" && round.breakCategoryIds?.includes(categoryId)
+    );
+    if (!firstCategoryRound) throw new Error(`${category.name} does not fit the configured elimination-round sequence.`);
+
     const updatedTeams = applyBreakStatuses(teams, breakResults);
     setTeams(updatedTeams);
+    setRounds(updatedRounds);
+    setActiveRound(firstCategoryRound);
     persistLocal("teams", updatedTeams);
+    persistLocal("rounds", updatedRounds);
     if (db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const team of updatedTeams) {
         const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
         ops.push((batch) => batch.set(ref, cleanUndefined(team)));
       }
+      for (const round of updatedRounds.filter((item) => item.stage === "elimination")) {
+        const ref = doc(db, "tournaments", tournament.id, "rounds", round.id);
+        ops.push((batch) => batch.set(ref, cleanUndefined(round)));
+      }
       await commitChunkedBatches(ops);
     }
+    return firstCategoryRound;
+  };
+
+  const proceedToNextEliminationRound = async (roundId: string) => {
+    if (!tournament) return null;
+    const round = rounds.find((item) => item.id === roundId && item.stage === "elimination");
+    if (!round) throw new Error("Select an elimination round before proceeding.");
+    if (round.eliminationAdvanced) {
+      return rounds
+        .filter((item) => item.stage === "elimination" && item.seq > round.seq && !item.cancelled)
+        .sort((a, b) => a.seq - b.seq)
+        .find((item) => !round.breakCategoryIds?.length || item.breakCategoryIds?.some((id) => round.breakCategoryIds!.includes(id))) || null;
+    }
+
+    const roundDebates = debates.filter((debate) => debate.roundId === round.id);
+    if (roundDebates.length === 0) throw new Error("Generate this elimination round's draw before proceeding.");
+    const expectedTeamIds = new Set(
+      getEligibleTeamsForRound(teams, round)
+        .filter((team) => team.checkedIn !== false)
+        .map((team) => team.id)
+    );
+    const assignedTeamIds = new Set(
+      roundDebates.flatMap((debate) => Object.values(debate.teams).map((slot) => slot?.teamId).filter(Boolean))
+    );
+    const missingTeam = [...expectedTeamIds].find((teamId) => !assignedTeamIds.has(teamId));
+    if (missingTeam) throw new Error("Every eligible team must be assigned to a debate before proceeding.");
+
+    const nextRound = rounds
+      .filter((item) => item.stage === "elimination" && item.seq > round.seq && !item.cancelled)
+      .sort((a, b) => a.seq - b.seq)
+      .find((item) => !round.breakCategoryIds?.length || item.breakCategoryIds?.some((id) => round.breakCategoryIds!.includes(id))) || null;
+    const isFinalRound = nextRound === null;
+    const advancingTeamIds = getAdvancingTeamIds(roundDebates, ballots, tournament.format, isFinalRound);
+    const participatingTeamIds = new Set(assignedTeamIds);
+    const unexpectedTeam = [...participatingTeamIds].find((teamId) => !expectedTeamIds.has(teamId));
+    if (unexpectedTeam) throw new Error("This round contains a team that did not qualify for this elimination stage.");
+    const updatedTeams = applyEliminationAdvancement(teams, roundDebates, advancingTeamIds, round.id);
+    const updatedRound = { ...round, eliminationAdvanced: true, completed: true };
+    const updatedRounds = rounds.map((item) => item.id === round.id ? updatedRound : item);
+    setTeams(updatedTeams);
+    setRounds(updatedRounds);
+    setActiveRound(nextRound || updatedRound);
+    persistLocal("teams", updatedTeams);
+    persistLocal("rounds", updatedRounds);
+    if (db && tournament.id) {
+      const ops: Array<(batch: WriteBatch) => void> = [];
+      for (const team of updatedTeams.filter((item) => participatingTeamIds.has(item.id))) {
+        const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
+        ops.push((batch) => batch.set(ref, cleanUndefined(team)));
+      }
+      const ref = doc(db, "tournaments", tournament.id, "rounds", updatedRound.id);
+      ops.push((batch) => batch.set(ref, cleanUndefined(updatedRound)));
+      await commitChunkedBatches(ops);
+    }
+    return nextRound;
   };
 
   const addFeedback = async (fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => {
@@ -1466,6 +1560,7 @@ export function TournamentProvider({
         deleteMotion,
         saveBreakCategories,
         generateBreak,
+        proceedToNextEliminationRound,
         addFeedback,
         loadDemoData,
       }}

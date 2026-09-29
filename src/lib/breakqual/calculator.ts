@@ -35,6 +35,7 @@ export function applyBreakStatuses(
       ...team,
       breakStatus: breakCategoryIds.length > 0 ? "breaking" : "eliminated",
       breakCategoryIds,
+      eliminatedInRoundId: undefined,
     };
   });
 }

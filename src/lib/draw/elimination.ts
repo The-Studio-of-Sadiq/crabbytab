@@ -1,9 +1,60 @@
-import { Team, DebateSide, TournamentFormat } from "@/types";
+import { Team, Debate, BallotSubmission, DebateSide, TournamentFormat } from "@/types";
 
 export interface EliminationRoomDraft {
   roomNumber: number;
   bracketName: string;
   teams: { team: Team; seed: number; side: DebateSide }[];
+}
+
+export function applyEliminationAdvancement(
+  teams: Team[],
+  debates: Debate[],
+  advancingTeamIds: Set<string>,
+  roundId: string
+): Team[] {
+  const participatingTeamIds = new Set(
+    debates.flatMap((debate) => Object.values(debate.teams).map((slot) => slot?.teamId).filter(Boolean))
+  );
+
+  return teams.map((team) => {
+    if (!participatingTeamIds.has(team.id)) return team;
+    if (advancingTeamIds.has(team.id)) {
+      return team.eliminatedInRoundId === roundId
+        ? { ...team, breakStatus: "breaking", eliminatedInRoundId: undefined }
+        : team;
+    }
+    return { ...team, breakStatus: "eliminated", eliminatedInRoundId: roundId };
+  });
+}
+
+export function getAdvancingTeamIds(
+  debates: Debate[],
+  ballots: BallotSubmission[],
+  format: TournamentFormat,
+  isFinalRound = false
+): Set<string> {
+  const ballotByDebateId = new Map(
+    ballots.filter((ballot) => ballot.confirmed && !ballot.discarded).map((ballot) => [ballot.debateId, ballot])
+  );
+  const advancingTeamIds = new Set<string>();
+
+  for (const debate of debates) {
+    const ballot = ballotByDebateId.get(debate.id);
+    if (!ballot) throw new Error(`A confirmed ballot is required for ${debate.venueName || debate.id}.`);
+
+    for (const [side, slot] of Object.entries(debate.teams)) {
+      if (!slot?.teamId) continue;
+      const score = ballot.teamScores[side as DebateSide];
+      if (!score) throw new Error(`A confirmed team result is missing for ${slot.teamName || slot.teamId}.`);
+
+      const advances = format === "bp"
+        ? (score.rank !== undefined ? score.rank <= (isFinalRound ? 1 : 2) : score.points >= (isFinalRound ? 3 : 2))
+        : (score.win ?? (score.rank === 1 || score.points === 1));
+      if (advances) advancingTeamIds.add(slot.teamId);
+    }
+  }
+
+  return advancingTeamIds;
 }
 
 /**
@@ -86,6 +137,32 @@ export function generateEliminationDraw(
         },
       ];
     }
+
+    if (bracketSize >= 4 && bracketSize % 4 === 0 && (bracketSize & (bracketSize - 1)) === 0) {
+      const roomCount = bracketSize / 4;
+      const roomSeeds = Array.from({ length: roomCount }, () => [] as number[]);
+      for (let seed = 1; seed <= bracketSize; seed++) {
+        const row = Math.floor((seed - 1) / roomCount);
+        const offset = (seed - 1) % roomCount;
+        const roomIndex = row % 2 === 0 ? offset : roomCount - offset - 1;
+        roomSeeds[roomIndex].push(seed);
+      }
+
+      return roomSeeds.map((seeds, roomIndex) => ({
+        roomNumber: roomIndex + 1,
+        bracketName: `Elimination Room ${roomIndex + 1}`,
+        teams: seeds.map((seed, seat) => ({
+          team: breakingTeams.find((entry) => entry.seed === seed)?.team || ({
+            id: `t-placeholder-${seed}`,
+            name: `Seed ${seed}`,
+            breakCategories: [],
+            speakers: [],
+          } as any),
+          seed,
+          side: bpSides[seat],
+        })),
+      }));
+    }
   } else {
     // 2-Team Format (UADC / Australs / WSDC)
     const pairs: [number, number][] = [];
@@ -97,6 +174,12 @@ export function generateEliminationDraw(
       pairs.push([1, 4], [2, 3]);
     } else if (bracketSize === 2) {
       pairs.push([1, 2]);
+    }
+
+    if (pairs.length === 0 && bracketSize >= 2 && (bracketSize & (bracketSize - 1)) === 0) {
+      for (let seed = 1; seed <= bracketSize / 2; seed++) {
+        pairs.push([seed, bracketSize + 1 - seed]);
+      }
     }
 
     return pairs.map(([s1, s2], idx) => {

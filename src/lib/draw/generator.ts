@@ -14,6 +14,7 @@ import { generatePowerPairedDraw, MatchupHistory } from "./powerPaired";
 import { allocateSidesForDebate } from "./sideAllocator";
 import { generateRoundRobinDraw } from "./roundRobin";
 import { generateTwoTeamDraw } from "./twoTeamDraw";
+import { generateEliminationDraw } from "./elimination";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -30,9 +31,11 @@ export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Te
   const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
   if (!breakHasBeenGenerated) return teams;
 
-  const { breakCategoryId } = round;
-  if (breakCategoryId) {
-    return teams.filter((team) => team.breakCategoryIds?.includes(breakCategoryId));
+  if (round.breakCategoryIds) {
+    const categoryIds = new Set(round.breakCategoryIds);
+    return teams.filter(
+      (team) => team.breakStatus === "breaking" && team.breakCategoryIds?.some((id) => categoryIds.has(id))
+    );
   }
 
   return teams.filter((team) => team.breakStatus === "breaking");
@@ -72,6 +75,29 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const { tournament, round, teams, venues, pastDebates, standings } = params;
   const isBP = tournament.format === "bp";
   const teamsPerDebate = isBP ? 4 : 2;
+
+  if (round.stage === "elimination" && (round.breakCategoryIds?.length || 0) > 1) {
+    const generated: Debate[] = [];
+    for (const categoryId of round.breakCategoryIds!) {
+      const categoryTeams = getEligibleTeamsForRound(teams, { ...round, breakCategoryIds: [categoryId] });
+      if (categoryTeams.length === 0) continue;
+
+      const categoryDebates = generateRoundDraw({
+        ...params,
+        round: { ...round, breakCategoryIds: [categoryId] },
+        teams: categoryTeams,
+        venues: venues.slice(generated.length),
+      });
+      categoryDebates.forEach((debate, index) => {
+        const roomRank = generated.length + index + 1;
+        debate.id = `debate-${round.id}-${roomRank}`;
+        debate.roomRank = roomRank;
+        debate.breakCategoryId = categoryId;
+        generated.push(debate);
+      });
+    }
+    return generated;
+  }
 
   // Filter checked-in teams (or all active if checkins aren't used)
   const activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
@@ -113,6 +139,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         tournamentId: tournament.id,
         roundId: round.id,
         roundSeq: round.seq,
+        breakCategoryId: round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined,
         venueName: venue?.name || `Room ${idx + 1}`,
         bracket: 0,
         roomRank: idx + 1,
@@ -141,9 +168,44 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   let debateDrafts: {
     bracket: number;
     teamsWithSides: Record<DebateSide, Team>;
+    breakCategoryId?: string;
   }[] = [];
 
-  if (round.drawType === "round_robin") {
+  if (round.stage === "elimination") {
+    const categoryIds = round.breakCategoryIds || [];
+    const groups = categoryIds.length > 0
+      ? categoryIds.map((categoryId) => ({
+          categoryId,
+          teams: activeTeams.filter((team) => team.breakCategoryIds?.includes(categoryId)),
+        }))
+      : [{ categoryId: undefined, teams: activeTeams }];
+
+    for (const group of groups) {
+      if (group.teams.length === 0) continue;
+      if (group.teams.length < teamsPerDebate || group.teams.length % teamsPerDebate !== 0) {
+        throw new Error(`Break category has ${group.teams.length} eligible teams, which cannot form an elimination draw.`);
+      }
+
+      const rankedTeams = [...group.teams].sort((a, b) => {
+        const rankA = standings.find((standing) => standing.teamId === a.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+        const rankB = standings.find((standing) => standing.teamId === b.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+        return rankA - rankB;
+      });
+      const rooms = generateEliminationDraw(
+        rankedTeams.map((team, index) => ({ team, seed: index + 1 })),
+        tournament.format,
+        rankedTeams.length
+      );
+
+      for (const room of rooms) {
+        const teamsWithSides = {} as Record<DebateSide, Team>;
+        room.teams.forEach(({ team, side }) => {
+          teamsWithSides[side] = team;
+        });
+        debateDrafts.push({ bracket: 0, teamsWithSides, breakCategoryId: group.categoryId });
+      }
+    }
+  } else if (round.drawType === "round_robin") {
     if (isBP) {
       throw new Error("Round-robin scheduling is only supported for two-team formats.");
     }
@@ -213,6 +275,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       tournamentId: tournament.id,
       roundId: round.id,
       roundSeq: round.seq,
+      breakCategoryId: draft.breakCategoryId ?? (round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined),
       venueName: venue?.name || `Room ${idx + 1}`,
       bracket: draft.bracket,
       roomRank: idx + 1,

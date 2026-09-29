@@ -5,6 +5,21 @@ export interface ScoreValidationResult {
   error?: string;
 }
 
+export function assignTwoTeamRank(
+  ranks: Record<string, number>,
+  side: string,
+  rank: number,
+  sides: string[]
+): Record<string, number> {
+  const opposingSide = sides.find((candidate) => candidate !== side);
+  if (!opposingSide) return { ...ranks, [side]: rank };
+  return { ...ranks, [side]: rank, [opposingSide]: rank === 1 ? 2 : 1 };
+}
+
+export function hasUniqueTeamRanks(ranks: Record<string, number>, sides: string[]): boolean {
+  return new Set(sides.map((side) => ranks[side])).size === sides.length;
+}
+
 /**
  * Validates a substantive speaker score against tournament preferences.
  * Must be within [minSpeakerScore, maxSpeakerScore] and a valid step increment.

@@ -3,11 +3,36 @@ import {
   validateSlug,
   slugify,
   eliminationRoundCount,
+  buildBreakCategorySchedule,
   isPowerOfTwo,
   eliminationRoundLabels,
 } from "./presets";
 
 describe("Setup Presets (setup/presets)", () => {
+  it("starts smaller breaks later in the pre-created elimination sequence", () => {
+    const categories = [
+      { id: "open", breakSize: 32 },
+      { id: "esl", breakSize: 16 },
+      { id: "novice", breakSize: 8 },
+    ].map((category) => ({
+      ...category,
+      tournamentId: "t1",
+      name: category.id,
+      slug: category.id,
+      seq: 1,
+      reserveSize: 0,
+      isGeneral: false,
+      priority: 1,
+    }));
+
+    expect(buildBreakCategorySchedule(categories, 4, 4)).toEqual([
+      ["open"],
+      ["open", "esl"],
+      ["open", "esl", "novice"],
+      ["open", "esl", "novice"],
+    ]);
+  });
+
   describe("slugify", () => {
     it("converts strings to clean url slugs", () => {
       expect(slugify("Australasian Debating Championship 2026")).toBe(

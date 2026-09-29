@@ -29,6 +29,7 @@ export default function ResultsOverviewPage() {
     ballots,
     confirmBallot,
     updateRound,
+    proceedToNextEliminationRound,
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
@@ -49,6 +50,9 @@ export default function ResultsOverviewPage() {
   const [pendingTeamSpeaksPublication, setPendingTeamSpeaksPublication] = useState<boolean | null>(null);
   const [isPublishingTeamSpeaks, setIsPublishingTeamSpeaks] = useState(false);
   const [teamSpeaksPublicationError, setTeamSpeaksPublicationError] = useState("");
+  const [isAdvancingRound, setIsAdvancingRound] = useState(false);
+  const [advancementError, setAdvancementError] = useState("");
+  const [pendingAdvancement, setPendingAdvancement] = useState(false);
 
   const confirmPublication = async () => {
     if (!activeRound || pendingPublication === null) return;
@@ -75,6 +79,20 @@ export default function ResultsOverviewPage() {
       setTeamSpeaksPublicationError("Team-speaks publication could not be saved. Please try again.");
     } finally {
       setIsPublishingTeamSpeaks(false);
+    }
+  };
+
+  const handleProceedToNextRound = async () => {
+    if (!activeRound) return;
+    setIsAdvancingRound(true);
+    setAdvancementError("");
+    try {
+      await proceedToNextEliminationRound(activeRound.id);
+      setPendingAdvancement(false);
+    } catch (error) {
+      setAdvancementError(error instanceof Error ? error.message : "Could not advance this elimination round.");
+    } finally {
+      setIsAdvancingRound(false);
     }
   };
 
@@ -364,6 +382,23 @@ export default function ResultsOverviewPage() {
                 : "Confirm every ballot before publishing team scores."}
             </span>
             {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
+            {activeRound.stage === "elimination" && !activeRound.eliminationAdvanced && (
+              <button
+                type="button"
+                onClick={() => setPendingAdvancement(true)}
+                disabled={!allBallotsConfirmed || isAdvancingRound}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                {isAdvancingRound ? "Advancing..." : "Proceed to Next Round"}
+              </button>
+            )}
+            {activeRound.stage === "elimination" && activeRound.eliminationAdvanced && (
+              <span className="text-[11px] font-semibold text-emerald-700">
+                This round is complete; losing teams have been eliminated.
+              </span>
+            )}
+            {advancementError && <span role="alert" className="text-[11px] text-red-600">{advancementError}</span>}
           </div>
         </div>
       )}
@@ -391,6 +426,17 @@ export default function ResultsOverviewPage() {
           onCancel={() => setPendingTeamSpeaksPublication(null)}
           isBusy={isPublishingTeamSpeaks}
           error={teamSpeaksPublicationError}
+        />
+      )}
+      {pendingAdvancement && activeRound?.stage === "elimination" && (
+        <ConfirmActionDialog
+          title="Proceed with elimination results?"
+          description={`Advancing ${activeRound.name} marks every non-advancing team eliminated and activates the next pre-created elimination round.`}
+          confirmLabel="Proceed to next round"
+          onConfirm={handleProceedToNextRound}
+          onCancel={() => setPendingAdvancement(false)}
+          isBusy={isAdvancingRound}
+          error={advancementError}
         />
       )}
     </div>

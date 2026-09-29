@@ -1,11 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
+  assignTwoTeamRank,
+  hasUniqueTeamRanks,
   validateSpeakerScore,
   validateReplyScore,
   validateFeedbackScore,
 } from "./validator";
 
 describe("Scoring Validator (scoring/validator)", () => {
+  it("keeps two-team results mutually exclusive", () => {
+    const sides = ["AFF", "NEG"];
+    const ranks = assignTwoTeamRank({ AFF: 1, NEG: 2 }, "NEG", 1, sides);
+
+    expect(ranks).toEqual({ AFF: 2, NEG: 1 });
+    expect(hasUniqueTeamRanks(ranks, sides)).toBe(true);
+    expect(hasUniqueTeamRanks({ AFF: 1, NEG: 1 }, sides)).toBe(false);
+  });
+
   describe("validateSpeakerScore", () => {
     const prefs = {
       minSpeakerScore: 68,

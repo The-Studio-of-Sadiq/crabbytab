@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import confetti from "canvas-confetti";
 import {
@@ -9,9 +10,6 @@ import {
   Trophy,
   Plus,
   ArrowRight,
-  Shuffle,
-  Layers,
-  Settings2,
   CheckCircle2,
 } from "lucide-react";
 import { BreakCategory } from "@/types";
@@ -20,12 +18,12 @@ export default function BreakPage() {
   const {
     tournament,
     teams,
+    rounds,
+    setActiveRound,
     breakCategories,
     breakResults,
     saveBreakCategories,
     generateBreak,
-    createRound,
-    generateDraw,
   } = useTournament();
 
   const [activeCategorySlug, setActiveCategorySlug] = useState<string>("open");
@@ -44,6 +42,9 @@ export default function BreakPage() {
   const selectedResult =
     breakResults.find((r) => r.category.slug === activeCategorySlug) ||
     breakResults[0];
+  const categoryFirstRound = selectedResult && rounds
+    .filter((round) => round.stage === "elimination" && round.breakCategoryIds?.includes(selectedResult.category.id))
+    .sort((a, b) => a.seq - b.seq)[0];
 
   const triggerCelebration = () => {
     confetti({
@@ -75,35 +76,14 @@ export default function BreakPage() {
     setNewCatName("");
   };
 
-  const handleGenerateOutRound = async () => {
-    if (!selectedResult || !breakHasBeenGenerated) return;
-    const stageName =
-      selectedResult.category.breakSize === 16
-        ? "Octo-Finals"
-        : selectedResult.category.breakSize === 8
-        ? "Quarter-Finals"
-        : selectedResult.category.breakSize === 4
-        ? "Semi-Finals"
-        : "Grand Final";
-
-    const round = await createRound(
-      `${selectedResult.category.name} ${stageName}`,
-      `${selectedResult.category.name.charAt(0)}${stageName.charAt(0)}F`,
-      "elimination",
-      undefined,
-      selectedResult.category.id
-    );
-
-    alert(`Created ${round.name}. You can now generate pairings in Draw & Matchups.`);
-  };
-
   const handleGenerateBreak = async () => {
+    if (!selectedResult) return;
     setIsGeneratingBreak(true);
     setBreakGenerationError("");
     try {
-      await generateBreak();
-    } catch {
-      setBreakGenerationError("The break could not be saved. Please try again.");
+      await generateBreak(selectedResult.category.id);
+    } catch (error) {
+      setBreakGenerationError(error instanceof Error ? error.message : "The break could not be saved. Please try again.");
     } finally {
       setIsGeneratingBreak(false);
     }
@@ -196,14 +176,16 @@ export default function BreakPage() {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>{isGeneratingBreak ? "Generating..." : breakHasBeenGenerated ? "Regenerate Break" : "Generate Break"}</span>
                   </button>
-                  <button
-                    onClick={handleGenerateOutRound}
-                    disabled={!breakHasBeenGenerated}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
-                  >
-                    <Shuffle className="w-3.5 h-3.5" />
-                    <span>Create Elimination Round</span>
-                  </button>
+                  {breakHasBeenGenerated && categoryFirstRound && (
+                    <Link
+                      href={`/${tournament?.slug}/draw`}
+                      onClick={() => setActiveRound(categoryFirstRound)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                      <span>Open {categoryFirstRound.name}</span>
+                    </Link>
+                  )}
                 </div>
                 {breakGenerationError && <span role="alert" className="text-[11px] text-red-600">{breakGenerationError}</span>}
                 {breakHasBeenGenerated && (
@@ -355,6 +337,8 @@ export default function BreakPage() {
                     onChange={(e) => setNewCatBreakSize(parseInt(e.target.value, 10))}
                     className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                   >
+                    <option value={64}>64 Teams (Triple Octos)</option>
+                    <option value={32}>32 Teams (Double Octos)</option>
                     <option value={16}>16 Teams (Octos)</option>
                     <option value={8}>8 Teams (Quarters)</option>
                     <option value={4}>4 Teams (Semis)</option>
