@@ -14,6 +14,7 @@ import {
   AlertCircle,
   FileText,
   Search,
+  Lock,
 } from "lucide-react";
 import { DebateSide } from "@/types";
 
@@ -26,17 +27,21 @@ export default function ResultsOverviewPage() {
     debates,
     ballots,
     confirmBallot,
+    updateRound,
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
   const ballotMap = new Map<string, any>();
-  ballots.forEach((b) => ballotMap.set(b.debateId, b));
+  ballots.forEach((b) => {
+    if (!b.discarded) ballotMap.set(b.debateId, b);
+  });
 
   const confirmedCount = roundDebates.filter(
     (d) => ballotMap.get(d.id)?.confirmed
   ).length;
+  const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
 
   return (
     <div className="space-y-6">
@@ -256,6 +261,45 @@ export default function ResultsOverviewPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {activeRound && (
+        <div className="border-t border-[#d0d7de] pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <label className="flex items-start gap-2.5 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(activeRound.silent)}
+              onChange={(event) => updateRound({ ...activeRound, silent: event.target.checked })}
+              className="mt-0.5 rounded border-gray-300 text-blue-600"
+            />
+            <span>
+              <strong className="block text-gray-900">Silent round</strong>
+              Hide this round&apos;s results and team outcomes from the public tab.
+            </span>
+          </label>
+          <div className="flex flex-col items-start sm:items-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => updateRound({ ...activeRound, resultsReleased: !activeRound.resultsReleased })}
+              disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+                activeRound.resultsReleased
+                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+            >
+              {activeRound.resultsReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {activeRound.resultsReleased ? "Unpublish Round Results" : "Publish Round Results"}
+            </button>
+            <span className="text-[11px] text-gray-500">
+              {activeRound.resultsReleased
+                ? "Round results are published."
+                : allBallotsConfirmed
+                ? "Ballots are saved; publish when ready."
+                : "Confirm every ballot before publishing."}
+            </span>
           </div>
         </div>
       )}

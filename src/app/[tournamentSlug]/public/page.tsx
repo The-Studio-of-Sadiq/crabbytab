@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -17,8 +17,14 @@ import {
   ExternalLink,
   FileCheck2,
   Lock,
+  Presentation,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from "lucide-react";
 import { DebateSide } from "@/types";
+import { calculateStandings } from "@/lib/standings/calculator";
+import { calculateBreaks } from "@/lib/breakqual/calculator";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -31,10 +37,9 @@ export default function PublicTournamentPage() {
     setActiveRound,
     debates,
     ballots,
-    teamStandings,
-    speakerStandings,
+    teams,
     motions,
-    breakResults,
+    breakCategories,
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
@@ -58,24 +63,51 @@ export default function PublicTournamentPage() {
     availableTabs[0] || "draw"
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [isMotionPresentation, setIsMotionPresentation] = useState(false);
+  const [motionSlideIndex, setMotionSlideIndex] = useState(0);
 
   // Only released debates/rounds
   const releasedDebates = activeRound
     ? debates.filter((d) => d.roundId === activeRound.id && activeRound.drawStatus === "confirmed")
     : [];
 
-  const roundResultsReleased = Boolean(activeRound?.resultsReleased || activeRound?.drawStatus === "confirmed");
+  const roundResultsReleased = Boolean(activeRound?.resultsReleased && !activeRound.silent);
 
-  const releasedMotions = motions.filter(
-    (m) => m.released !== false && (!activeRound || (m.rounds && m.rounds.includes(activeRound.id)) || !m.rounds || m.rounds.length === 0)
+  const releasedMotions = motions
+    .filter((motion) => motion.released !== false)
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+
+  const publicRoundIds = new Set(
+    rounds.filter((round) => round.resultsReleased && !round.silent).map((round) => round.id)
   );
+  const publicBallots = ballots.filter(
+    (ballot) => ballot.confirmed && !ballot.discarded && publicRoundIds.has(ballot.roundId)
+  );
+  const publicDebates = debates.filter((debate) => publicRoundIds.has(debate.roundId));
+  const publicStandings = tournament
+    ? calculateStandings(tournament, rounds.filter((round) => publicRoundIds.has(round.id)), teams, publicDebates, publicBallots)
+    : { teams: [], speakers: [], replies: [] };
+  const publicBreakResults = calculateBreaks(breakCategories, teams, publicStandings.teams);
 
   const ballotMap = new Map<string, any>();
-  ballots.forEach((b) => {
-    if (b.confirmed && !b.discarded) {
-      ballotMap.set(b.debateId, b);
-    }
-  });
+  publicBallots.forEach((ballot) => ballotMap.set(ballot.debateId, ballot));
+
+  useEffect(() => {
+    setMotionSlideIndex((index) => Math.min(index, Math.max(0, releasedMotions.length - 1)));
+  }, [releasedMotions.length]);
+
+  useEffect(() => {
+    if (!isMotionPresentation) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMotionPresentation(false);
+      if (event.key === "ArrowRight") {
+        setMotionSlideIndex((index) => Math.min(index + 1, releasedMotions.length - 1));
+      }
+      if (event.key === "ArrowLeft") setMotionSlideIndex((index) => Math.max(index - 1, 0));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMotionPresentation, releasedMotions.length]);
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
@@ -282,7 +314,11 @@ export default function PublicTournamentPage() {
               ))}
             </div>
 
-            {!roundResultsReleased || releasedDebates.length === 0 ? (
+            {activeRound?.silent ? (
+              <div className="bg-white border border-amber-300 rounded-lg p-10 text-center text-amber-900 text-xs">
+                Results for {activeRound.name} are withheld because this is a silent round.
+              </div>
+            ) : !roundResultsReleased || releasedDebates.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
                 Results for {activeRound?.name || "this round"} have not been released to the public yet.
               </div>
@@ -395,7 +431,7 @@ export default function PublicTournamentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {teamStandings.map((t) => (
+                  {publicStandings.teams.map((t) => (
                     <tr key={t.teamId} className="hover:bg-gray-50">
                       <td className="text-center font-mono font-bold text-xs">{t.rank}</td>
                       <td className="font-bold text-gray-900 text-xs">{t.teamName}</td>
@@ -418,6 +454,18 @@ export default function PublicTournamentPage() {
         {/* 4. Motions View (S1: publicMotions) */}
         {showPublicMotions && activeTab === "motions" && (
           <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-gray-900">Released Motions</h2>
+              <button
+                type="button"
+                onClick={() => setIsMotionPresentation(true)}
+                disabled={releasedMotions.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50"
+              >
+                <Presentation className="w-3.5 h-3.5" />
+                Present Motions
+              </button>
+            </div>
             {releasedMotions.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
                 No motions have been released to the public yet.
@@ -448,7 +496,7 @@ export default function PublicTournamentPage() {
         {/* 5. Break View */}
         {activeTab === "break" && (
           <div className="space-y-6">
-            {breakResults.map((res) => (
+            {publicBreakResults.map((res) => (
               <div
                 key={res.category.id}
                 className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden"
@@ -491,6 +539,74 @@ export default function PublicTournamentPage() {
           </div>
         )}
       </main>
+
+      {isMotionPresentation && releasedMotions[motionSlideIndex] && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Motion presentation"
+          className="fixed inset-0 z-[60] flex flex-col bg-[#111820] text-white"
+        >
+          <header className="flex items-center justify-between border-b border-white/15 px-5 py-4 sm:px-8">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase text-amber-300">
+                Motion {motionSlideIndex + 1} of {releasedMotions.length}
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-gray-200">
+                {releasedMotions[motionSlideIndex].reference || "Tournament motion"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsMotionPresentation(false)}
+              aria-label="Close presentation"
+              title="Close presentation"
+              className="p-2 text-gray-300 hover:bg-white/10 hover:text-white rounded"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </header>
+          <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10 text-center sm:px-14">
+            <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">
+              {releasedMotions[motionSlideIndex].text}
+            </p>
+            {releasedMotions[motionSlideIndex].infoSlide && (
+              <div className="w-full max-w-4xl border-t border-amber-300/50 pt-6 text-left">
+                <p className="mb-2 text-xs font-bold uppercase text-amber-300">Information slide</p>
+                <p className="whitespace-pre-line text-base leading-relaxed text-gray-200 sm:text-lg">
+                  {releasedMotions[motionSlideIndex].infoSlide}
+                </p>
+              </div>
+            )}
+          </div>
+          <footer className="flex items-center justify-between border-t border-white/15 px-5 py-4 sm:px-8">
+            <button
+              type="button"
+              onClick={() => setMotionSlideIndex((index) => Math.max(index - 1, 0))}
+              disabled={motionSlideIndex === 0}
+              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
+            >
+              <ChevronLeft className="w-4 h-4" /> Previous
+            </button>
+            <div className="flex items-center gap-1.5" aria-label={`Slide ${motionSlideIndex + 1}`}>
+              {releasedMotions.map((motion, index) => (
+                <span
+                  key={motion.id}
+                  className={`h-1.5 w-5 rounded-full ${index === motionSlideIndex ? "bg-amber-300" : "bg-white/25"}`}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setMotionSlideIndex((index) => Math.min(index + 1, releasedMotions.length - 1))}
+              disabled={motionSlideIndex === releasedMotions.length - 1}
+              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </footer>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">

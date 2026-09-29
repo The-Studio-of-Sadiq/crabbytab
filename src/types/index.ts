@@ -116,6 +116,7 @@ export interface Round {
   silent: boolean;
   motionsReleased: boolean;
   resultsReleased: boolean;
+  cancelled?: boolean;
   completed: boolean;
   createdAt: string;
 }

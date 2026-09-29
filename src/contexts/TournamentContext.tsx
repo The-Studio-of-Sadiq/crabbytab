@@ -63,13 +63,14 @@ export interface TournamentContextType {
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
   createRound: (name: string, abbr: string, stage: "preliminary" | "elimination") => Promise<Round>;
+  setPreliminaryRoundCount: (count: number) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
   generateDraw: (roundId: string) => Promise<void>;
   autoAllocate: (roundId: string, panelSize?: number) => Promise<void>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission) => Promise<void>;
-  confirmBallot: (ballotId: string, debateId: string) => Promise<void>;
+  confirmBallot: (ballotId: string, debateId: string, submittedBallot?: BallotSubmission) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
@@ -212,7 +213,9 @@ export function TournamentProvider({
         if (localRounds && isMounted) {
           const parsed = JSON.parse(localRounds);
           setRounds(parsed);
-          if (parsed.length > 0) setActiveRound(parsed[0]);
+          if (parsed.length > 0) {
+            setActiveRound(parsed.find((round: Round) => !round.cancelled) || null);
+          }
         }
 
         const localTeams = localStorage.getItem(`${storagePrefix}_teams`);
@@ -433,13 +436,13 @@ export function TournamentProvider({
             // 2. rounds
             subscribeSubcollection<Round>("rounds", "rounds", setRounds, (rList) => {
               if (rList.length > 0) {
-                // Keep existing activeRound if present, or set to latest
+                const activeRounds = rList.filter((r) => !r.cancelled);
                 setActiveRound((prev) => {
                   if (prev) {
                     const match = rList.find((r) => r.id === prev.id);
-                    return match || rList[rList.length - 1];
+                    if (match && !match.cancelled) return match;
                   }
-                  return rList[rList.length - 1];
+                  return activeRounds[activeRounds.length - 1] || null;
                 });
               }
             });
@@ -549,7 +552,15 @@ export function TournamentProvider({
   // Dynamic Standings Recalculation (Instantaneous in-browser compute)
   const standingsResult = useMemo(() => {
     if (!tournament) return { teams: [], speakers: [], replies: [] };
-    return calculateStandings(tournament, rounds, teams, debates, ballots);
+    const activeRounds = rounds.filter((round) => !round.cancelled);
+    const activeRoundIds = new Set(activeRounds.map((round) => round.id));
+    return calculateStandings(
+      tournament,
+      activeRounds,
+      teams,
+      debates.filter((debate) => activeRoundIds.has(debate.roundId)),
+      ballots.filter((ballot) => activeRoundIds.has(ballot.roundId))
+    );
   }, [tournament, rounds, teams, debates, ballots]);
 
   const teamStandings = standingsResult.teams;
@@ -622,6 +633,92 @@ export function TournamentProvider({
     persistLocal("rounds", updated);
 
     await setFirestoreDoc("rounds", round.id, round);
+  };
+
+  const setPreliminaryRoundCount = async (count: number) => {
+    const targetCount = Math.max(0, Math.min(20, Math.floor(count)));
+    const updated = [...rounds];
+    const activePrelims = updated
+      .filter((round) => round.stage === "preliminary" && !round.cancelled)
+      .sort((a, b) => a.seq - b.seq);
+
+    if (targetCount < activePrelims.length) {
+      activePrelims.slice(targetCount).forEach((round) => {
+        const index = updated.findIndex((item) => item.id === round.id);
+        updated[index] = { ...round, cancelled: true };
+      });
+    } else if (targetCount > activePrelims.length) {
+      const canceledPrelims = updated
+        .filter((round) => round.stage === "preliminary" && round.cancelled)
+        .sort((a, b) => a.seq - b.seq);
+      const restoreCount = Math.min(targetCount - activePrelims.length, canceledPrelims.length);
+      canceledPrelims.slice(0, restoreCount).forEach((round) => {
+        const index = updated.findIndex((item) => item.id === round.id);
+        updated[index] = { ...round, cancelled: false };
+      });
+
+      let preliminaryCount = activePrelims.length + restoreCount;
+      while (preliminaryCount < targetCount) {
+        const seq = Math.max(0, ...updated.map((round) => round.seq)) + 1;
+        const id = `round-${tournament?.id || tournamentSlug}-${Date.now()}-${preliminaryCount + 1}`;
+        const drawRule = tournament?.preferences?.drawRule || "power_paired";
+        updated.push({
+          id,
+          tournamentId: tournament?.id || tournamentSlug,
+          seq,
+          name: `Round ${preliminaryCount + 1}`,
+          abbreviation: `R${preliminaryCount + 1}`,
+          stage: "preliminary",
+          drawType:
+            preliminaryCount === 0 && drawRule === "power_paired" ? "random" : (drawRule as any),
+          drawStatus: "none",
+          feedbackWeight: 1,
+          silent: false,
+          motionsReleased: false,
+          resultsReleased: false,
+          completed: false,
+          createdAt: new Date().toISOString(),
+        });
+        preliminaryCount += 1;
+      }
+    }
+
+    const prelims = updated
+      .filter((round) => round.stage === "preliminary" && !round.cancelled)
+      .sort((a, b) => a.seq - b.seq);
+    const eliminations = updated
+      .filter((round) => round.stage === "elimination" && !round.cancelled)
+      .sort((a, b) => a.seq - b.seq);
+    const canceled = updated.filter((round) => round.cancelled).sort((a, b) => a.seq - b.seq);
+    const ordered = [...prelims, ...eliminations, ...canceled].map((round, index) => ({
+      ...round,
+      seq: index + 1,
+    }));
+    const seqByRoundId = new Map(ordered.map((round) => [round.id, round.seq]));
+    const updatedDebates = debates.map((debate) => ({
+      ...debate,
+      roundSeq: seqByRoundId.get(debate.roundId) ?? debate.roundSeq,
+    }));
+
+    setRounds(ordered);
+    persistLocal("rounds", ordered);
+    await Promise.all(ordered.map((round) => setFirestoreDoc("rounds", round.id, round)));
+
+    if (updatedDebates.some((debate, index) => debate.roundSeq !== debates[index].roundSeq)) {
+      setDebates(updatedDebates);
+      persistLocal("debates", updatedDebates);
+      await Promise.all(
+        updatedDebates
+          .filter((debate, index) => debate.roundSeq !== debates[index].roundSeq)
+          .map((debate) => setFirestoreDoc("debates", debate.id, debate))
+      );
+    }
+
+    setActiveRound((current) => {
+      const updatedActive = current && ordered.find((round) => round.id === current.id);
+      if (updatedActive && !updatedActive.cancelled) return updatedActive;
+      return [...prelims, ...eliminations].at(-1) || null;
+    });
   };
 
   const generateDraw = async (roundId: string) => {
@@ -793,10 +890,9 @@ export function TournamentProvider({
     setBallots(updatedBallots);
     persistLocal("ballots", updatedBallots);
 
-    // If ballot was marked confirmed upon submission, use transaction to confirm it
-    if (finalBallot.confirmed && db && tournament?.id) {
-      await confirmBallot(finalBallot.id, finalBallot.debateId);
-      return;
+    const ballotRound = rounds.find((round) => round.id === finalBallot.roundId);
+    if (ballotRound?.resultsReleased) {
+      await updateRound({ ...ballotRound, resultsReleased: false });
     }
 
     // Update debate result status
@@ -814,9 +910,16 @@ export function TournamentProvider({
     }
 
     await setFirestoreDoc("ballots", finalBallot.id, finalBallot);
+    if (finalBallot.confirmed) {
+      await confirmBallot(finalBallot.id, finalBallot.debateId, finalBallot);
+    }
   };
 
-  const confirmBallot = async (ballotId: string, debateId: string) => {
+  const confirmBallot = async (
+    ballotId: string,
+    debateId: string,
+    submittedBallot?: BallotSubmission
+  ) => {
     const nowIso = new Date().toISOString();
 
     // 1. Transactional update in Firestore if available:
@@ -842,7 +945,7 @@ export function TournamentProvider({
           confirmedBallotData = targetBallotDoc.data() as BallotSubmission;
         } else {
           // If not in firestore yet, find in local state
-          const localB = ballots.find((b) => b.id === ballotId || b.debateId === debateId);
+          const localB = submittedBallot || ballots.find((b) => b.id === ballotId || b.debateId === debateId);
           if (!localB) throw new Error(`Ballot ${ballotId} not found.`);
           confirmedBallotData = localB;
         }
@@ -894,7 +997,7 @@ export function TournamentProvider({
     }
 
     // 2. Update local state
-    const confirmedBallot = ballots.find((b) => b.id === ballotId || b.debateId === debateId);
+    const confirmedBallot = submittedBallot || ballots.find((b) => b.id === ballotId || b.debateId === debateId);
     const updatedBallots = ballots.map((b) => {
       if (b.id === ballotId || (b.debateId === debateId && b.id === ballotId)) {
         return {
@@ -913,6 +1016,14 @@ export function TournamentProvider({
       }
       return b;
     });
+    if (confirmedBallot && !updatedBallots.some((b) => b.id === ballotId)) {
+      updatedBallots.push({
+        ...confirmedBallot,
+        confirmed: true,
+        discarded: false,
+        confirmedTimestamp: nowIso,
+      });
+    }
     setBallots(updatedBallots);
     persistLocal("ballots", updatedBallots);
 
@@ -1160,7 +1271,7 @@ export function TournamentProvider({
       value={{
         tournament,
         loading,
-        rounds,
+        rounds: rounds.filter((round) => !round.cancelled),
         activeRound,
         setActiveRound,
         teams,
@@ -1179,6 +1290,7 @@ export function TournamentProvider({
         isOwnerOrAdmin,
         saveTournament,
         createRound,
+        setPreliminaryRoundCount,
         updateRound,
         generateDraw,
         autoAllocate,

@@ -39,7 +39,6 @@ export default function BallotEntryPage() {
     motions,
     ballots,
     submitBallot,
-    confirmBallot,
   } = useTournament();
 
   const debate = debates.find((d) => d.id === debateId);
@@ -441,7 +440,6 @@ export default function BallotEntryPage() {
 
         // No differences: confirm candidate ballot
         await submitBallot(secondBallot);
-        await confirmBallot(secondBallot.id, debate.id);
         router.push(`/${tournamentSlug}/results`);
         return;
       }
@@ -469,9 +467,6 @@ export default function BallotEntryPage() {
       };
 
       await submitBallot(ballotPayload);
-      if (isConfirmed) {
-        await confirmBallot(ballotPayload.id, debate.id);
-      }
       router.push(`/${tournamentSlug}/results`);
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to submit ballot.");
@@ -493,7 +488,6 @@ export default function BallotEntryPage() {
       };
 
       await submitBallot(finalConfirmedBallot);
-      await confirmBallot(finalConfirmedBallot.id, debate.id);
       setShowDiffModal(false);
       router.push(`/${tournamentSlug}/results`);
     } catch (err: any) {

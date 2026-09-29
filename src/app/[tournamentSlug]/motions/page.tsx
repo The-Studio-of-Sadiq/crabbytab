@@ -231,7 +231,7 @@ export default function MotionsPage() {
                     ) : (
                       <>
                         <Lock className="w-3.5 h-3.5 text-gray-500" />
-                        <span>Private (Draft)</span>
+                        <span>Release Motion to Public</span>
                       </>
                     )}
                   </button>

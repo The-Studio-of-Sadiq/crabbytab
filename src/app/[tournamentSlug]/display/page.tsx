@@ -20,7 +20,13 @@ export default function DisplayPage() {
   const showMotion = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
   const roundDebates = activeRound && showDraw ? debates.filter((d) => d.roundId === activeRound.id) : [];
-  const motion = activeRound && showMotion ? motions.find((m) => m.rounds && m.rounds.includes(activeRound.id)) : null;
+  const motion = activeRound && showMotion
+    ? motions.find(
+        (item) =>
+          item.rounds?.includes(activeRound.id) &&
+          (isOwnerOrAdmin || item.released !== false)
+      )
+    : null;
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
   useEffect(() => {

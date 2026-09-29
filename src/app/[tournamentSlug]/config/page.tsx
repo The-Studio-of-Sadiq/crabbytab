@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Sliders,
@@ -23,7 +23,7 @@ import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings
 import { OddBracketMethod, PairingMethod, ConflictAvoidance, PullupRestriction } from "@/types";
 
 export default function ConfigPage() {
-  const { tournament, saveTournament } = useTournament();
+  const { tournament, saveTournament, rounds, setPreliminaryRoundCount } = useTournament();
 
   const [format, setFormat] = useState<TournamentFormat>(tournament?.format || "bp");
   const [prefs, setPrefs] = useState<TournamentPreferences>(
@@ -50,6 +50,31 @@ export default function ConfigPage() {
   );
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [prelimRoundCount, setPrelimRoundCount] = useState(0);
+  const [isSavingRoundCount, setIsSavingRoundCount] = useState(false);
+  const [roundCountError, setRoundCountError] = useState("");
+  const activePrelimCount = rounds.filter((round) => round.stage === "preliminary").length;
+
+  useEffect(() => {
+    setPrelimRoundCount(activePrelimCount);
+  }, [activePrelimCount]);
+
+  const handleRoundCountSave = async () => {
+    if (!Number.isInteger(prelimRoundCount) || prelimRoundCount < 0 || prelimRoundCount > 20) {
+      setRoundCountError("Enter a whole number from 0 to 20.");
+      return;
+    }
+
+    setIsSavingRoundCount(true);
+    setRoundCountError("");
+    try {
+      await setPreliminaryRoundCount(prelimRoundCount);
+    } catch {
+      setRoundCountError("Could not update the preliminary round count.");
+    } finally {
+      setIsSavingRoundCount(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,6 +175,42 @@ export default function ConfigPage() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Preliminary round count */}
+        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-3">
+          <h3 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2">
+            Preliminary Rounds
+          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="prelim-round-count">
+                Number of rounds
+              </label>
+              <input
+                id="prelim-round-count"
+                type="number"
+                min={0}
+                max={20}
+                step={1}
+                value={prelimRoundCount}
+                onChange={(event) => setPrelimRoundCount(Number(event.target.value))}
+                className="w-32 border border-gray-300 rounded px-3 py-1.5 text-sm font-mono"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleRoundCountSave}
+              disabled={isSavingRoundCount || prelimRoundCount === activePrelimCount}
+              className="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50"
+            >
+              {isSavingRoundCount ? "Updating..." : "Update Round Count"}
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            Canceled rounds keep their ballots and can be restored by increasing this count. Elimination rounds remain; their sequence numbers adjust as needed.
+          </p>
+          {roundCountError && <p className="text-xs text-red-600">{roundCountError}</p>}
         </div>
 
         {/* 2. Speaker Score Bounds */}

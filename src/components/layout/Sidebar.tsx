@@ -126,6 +126,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           {feedbackEnabled && (
             <NavLink href={`/${tournamentSlug}/feedback`} icon={MessageSquareHeart} label="Feedback" />
           )}
+          <NavLink href={`/${tournamentSlug}/motions`} icon={Lightbulb} label="Motions" />
           <NavLink href={`/${tournamentSlug}/standings`} icon={Trophy} label="Standings" />
           <NavLink href={`/${tournamentSlug}/break`} icon={Award} label="Break" />
           <NavLink href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
@@ -194,7 +195,6 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
                     />
                     <NavLink nested href={`/${tournamentSlug}/allocation`} icon={Users2} label="Allocation" />
                     <NavLink nested href={`/${tournamentSlug}/display`} icon={Monitor} label="Display" />
-                    <NavLink nested href={`/${tournamentSlug}/motions`} icon={Lightbulb} label="Motions" />
                     <NavLink
                       nested
                       href={`/${tournamentSlug}/results`}
