@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { parseVenuesCsv } from "@/lib/csv/importer";
 import {
@@ -11,16 +11,24 @@ import {
   CheckCircle2,
   XCircle,
   Search,
+  FileSpreadsheet,
+  X,
 } from "lucide-react";
 import { Venue } from "@/types";
 
 export default function VenuesPage() {
   const { tournament, venues, addVenue, updateVenue, deleteVenue } = useTournament();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showCsvModal, setShowCsvModal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPriority, setNewPriority] = useState(10);
   const [newCategory, setNewCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [csvText, setCsvText] = useState("");
+  const [csvPreview, setCsvPreview] = useState<Venue[]>([]);
+  const [csvError, setCsvError] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredVenues = venues.filter((v) =>
     v.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -47,6 +55,63 @@ export default function VenuesPage() {
     await updateVenue({ ...venue, available: venue.available === false });
   };
 
+  // ─── CSV Import Handlers ───
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setCsvText(text);
+      parseCsvPreview(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const parseCsvPreview = (text: string) => {
+    setCsvError("");
+    if (!text.trim()) {
+      setCsvPreview([]);
+      return;
+    }
+    try {
+      const parsed = parseVenuesCsv(text, tournament?.id || "");
+      if (parsed.length === 0) {
+        setCsvError("No venues found in CSV. Ensure headers include: name, priority, category");
+      }
+      setCsvPreview(parsed);
+    } catch (err: any) {
+      setCsvError(err.message || "Failed to parse CSV");
+      setCsvPreview([]);
+    }
+  };
+
+  const handleCsvTextChange = (text: string) => {
+    setCsvText(text);
+    parseCsvPreview(text);
+  };
+
+  const handleCsvImport = async () => {
+    if (csvPreview.length === 0) return;
+    setIsImporting(true);
+    try {
+      for (const venue of csvPreview) {
+        await addVenue({
+          name: venue.name,
+          priority: venue.priority,
+          category: venue.category,
+          available: true,
+        });
+      }
+      setCsvText("");
+      setCsvPreview([]);
+      setShowCsvModal(false);
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -54,20 +119,29 @@ export default function VenuesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
             <MapPin className="w-6 h-6 text-emerald-600" />
-            <span>Debate Venues & Rooms</span>
+            <span>Debate Venues &amp; Rooms</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
             Manage physical and online debate rooms, priority weights, and availability status.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Add Venue</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowCsvModal(true)}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
+          >
+            <Upload className="w-3.5 h-3.5 text-gray-500" />
+            <span>Import CSV</span>
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Venue</span>
+          </button>
+        </div>
       </div>
 
       {/* Venues Table */}
@@ -203,6 +277,137 @@ export default function VenuesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Modal */}
+      {showCsvModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-2xl w-full p-6 border border-gray-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-gray-900 flex items-center space-x-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                <span>Import Venues from CSV</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setShowCsvModal(false);
+                  setCsvText("");
+                  setCsvPreview([]);
+                  setCsvError("");
+                }}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* File picker */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Upload CSV File
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.txt,.tsv"
+                  onChange={handleFileUpload}
+                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-gray-300 rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="text-xs text-gray-400 text-center">— or paste CSV text —</div>
+
+              {/* Paste area */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  CSV Content
+                </label>
+                <textarea
+                  rows={6}
+                  placeholder={`name,priority,category\nLecture Theatre 1,20,Main\nSeminar Room A,10,General\nOnline Room 1,5,Online`}
+                  value={csvText}
+                  onChange={(e) => handleCsvTextChange(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                />
+              </div>
+
+              {/* CSV format help */}
+              <div className="bg-gray-50 border border-gray-200 rounded p-3">
+                <p className="text-[11px] font-semibold text-gray-700 mb-1">Expected CSV Columns:</p>
+                <ul className="text-[10px] text-gray-500 space-y-0.5">
+                  <li><strong>name</strong> (required) — Venue/room name. Aliases: Name, room, Room, venue, Venue</li>
+                  <li><strong>priority</strong> — Priority weight (1-100, default 10). Higher = more important room</li>
+                  <li><strong>category</strong> — Category label (e.g. Main, Online, Accessible)</li>
+                </ul>
+              </div>
+
+              {/* Error */}
+              {csvError && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
+                  <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  <span>{csvError}</span>
+                </div>
+              )}
+
+              {/* Preview */}
+              {csvPreview.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center space-x-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span>Preview: {csvPreview.length} venues found</span>
+                  </p>
+                  <div className="overflow-x-auto max-h-48 overflow-y-auto border border-gray-200 rounded">
+                    <table className="w-full text-left">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">#</th>
+                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Name</th>
+                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Priority</th>
+                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Category</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {csvPreview.map((v, idx) => (
+                          <tr key={idx} className="text-xs hover:bg-gray-50">
+                            <td className="px-3 py-1 font-mono text-gray-400">{idx + 1}</td>
+                            <td className="px-3 py-1 font-semibold text-gray-900">{v.name}</td>
+                            <td className="px-3 py-1 font-mono text-blue-600">{v.priority}</td>
+                            <td className="px-3 py-1 text-gray-500">{v.category || "General"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCsvModal(false);
+                    setCsvText("");
+                    setCsvPreview([]);
+                    setCsvError("");
+                  }}
+                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCsvImport}
+                  disabled={csvPreview.length === 0 || isImporting}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs disabled:opacity-50 transition inline-flex items-center space-x-1.5"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isImporting ? "Importing..." : `Import ${csvPreview.length} Venues`}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

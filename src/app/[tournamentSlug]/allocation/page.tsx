@@ -3,7 +3,13 @@
 import React, { useState, useMemo } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Adjudicator, Debate, Team } from "@/types";
-import { calculateAdjDebateConflict } from "@/lib/draw/allocator";
+import {
+  calculateAdjDebateConflict,
+  calculateDebatePriorities,
+  computeBreakLiveness,
+  effectiveAdjScore,
+  DebatePriorityInfo,
+} from "@/lib/draw/allocator";
 import {
   Users2,
   Sparkles,
@@ -19,6 +25,9 @@ import {
   Trash2,
   RotateCcw,
   Layers,
+  Gauge,
+  Zap,
+  TrendingUp,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
 
@@ -42,12 +51,15 @@ export default function AllocationPage() {
     autoAllocate,
     updateDebate,
     updateDebates,
+    teamStandings,
+    breakCategories,
   } = useTournament();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [panelSize, setPanelSize] = useState<number>(1);
   const [isAllocating, setIsAllocating] = useState(false);
   const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
+  const [showPriorityPanel, setShowPriorityPanel] = useState(true);
 
   // Drag & drop state
   const [draggingJudge, setDraggingJudge] = useState<JudgeDragPayload | null>(null);
@@ -69,6 +81,41 @@ export default function AllocationPage() {
     adjudicators.forEach((a) => map.set(a.id, a));
     return map;
   }, [adjudicators]);
+
+  // ─── Debate Priorities ───
+  const debatePriorities = useMemo(() => {
+    if (roundDebates.length === 0 || !tournament) return new Map<string, DebatePriorityInfo>();
+
+    const completedPrelimRounds = rounds.filter(
+      (r) => r.stage === "preliminary" && !r.cancelled && r.completed
+    ).length;
+    const totalPrelimRounds = rounds.filter(
+      (r) => r.stage === "preliminary" && !r.cancelled
+    ).length;
+
+    const breakLiveness = computeBreakLiveness(
+      teams,
+      teamStandings,
+      breakCategories,
+      completedPrelimRounds,
+      totalPrelimRounds,
+      tournament.format === "bp"
+    );
+
+    const priorities = calculateDebatePriorities(roundDebates, teamsMap, breakLiveness);
+    const map = new Map<string, DebatePriorityInfo>();
+    priorities.forEach((p) => map.set(p.debateId, p));
+    return map;
+  }, [roundDebates, tournament, teams, teamStandings, breakCategories, rounds, teamsMap]);
+
+  // Sort debates by priority
+  const sortedRoundDebates = useMemo(() => {
+    return [...roundDebates].sort((a, b) => {
+      const pa = debatePriorities.get(a.id)?.priorityScore ?? 0;
+      const pb = debatePriorities.get(b.id)?.priorityScore ?? 0;
+      return pb - pa;
+    });
+  }, [roundDebates, debatePriorities]);
 
   // Determine which adjudicators are currently assigned in this round
   const assignedAdjIds = useMemo(() => {
@@ -95,22 +142,58 @@ export default function AllocationPage() {
     );
   });
 
+  // Sort available adjs by effective score (highest first)
+  const sortedFilteredAdjs = useMemo(
+    () => [...filteredAdjs].sort((a, b) => effectiveAdjScore(b) - effectiveAdjScore(a)),
+    [filteredAdjs]
+  );
+
+  // ─── Panel Strength per Debate ───
+  const debatePanelStrengths = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const debate of roundDebates) {
+      const adjs = debate.adjudicators;
+      if (!adjs) { map.set(debate.id, 0); continue; }
+      const panelAdjIds: string[] = [];
+      if (adjs.chairId) panelAdjIds.push(adjs.chairId);
+      panelAdjIds.push(...(adjs.panellistIds || []));
+      if (panelAdjIds.length === 0) { map.set(debate.id, 0); continue; }
+      const scores = panelAdjIds
+        .map((id) => adjsMap.get(id))
+        .filter((a): a is Adjudicator => a !== undefined)
+        .map((a) => effectiveAdjScore(a));
+      const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
+      map.set(debate.id, Math.round(avg * 10) / 10);
+    }
+    return map;
+  }, [roundDebates, adjsMap]);
+
+  // Priority score color coding
+  const getPriorityColor = (score: number) => {
+    if (score >= 7) return "bg-red-100 text-red-800 border-red-300";
+    if (score >= 4) return "bg-amber-100 text-amber-800 border-amber-300";
+    return "bg-green-100 text-green-800 border-green-300";
+  };
+
+  const getStrengthColor = (strength: number) => {
+    if (strength >= 7) return "text-emerald-700 bg-emerald-50";
+    if (strength >= 4) return "text-blue-700 bg-blue-50";
+    return "text-gray-600 bg-gray-50";
+  };
+
   // Assign Chair to Debate
   const assignChair = async (debateId: string, adj: Adjudicator) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
 
-    // Check if adj is already somewhere in this round and remove them from that previous slot
     const updatedDebatesList = debates.map((d) => {
       if (d.roundId !== activeRound?.id) return d;
       let newAdjSlots = { ...d.adjudicators };
 
-      // Remove from previous chair
       if (newAdjSlots.chairId === adj.id) {
         newAdjSlots.chairId = undefined;
         newAdjSlots.chairName = undefined;
       }
-      // Remove from previous panellists
       if (newAdjSlots.panellistIds?.includes(adj.id)) {
         const idx = newAdjSlots.panellistIds.indexOf(adj.id);
         const pIds = [...newAdjSlots.panellistIds];
@@ -120,7 +203,6 @@ export default function AllocationPage() {
         newAdjSlots.panellistIds = pIds;
         newAdjSlots.panellistNames = pNames;
       }
-      // Remove from previous trainees
       if (newAdjSlots.traineeIds?.includes(adj.id)) {
         const idx = newAdjSlots.traineeIds.indexOf(adj.id);
         const tIds = [...newAdjSlots.traineeIds];
@@ -143,11 +225,9 @@ export default function AllocationPage() {
     setSelectedAdjForManual(null);
   };
 
-  // Remove Chair from Debate
   const removeChair = async (debateId: string) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
-
     const updatedDebate: Debate = {
       ...debate,
       adjudicators: {
@@ -159,7 +239,6 @@ export default function AllocationPage() {
     await updateDebate(updatedDebate);
   };
 
-  // Add Panellist to Debate
   const addPanellist = async (debateId: string, adj: Adjudicator) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
@@ -169,7 +248,6 @@ export default function AllocationPage() {
       if (d.roundId !== activeRound?.id) return d;
       let newAdjSlots = { ...d.adjudicators };
 
-      // Remove from any other slot
       if (newAdjSlots.chairId === adj.id) {
         newAdjSlots.chairId = undefined;
         newAdjSlots.chairName = undefined;
@@ -205,19 +283,15 @@ export default function AllocationPage() {
     setSelectedAdjForManual(null);
   };
 
-  // Remove Panellist from Debate
   const removePanellist = async (debateId: string, adjId: string) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
-
     const panellistIdx = (debate.adjudicators.panellistIds || []).indexOf(adjId);
     if (panellistIdx < 0) return;
-
     const newIds = [...debate.adjudicators.panellistIds];
     const newNames = [...debate.adjudicators.panellistNames];
     newIds.splice(panellistIdx, 1);
     newNames.splice(panellistIdx, 1);
-
     const updatedDebate: Debate = {
       ...debate,
       adjudicators: {
@@ -229,7 +303,6 @@ export default function AllocationPage() {
     await updateDebate(updatedDebate);
   };
 
-  // Add Trainee to Debate
   const addTrainee = async (debateId: string, adj: Adjudicator) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
@@ -274,19 +347,15 @@ export default function AllocationPage() {
     setSelectedAdjForManual(null);
   };
 
-  // Remove Trainee from Debate
   const removeTrainee = async (debateId: string, adjId: string) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
-
     const traineeIdx = (debate.adjudicators.traineeIds || []).indexOf(adjId);
     if (traineeIdx < 0) return;
-
     const newIds = [...debate.adjudicators.traineeIds];
     const newNames = [...debate.adjudicators.traineeNames];
     newIds.splice(traineeIdx, 1);
     newNames.splice(traineeIdx, 1);
-
     const updatedDebate: Debate = {
       ...debate,
       adjudicators: {
@@ -298,7 +367,13 @@ export default function AllocationPage() {
     await updateDebate(updatedDebate);
   };
 
-  // Clear all allocations for this round
+  // ─── Manual Priority Update ───
+  const updateDebateImportance = async (debateId: string, importance: number) => {
+    const debate = debates.find((d) => d.id === debateId);
+    if (!debate) return;
+    await updateDebate({ ...debate, importance });
+  };
+
   const handleClearAllocations = async () => {
     if (!confirm("Clear all judge allocations for this round?")) return;
     const updatedDebatesList = debates.map((d) => {
@@ -407,7 +482,7 @@ export default function AllocationPage() {
             <span>Adjudicator Allocation</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Drag and drop judges into Chair and Panel slots with instant institutional bias detection.
+            Intelligent priority-based allocation with break liveness, bracket importance, and multi-factor clash detection.
           </p>
         </div>
 
@@ -433,6 +508,18 @@ export default function AllocationPage() {
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>{isAllocating ? "Optimizing..." : "Auto-Allocate All"}</span>
+          </button>
+
+          <button
+            onClick={() => setShowPriorityPanel(!showPriorityPanel)}
+            className={`inline-flex items-center space-x-1.5 px-3 py-1.5 font-semibold border rounded text-xs shadow-2xs transition ${
+              showPriorityPanel
+                ? "bg-indigo-50 text-indigo-700 border-indigo-300"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            <span>Priority Info</span>
           </button>
 
           <button
@@ -469,7 +556,7 @@ export default function AllocationPage() {
 
       {/* Main Allocation Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Available Adjudicators Drawer (Also Drop Target to Unassign) */}
+        {/* Left: Available Adjudicators Drawer */}
         <div className="lg:col-span-4 space-y-4">
           <div
             onDragOver={(e) => handleDragOverJudgeSlot(e, "available-drawer")}
@@ -519,8 +606,9 @@ export default function AllocationPage() {
             )}
 
             <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {filteredAdjs.map((adj) => {
+              {sortedFilteredAdjs.map((adj) => {
                 const isSelected = selectedAdjForManual?.id === adj.id;
+                const score = effectiveAdjScore(adj);
 
                 return (
                   <div
@@ -560,8 +648,12 @@ export default function AllocationPage() {
                     </div>
 
                     <div className="flex items-center space-x-2">
-                      <span className="font-mono font-bold text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded">
-                        {adj.baseScore?.toFixed(1) || "5.0"}
+                      <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
+                        score >= 7 ? "bg-emerald-100 text-emerald-800" :
+                        score >= 4 ? "bg-blue-100 text-blue-800" :
+                        "bg-gray-200 text-gray-800"
+                      }`}>
+                        {score.toFixed(1)}
                       </span>
                     </div>
                   </div>
@@ -589,10 +681,13 @@ export default function AllocationPage() {
           </div>
 
           <div className="space-y-4">
-            {roundDebates.map((debate, dIdx) => {
+            {sortedRoundDebates.map((debate, dIdx) => {
               const debateTeams: Team[] = Object.values(debate.teams || {})
                 .map((t) => (t?.teamId ? teamsMap.get(t.teamId) : undefined))
                 .filter((t): t is Team => t !== undefined);
+
+              const priority = debatePriorities.get(debate.id);
+              const panelStrength = debatePanelStrengths.get(debate.id) ?? 0;
 
               // Check clashes for dragging judge if hovered over this room
               let dragJudgeClashPreview: string[] = [];
@@ -628,24 +723,65 @@ export default function AllocationPage() {
                   key={debate.id}
                   className="bg-white border border-[#d0d7de] rounded-lg shadow-2xs overflow-hidden"
                 >
-                  {/* Room & Teams Bar */}
+                  {/* Room & Teams Bar with Priority Info */}
                   <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="font-bold text-gray-900 text-xs mr-2">
+                    <div className="flex items-center space-x-3">
+                      <span className="font-bold text-gray-900 text-xs mr-1">
                         {debate.venueName || `Room ${dIdx + 1}`}
                       </span>
+
+                      {showPriorityPanel && priority && (
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded border ${getPriorityColor(priority.priorityScore)}`}>
+                            <Gauge className="w-3 h-3" />
+                            <span>P:{priority.priorityScore.toFixed(1)}</span>
+                          </span>
+                          {panelStrength > 0 && (
+                            <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded ${getStrengthColor(panelStrength)}`}>
+                              <Zap className="w-3 h-3" />
+                              <span>S:{panelStrength.toFixed(1)}</span>
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400" title="Break liveness average for teams in this debate">
+                            🔥{(priority.breakLiveness * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center space-x-2">
                       <span className="text-xs text-gray-600">
                         {debateTeams.map((t) => `${t.name} (${t.institutionName || "Indep"})`).join(" vs ")}
                       </span>
-                    </div>
 
-                    {chairConflicts.length > 0 && (
-                      <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-300">
+                      {showPriorityPanel && (
+                        <div className="flex items-center space-x-1">
+                          <label className="text-[10px] text-gray-500 font-semibold" title="Manual priority override (0-10)">
+                            ±
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={10}
+                            step={0.5}
+                            value={debate.importance || 0}
+                            onChange={(e) => updateDebateImportance(debate.id, parseFloat(e.target.value) || 0)}
+                            className="w-12 text-[10px] font-mono font-bold text-center border border-gray-300 rounded px-1 py-0.5"
+                            title="Manual priority (higher = more important debate)"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {chairConflicts.length > 0 && (
+                    <div className="px-3 py-1.5 bg-red-50 border-b border-red-200">
+                      <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-red-700">
                         <AlertTriangle className="w-3 h-3 text-red-600" />
                         <span>Clash: {chairConflicts.join("; ")}</span>
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Drag-and-Drop Allocation Slots */}
                   <div className="p-4 space-y-3">
@@ -688,6 +824,9 @@ export default function AllocationPage() {
                                   ({adjsMap.get(debate.adjudicators.chairId!)?.institutionName})
                                 </span>
                               )}
+                              <span className="font-mono text-[10px] text-blue-600">
+                                {effectiveAdjScore(adjsMap.get(debate.adjudicators.chairId!)!).toFixed(1)}
+                              </span>
                             </div>
                           ) : (
                             <span className="text-red-500 italic text-xs">
@@ -780,6 +919,11 @@ export default function AllocationPage() {
                                   {pAdj?.institutionName && (
                                     <span className="text-[10px] text-gray-500 block">
                                       {pAdj.institutionName}
+                                    </span>
+                                  )}
+                                  {pAdj && (
+                                    <span className="text-[10px] font-mono text-blue-600">
+                                      {effectiveAdjScore(pAdj).toFixed(1)}
                                     </span>
                                   )}
                                   {pClashes.length > 0 && (

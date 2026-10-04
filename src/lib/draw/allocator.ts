@@ -1,5 +1,7 @@
-import { Adjudicator, Debate, Team, Venue } from "@/types";
+import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission } from "@/types";
 import { solveHungarian } from "./hungarian";
+
+// ─── Types & Interfaces ──────────────────────────────────────────────
 
 export interface AllocationOptions {
   panelSize: number; // e.g., 1 (solo chair), 3 (chair + 2 panellists), or 5
@@ -29,6 +31,53 @@ export interface AdjDebateConflictResult {
   hasHistoryClash: boolean;
 }
 
+export interface DebatePriorityInfo {
+  debateId: string;
+  bracket: number;
+  breakLiveness: number;     // 0-1 float: how many teams are "live" for the break
+  manualPriority: number;    // user-set override (stored on debate.importance)
+  priorityScore: number;     // composite final score (0-10 scale)
+}
+
+export interface PanelStrengthInfo {
+  adjIds: string[];
+  strength: number;          // average score of panel members (0-10)
+}
+
+export interface AllocationCostBreakdown {
+  priorityStrengthMismatch: number;
+  institutionConflict: number;
+  personalConflict: number;
+  repeatTeamConflict: number;
+  repeatPanelConflict: number;
+  traineeSuitability: number;
+  total: number;
+}
+
+// ─── Cost function weights ───────────────────────────────────────────
+// These are tunable; higher = more penalty = more avoided in the matching.
+
+const WEIGHTS = {
+  /** Penalty per unit of |priorityScore − panelStrength| */
+  PRIORITY_STRENGTH_MISMATCH: 100,
+  /** Hard institutional clash (same institution adj + team) */
+  INSTITUTION_CONFLICT: 10_000,
+  /** Declared personal conflict */
+  PERSONAL_CONFLICT: 10_000,
+  /** Declared institutional conflict from conflicts[] array */
+  DECLARED_INSTITUTION_CONFLICT: 8_000,
+  /** Adjudicator judged this team in a previous round */
+  REPEAT_TEAM: 500,
+  /** Two panellists from the same panel as a previous round */
+  REPEAT_PANEL: 200,
+  /** Trainee placed in the highest-priority debate */
+  TRAINEE_TOP_DEBATE: 3_000,
+  /** Trainee assigned as chair (should never happen, but guard) */
+  TRAINEE_AS_CHAIR: 50_000,
+};
+
+// ─── Conflict Detection ─────────────────────────────────────────────
+
 /**
  * Calculates conflict penalty between an adjudicator and a debate's teams/institutions.
  */
@@ -49,7 +98,7 @@ export function calculateAdjDebateConflict(
     // 1. Direct Institutional Conflict (unless judge is explicitly marked independent with no institution)
     if (!adj.independent) {
       if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-        penalty += 10000;
+        penalty += WEIGHTS.INSTITUTION_CONFLICT;
         hasInstitutionalClash = true;
         reasons.push(`Institutional clash with ${team.name} (${team.institutionName || "Same Institution"})`);
       } else if (
@@ -57,7 +106,7 @@ export function calculateAdjDebateConflict(
         team.institutionName &&
         adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
       ) {
-        penalty += 10000;
+        penalty += WEIGHTS.INSTITUTION_CONFLICT;
         hasInstitutionalClash = true;
         reasons.push(`Institutional clash with ${team.name} (${team.institutionName})`);
       }
@@ -67,7 +116,7 @@ export function calculateAdjDebateConflict(
     if (adj.conflicts && adj.conflicts.length > 0) {
       for (const conflict of adj.conflicts) {
         if (conflict.teamId && conflict.teamId === team.id) {
-          penalty += 10000;
+          penalty += WEIGHTS.PERSONAL_CONFLICT;
           hasPersonalClash = true;
           reasons.push(`Personal clash with team "${team.name}"`);
         }
@@ -76,7 +125,7 @@ export function calculateAdjDebateConflict(
           ((team.institutionId && conflict.institutionId === team.institutionId) ||
             (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
         ) {
-          penalty += 8000;
+          penalty += WEIGHTS.DECLARED_INSTITUTION_CONFLICT;
           hasInstitutionalClash = true;
           reasons.push(`Declared institutional clash with ${team.name}`);
         }
@@ -86,7 +135,7 @@ export function calculateAdjDebateConflict(
     // 3. Past debate history clash (adjudicated this team in earlier rounds)
     const judgedTeams = pastAdjudicatorTeams.get(adj.id);
     if (judgedTeams && judgedTeams.has(team.id)) {
-      penalty += 500;
+      penalty += WEIGHTS.REPEAT_TEAM;
       hasHistoryClash = true;
       reasons.push(`Previously judged ${team.name}`);
     }
@@ -102,8 +151,360 @@ export function calculateAdjDebateConflict(
   };
 }
 
+// ─── Break Liveness ─────────────────────────────────────────────────
+
 /**
- * Automatically allocates available adjudicators to debates using Hungarian matching.
+ * Computes "break liveness" for each team: a value between 0 and 1 indicating
+ * how likely a team is still in contention for the break.
+ *
+ * A team is "live" (1.0) if it could theoretically still break, and "dead" (0.0)
+ * if it has no mathematical chance. We estimate using distance from the break
+ * threshold in terms of remaining possible points.
+ *
+ * If no standings are provided or there are no break categories, all teams get 0.5.
+ */
+export function computeBreakLiveness(
+  teams: Team[],
+  standings: TeamStandingRow[],
+  breakCategories: BreakCategory[],
+  completedRounds: number,
+  totalPrelimRounds: number,
+  isBP: boolean
+): Map<string, number> {
+  const liveness = new Map<string, number>();
+
+  if (standings.length === 0 || breakCategories.length === 0 || completedRounds === 0) {
+    // Before any results, every team is equally live
+    teams.forEach((t) => liveness.set(t.id, 0.5));
+    return liveness;
+  }
+
+  const remainingRounds = Math.max(0, totalPrelimRounds - completedRounds);
+  // Maximum points a team can still earn
+  const maxRemainingPoints = isBP ? remainingRounds * 3 : remainingRounds;
+
+  // Find the overall break threshold: the points of the team at the breakSize position
+  const generalBreak = breakCategories.find((bc) => bc.isGeneral);
+  const breakSize = generalBreak ? generalBreak.breakSize : Math.min(8, Math.floor(teams.length / 2));
+
+  const standingsByRank = [...standings].sort((a, b) => a.rank - b.rank);
+  const breakThresholdPoints = breakSize < standingsByRank.length
+    ? standingsByRank[breakSize - 1].points
+    : 0;
+
+  for (const team of teams) {
+    const standing = standings.find((s) => s.teamId === team.id);
+    if (!standing) {
+      liveness.set(team.id, 0.5);
+      continue;
+    }
+
+    const currentPoints = standing.points;
+    const bestPossible = currentPoints + maxRemainingPoints;
+
+    if (remainingRounds === 0) {
+      // After all rounds, liveness is binary: breaking or not
+      liveness.set(team.id, standing.rank <= breakSize ? 1.0 : 0.0);
+    } else if (bestPossible < breakThresholdPoints) {
+      // Mathematically eliminated
+      liveness.set(team.id, 0.0);
+    } else if (currentPoints >= breakThresholdPoints) {
+      // Currently in break territory
+      const buffer = currentPoints - breakThresholdPoints;
+      const normalizedBuffer = Math.min(buffer / Math.max(1, maxRemainingPoints), 1);
+      liveness.set(team.id, 0.7 + 0.3 * normalizedBuffer);
+    } else {
+      // Behind but still possible
+      const deficit = breakThresholdPoints - currentPoints;
+      const catchUpRatio = 1 - deficit / Math.max(1, maxRemainingPoints);
+      liveness.set(team.id, Math.max(0.05, Math.min(0.7, catchUpRatio)));
+    }
+  }
+
+  return liveness;
+}
+
+// ─── Debate Priority Scoring ────────────────────────────────────────
+
+/**
+ * Calculates a composite priority score for each debate in a round.
+ *
+ * Priority = weighted combination of:
+ *   - Bracket position (higher bracket → more important)
+ *   - Break liveness (debates where teams still contending → more important)
+ *   - Manual importance override (user can bump debates up/down)
+ *
+ * Returns a score on a 0-10 scale.
+ */
+export function calculateDebatePriorities(
+  debates: Debate[],
+  teamsMap: Map<string, Team>,
+  breakLiveness: Map<string, number>
+): DebatePriorityInfo[] {
+  if (debates.length === 0) return [];
+
+  // Find bracket range for normalization
+  const brackets = debates.map((d) => d.bracket || 0);
+  const maxBracket = Math.max(...brackets, 1);
+  const minBracket = Math.min(...brackets, 0);
+  const bracketRange = Math.max(maxBracket - minBracket, 1);
+
+  return debates.map((debate) => {
+    // 1. Bracket component (0-10 normalized)
+    const bracketNorm = ((debate.bracket || 0) - minBracket) / bracketRange * 10;
+
+    // 2. Break liveness component: average liveness of teams in this debate (0-10)
+    const debateTeamIds = Object.values(debate.teams || {}).map((t) => t?.teamId).filter(Boolean) as string[];
+    const teamLivenesses = debateTeamIds.map((tid) => breakLiveness.get(tid) ?? 0.5);
+    const avgLiveness = teamLivenesses.length > 0
+      ? teamLivenesses.reduce((s, v) => s + v, 0) / teamLivenesses.length
+      : 0.5;
+    const livenessComponent = avgLiveness * 10;
+
+    // 3. Manual priority component (debate.importance, 0-10 scale, default 0)
+    const manualPriority = debate.importance || 0;
+
+    // Composite: bracket (40%), liveness (40%), manual (20%)
+    const priorityScore = bracketNorm * 0.4 + livenessComponent * 0.4 + manualPriority * 0.2;
+
+    return {
+      debateId: debate.id,
+      bracket: debate.bracket || 0,
+      breakLiveness: avgLiveness,
+      manualPriority,
+      priorityScore: Math.round(priorityScore * 100) / 100,
+    };
+  });
+}
+
+// ─── Panel Strength ─────────────────────────────────────────────────
+
+/**
+ * Computes effective panel strength for an adjudicator, incorporating
+ * feedback-adjusted scores when available.
+ */
+export function effectiveAdjScore(
+  adj: Adjudicator,
+  feedbackScores?: Map<string, number> // adjId -> feedback average
+): number {
+  const feedbackScore = feedbackScores?.get(adj.id);
+  if (feedbackScore !== undefined) {
+    // Blend base score (40%) with feedback (60%) for feedback-adjusted score
+    return adj.baseScore * 0.4 + feedbackScore * 0.6;
+  }
+  return adj.baseScore || 5;
+}
+
+// ─── Past Panel History ─────────────────────────────────────────────
+
+/**
+ * Builds a map of which adjudicators have been on the same panel together.
+ * Key: "adjId1:adjId2" (sorted), Value: count of co-panellings.
+ */
+export function buildPastPanelHistory(
+  allDebates: Debate[]
+): Map<string, number> {
+  const history = new Map<string, number>();
+
+  for (const debate of allDebates) {
+    const adjs = debate.adjudicators;
+    if (!adjs) continue;
+
+    const panelAdjIds: string[] = [];
+    if (adjs.chairId) panelAdjIds.push(adjs.chairId);
+    panelAdjIds.push(...(adjs.panellistIds || []));
+    // Trainees are intentionally excluded from panel repeat tracking
+
+    // Record all pairs
+    for (let i = 0; i < panelAdjIds.length; i++) {
+      for (let j = i + 1; j < panelAdjIds.length; j++) {
+        const key = [panelAdjIds[i], panelAdjIds[j]].sort().join(":");
+        history.set(key, (history.get(key) || 0) + 1);
+      }
+    }
+  }
+
+  return history;
+}
+
+/**
+ * Builds a map of adjId -> Set<teamId> for all teams an adjudicator has judged.
+ */
+export function buildPastAdjTeams(
+  allDebates: Debate[]
+): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+
+  for (const debate of allDebates) {
+    const adjs = debate.adjudicators;
+    if (!adjs) continue;
+
+    const teamIds = Object.values(debate.teams || {})
+      .map((slot) => slot?.teamId)
+      .filter(Boolean) as string[];
+
+    const adjIds: string[] = [];
+    if (adjs.chairId) adjIds.push(adjs.chairId);
+    adjIds.push(...(adjs.panellistIds || []));
+    adjIds.push(...(adjs.traineeIds || []));
+
+    for (const adjId of adjIds) {
+      if (!map.has(adjId)) map.set(adjId, new Set());
+      const set = map.get(adjId)!;
+      for (const tid of teamIds) set.add(tid);
+    }
+  }
+
+  return map;
+}
+
+// ─── Multi-factor Cost Function ─────────────────────────────────────
+
+/**
+ * Computes the total cost of assigning an adjudicator to a debate,
+ * considering all factors in the cost function.
+ */
+export function computeAssignmentCost(
+  adj: Adjudicator,
+  debate: Debate,
+  debateTeams: Team[],
+  debatePriority: number,       // 0-10 composite score
+  adjEffectiveScore: number,    // 0-10 effective adj score
+  pastAdjTeams: Map<string, Set<string>>,
+  pastPanelHistory: Map<string, number>,
+  currentPanelAdjIds: string[], // other adjs already assigned to this debate
+  role: "chair" | "panellist" | "trainee",
+  options: AllocationOptions
+): AllocationCostBreakdown {
+  let priorityStrengthMismatch = 0;
+  let institutionConflict = 0;
+  let personalConflict = 0;
+  let repeatTeamConflict = 0;
+  let repeatPanelConflict = 0;
+  let traineeSuitability = 0;
+
+  // 1. Priority-Strength Mismatch
+  // We want high-scored judges in high-priority debates
+  const mismatch = Math.abs(debatePriority - adjEffectiveScore);
+  priorityStrengthMismatch = mismatch * WEIGHTS.PRIORITY_STRENGTH_MISMATCH;
+
+  // 2. Institution Conflict
+  if (options.respectInstitutionConflicts && !adj.independent) {
+    for (const team of debateTeams) {
+      if (!team) continue;
+      if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
+        institutionConflict += WEIGHTS.INSTITUTION_CONFLICT;
+      } else if (
+        adj.institutionName &&
+        team.institutionName &&
+        adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
+      ) {
+        institutionConflict += WEIGHTS.INSTITUTION_CONFLICT;
+      }
+    }
+  }
+
+  // 3. Personal Conflict
+  if (options.respectPersonalConflicts && adj.conflicts?.length) {
+    for (const conflict of adj.conflicts) {
+      for (const team of debateTeams) {
+        if (!team) continue;
+        if (conflict.teamId && conflict.teamId === team.id) {
+          personalConflict += WEIGHTS.PERSONAL_CONFLICT;
+        }
+        if (
+          conflict.institutionId &&
+          ((team.institutionId && conflict.institutionId === team.institutionId) ||
+            (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
+        ) {
+          institutionConflict += WEIGHTS.DECLARED_INSTITUTION_CONFLICT;
+        }
+      }
+    }
+  }
+
+  // 4. Repeat-Team Conflict
+  if (options.respectHistoryConflicts) {
+    const judgedTeams = pastAdjTeams.get(adj.id);
+    if (judgedTeams) {
+      for (const team of debateTeams) {
+        if (!team) continue;
+        if (judgedTeams.has(team.id)) {
+          repeatTeamConflict += WEIGHTS.REPEAT_TEAM;
+        }
+      }
+    }
+  }
+
+  // 5. Repeat-Panel Conflict
+  for (const otherAdjId of currentPanelAdjIds) {
+    const key = [adj.id, otherAdjId].sort().join(":");
+    const coCount = pastPanelHistory.get(key) || 0;
+    if (coCount > 0) {
+      repeatPanelConflict += WEIGHTS.REPEAT_PANEL * coCount;
+    }
+  }
+
+  // 6. Trainee Suitability
+  if (adj.trainee) {
+    if (role === "chair") {
+      traineeSuitability += WEIGHTS.TRAINEE_AS_CHAIR;
+    }
+    // Prefer trainees in lower-priority debates
+    if (debatePriority > 7) {
+      traineeSuitability += WEIGHTS.TRAINEE_TOP_DEBATE;
+    }
+  }
+
+  const total =
+    priorityStrengthMismatch +
+    institutionConflict +
+    personalConflict +
+    repeatTeamConflict +
+    repeatPanelConflict +
+    traineeSuitability;
+
+  return {
+    priorityStrengthMismatch,
+    institutionConflict,
+    personalConflict,
+    repeatTeamConflict,
+    repeatPanelConflict,
+    traineeSuitability,
+    total,
+  };
+}
+
+// ─── Intelligent Auto-Allocator ─────────────────────────────────────
+
+export interface IntelligentAllocationContext {
+  /** All debates from previous completed rounds (for history) */
+  allPastDebates: Debate[];
+  /** Current team standings (for break liveness) */
+  standings: TeamStandingRow[];
+  /** Break categories (for liveness calculation) */
+  breakCategories: BreakCategory[];
+  /** Total number of preliminary rounds in the tournament */
+  totalPrelimRounds: number;
+  /** Number of preliminary rounds already completed */
+  completedRounds: number;
+  /** Whether tournament is BP format */
+  isBP: boolean;
+  /** Optional feedback-adjusted scores */
+  feedbackScores?: Map<string, number>;
+}
+
+/**
+ * Intelligently allocates adjudicators to debates using a minimum-cost assignment
+ * that balances debate importance against panel strength.
+ *
+ * Algorithm:
+ * 1. Compute debate priority scores (bracket + break liveness + manual priority)
+ * 2. Compute effective adjudicator scores (base + feedback blend)
+ * 3. Build past history maps (teams judged, panel co-occurrences)
+ * 4. Use Hungarian algorithm for chair assignment with multi-factor cost
+ * 5. Greedily assign panellists prioritizing high-priority debates
+ * 6. Distribute trainees to lower-priority debates
  */
 export function autoAllocateAdjudicators(
   debates: Debate[],
@@ -116,7 +517,8 @@ export function autoAllocateAdjudicators(
     respectInstitutionConflicts: true,
     respectPersonalConflicts: true,
     respectHistoryConflicts: true,
-  }
+  },
+  context?: IntelligentAllocationContext
 ): AdjudicatorAllocationResult[] {
   const availableAdjs = adjudicators.filter((a) => a.checkedIn !== false);
   const numDebates = debates.length;
@@ -132,17 +534,63 @@ export function autoAllocateAdjudicators(
     }));
   }
 
-  // Sort debates by importance / bracket (highest bracket gets top chairs)
+  // ─── Step 1: Compute debate priorities ───
+  let breakLiveness = new Map<string, number>();
+  if (context) {
+    const teams = Array.from(teamsMap.values());
+    breakLiveness = computeBreakLiveness(
+      teams,
+      context.standings,
+      context.breakCategories,
+      context.completedRounds,
+      context.totalPrelimRounds,
+      context.isBP
+    );
+  } else {
+    // Fallback: uniform liveness
+    teamsMap.forEach((_, tid) => breakLiveness.set(tid, 0.5));
+  }
+
+  const debatePriorities = calculateDebatePriorities(debates, teamsMap, breakLiveness);
+  const priorityMap = new Map<string, DebatePriorityInfo>();
+  debatePriorities.forEach((dp) => priorityMap.set(dp.debateId, dp));
+
+  // Sort debates by priority (highest first) for allocation order
   const sortedDebateIndices = Array.from({ length: numDebates }, (_, i) => i).sort((a, b) => {
-    return (debates[b].bracket || 0) - (debates[a].bracket || 0);
+    const pa = priorityMap.get(debates[a].id)?.priorityScore ?? 0;
+    const pb = priorityMap.get(debates[b].id)?.priorityScore ?? 0;
+    return pb - pa;
   });
 
-  // Separate chairs vs trainees
+  // ─── Step 2: Compute effective adjudicator scores ───
+  const feedbackScores = context?.feedbackScores;
+  const adjScores = new Map<string, number>();
+  availableAdjs.forEach((adj) => {
+    adjScores.set(adj.id, effectiveAdjScore(adj, feedbackScores));
+  });
+
+  // ─── Step 3: Build history maps ───
+  const allPastDebates = context?.allPastDebates || [];
+  const pastPanelHistory = buildPastPanelHistory(allPastDebates);
+
+  // Merge any additional past adj-team relationships from context
+  const fullPastAdjTeams = new Map(pastAdjudicatorTeams);
+  if (allPastDebates.length > 0) {
+    const historyFromDebates = buildPastAdjTeams(allPastDebates);
+    historyFromDebates.forEach((teamSet, adjId) => {
+      if (!fullPastAdjTeams.has(adjId)) {
+        fullPastAdjTeams.set(adjId, teamSet);
+      } else {
+        const existing = fullPastAdjTeams.get(adjId)!;
+        teamSet.forEach((tid) => existing.add(tid));
+      }
+    });
+  }
+
+  // ─── Step 4: Chair assignment via Hungarian algorithm ───
   const nonTrainees = availableAdjs.filter((a) => !a.trainee);
   const trainees = availableAdjs.filter((a) => a.trainee);
 
-  // Step 1: Assign Chairs via Hungarian matching
-  // Construct cost matrix: Debates (rows) x Adjudicators (cols)
   const chairCostMatrix: number[][] = [];
 
   for (let r = 0; r < numDebates; r++) {
@@ -150,18 +598,27 @@ export function autoAllocateAdjudicators(
     const debateTeams: Team[] = Object.values(debate.teams)
       .map((t) => teamsMap.get(t.teamId))
       .filter((t): t is Team => t !== undefined);
+    const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
 
     const row: number[] = [];
     for (let c = 0; c < nonTrainees.length; c++) {
       const adj = nonTrainees[c];
-      const { penalty } = calculateAdjDebateConflict(adj, debateTeams, pastAdjudicatorTeams);
+      const adjScore = adjScores.get(adj.id) ?? 5;
 
-      // We want higher-rated judges for higher-bracket rooms
-      // Score difference penalty:
-      const targetScore = Math.max(1, 10 - r * (10 / Math.max(1, numDebates)));
-      const scoreDiff = Math.abs((adj.baseScore || 5) - targetScore) * 10;
+      const cost = computeAssignmentCost(
+        adj,
+        debate,
+        debateTeams,
+        debatePriority,
+        adjScore,
+        fullPastAdjTeams,
+        pastPanelHistory,
+        [], // no panel yet for chair assignment
+        "chair",
+        options
+      );
 
-      row.push(penalty + scoreDiff);
+      row.push(cost.total);
     }
     chairCostMatrix.push(row);
   }
@@ -170,6 +627,7 @@ export function autoAllocateAdjudicators(
 
   const resultsMap = new Map<string, AdjudicatorAllocationResult>();
   const usedAdjIds = new Set<string>();
+  const debateChairIds = new Map<string, string>(); // debateId -> chairId
 
   for (let r = 0; r < numDebates; r++) {
     const debate = debates[sortedDebateIndices[r]];
@@ -187,8 +645,9 @@ export function autoAllocateAdjudicators(
       chairId = chair.id;
       chairName = chair.name;
       usedAdjIds.add(chair.id);
+      debateChairIds.set(debate.id, chair.id);
 
-      const { reasons } = calculateAdjDebateConflict(chair, debateTeams, pastAdjudicatorTeams);
+      const { reasons } = calculateAdjDebateConflict(chair, debateTeams, fullPastAdjTeams);
       conflicts.push(...reasons);
     }
 
@@ -204,40 +663,94 @@ export function autoAllocateAdjudicators(
     });
   }
 
-  // Step 2: Assign Panellists if panelSize > 1
+  // ─── Step 5: Assign Panellists using greedy cost-minimized assignment ───
   const remainingNonTrainees = nonTrainees.filter((a) => !usedAdjIds.has(a.id));
   const panellistsNeededPerDebate = Math.max(0, options.panelSize - 1);
 
   if (panellistsNeededPerDebate > 0 && remainingNonTrainees.length > 0) {
-    let currentAdjIdx = 0;
+    // Sort remaining non-trainees by score (highest first)
+    const sortedRemaining = [...remainingNonTrainees].sort(
+      (a, b) => (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5)
+    );
+
+    // For each panellist slot (iterating by slot to spread talent)
     for (let slot = 0; slot < panellistsNeededPerDebate; slot++) {
+      if (sortedRemaining.length === 0) break;
+
+      // For each debate (in priority order), find best available panellist
       for (let r = 0; r < numDebates; r++) {
-        if (currentAdjIdx >= remainingNonTrainees.length) break;
+        if (sortedRemaining.length === 0) break;
+
         const debate = debates[sortedDebateIndices[r]];
         const res = resultsMap.get(debate.id)!;
-        const panellist = remainingNonTrainees[currentAdjIdx++];
-
-        res.panellistIds.push(panellist.id);
-        res.panellistNames.push(panellist.name);
-        usedAdjIds.add(panellist.id);
-
         const debateTeams: Team[] = Object.values(debate.teams)
           .map((t) => teamsMap.get(t.teamId))
           .filter((t): t is Team => t !== undefined);
-        const { reasons } = calculateAdjDebateConflict(panellist, debateTeams, pastAdjudicatorTeams);
-        res.conflicts.push(...reasons);
+        const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
+
+        // Current panel for repeat-panel calculation
+        const currentPanelIds = [
+          res.chairId,
+          ...res.panellistIds,
+        ].filter(Boolean) as string[];
+
+        // Score each available adj for this debate
+        let bestIdx = -1;
+        let bestCost = Infinity;
+
+        for (let i = 0; i < sortedRemaining.length; i++) {
+          const adj = sortedRemaining[i];
+          if (usedAdjIds.has(adj.id)) continue;
+
+          const adjScore = adjScores.get(adj.id) ?? 5;
+          const cost = computeAssignmentCost(
+            adj,
+            debate,
+            debateTeams,
+            debatePriority,
+            adjScore,
+            fullPastAdjTeams,
+            pastPanelHistory,
+            currentPanelIds,
+            "panellist",
+            options
+          );
+
+          if (cost.total < bestCost) {
+            bestCost = cost.total;
+            bestIdx = i;
+          }
+        }
+
+        if (bestIdx >= 0) {
+          const chosen = sortedRemaining[bestIdx];
+          res.panellistIds.push(chosen.id);
+          res.panellistNames.push(chosen.name);
+          usedAdjIds.add(chosen.id);
+          sortedRemaining.splice(bestIdx, 1);
+
+          const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams);
+          res.conflicts.push(...reasons);
+        }
       }
     }
   }
 
-  // Step 3: Distribute trainees evenly across debates
+  // ─── Step 6: Distribute trainees (prefer lower-priority debates) ───
+  const sortedTrainees = [...trainees].sort(
+    (a, b) => (adjScores.get(a.id) ?? 0) - (adjScores.get(b.id) ?? 0)
+  );
+
+  // Assign trainees starting from the lowest-priority debates
+  const reversePriorityOrder = [...sortedDebateIndices].reverse();
   let traineeIdx = 0;
-  while (traineeIdx < trainees.length) {
-    for (let r = 0; r < numDebates; r++) {
-      if (traineeIdx >= trainees.length) break;
-      const debate = debates[sortedDebateIndices[r]];
+
+  while (traineeIdx < sortedTrainees.length) {
+    for (const debateIdx of reversePriorityOrder) {
+      if (traineeIdx >= sortedTrainees.length) break;
+      const debate = debates[debateIdx];
       const res = resultsMap.get(debate.id)!;
-      const trainee = trainees[traineeIdx++];
+      const trainee = sortedTrainees[traineeIdx++];
 
       res.traineeIds.push(trainee.id);
       res.traineeNames.push(trainee.name);

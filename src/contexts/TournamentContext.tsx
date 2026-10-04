@@ -35,7 +35,7 @@ import {
 } from "firebase/firestore";
 import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { applyEliminationAdvancement, getAdvancingTeamIds } from "@/lib/draw/elimination";
-import { autoAllocateAdjudicators } from "@/lib/draw/allocator";
+import { autoAllocateAdjudicators, buildPastAdjTeams, IntelligentAllocationContext } from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
@@ -830,12 +830,36 @@ export function TournamentProvider({
       standings: teamStandings,
     });
 
-    // Auto-allocate judges
+    // Auto-allocate judges with intelligent priority-based matching
     const teamsMap = new Map<string, Team>();
     teams.forEach((t) => teamsMap.set(t.id, t));
-    const pastAdjTeams = new Map<string, Set<string>>();
+    const pastAdjTeams = buildPastAdjTeams(pastDebates);
 
-    const allocations = autoAllocateAdjudicators(generated, teamsMap, adjudicators, pastAdjTeams);
+    const completedPrelimRounds = rounds.filter(
+      (r) => r.stage === "preliminary" && !r.cancelled && r.completed
+    ).length;
+    const totalPrelimRounds = rounds.filter((r) => r.stage === "preliminary" && !r.cancelled).length;
+
+    const intelligentContext: IntelligentAllocationContext = {
+      allPastDebates: pastDebates,
+      standings: teamStandings,
+      breakCategories,
+      totalPrelimRounds,
+      completedRounds: completedPrelimRounds,
+      isBP: tournament.format === "bp",
+    };
+
+    const allocations = autoAllocateAdjudicators(
+      generated, teamsMap, adjudicators, pastAdjTeams,
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      intelligentContext
+    );
     generated.forEach((d, idx) => {
       const alloc = allocations[idx];
       if (alloc) {
@@ -901,9 +925,31 @@ export function TournamentProvider({
     const roundDebates = debates.filter((d) => d.roundId === roundId);
     if (roundDebates.length === 0 || !tournament) return;
 
+    const round = rounds.find((r) => r.id === roundId);
     const teamsMap = new Map<string, Team>();
     teams.forEach((t) => teamsMap.set(t.id, t));
-    const pastAdjTeams = new Map<string, Set<string>>();
+
+    // Build past history from all debates before this round
+    const pastDebates = debates.filter((d) => {
+      if (d.roundId === roundId) return false;
+      const dRound = rounds.find((r) => r.id === d.roundId);
+      return dRound && round ? dRound.seq < round.seq : false;
+    });
+    const pastAdjTeams = buildPastAdjTeams(pastDebates);
+
+    const completedPrelimRounds = rounds.filter(
+      (r) => r.stage === "preliminary" && !r.cancelled && r.completed
+    ).length;
+    const totalPrelimRounds = rounds.filter((r) => r.stage === "preliminary" && !r.cancelled).length;
+
+    const intelligentContext: IntelligentAllocationContext = {
+      allPastDebates: pastDebates,
+      standings: teamStandings,
+      breakCategories,
+      totalPrelimRounds,
+      completedRounds: completedPrelimRounds,
+      isBP: tournament.format === "bp",
+    };
 
     const allocations = autoAllocateAdjudicators(roundDebates, teamsMap, adjudicators, pastAdjTeams, {
       panelSize,
@@ -911,7 +957,7 @@ export function TournamentProvider({
       respectInstitutionConflicts: true,
       respectPersonalConflicts: true,
       respectHistoryConflicts: true,
-    });
+    }, intelligentContext);
 
     const updatedRoundDebates = roundDebates.map((d, idx) => {
       const alloc = allocations[idx];
