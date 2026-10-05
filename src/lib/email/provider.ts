@@ -1,4 +1,4 @@
-import nodemailer, { Transporter } from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
 export interface EmailMessage {
   to: string;
@@ -27,6 +27,9 @@ class SmtpEmailProvider implements EmailProvider {
 
   constructor(private readonly config: SmtpConfig) {
     this.transporter = nodemailer.createTransport({
+      pool: true,
+      maxConnections: 2,
+      maxMessages: 100,
       host: config.host,
       port: config.port,
       secure: config.secure,

@@ -1,23 +1,117 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Mail, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
+import {
+  EMAIL_RECIPIENT_GROUPS,
+  renderEmailTemplate,
+  resolveEmailRecipients,
+  MAX_CAMPAIGN_RECIPIENTS,
+} from "@/lib/email/messaging";
+import type { EmailCampaignResult, EmailRecipientGroup } from "@/lib/email/messaging";
+
+const RECIPIENT_GROUP_LABELS: Record<EmailRecipientGroup, string> = {
+  all_teams: "All teams",
+  breaking_teams: "Breaking teams",
+  non_breaking_teams: "Non-breaking teams",
+  all_adjudicators: "All adjudicators",
+  checked_in_adjudicators: "Checked-in adjudicators",
+  trainees: "All trainees",
+  all_participants: "All participants",
+  round_participants: "Teams in a round",
+  round_adjudicators: "Adjudicators in a round",
+  chairs: "Chairs in a round",
+  panellists: "Panellists in a round",
+};
+
+const ROUND_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
+  "round_participants",
+  "round_adjudicators",
+  "chairs",
+  "panellists",
+];
+
+const EMAIL_TEMPLATES = {
+  announcement: {
+    label: "Tournament announcement",
+    subject: "{{tournament}} announcement",
+    body: "Hi {{name}},\n\nAn update from {{tournament}}.\n\nBest,\nTournament Staff",
+  },
+  round_details: {
+    label: "Round details",
+    subject: "{{tournament}} — {{round}} details",
+    body: "Hi {{name}},\n\nYour details for {{round}}:\n{{debate}}\nVenue: {{venue}}\nChair: {{chair}}\n\nBest,\nTournament Staff",
+  },
+  adjudicator_assignment: {
+    label: "Adjudicator assignment",
+    subject: "{{tournament}} — {{round}} adjudicator assignment",
+    body: "Hi {{name}},\n\nYou are assigned to {{debate}} in {{round}}.\nVenue: {{venue}}\nChair: {{chair}}\nPanellists: {{panellists}}\n\nBest,\nTournament Staff",
+  },
+  feedback_reminder: {
+    label: "Feedback reminder",
+    subject: "{{tournament}} — please submit feedback",
+    body: "Hi {{name}},\n\nPlease remember to submit feedback for {{round}}.\n\nBest,\nTournament Staff",
+  },
+} as const;
 
 export default function EmailSettingsPage() {
-  const { tournament, isOwnerOrAdmin } = useTournament();
+  const {
+    tournament,
+    isOwnerOrAdmin,
+    rounds,
+    teams,
+    adjudicators,
+    debates,
+  } = useTournament();
   const { user } = useAuth();
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [testSending, setTestSending] = useState(false);
+  const [testMessage, setTestMessage] = useState("");
+  const [testError, setTestError] = useState("");
+  const [recipientGroup, setRecipientGroup] = useState<EmailRecipientGroup>("all_adjudicators");
+  const [roundId, setRoundId] = useState("");
+  const [templateId, setTemplateId] = useState<keyof typeof EMAIL_TEMPLATES | "custom">("announcement");
+  const [subject, setSubject] = useState<string>(EMAIL_TEMPLATES.announcement.subject);
+  const [body, setBody] = useState<string>(EMAIL_TEMPLATES.announcement.body);
+  const [confirmedSend, setConfirmedSend] = useState(false);
+  const [sendingCampaign, setSendingCampaign] = useState(false);
+  const [campaignResult, setCampaignResult] = useState<EmailCampaignResult | null>(null);
+  const [campaignError, setCampaignError] = useState("");
+
+  const selectedRound = rounds.find((round) => round.id === roundId);
+  const requiresRound = ROUND_RECIPIENT_GROUPS.includes(recipientGroup);
+  const recipients = useMemo(
+    () =>
+      resolveEmailRecipients(
+        recipientGroup,
+        teams,
+        adjudicators,
+        debates,
+        rounds.find((round) => round.id === roundId)
+      ),
+    [recipientGroup, teams, adjudicators, debates, rounds, roundId]
+  );
+
+  let preview: { subject: string; body: string } | null = null;
+  let previewError = "";
+  if (recipients[0] && tournament) {
+    try {
+      preview = {
+        subject: renderEmailTemplate(subject, recipients[0], tournament.name, selectedRound?.name),
+        body: renderEmailTemplate(body, recipients[0], tournament.name, selectedRound?.name),
+      };
+    } catch (cause) {
+      previewError = cause instanceof Error ? cause.message : "Invalid template variable.";
+    }
+  }
 
   const sendTestEmail = async () => {
     if (!tournament || !user) return;
 
-    setSending(true);
-    setMessage("");
-    setError("");
+    setTestSending(true);
+    setTestMessage("");
+    setTestError("");
     try {
       const token = await user.getIdToken();
       const response = await fetch("/api/email/test", {
@@ -30,12 +124,51 @@ export default function EmailSettingsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to test SMTP.");
-      setMessage(result.message);
+      setTestMessage(result.message);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to test SMTP.");
+      setTestError(cause instanceof Error ? cause.message : "Unable to test SMTP.");
     } finally {
-      setSending(false);
+      setTestSending(false);
     }
+  };
+
+  const sendCampaign = async () => {
+    if (!tournament || !user || !confirmedSend || recipients.length === 0) return;
+
+    setSendingCampaign(true);
+    setCampaignResult(null);
+    setCampaignError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/email/send", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tournamentId: tournament.id,
+          recipientGroup,
+          roundId: roundId || undefined,
+          subject,
+          body,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to send the campaign.");
+      setCampaignResult(result as EmailCampaignResult);
+      setConfirmedSend(false);
+    } catch (cause) {
+      setCampaignError(cause instanceof Error ? cause.message : "Unable to send the campaign.");
+    } finally {
+      setSendingCampaign(false);
+    }
+  };
+
+  const clearCampaignResult = () => {
+    setCampaignResult(null);
+    setCampaignError("");
+    setConfirmedSend(false);
   };
 
   if (!isOwnerOrAdmin) {
@@ -85,17 +218,188 @@ export default function EmailSettingsPage() {
         <button
           type="button"
           onClick={sendTestEmail}
-          disabled={sending || !user?.email}
+          disabled={testSending || !user?.email}
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send className="h-4 w-4" />
-          {sending ? "Sending test..." : `Send test to ${user?.email || "your account"}`}
+          {testSending ? "Sending test..." : `Send test to ${user?.email || "your account"}`}
         </button>
         {!user?.email && (
           <p className="text-xs text-amber-700">Your signed-in account does not have an email address.</p>
         )}
-        {message && <p role="status" className="text-sm text-emerald-700">{message}</p>}
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {testMessage && <p role="status" className="text-sm text-emerald-700">{testMessage}</p>}
+        {testError && <p role="alert" className="text-sm text-red-700">{testError}</p>}
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
+        <div>
+          <h2 className="text-sm font-bold text-gray-900">Compose tournament email</h2>
+          <p className="mt-1 text-xs text-gray-600">
+            Messages are sent separately to protect recipient privacy. Up to {MAX_CAMPAIGN_RECIPIENTS} unique email addresses per send.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block text-xs font-semibold text-gray-700">
+            Recipients
+            <select
+              value={recipientGroup}
+              onChange={(event) => {
+                setRecipientGroup(event.target.value as EmailRecipientGroup);
+                clearCampaignResult();
+              }}
+              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
+            >
+              {EMAIL_RECIPIENT_GROUPS.map((group) => (
+                <option key={group} value={group}>{RECIPIENT_GROUP_LABELS[group]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-semibold text-gray-700">
+            Round (optional except for round groups)
+            <select
+              value={roundId}
+              onChange={(event) => {
+                setRoundId(event.target.value);
+                clearCampaignResult();
+              }}
+              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
+            >
+              <option value="">No round</option>
+              {rounds.filter((round) => !round.cancelled).map((round) => (
+                <option key={round.id} value={round.id}>{round.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-semibold text-gray-700 sm:col-span-2">
+            Template
+            <select
+              value={templateId}
+              onChange={(event) => {
+                const nextId = event.target.value as keyof typeof EMAIL_TEMPLATES | "custom";
+                setTemplateId(nextId);
+                if (nextId !== "custom") {
+                  setSubject(EMAIL_TEMPLATES[nextId].subject);
+                  setBody(EMAIL_TEMPLATES[nextId].body);
+                }
+                clearCampaignResult();
+              }}
+              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
+            >
+              {Object.entries(EMAIL_TEMPLATES).map(([id, template]) => (
+                <option key={id} value={id}>{template.label}</option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+        </div>
+
+        {requiresRound && !roundId && (
+          <p className="text-sm text-amber-700">Choose a round to resolve this recipient group.</p>
+        )}
+        <p className={`text-sm font-medium ${recipients.length > MAX_CAMPAIGN_RECIPIENTS ? "text-red-700" : "text-gray-700"}`}>
+          {recipients.length} unique recipient{recipients.length === 1 ? "" : "s"} with an email address
+          {recipients.length > MAX_CAMPAIGN_RECIPIENTS ? ` — over the ${MAX_CAMPAIGN_RECIPIENTS}-recipient limit` : ""}
+        </p>
+        <p className="text-xs text-gray-500">
+          Team groups use email addresses on team speakers. Add speaker email addresses in participant records to include those teams.
+        </p>
+
+        <label className="block text-xs font-semibold text-gray-700">
+          Subject
+          <input
+            value={subject}
+            maxLength={200}
+            onChange={(event) => {
+              setSubject(event.target.value);
+              setTemplateId("custom");
+              clearCampaignResult();
+            }}
+            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <label className="block text-xs font-semibold text-gray-700">
+          Message
+          <textarea
+            value={body}
+            maxLength={20_000}
+            rows={9}
+            onChange={(event) => {
+              setBody(event.target.value);
+              setTemplateId("custom");
+              clearCampaignResult();
+            }}
+            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+
+        <div className="rounded-md bg-gray-50 p-3 text-xs text-gray-700">
+          <p className="font-semibold">Template variables</p>
+          <p className="mt-1 font-mono">
+            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{chair}} {{panellists}}"}
+          </p>
+          <p className="mt-1 text-gray-500">
+            Round, debate, and adjudicator details are populated when a round is selected and assignments exist.
+          </p>
+        </div>
+
+        {previewError && <p role="alert" className="text-sm text-red-700">{previewError}</p>}
+        {preview && (
+          <details className="rounded border border-gray-200 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-gray-700">
+              Preview for {recipients[0].name}
+            </summary>
+            <p className="mt-3 text-sm font-semibold text-gray-900">{preview.subject}</p>
+            <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm text-gray-700">{preview.body}</pre>
+          </details>
+        )}
+
+        {recipients.length > 0 &&
+        recipients.length <= MAX_CAMPAIGN_RECIPIENTS &&
+        (!requiresRound || Boolean(roundId)) ? (
+          <label className="flex items-start gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={confirmedSend}
+              onChange={(event) => setConfirmedSend(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>I confirm sending this email to {recipients.length} individual recipient{recipients.length === 1 ? "" : "s"}.</span>
+          </label>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={sendCampaign}
+          disabled={
+            sendingCampaign ||
+            !confirmedSend ||
+            recipients.length === 0 ||
+            recipients.length > MAX_CAMPAIGN_RECIPIENTS ||
+            (requiresRound && !roundId) ||
+            Boolean(previewError)
+          }
+          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Send className="h-4 w-4" />
+          {sendingCampaign ? "Sending..." : `Send to ${recipients.length} recipients`}
+        </button>
+
+        {campaignError && <p role="alert" className="text-sm text-red-700">{campaignError}</p>}
+        {campaignResult && (
+          <div role="status" className="space-y-2 rounded-md border border-gray-200 p-3 text-sm">
+            <p className="font-semibold text-gray-900">
+              Sent {campaignResult.sent}; failed {campaignResult.failed}.
+            </p>
+            {campaignResult.failed > 0 && (
+              <ul className="list-inside list-disc text-red-700">
+                {campaignResult.results.filter((result) => !result.sent).map((result) => (
+                  <li key={result.email}>{result.email}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

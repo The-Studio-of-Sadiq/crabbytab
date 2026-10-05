@@ -69,12 +69,16 @@ export default function ParticipantsPage() {
   const [newTeamInstId, setNewTeamInstId] = useState("");
   const [newTeamUnaffiliated, setNewTeamUnaffiliated] = useState(false);
   const [newSpk1, setNewSpk1] = useState("");
+  const [newSpk1Email, setNewSpk1Email] = useState("");
   const [newSpk2, setNewSpk2] = useState("");
+  const [newSpk2Email, setNewSpk2Email] = useState("");
   const [newSpk3, setNewSpk3] = useState("");
+  const [newSpk3Email, setNewSpk3Email] = useState("");
   const [newCategory, setNewCategory] = useState("");
 
   // New Adj Form State
   const [newAdjName, setNewAdjName] = useState("");
+  const [newAdjEmail, setNewAdjEmail] = useState("");
   const [newAdjInstId, setNewAdjInstId] = useState("");
   const [newAdjUnaffiliated, setNewAdjUnaffiliated] = useState(false);
   const [newAdjScore, setNewAdjScore] = useState(5.0);
@@ -167,12 +171,24 @@ export default function ParticipantsPage() {
     const selectedInst = !newTeamUnaffiliated && newTeamInstId ? institutions.find((i) => i.id === newTeamInstId) : null;
 
     const speakers = [
-      { id: `spk-${Date.now()}-1`, name: newSpk1.trim() || `${newTeamName} Spk 1` },
-      { id: `spk-${Date.now()}-2`, name: newSpk2.trim() || `${newTeamName} Spk 2` },
+      {
+        id: `spk-${Date.now()}-1`,
+        name: newSpk1.trim() || `${newTeamName} Spk 1`,
+        email: newSpk1Email.trim() || undefined,
+      },
+      {
+        id: `spk-${Date.now()}-2`,
+        name: newSpk2.trim() || `${newTeamName} Spk 2`,
+        email: newSpk2Email.trim() || undefined,
+      },
     ];
 
-    if (!isBP && newSpk3.trim()) {
-      speakers.push({ id: `spk-${Date.now()}-3`, name: newSpk3.trim() });
+    if (!isBP && (newSpk3.trim() || newSpk3Email.trim())) {
+      speakers.push({
+        id: `spk-${Date.now()}-3`,
+        name: newSpk3.trim() || `${newTeamName} Spk 3`,
+        email: newSpk3Email.trim() || undefined,
+      });
     }
 
     await addTeam({
@@ -190,8 +206,11 @@ export default function ParticipantsPage() {
     setNewTeamInstId("");
     setNewTeamUnaffiliated(false);
     setNewSpk1("");
+    setNewSpk1Email("");
     setNewSpk2("");
+    setNewSpk2Email("");
     setNewSpk3("");
+    setNewSpk3Email("");
     setNewCategory("");
     setShowAddTeamModal(false);
   };
@@ -213,6 +232,7 @@ export default function ParticipantsPage() {
 
     await addAdjudicator({
       name: newAdjName.trim(),
+      email: newAdjEmail.trim() || undefined,
       institutionId: selectedInst ? selectedInst.id : undefined,
       institutionName: selectedInst ? selectedInst.name : undefined,
       baseScore: newAdjScore,
@@ -223,6 +243,7 @@ export default function ParticipantsPage() {
     });
 
     setNewAdjName("");
+    setNewAdjEmail("");
     setNewAdjInstId("");
     setNewAdjUnaffiliated(false);
     setNewAdjScore(5.0);
@@ -856,6 +877,13 @@ export default function ParticipantsPage() {
                     onChange={(e) => setNewSpk1(e.target.value)}
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                   />
+                  <input
+                    type="email"
+                    placeholder="Email (optional)"
+                    value={newSpk1Email}
+                    onChange={(e) => setNewSpk1Email(e.target.value)}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Speaker 2</label>
@@ -865,6 +893,13 @@ export default function ParticipantsPage() {
                     value={newSpk2}
                     onChange={(e) => setNewSpk2(e.target.value)}
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email (optional)"
+                    value={newSpk2Email}
+                    onChange={(e) => setNewSpk2Email(e.target.value)}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                   />
                 </div>
               </div>
@@ -878,6 +913,13 @@ export default function ParticipantsPage() {
                     value={newSpk3}
                     onChange={(e) => setNewSpk3(e.target.value)}
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email (optional)"
+                    value={newSpk3Email}
+                    onChange={(e) => setNewSpk3Email(e.target.value)}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                   />
                 </div>
               )}
@@ -986,18 +1028,30 @@ export default function ParticipantsPage() {
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-700">Speakers</label>
                 {editingTeam.speakers?.map((spk, idx) => (
-                  <input
-                    key={spk.id || idx}
-                    type="text"
-                    value={spk.name}
-                    onChange={(e) => {
-                      const newSpeakers = [...editingTeam.speakers];
-                      newSpeakers[idx] = { ...spk, name: e.target.value };
-                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
-                    }}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                    placeholder={`Speaker ${idx + 1}`}
-                  />
+                  <div key={spk.id || idx} className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={spk.name}
+                      onChange={(e) => {
+                        const newSpeakers = [...editingTeam.speakers];
+                        newSpeakers[idx] = { ...spk, name: e.target.value };
+                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                      }}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                      placeholder={`Speaker ${idx + 1}`}
+                    />
+                    <input
+                      type="email"
+                      value={spk.email || ""}
+                      onChange={(e) => {
+                        const newSpeakers = [...editingTeam.speakers];
+                        newSpeakers[idx] = { ...spk, email: e.target.value.trim() || undefined };
+                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                      }}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                      placeholder="Email (optional)"
+                    />
+                  </div>
                 ))}
               </div>
 
@@ -1039,6 +1093,13 @@ export default function ParticipantsPage() {
                   value={newAdjName}
                   onChange={(e) => setNewAdjName(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <input
+                  type="email"
+                  placeholder="Email (optional)"
+                  value={newAdjEmail}
+                  onChange={(e) => setNewAdjEmail(e.target.value)}
+                  className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
@@ -1147,6 +1208,15 @@ export default function ParticipantsPage() {
                   value={editingAdj.name}
                   onChange={(e) => setEditingAdj({ ...editingAdj, name: e.target.value })}
                   className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <input
+                  type="email"
+                  value={editingAdj.email || ""}
+                  onChange={(e) =>
+                    setEditingAdj({ ...editingAdj, email: e.target.value.trim() || undefined })
+                  }
+                  placeholder="Email (optional)"
+                  className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
