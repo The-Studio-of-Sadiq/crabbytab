@@ -41,7 +41,47 @@ export default function PublicTournamentPage() {
     teams,
     motions,
     breakCategories,
+    venues,
+    adjudicators,
   } = useTournament();
+
+  const getVenueCategory = (venueId?: string, venueName?: string): string | undefined => {
+    if (!venueId && !venueName) return undefined;
+    const v = venues.find(
+      (item) => (venueId && item.id === venueId) || (venueName && item.name === venueName)
+    );
+    return v?.category?.trim() || undefined;
+  };
+
+  const getPanellistNames = (adjudicatorsSlot?: {
+    panellistNames?: string[];
+    panellistIds?: string[];
+  }): string[] => {
+    if (adjudicatorsSlot?.panellistNames && adjudicatorsSlot.panellistNames.length > 0) {
+      return adjudicatorsSlot.panellistNames;
+    }
+    if (adjudicatorsSlot?.panellistIds && adjudicatorsSlot.panellistIds.length > 0) {
+      return adjudicatorsSlot.panellistIds
+        .map((id) => adjudicators.find((a) => a.id === id)?.name || id)
+        .filter(Boolean);
+    }
+    return [];
+  };
+
+  const getTraineeNames = (adjudicatorsSlot?: {
+    traineeNames?: string[];
+    traineeIds?: string[];
+  }): string[] => {
+    if (adjudicatorsSlot?.traineeNames && adjudicatorsSlot.traineeNames.length > 0) {
+      return adjudicatorsSlot.traineeNames;
+    }
+    if (adjudicatorsSlot?.traineeIds && adjudicatorsSlot.traineeIds.length > 0) {
+      return adjudicatorsSlot.traineeIds
+        .map((id) => adjudicators.find((a) => a.id === id)?.name || id)
+        .filter(Boolean);
+    }
+    return [];
+  };
 
   const isBP = tournament?.format === "bp";
   const prefs = tournament?.preferences;
@@ -244,53 +284,84 @@ export default function PublicTournamentPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {releasedDebates.map((d, idx) => (
-                  <div key={d.id} className="bg-white border border-[#d0d7de] rounded-lg p-4 shadow-2xs">
-                    <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
-                      <span className="font-bold text-xs text-gray-900 flex items-center space-x-1">
-                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{d.venueName || `Room ${idx + 1}`}</span>
-                      </span>
-                      <span className="text-xs text-gray-600 font-medium">
-                        Chair: <strong className="text-gray-900">{d.adjudicators?.chairName || "TBD"}</strong>
-                      </span>
-                    </div>
+                {releasedDebates.map((d, idx) => {
+                  const venueCategory = getVenueCategory(d.venueId, d.venueName);
+                  const panellistNames = getPanellistNames(d.adjudicators);
+                  const traineeNames = getTraineeNames(d.adjudicators);
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-                      {isBP ? (
-                        <>
-                          <div className="p-2 bg-rose-50/60 rounded border border-rose-200 font-bold text-gray-900">
-                            <span className="text-[10px] text-rose-700 block uppercase">OG</span>
-                            {d.teams?.OG?.teamName || "—"}
-                          </div>
-                          <div className="p-2 bg-sky-50/60 rounded border border-sky-200 font-bold text-gray-900">
-                            <span className="text-[10px] text-sky-700 block uppercase">OO</span>
-                            {d.teams?.OO?.teamName || "—"}
-                          </div>
-                          <div className="p-2 bg-amber-50/60 rounded border border-amber-200 font-bold text-gray-900">
-                            <span className="text-[10px] text-amber-700 block uppercase">CG</span>
-                            {d.teams?.CG?.teamName || "—"}
-                          </div>
-                          <div className="p-2 bg-purple-50/60 rounded border border-purple-200 font-bold text-gray-900">
-                            <span className="text-[10px] text-purple-700 block uppercase">CO</span>
-                            {d.teams?.CO?.teamName || "—"}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="p-2.5 bg-emerald-50/60 rounded border border-emerald-200 font-bold text-gray-900 sm:col-span-2">
-                            <span className="text-[10px] text-emerald-700 block uppercase">Affirmative</span>
-                            {d.teams?.AFF?.teamName || "—"}
-                          </div>
-                          <div className="p-2.5 bg-slate-50 rounded border border-slate-200 font-bold text-gray-900 sm:col-span-2">
-                            <span className="text-[10px] text-slate-700 block uppercase">Negative</span>
-                            {d.teams?.NEG?.teamName || "—"}
-                          </div>
-                        </>
+                  return (
+                    <div key={d.id} className="bg-white border border-[#d0d7de] rounded-lg p-4 shadow-2xs">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-xs text-gray-900 flex items-center space-x-1">
+                            <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                            <span>{d.venueName || `Room ${idx + 1}`}</span>
+                          </span>
+                          {venueCategory && (
+                            <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                              {venueCategory}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-600 font-medium">
+                          Chair: <strong className="text-gray-900">{d.adjudicators?.chairName || "TBD"}</strong>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                        {isBP ? (
+                          <>
+                            <div className="p-2 bg-rose-50/60 rounded border border-rose-200 font-bold text-gray-900">
+                              <span className="text-[10px] text-rose-700 block uppercase">OG</span>
+                              {d.teams?.OG?.teamName || "—"}
+                            </div>
+                            <div className="p-2 bg-sky-50/60 rounded border border-sky-200 font-bold text-gray-900">
+                              <span className="text-[10px] text-sky-700 block uppercase">OO</span>
+                              {d.teams?.OO?.teamName || "—"}
+                            </div>
+                            <div className="p-2 bg-amber-50/60 rounded border border-amber-200 font-bold text-gray-900">
+                              <span className="text-[10px] text-amber-700 block uppercase">CG</span>
+                              {d.teams?.CG?.teamName || "—"}
+                            </div>
+                            <div className="p-2 bg-purple-50/60 rounded border border-purple-200 font-bold text-gray-900">
+                              <span className="text-[10px] text-purple-700 block uppercase">CO</span>
+                              {d.teams?.CO?.teamName || "—"}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="p-2.5 bg-emerald-50/60 rounded border border-emerald-200 font-bold text-gray-900 sm:col-span-2">
+                              <span className="text-[10px] text-emerald-700 block uppercase">Affirmative</span>
+                              {d.teams?.AFF?.teamName || "—"}
+                            </div>
+                            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 font-bold text-gray-900 sm:col-span-2">
+                              <span className="text-[10px] text-slate-700 block uppercase">Negative</span>
+                              {d.teams?.NEG?.teamName || "—"}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Panellists and Trainees footer */}
+                      {(panellistNames.length > 0 || traineeNames.length > 0) && (
+                        <div className="mt-3 px-3 py-1.5 bg-gray-50 rounded border border-gray-100 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
+                          {panellistNames.length > 0 && (
+                            <div>
+                              <span className="font-semibold text-gray-700 mr-1">Panellists:</span>
+                              <span className="text-gray-800">{panellistNames.join(", ")}</span>
+                            </div>
+                          )}
+                          {traineeNames.length > 0 && (
+                            <div>
+                              <span className="font-semibold text-gray-700 mr-1">Trainees:</span>
+                              <span className="italic text-gray-600">{traineeNames.join(", ")}</span>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -347,15 +418,27 @@ export default function PublicTournamentPage() {
                             <th>Negative</th>
                           </>
                         )}
+                        <th>Adjudicators</th>
                         <th className="text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {releasedDebates.map((d) => {
                         const ballot = ballotMap.get(d.id);
+                        const venueCategory = getVenueCategory(d.venueId, d.venueName);
+                        const panellistNames = getPanellistNames(d.adjudicators);
+                        const traineeNames = getTraineeNames(d.adjudicators);
+
                         return (
                           <tr key={d.id} className="hover:bg-gray-50">
-                            <td className="font-bold text-xs text-gray-900">{d.venueName}</td>
+                            <td className="text-xs">
+                              <div className="font-bold text-gray-900">{d.venueName || "—"}</div>
+                              {venueCategory && (
+                                <span className="inline-block mt-0.5 text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                  {venueCategory}
+                                </span>
+                              )}
+                            </td>
                             {isBP ? (
                               (["OG", "OO", "CG", "CO"] as DebateSide[]).map((side) => {
                                 const tSlot = d.teams[side];
@@ -395,6 +478,24 @@ export default function PublicTournamentPage() {
                                 );
                               })
                             )}
+                            <td className="text-xs">
+                              <div>
+                                <span className="font-semibold text-gray-700">Chair:</span>{" "}
+                                <span className="text-gray-900 font-medium">{d.adjudicators?.chairName || "—"}</span>
+                              </div>
+                              {panellistNames.length > 0 && (
+                                <div className="text-[11px] text-gray-600 mt-0.5">
+                                  <span className="font-medium text-gray-700">Panellists:</span>{" "}
+                                  <span>{panellistNames.join(", ")}</span>
+                                </div>
+                              )}
+                              {traineeNames.length > 0 && (
+                                <div className="text-[11px] text-gray-500 italic mt-0.5">
+                                  <span className="font-medium not-italic text-gray-600">Trainees:</span>{" "}
+                                  <span>{traineeNames.join(", ")}</span>
+                                </div>
+                              )}
+                            </td>
                             <td className="text-center">
                               <span
                                 className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
