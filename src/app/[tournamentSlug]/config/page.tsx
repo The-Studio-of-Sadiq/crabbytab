@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
+import { useSearchParams, useRouter, useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Sliders,
@@ -11,6 +12,9 @@ import {
   Shuffle,
   FileCheck2,
   Trash2,
+  Clock,
+  Trophy,
+  HelpCircle,
 } from "lucide-react";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { TournamentPreferences, TournamentFormat } from "@/types";
@@ -24,7 +28,24 @@ import {
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
 import { OddBracketMethod, PairingMethod, ConflictAvoidance, PullupRestriction } from "@/types";
 
-export default function ConfigPage() {
+type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility" | "all";
+
+const SETTINGS_CATEGORIES: { id: SettingsCategory; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "draw", label: "Draw rules", icon: Shuffle },
+  { id: "rounds", label: "Round settings", icon: Clock },
+  { id: "format", label: "Format & Teams", icon: Shield },
+  { id: "scoring", label: "Scoring & Ballots", icon: FileCheck2 },
+  { id: "standings", label: "Standings rules", icon: Trophy },
+  { id: "visibility", label: "Public visibility", icon: Eye },
+  { id: "all", label: "All Settings", icon: Sliders },
+];
+
+function ConfigFormContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const params = useParams();
+  const tournamentSlug = params.tournamentSlug as string;
+
   const {
     tournament,
     saveTournament,
@@ -34,6 +55,25 @@ export default function ConfigPage() {
     setPreliminaryRoundCount,
     deleteRound,
   } = useTournament();
+
+  const categoryParam = searchParams.get("category") as SettingsCategory | null;
+  const initialCategory: SettingsCategory =
+    categoryParam && ["draw", "rounds", "format", "scoring", "standings", "visibility", "all"].includes(categoryParam)
+      ? categoryParam
+      : "all";
+
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
+
+  useEffect(() => {
+    if (categoryParam && ["draw", "rounds", "format", "scoring", "standings", "visibility", "all"].includes(categoryParam)) {
+      setActiveCategory(categoryParam);
+    }
+  }, [categoryParam]);
+
+  const handleSelectCategory = (cat: SettingsCategory) => {
+    setActiveCategory(cat);
+    router.replace(`/${tournamentSlug}/config?category=${cat}`, { scroll: false });
+  };
 
   const [format, setFormat] = useState<TournamentFormat>(tournament?.format || "bp");
   const [prefs, setPrefs] = useState<TournamentPreferences>(
@@ -125,6 +165,8 @@ export default function ConfigPage() {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  const showAll = activeCategory === "all";
+
   return (
     <div className="max-w-4xl space-y-6 pb-12">
       {/* Header */}
@@ -135,7 +177,7 @@ export default function ConfigPage() {
             <span>Tournament Configuration</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Configure debate format rules, speaker score ranges, draw constraints, and public tab settings.
+            Configure debate format rules, draw algorithms, scoring parameters, and public visibility.
           </p>
         </div>
 
@@ -147,427 +189,694 @@ export default function ConfigPage() {
         )}
       </div>
 
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* 1. Format & Speakers */}
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-            <Shield className="w-4 h-4 text-blue-600" />
-            <span>Debate Format & Team Structure</span>
-          </h3>
+      {/* Category Tabs Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-[#d0d7de] pb-2 text-xs">
+        {SETTINGS_CATEGORIES.map((cat) => {
+          const Icon = cat.icon;
+          const isActive = activeCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => handleSelectCategory(cat.id)}
+              className={`px-3 py-1.5 font-semibold rounded-md flex items-center gap-1.5 transition whitespace-nowrap ${
+                isActive
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{cat.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Parliamentary Format
-              </label>
-              <select
-                value={format}
-                onChange={(e) => {
-                  const newFmt = e.target.value as TournamentFormat;
-                  setFormat(newFmt);
-                  if (newFmt === "bp") {
-                    setPrefs((p) => ({
-                      ...p,
-                      teamsInDebate: 4,
-                      substantiveSpeakers: 2,
-                      replyScoresEnabled: false,
-                    }));
-                  } else {
-                    setPrefs((p) => ({
-                      ...p,
-                      teamsInDebate: 2,
-                      substantiveSpeakers: 3,
-                      replyScoresEnabled: true,
-                    }));
-                  }
-                }}
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-semibold"
-              >
-                <option value="bp">British Parliamentary (BP) — 4 Teams, 2 Speakers/Team</option>
-                <option value="uadc">Asian Parliamentary (UADC) — 2 Teams, 3 Speakers + Reply</option>
-                <option value="australs">Australs — 2 Teams, 3 Speakers + Reply</option>
-                <option value="wsdc">World Schools (WSDC) — 2 Teams, 3 Speakers + Reply</option>
-              </select>
+      <form onSubmit={handleSave} className="space-y-6">
+        {/* ============================================================ */}
+        {/* 1. DRAW RULES */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "draw") && (
+          <div className="space-y-4">
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                <Shuffle className="w-4 h-4 text-blue-600" />
+                <span>Draw Generation & Pairing Rules</span>
+              </h3>
+              <p className="text-xs text-gray-600">
+                Configure pairing algorithms, bracket matching strategies, conflict penalties, and side balancing.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Default Preliminary Draw Rule
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
+                    value={prefs.drawRule || "power_paired"}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        drawRule: e.target.value as "power_paired" | "random" | "round_robin" | "bracket",
+                      }))
+                    }
+                  >
+                    <option value="power_paired">Power-paired (Swiss system by bracket / points)</option>
+                    <option value="round_robin">Round Robin (Circle method)</option>
+                    <option value="random">Random Draw</option>
+                    <option value="bracket">Bracket Draw</option>
+                  </select>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Applied automatically when creating new rounds.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Side Allocation Strategy
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
+                    value={prefs.sideAllocationRule || "balanced"}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        sideAllocationRule: e.target.value as "balanced" | "random",
+                      }))
+                    }
+                  >
+                    <option value="balanced">Balanced sides (Equalize Gov/Opp and Aff/Neg across rounds)</option>
+                    <option value="random">Random sides</option>
+                  </select>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Balances previous side counts over the tournament history.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Substantive Speakers per Team
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="5"
-                value={prefs.substantiveSpeakers}
-                onChange={(e) =>
-                  setPrefs((p) => ({
-                    ...p,
-                    substantiveSpeakers: parseInt(e.target.value, 10),
-                  }))
-                }
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-              />
+            {/* BP clash penalties */}
+            {format === "bp" && (
+              <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  <span>British Parliamentary Clash Penalties</span>
+                </h3>
+                <p className="text-xs text-gray-600">
+                  How heavily the BP draw penalizes repeat matchups or institutional clashes when finding clean 4-team groupings.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Repeat matchup penalty</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                      value={prefs.repeatMatchupPenalty ?? 1000}
+                      onChange={(e) =>
+                        setPrefs((p) => ({ ...p, repeatMatchupPenalty: Math.max(0, Number(e.target.value) || 0) }))
+                      }
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Default 1000. Higher avoids rematches strictly.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Institution clash penalty</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                      value={prefs.institutionClashPenalty ?? 200}
+                      onChange={(e) =>
+                        setPrefs((p) => ({ ...p, institutionClashPenalty: Math.max(0, Number(e.target.value) || 0) }))
+                      }
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Default 200. Penalizes placing same-institution teams together.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Two-team draw generation */}
+            {format !== "bp" && (
+              <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  <span>Two-Team Bracket Pairing Rules</span>
+                </h3>
+                <p className="text-xs text-gray-600">
+                  Fine-grained Swiss pairing mechanics for 2-team preliminary rounds grouped by wins.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Pairing within a bracket</label>
+                    <select
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                      value={prefs.pairingMethod ?? "fold"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, pairingMethod: e.target.value as PairingMethod }))}
+                    >
+                      <option value="fold">Fold (strongest vs weakest: 1v8, 2v7, ...)</option>
+                      <option value="slide">Slide (top half vs bottom half: 1v5, 2v6, ...)</option>
+                      <option value="adjacent">Adjacent (1v2, 3v4, ...)</option>
+                      <option value="fold_top_adjacent_rest">Fold top room, adjacent for the rest</option>
+                      <option value="random">Random within bracket</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Odd bracket resolution</label>
+                    <select
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                      value={prefs.oddBracketMethod ?? "pullup_top"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
+                    >
+                      <option value="pullup_top">Pull up the top team from below</option>
+                      <option value="pullup_bottom">Pull up the bottom team from below</option>
+                      <option value="pullup_middle">Pull up the middle team from below</option>
+                      <option value="pullup_random">Pull up a random team from below</option>
+                      <option value="intermediate">Intermediate bubble room (top team)</option>
+                      <option value="intermediate_bubble">Intermediate bubble room (restricted)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Who can be pulled up</label>
+                    <select
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                      value={prefs.pullupRestriction ?? "none"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, pullupRestriction: e.target.value as PullupRestriction }))}
+                    >
+                      <option value="none">No restriction</option>
+                      <option value="least_pulled">Teams pulled up the fewest times so far</option>
+                      <option value="lowest_draw_strength_speaks">Lowest draw strength (speaks)</option>
+                      <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
+                    </select>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Narrows the candidates before the odd bracket rule picks one.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Conflict avoidance</label>
+                    <select
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                      value={prefs.conflictAvoidance ?? "one_up_one_down"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
+                    >
+                      <option value="off">Off</option>
+                      <option value="one_up_one_down">One up, one down (fast, local swaps)</option>
+                      <option value="min_cost">Minimum cost (slower, finds the true best)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 2. ROUND SETTINGS */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "rounds") && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+              <Clock className="w-4 h-4 text-blue-600" />
+              <span>Round Settings & Management</span>
+            </h3>
+            <p className="text-xs text-gray-600">
+              Set the total number of preliminary rounds or safely delete specific individual rounds.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="prelim-round-count">
+                  Number of Preliminary Rounds
+                </label>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <input
+                    id="prelim-round-count"
+                    type="number"
+                    min={0}
+                    max={20}
+                    step={1}
+                    value={prelimRoundCount}
+                    onChange={(event) => setPrelimRoundCount(Number(event.target.value))}
+                    className="w-32 border border-gray-300 rounded px-3 py-1.5 text-sm font-mono font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRoundCountSave}
+                    disabled={isSavingRoundCount || prelimRoundCount === activePrelimCount}
+                    className="px-3.5 py-1.5 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50 transition"
+                  >
+                    {isSavingRoundCount ? "Updating..." : "Update Round Count"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1.5">
+                  Canceled rounds preserve their ballots and can be restored by increasing this count. Elimination rounds remain intact.
+                </p>
+                {roundCountError && <p className="text-xs text-red-600 mt-1">{roundCountError}</p>}
+              </div>
+
+              <div className="border-t border-gray-100 pt-4 space-y-2">
+                <label className="block text-xs font-semibold text-gray-700" htmlFor="delete-round-select">
+                  Delete an Individual Round
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    id="delete-round-select"
+                    value={roundToDeleteId}
+                    onChange={(event) => setRoundToDeleteId(event.target.value)}
+                    className="w-full sm:max-w-xs border border-gray-300 rounded px-3 py-2 text-xs bg-white"
+                  >
+                    <option value="">Choose a round to delete...</option>
+                    {rounds.map((round) => (
+                      <option key={round.id} value={round.id}>
+                        {round.name} ({round.stage})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteRoundConfirm(true)}
+                    disabled={!roundToDelete || isDeletingRound}
+                    className="inline-flex items-center justify-center gap-1.5 rounded border border-red-300 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 transition"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete Round</span>
+                  </button>
+                </div>
+                {deleteRoundError && <p role="alert" className="text-xs text-red-600">{deleteRoundError}</p>}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Preliminary round count */}
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-3">
-          <h3 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2">
-            Preliminary Rounds
-          </h3>
-          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+        {/* ============================================================ */}
+        {/* 3. FORMAT & TEAMS */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "format") && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+              <Shield className="w-4 h-4 text-blue-600" />
+              <span>Debate Format & Team Structure</span>
+            </h3>
+            <p className="text-xs text-gray-600">
+              Define the parliamentary debate style, number of teams per debate, and speaker requirements.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Parliamentary Format
+                </label>
+                <select
+                  value={format}
+                  onChange={(e) => {
+                    const newFmt = e.target.value as TournamentFormat;
+                    setFormat(newFmt);
+                    if (newFmt === "bp") {
+                      setPrefs((p) => ({
+                        ...p,
+                        teamsInDebate: 4,
+                        substantiveSpeakers: 2,
+                        replyScoresEnabled: false,
+                      }));
+                    } else {
+                      setPrefs((p) => ({
+                        ...p,
+                        teamsInDebate: 2,
+                        substantiveSpeakers: 3,
+                        replyScoresEnabled: true,
+                      }));
+                    }
+                  }}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-semibold bg-white"
+                >
+                  <option value="bp">British Parliamentary (BP) — 4 Teams, 2 Speakers/Team</option>
+                  <option value="uadc">Asian Parliamentary (UADC) — 2 Teams, 3 Speakers + Reply</option>
+                  <option value="australs">Australs — 2 Teams, 3 Speakers + Reply</option>
+                  <option value="wsdc">World Schools (WSDC) — 2 Teams, 3 Speakers + Reply</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Substantive Speakers per Team
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={prefs.substantiveSpeakers}
+                  onChange={(e) =>
+                    setPrefs((p) => ({
+                      ...p,
+                      substantiveSpeakers: parseInt(e.target.value, 10),
+                    }))
+                  }
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono font-bold"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(prefs.replyScoresEnabled)}
+                    onChange={(e) => setPrefs((p) => ({ ...p, replyScoresEnabled: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <div>
+                    <span className="font-semibold text-gray-800 text-xs block">Enable Reply Speech Scoring</span>
+                    <span className="text-[11px] text-gray-500">
+                      Standard for 3-speaker formats (Australs, UADC, WSDC) where a 4th speech is delivered as a half-length reply.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 4. SCORING & BALLOTS */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "scoring") && (
+          <div className="space-y-4">
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                <FileCheck2 className="w-4 h-4 text-emerald-600" />
+                <span>Speaker Scoring Parameters</span>
+              </h3>
+              <p className="text-xs text-gray-600">
+                Define the allowed bounds and step increments for substantive and reply speeches.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Minimum Speaker Score
+                  </label>
+                  <input
+                    type="number"
+                    value={prefs.minSpeakerScore}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, minSpeakerScore: parseFloat(e.target.value) || 68 }))
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Default 68</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Maximum Speaker Score
+                  </label>
+                  <input
+                    type="number"
+                    value={prefs.maxSpeakerScore}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, maxSpeakerScore: parseFloat(e.target.value) || 84 }))
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Default 84</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Score Step Increment
+                  </label>
+                  <select
+                    value={prefs.stepSpeakerScore}
+                    onChange={(e) =>
+                      setPrefs((p) => ({ ...p, stepSpeakerScore: parseFloat(e.target.value) || 1 }))
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono bg-white"
+                  >
+                    <option value={1}>1.0 (Integers only: 74, 75, 76...)</option>
+                    <option value={0.5}>0.5 (Half points: 74.5, 75.0...)</option>
+                  </select>
+                  <p className="text-[11px] text-gray-500 mt-1">Allowed increments</p>
+                </div>
+              </div>
+
+              {prefs.replyScoresEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Minimum Reply Score
+                    </label>
+                    <input
+                      type="number"
+                      value={prefs.minReplyScore ?? 34}
+                      onChange={(e) =>
+                        setPrefs((p) => ({ ...p, minReplyScore: parseFloat(e.target.value) || 34 }))
+                      }
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Default 34 (typically half of substantive min)</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Maximum Reply Score
+                    </label>
+                    <input
+                      type="number"
+                      value={prefs.maxReplyScore ?? 42}
+                      onChange={(e) =>
+                        setPrefs((p) => ({ ...p, maxReplyScore: parseFloat(e.target.value) || 42 }))
+                      }
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Default 42 (typically half of substantive max)</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ballot Verification & Feedback */}
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                <FileCheck2 className="w-4 h-4 text-emerald-600" />
+                <span>Ballot Verification & Adjudicator Feedback</span>
+              </h3>
+
+              <div className="space-y-4 text-xs">
+                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(prefs.ballotDoubleEntry)}
+                    onChange={(e) => setPrefs((p) => ({ ...p, ballotDoubleEntry: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <div>
+                    <span className="font-semibold text-gray-800 block">Require Double-Entry Ballot Verification</span>
+                    <span className="text-[11px] text-gray-500">
+                      Two separate scorekeepers must enter ballots independently; differences are flagged for tabroom resolution.
+                    </span>
+                  </div>
+                </label>
+
+                <div className="p-3 rounded bg-gray-50 border border-gray-200 space-y-3">
+                  <label className="flex items-center space-x-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={prefs.feedbackEnabled !== false}
+                      onChange={(e) => setPrefs((p) => ({ ...p, feedbackEnabled: e.target.checked }))}
+                      className="rounded border-gray-300 text-blue-600"
+                    />
+                    <span className="font-semibold text-gray-800">Enable Adjudicator Feedback Submission</span>
+                  </label>
+
+                  {prefs.feedbackEnabled !== false && (
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Minimum Feedback Score
+                        </label>
+                        <input
+                          type="number"
+                          value={prefs.feedbackMinScore ?? 1}
+                          onChange={(e) =>
+                            setPrefs((p) => ({ ...p, feedbackMinScore: parseInt(e.target.value, 10) || 1 }))
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1 text-xs font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Maximum Feedback Score
+                        </label>
+                        <input
+                          type="number"
+                          value={prefs.feedbackMaxScore ?? 10}
+                          onChange={(e) =>
+                            setPrefs((p) => ({ ...p, feedbackMaxScore: parseInt(e.target.value, 10) || 10 }))
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1 text-xs font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 5. STANDINGS RULES */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "standings") && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-5">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+              <Trophy className="w-4 h-4 text-amber-600" />
+              <span>Standings Rules & Ranking Precedence</span>
+            </h3>
+            <p className="text-xs text-gray-600">
+              The order teams and speakers are ranked in. Leave empty to use the format&apos;s standard default.
+              This also dictates Swiss power-pairing brackets and breaking team qualifications.
+            </p>
+
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="prelim-round-count">
-                Number of rounds
+              <h4 className="text-xs font-bold text-gray-800 mb-2">Team ranking precedence chain</h4>
+              <PrecedenceEditor
+                value={prefs.teamStandingsPrecedence ?? []}
+                onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
+                labels={TEAM_METRIC_LABELS}
+                disabledIds={format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS}
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Default for this format: {resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" \u2192 ")}
+              </p>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 mb-2">Extra team metrics (displayed, not ranked on)</h4>
+              <ExtraMetricsEditor
+                value={prefs.teamStandingsExtra ?? []}
+                onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
+                labels={TEAM_METRIC_LABELS}
+                exclude={prefs.teamStandingsPrecedence ?? []}
+              />
+            </div>
+
+            <div className="border-t border-gray-100 pt-4">
+              <h4 className="text-xs font-bold text-gray-800 mb-2">Speaker ranking precedence chain</h4>
+              <PrecedenceEditor
+                value={prefs.speakerStandingsPrecedence ?? []}
+                onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
+                labels={SPEAKER_METRIC_LABELS}
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Default: {resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" \u2192 ")}
+              </p>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 mb-2">Extra speaker metrics (displayed, not ranked on)</h4>
+              <ExtraMetricsEditor
+                value={prefs.speakerStandingsExtra ?? []}
+                onChange={(speakerStandingsExtra) => setPrefs((p) => ({ ...p, speakerStandingsExtra }))}
+                labels={SPEAKER_METRIC_LABELS}
+                exclude={prefs.speakerStandingsPrecedence ?? []}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Speaker score trim (for speaks_trimmed_mean)
               </label>
               <input
-                id="prelim-round-count"
                 type="number"
                 min={0}
-                max={20}
-                step={1}
-                value={prelimRoundCount}
-                onChange={(event) => setPrelimRoundCount(Number(event.target.value))}
-                className="w-32 border border-gray-300 rounded px-3 py-1.5 text-sm font-mono"
+                className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                value={prefs.speakerTrim ?? 0}
+                onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Number(e.target.value) || 0) }))}
               />
-            </div>
-            <button
-              type="button"
-              onClick={handleRoundCountSave}
-              disabled={isSavingRoundCount || prelimRoundCount === activePrelimCount}
-              className="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50"
-            >
-              {isSavingRoundCount ? "Updating..." : "Update Round Count"}
-            </button>
-          </div>
-          <p className="text-[11px] text-gray-500">
-            Canceled rounds keep their ballots and can be restored by increasing this count. Elimination rounds remain; their sequence numbers adjust as needed.
-          </p>
-          {roundCountError && <p className="text-xs text-red-600">{roundCountError}</p>}
-          <div className="border-t border-gray-100 pt-3 space-y-2">
-            <label className="block text-xs font-semibold text-gray-700" htmlFor="delete-round-select">
-              Delete a round
-            </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <select
-                id="delete-round-select"
-                value={roundToDeleteId}
-                onChange={(event) => setRoundToDeleteId(event.target.value)}
-                className="w-full sm:max-w-xs border border-gray-300 rounded px-3 py-2 text-xs bg-white"
-              >
-                <option value="">Choose a round</option>
-                {rounds.map((round) => (
-                  <option key={round.id} value={round.id}>{round.name}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => setShowDeleteRoundConfirm(true)}
-                disabled={!roundToDelete || isDeletingRound}
-                className="inline-flex items-center justify-center gap-1.5 rounded border border-red-300 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete Round
-              </button>
-            </div>
-            {deleteRoundError && <p role="alert" className="text-xs text-red-600">{deleteRoundError}</p>}
-          </div>
-        </div>
-
-        {/* 2. Speaker Score Bounds */}
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-            <FileCheck2 className="w-4 h-4 text-emerald-600" />
-            <span>Speaker Scoring Parameters</span>
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Minimum Speaker Score
-              </label>
-              <input
-                type="number"
-                value={prefs.minSpeakerScore}
-                onChange={(e) =>
-                  setPrefs((p) => ({ ...p, minSpeakerScore: parseFloat(e.target.value) || 68 }))
-                }
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Maximum Speaker Score
-              </label>
-              <input
-                type="number"
-                value={prefs.maxSpeakerScore}
-                onChange={(e) =>
-                  setPrefs((p) => ({ ...p, maxSpeakerScore: parseFloat(e.target.value) || 84 }))
-                }
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Score Step Increment
-              </label>
-              <select
-                value={prefs.stepSpeakerScore}
-                onChange={(e) =>
-                  setPrefs((p) => ({ ...p, stepSpeakerScore: parseFloat(e.target.value) || 1 }))
-                }
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono"
-              >
-                <option value={1}>1.0 (Integers only: 74, 75, 76...)</option>
-                <option value={0.5}>0.5 (Half points: 74.5, 75.0...)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Standings rules */}
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-5">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-            <Sliders className="w-4 h-4 text-blue-600" />
-            <span>Standings Rules</span>
-          </h3>
-          <p className="text-xs text-gray-600">
-            The order teams and speakers are ranked in. Leave empty to use the format&apos;s default. This also
-            decides power-paired draws and who breaks.
-          </p>
-
-          <div>
-            <h4 className="text-xs font-bold text-gray-800 mb-2">Team ranking</h4>
-            <PrecedenceEditor
-              value={prefs.teamStandingsPrecedence ?? []}
-              onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
-              labels={TEAM_METRIC_LABELS}
-              disabledIds={format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS}
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Default for this format: {resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" \u2192 ")}
-            </p>
-          </div>
-
-          <div>
-            <h4 className="text-xs font-bold text-gray-800 mb-2">Extra team metrics (shown, not ranked on)</h4>
-            <ExtraMetricsEditor
-              value={prefs.teamStandingsExtra ?? []}
-              onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
-              labels={TEAM_METRIC_LABELS}
-              exclude={prefs.teamStandingsPrecedence ?? []}
-            />
-          </div>
-
-          <div className="border-t border-gray-100 pt-4">
-            <h4 className="text-xs font-bold text-gray-800 mb-2">Speaker ranking</h4>
-            <PrecedenceEditor
-              value={prefs.speakerStandingsPrecedence ?? []}
-              onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
-              labels={SPEAKER_METRIC_LABELS}
-            />
-            <p className="text-[11px] text-gray-500 mt-1">
-              Default: {resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" \u2192 ")}
-            </p>
-          </div>
-
-          <div>
-            <h4 className="text-xs font-bold text-gray-800 mb-2">Extra speaker metrics (shown, not ranked on)</h4>
-            <ExtraMetricsEditor
-              value={prefs.speakerStandingsExtra ?? []}
-              onChange={(speakerStandingsExtra) => setPrefs((p) => ({ ...p, speakerStandingsExtra }))}
-              labels={SPEAKER_METRIC_LABELS}
-              exclude={prefs.speakerStandingsPrecedence ?? []}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Speaker trim (for speaks_trimmed_mean)
-            </label>
-            <input
-              type="number"
-              min={0}
-              className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs"
-              value={prefs.speakerTrim ?? 0}
-              onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Number(e.target.value) || 0) }))}
-            />
-            <p className="text-[11px] text-gray-500 mt-1">Number of a speaker&apos;s lowest scores dropped before averaging.</p>
-          </div>
-        </div>
-
-        {/* BP clash penalties (C2) */}
-        {format === "bp" && (
-          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Sliders className="w-4 h-4 text-blue-600" />
-              <span>Draw Generation</span>
-            </h3>
-            <p className="text-xs text-gray-600">
-              How heavily the BP draw penalizes a rematch or an institution clash when searching for a
-              clean grouping within a bracket.
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Repeat matchup penalty</label>
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
-                  value={prefs.repeatMatchupPenalty ?? 1000}
-                  onChange={(e) =>
-                    setPrefs((p) => ({ ...p, repeatMatchupPenalty: Math.max(0, Number(e.target.value) || 0) }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Institution clash penalty</label>
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
-                  value={prefs.institutionClashPenalty ?? 200}
-                  onChange={(e) =>
-                    setPrefs((p) => ({ ...p, institutionClashPenalty: Math.max(0, Number(e.target.value) || 0) }))
-                  }
-                />
-              </div>
+              <p className="text-[11px] text-gray-500 mt-1">Number of a speaker&apos;s lowest scores dropped before averaging.</p>
             </div>
           </div>
         )}
 
-        {/* Two-team draw generation (C2) */}
-        {format !== "bp" && (
+        {/* ============================================================ */}
+        {/* 6. PUBLIC VISIBILITY */}
+        {/* ============================================================ */}
+        {(showAll || activeCategory === "visibility") && (
           <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Sliders className="w-4 h-4 text-blue-600" />
-              <span>Draw Generation</span>
+              <Eye className="w-4 h-4 text-purple-600" />
+              <span>Public Website Visibility Controls</span>
             </h3>
             <p className="text-xs text-gray-600">
-              How preliminary draws are built for two-team rounds. Brackets are grouped by wins.
+              Control which sections of the tournament website are visible to debaters and the general public.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Pairing within a bracket</label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
-                  value={prefs.pairingMethod ?? "fold"}
-                  onChange={(e) => setPrefs((p) => ({ ...p, pairingMethod: e.target.value as PairingMethod }))}
-                >
-                  <option value="fold">Fold (strongest vs weakest)</option>
-                  <option value="slide">Slide (top half vs bottom half)</option>
-                  <option value="adjacent">Adjacent (1v2, 3v4, ...)</option>
-                  <option value="fold_top_adjacent_rest">Fold top room, adjacent for the rest</option>
-                  <option value="random">Random within bracket</option>
-                </select>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.publicDraw !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, publicDraw: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Public Draw Display</span>
+                  <span className="text-[11px] text-gray-500">Allow public viewers to see confirmed round pairings and room allocations.</span>
+                </div>
+              </label>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Odd bracket resolution</label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
-                  value={prefs.oddBracketMethod ?? "pullup_top"}
-                  onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
-                >
-                  <option value="pullup_top">Pull up the top team from below</option>
-                  <option value="pullup_bottom">Pull up the bottom team from below</option>
-                  <option value="pullup_middle">Pull up the middle team from below</option>
-                  <option value="pullup_random">Pull up a random team from below</option>
-                  <option value="intermediate">Intermediate bubble room (top team)</option>
-                  <option value="intermediate_bubble">Intermediate bubble room (restricted)</option>
-                </select>
-              </div>
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.publicResults !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, publicResults: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Public Results & Scores</span>
+                  <span className="text-[11px] text-gray-500">Allow public viewers to view ballot results for non-silent rounds.</span>
+                </div>
+              </label>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Who can be pulled up</label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
-                  value={prefs.pullupRestriction ?? "none"}
-                  onChange={(e) => setPrefs((p) => ({ ...p, pullupRestriction: e.target.value as PullupRestriction }))}
-                >
-                  <option value="none">No restriction</option>
-                  <option value="least_pulled">Teams pulled up the fewest times so far</option>
-                  <option value="lowest_draw_strength_speaks">Lowest draw strength (speaks)</option>
-                  <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
-                </select>
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Narrows the candidates before the odd bracket rule above picks one.
-                </p>
-              </div>
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.publicStandings !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, publicStandings: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Public Standings Tab</span>
+                  <span className="text-[11px] text-gray-500">Allow public tab spectators to see team and speaker leaderboards.</span>
+                </div>
+              </label>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Conflict avoidance</label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
-                  value={prefs.conflictAvoidance ?? "one_up_one_down"}
-                  onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
-                >
-                  <option value="off">Off</option>
-                  <option value="one_up_one_down">One up, one down (fast, local swaps)</option>
-                  <option value="min_cost">Minimum cost (slower, finds the true best)</option>
-                </select>
-              </div>
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.publicMotions !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, publicMotions: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Public Motions Page</span>
+                  <span className="text-[11px] text-gray-500">Publish released debate motions and information slides on the public page.</span>
+                </div>
+              </label>
             </div>
           </div>
         )}
-
-        {/* 3. Public Visibility Controls */}
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-            <Eye className="w-4 h-4 text-purple-600" />
-            <span>Public Website Visibility Controls</span>
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={prefs.publicDraw}
-                onChange={(e) => setPrefs((p) => ({ ...p, publicDraw: e.target.checked }))}
-                className="rounded border-gray-300 text-blue-600"
-              />
-              <span className="font-semibold text-gray-800">Public Draw Display</span>
-            </label>
-
-            <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={prefs.publicResults}
-                onChange={(e) => setPrefs((p) => ({ ...p, publicResults: e.target.checked }))}
-                className="rounded border-gray-300 text-blue-600"
-              />
-              <span className="font-semibold text-gray-800">Public Results & Scores</span>
-            </label>
-
-            <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={prefs.publicStandings}
-                onChange={(e) => setPrefs((p) => ({ ...p, publicStandings: e.target.checked }))}
-                className="rounded border-gray-300 text-blue-600"
-              />
-              <span className="font-semibold text-gray-800">Public Standings Tab</span>
-            </label>
-
-            <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={prefs.publicMotions}
-                onChange={(e) => setPrefs((p) => ({ ...p, publicMotions: e.target.checked }))}
-                className="rounded border-gray-300 text-blue-600"
-              />
-              <span className="font-semibold text-gray-800">Public Motions Page</span>
-            </label>
-          </div>
-        </div>
 
         {/* Submit */}
-        <div className="flex justify-end pt-2">
+        <div className="flex items-center justify-between pt-3 border-t border-[#d0d7de]">
+          <span className="text-xs text-gray-500">
+            Changes apply to <strong>{tournament?.name}</strong>.
+          </span>
           <button
             type="submit"
             className="inline-flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded shadow-xs transition"
@@ -577,6 +886,7 @@ export default function ConfigPage() {
           </button>
         </div>
       </form>
+
       {showDeleteRoundConfirm && roundToDelete && (
         <ConfirmActionDialog
           title={`Delete ${roundToDelete.name}?`}
@@ -590,5 +900,19 @@ export default function ConfigPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-4xl p-6 text-sm text-gray-500">
+          Loading tournament configuration...
+        </div>
+      }
+    >
+      <ConfigFormContent />
+    </Suspense>
   );
 }

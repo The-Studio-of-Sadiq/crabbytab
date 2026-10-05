@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   LayoutDashboard,
@@ -21,6 +21,8 @@ import {
   Monitor,
   ChevronDown,
   ChevronRight,
+  Shield,
+  Eye,
 } from "lucide-react";
 
 function NavLink({
@@ -66,6 +68,87 @@ function NavLink({
         </span>
       )}
     </Link>
+  );
+}
+
+function ConfigDropdown({ tournamentSlug }: { tournamentSlug: string }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isConfigPage =
+    pathname === `/${tournamentSlug}/config` || pathname.startsWith(`/${tournamentSlug}/config/`);
+  const [isOpen, setIsOpen] = useState(isConfigPage);
+  const activeCategory = isConfigPage ? searchParams.get("category") || "all" : "";
+
+  React.useEffect(() => {
+    if (isConfigPage) {
+      setIsOpen(true);
+    }
+  }, [isConfigPage]);
+
+  const categories = [
+    { id: "draw", label: "Draw rules", icon: Shuffle },
+    { id: "rounds", label: "Round settings", icon: Clock },
+    { id: "format", label: "Format & Teams", icon: Shield },
+    { id: "scoring", label: "Scoring & Ballots", icon: FileCheck2 },
+    { id: "standings", label: "Standings rules", icon: Trophy },
+    { id: "visibility", label: "Public visibility", icon: Eye },
+    { id: "all", label: "All Settings", icon: Sliders },
+  ];
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between rounded-md">
+        <Link
+          href={`/${tournamentSlug}/config`}
+          className={`flex-1 flex items-center justify-between text-xs font-medium rounded-md px-3 py-2 transition ${
+            isConfigPage
+              ? "bg-blue-50 text-blue-700 font-semibold"
+              : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+          }`}
+        >
+          <div className="flex items-center space-x-2.5">
+            <Sliders className={`w-4 h-4 ${isConfigPage ? "text-blue-600" : "text-gray-500"}`} />
+            <span>Configuration</span>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          title={isOpen ? "Collapse settings categories" : "Expand settings categories"}
+          aria-label={isOpen ? "Collapse settings categories" : "Expand settings categories"}
+          className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition"
+        >
+          {isOpen ? (
+            <ChevronDown className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5" />
+          )}
+        </button>
+      </div>
+
+      {isOpen && (
+        <div className="ml-3 pl-2.5 border-l border-gray-200 space-y-0.5 pt-0.5">
+          {categories.map((cat) => {
+            const isSelected = isConfigPage && activeCategory === cat.id;
+            const Icon = cat.icon;
+            return (
+              <Link
+                key={cat.id}
+                href={`/${tournamentSlug}/config?category=${cat.id}`}
+                className={`flex items-center space-x-2 text-[11px] font-medium px-2.5 py-1.5 rounded transition ${
+                  isSelected
+                    ? "bg-blue-100/70 text-blue-800 font-bold"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isSelected ? "text-blue-600" : "text-gray-400"}`} />
+                <span>{cat.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -143,7 +226,13 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             badge={`${teams.length} teams`}
           />
           <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
-          <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
+          <Suspense
+            fallback={
+              <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
+            }
+          >
+            <ConfigDropdown tournamentSlug={tournamentSlug} />
+          </Suspense>
         </div>
 
         <div className="space-y-1">
