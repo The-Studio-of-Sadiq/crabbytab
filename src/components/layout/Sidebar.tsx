@@ -24,6 +24,7 @@ import {
   Shield,
   Eye,
   Key,
+  Mail,
 } from "lucide-react";
 
 function NavLink({
@@ -154,7 +155,16 @@ function ConfigDropdown({ tournamentSlug }: { tournamentSlug: string }) {
 }
 
 export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
-  const { tournament, activeRound, rounds, setActiveRound, debates, ballots, teams } = useTournament();
+  const {
+    tournament,
+    activeRound,
+    rounds,
+    setActiveRound,
+    debates,
+    ballots,
+    teams,
+    isOwnerOrAdmin,
+  } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
 
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
@@ -228,6 +238,9 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           />
           <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
           <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
+          {isOwnerOrAdmin && (
+            <NavLink href={`/${tournamentSlug}/email`} icon={Mail} label="Email" />
+          )}
           <Suspense
             fallback={
               <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
