@@ -43,6 +43,12 @@ export type PullupRestriction =
   | "lowest_draw_strength_speaks"
   | "lowest_draw_strength_wins";
 
+export type BPPullupDistribution = "anywhere" | "top" | "bottom";
+export type BPPositionCost = "renyi_entropy" | "std_dev";
+export type BPAssignmentMethod = "hungarian" | "random";
+export type ByeTeamResults = "absent" | "win";
+export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
+
 export interface TournamentPreferences {
   teamsInDebate: 4 | 2;
   substantiveSpeakers: number; // 2 for BP, 3 for UADC/Australs/WSDC
@@ -79,6 +85,37 @@ export interface TournamentPreferences {
   /** Overrides the hardcoded 1000/200 clash penalties used by the BP draw. */
   repeatMatchupPenalty?: number;
   institutionClashPenalty?: number;
+
+  /** Tabbycat Draw Rules */
+  minAdjScoreToVote?: number; // default 1.5
+  adjConflictPenalty?: number; // default 1000000
+  adjHistoryPenalty?: number; // default 10000
+  importanceMismatchPenalty?: number; // default 10000000
+  skipAdjCheckins?: boolean;
+  noPanellistAdjs?: boolean;
+  noTraineeAdjs?: boolean;
+
+  teamInstitutionPenalty?: number; // default 1
+  teamHistoryPenalty?: number; // default 1000
+  avoidSameInstitution?: boolean; // default true
+  avoidTeamHistory?: boolean; // default true
+  previouslySawPullupPenalty?: number; // default 0
+
+  sideBalancePenalty?: number; // default 0
+  pairingDeviationPenalty?: number; // default 0
+  maxTimesPerSide?: number; // default 5
+  maxAllowedSideImbalance?: number; // default 0
+  pullupPenalty?: number; // default 0
+  preliminaryPanelsPerScheduleSlot?: number; // default 1
+
+  bpPullupDistribution?: BPPullupDistribution; // "anywhere"
+  bpPositionCost?: BPPositionCost; // "renyi_entropy"
+  renyiOrder?: number; // default 1.0
+  bpPositionCostExponent?: number; // default 4.0
+  bpAssignmentMethod?: BPAssignmentMethod; // "hungarian"
+
+  byeTeamResults?: ByeTeamResults; // "absent"
+  byeTeamSelectionMethod?: ByeTeamSelectionMethod; // "none"
 }
 
 export interface Tournament {
