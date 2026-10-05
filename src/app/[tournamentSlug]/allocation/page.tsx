@@ -68,7 +68,7 @@ export default function AllocationPage() {
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   const roundDebates = useMemo(
-    () => (activeRound ? debates.filter((d) => d.roundId === activeRound.id) : []),
+    () => (activeRound ? debates.filter((d) => d.roundId === activeRound.id && !d.byeTeamId) : []),
     [debates, activeRound]
   );
 

@@ -262,6 +262,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             const isCurrent = activeRound?.id === round.id;
             const rDebates = debates.filter((d) => d.roundId === round.id);
             const rBallots = ballots.filter((b) => b.roundId === round.id && b.confirmed);
+            const completedDebates = rBallots.length + rDebates.filter((debate) => debate.byeTeamId).length;
             return (
               <div key={round.id} className="rounded-md">
                 <button
@@ -279,7 +280,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
                     <span>{round.abbreviation || `R${round.seq}`}</span>
                   </span>
                   <span className="text-[10px] font-medium text-gray-500">
-                    {rBallots.length}/{rDebates.length || 0}
+                    {completedDebates}/{rDebates.length || 0}
                   </span>
                 </button>
                 {open && (
@@ -304,9 +305,9 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
                       href={`/${tournamentSlug}/results`}
                       icon={FileCheck2}
                       label="Results"
-                      badge={rDebates.length > 0 ? `${rBallots.length}/${rDebates.length}` : undefined}
+                      badge={rDebates.length > 0 ? `${completedDebates}/${rDebates.length}` : undefined}
                       badgeColor={
-                        rBallots.length === rDebates.length && rDebates.length > 0
+                        completedDebates === rDebates.length && rDebates.length > 0
                           ? "bg-emerald-100 text-emerald-800"
                           : "bg-amber-100 text-amber-800"
                       }

@@ -180,6 +180,29 @@ export default function BallotEntryPage() {
     );
   }
 
+  if (debate.byeTeamId) {
+    const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
+    return (
+      <div className="max-w-4xl mx-auto space-y-6 pb-12">
+        <button
+          onClick={() => router.push(`/${tournamentSlug}/results`)}
+          className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Results Overview</span>
+        </button>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
+          <h2 className="text-lg font-bold text-gray-900">Bye — no ballot required</h2>
+          <p className="mt-2 text-sm text-gray-700">
+            {byeTeam?.teamName || "Team"}: {debate.byeResult === "win"
+              ? "full win awarded with prior average speaker scores."
+              : "absent; no standings result is added."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const handleScoreChange = (side: string, index: number, value: number) => {
     const updated = { ...scores };
     if (!updated[side]) updated[side] = [];

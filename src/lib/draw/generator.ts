@@ -49,6 +49,7 @@ export function buildMatchupHistory(debates: Debate[]): MatchupHistory {
   const sides = new Map<string, DebateSide[]>();
 
   for (const d of debates) {
+    if (d.byeTeamId) continue;
     const teamSlots = Object.values(d.teams).filter((t) => t && t.teamId);
     for (let i = 0; i < teamSlots.length; i++) {
       const t1 = teamSlots[i];
@@ -101,21 +102,28 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
   // Filter checked-in teams (or all active if checkins aren't used)
   let activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
+  let byeTeams: Team[] = [];
 
-  // If uneven number of teams, check bye team selection method preference
+  // Automatic byes apply only to preliminary rounds.
   const byeMethod = tournament.preferences?.byeTeamSelectionMethod;
-  if (activeTeams.length % teamsPerDebate !== 0 && byeMethod && byeMethod !== "none") {
+  if (
+    round.stage === "preliminary" &&
+    round.drawType !== "manual" &&
+    activeTeams.length % teamsPerDebate !== 0 &&
+    byeMethod &&
+    byeMethod !== "none"
+  ) {
     const excess = activeTeams.length % teamsPerDebate;
     if (byeMethod === "random") {
       const shuffled = [...activeTeams].sort(() => Math.random() - 0.5);
-      const byeIds = new Set(shuffled.slice(0, excess).map((t) => t.id));
-      activeTeams = activeTeams.filter((t) => !byeIds.has(t.id));
+      byeTeams = shuffled.slice(0, excess);
     } else if (byeMethod === "lowest_ranked") {
       const standingMap = new Map(standings.map((s) => [s.teamId, s.rank ?? 9999]));
       const sorted = [...activeTeams].sort((a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999));
-      const byeIds = new Set(sorted.slice(0, excess).map((t) => t.id));
-      activeTeams = activeTeams.filter((t) => !byeIds.has(t.id));
+      byeTeams = sorted.slice(0, excess);
     }
+    const byeIds = new Set(byeTeams.map((team) => team.id));
+    activeTeams = activeTeams.filter((team) => !byeIds.has(team.id));
   }
 
   const totalTeams = activeTeams.length;
@@ -129,7 +137,6 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       `Number of teams (${totalTeams}) must be divisible by ${teamsPerDebate} for ${tournament.format.toUpperCase()} format.`
     );
   }
-
   const history = buildMatchupHistory(pastDebates);
   const sortedVenues = venues
     .filter((venue) => venue.available !== false)
@@ -138,7 +145,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
   // Handle Manual draw: create empty debates with room ranks and venues
   if (round.drawType === "manual") {
-    const numDebates = totalTeams / teamsPerDebate;
+    const numDebates = Math.ceil(totalTeams / teamsPerDebate);
     const debates: Debate[] = [];
     const sidesList: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
@@ -181,7 +188,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       debates.push(debateObj);
     }
 
-    return debates;
+    return [...debates, ...createByeDebates(byeTeams, debates.length, tournament, round, isBP)];
   }
 
   let debateDrafts: {
@@ -311,7 +318,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   }
 
   // Map drafts to complete Debate objects with venues and adjudicator slots
-  return debateDrafts.map((draft, idx) => {
+  const generatedDebates = debateDrafts.map((draft, idx) => {
     const venue = sortedVenues[idx];
     const teamsSlotRecord: Record<string, any> = {};
 
@@ -351,4 +358,45 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
     return debateObj;
   });
+  return [
+    ...generatedDebates,
+    ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
+  ];
+}
+
+function createByeDebates(
+  byeTeams: Team[],
+  startingIndex: number,
+  tournament: Tournament,
+  round: Round,
+  isBP: boolean
+): Debate[] {
+  const side: DebateSide = isBP ? "OG" : "AFF";
+  const byeResult = tournament.preferences?.byeTeamResults ?? "absent";
+
+  return byeTeams.map((team, index) => ({
+    id: `debate-${round.id}-${startingIndex + index + 1}`,
+    tournamentId: tournament.id,
+    roundId: round.id,
+    roundSeq: round.seq,
+    breakCategoryId: round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined,
+    venueName: "Bye",
+    bracket: 0,
+    roomRank: startingIndex + index + 1,
+    importance: 0,
+    resultStatus: "confirmed",
+    sidesConfirmed: true,
+    flags: ["bye"],
+    byeTeamId: team.id,
+    byeResult,
+    teams: {
+      [side]: { teamId: team.id, teamName: team.name, side },
+    } as Debate["teams"],
+    adjudicators: {
+      panellistIds: [],
+      panellistNames: [],
+      traineeIds: [],
+      traineeNames: [],
+    },
+  }));
 }

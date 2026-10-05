@@ -41,7 +41,7 @@ export default function ResultsOverviewPage() {
   });
 
   const confirmedCount = roundDebates.filter(
-    (d) => ballotMap.get(d.id)?.confirmed
+    (d) => d.byeTeamId || ballotMap.get(d.id)?.confirmed
   ).length;
   const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
   const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
@@ -199,6 +199,25 @@ export default function ResultsOverviewPage() {
                   const ballot = ballotMap.get(debate.id);
                   const isConfirmed = ballot?.confirmed;
                   const isDraft = ballot && !ballot.confirmed;
+
+                  if (debate.byeTeamId) {
+                    const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
+                    return (
+                      <tr key={debate.id} className="bg-gray-50">
+                        <td className="font-bold text-gray-700 text-xs">Bye</td>
+                        <td colSpan={isBP ? 4 : 2} className="text-xs font-semibold text-gray-900">
+                          {byeTeam?.teamName || "Team"}
+                        </td>
+                        <td className="text-xs text-gray-500">No adjudicator</td>
+                        <td className="text-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-100 text-blue-800 border border-blue-200">
+                            Bye · {debate.byeResult === "win" ? "Win" : "Absent"}
+                          </span>
+                        </td>
+                        <td className="text-right text-[11px] text-gray-500">No ballot required</td>
+                      </tr>
+                    );
+                  }
 
                   return (
                     <tr key={debate.id} className="hover:bg-gray-50">
@@ -358,7 +377,7 @@ export default function ResultsOverviewPage() {
                 ? "Round results are published."
                 : allBallotsConfirmed
                 ? "Ballots are saved; publish when ready."
-                : "Confirm every ballot before publishing."}
+                : "Confirm every ballot or record a bye before publishing."}
             </span>
             {publicationError && <span className="text-[11px] text-red-600">{publicationError}</span>}
             <button
@@ -379,7 +398,7 @@ export default function ResultsOverviewPage() {
                 ? "Team scores are published for this round."
                 : allBallotsConfirmed
                 ? "Publish team scores separately when ready."
-                : "Confirm every ballot before publishing team scores."}
+                : "Confirm every ballot or record a bye before publishing team scores."}
             </span>
             {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
             {activeRound.stage === "elimination" && !activeRound.eliminationAdvanced && (

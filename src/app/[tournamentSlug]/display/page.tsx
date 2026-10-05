@@ -90,24 +90,42 @@ export default function DisplayPage() {
           <p className="text-gray-400">No draw for this round yet. Generate it from Availability → Draw.</p>
         ) : (
           <div className="space-y-3">
-            {roundDebates.map((debate) => (
-              <div key={debate.id} className="bg-[#2d333b] rounded-lg p-4 border border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-bold text-blue-300">{debate.venueName || `Room ${debate.roomRank}`}</span>
-                  <span className="text-sm text-gray-400">
-                    Chair: {debate.adjudicators?.chairName || "TBA"}
-                  </span>
-                </div>
-                <div className={`grid gap-3 ${isBP ? "grid-cols-4" : "grid-cols-2"}`}>
-                  {sides.map((side) => (
-                    <div key={side} className="bg-[#22272e] rounded p-3">
-                      <SideBadge side={side} />
-                      <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
+            {roundDebates.map((debate) => {
+              const byeTeam = debate.byeTeamId
+                ? Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId)
+                : undefined;
+              return (
+                <div key={debate.id} className="bg-[#2d333b] rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-bold text-blue-300">
+                      {debate.byeTeamId ? "Bye" : debate.venueName || `Room ${debate.roomRank}`}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      {debate.byeTeamId
+                        ? "No adjudicator required"
+                        : `Chair: ${debate.adjudicators?.chairName || "TBA"}`}
+                    </span>
+                  </div>
+                  {debate.byeTeamId ? (
+                    <div className="bg-[#22272e] rounded p-4">
+                      <div className="font-semibold">{byeTeam?.teamName || "Team"}</div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        {debate.byeResult === "win" ? "Full win awarded" : "Absent — no standings result"}
+                      </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div className={`grid gap-3 ${isBP ? "grid-cols-4" : "grid-cols-2"}`}>
+                      {sides.map((side) => (
+                        <div key={side} className="bg-[#22272e] rounded p-3">
+                          <SideBadge side={side} />
+                          <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -186,6 +186,26 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(resAllowed[0].chairId).toBe("adj-1");
   });
 
+  it("does not allocate adjudicators to bye records", () => {
+    const team = createTeam("t1", "T1");
+    const bye = {
+      ...createDebate("bye-1", [team]),
+      byeTeamId: team.id,
+      byeResult: "win" as const,
+    };
+    const result = autoAllocateAdjudicators(
+      [bye],
+      new Map([[team.id, team]]),
+      [createAdj("adj-1", "Judge")],
+      new Map()
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].debateId).toBe("bye-1");
+    expect(result[0].chairId).toBeUndefined();
+    expect(result[0].panellistIds).toEqual([]);
+  });
+
   it("respects noPanellistAdjs to hide and prevent panellist allocations", () => {
     const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const teamsMap = new Map<string, Team>();

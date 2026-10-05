@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Round, Team, Tournament } from "@/types";
-import { generateRoundDraw, getEligibleTeamsForRound } from "./generator";
+import { buildMatchupHistory, generateRoundDraw, getEligibleTeamsForRound } from "./generator";
 
 const teams: Team[] = [
   {
@@ -100,6 +100,89 @@ describe("Round draw eligibility", () => {
     expect(draw).toHaveLength(1);
     expect(draw[0].venueId).toBe("available");
     expect(draw[0].venueName).toBe("Available Room");
+  });
+
+  it("persists the selected lowest-ranked team as a confirmed bye", () => {
+    const drawTeams = Array.from({ length: 3 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index + 1}`,
+      name: `Team ${index + 1}`,
+    }));
+    const tournament = {
+      id: "t1",
+      format: "uadc",
+      preferences: {
+        teamsInDebate: 2,
+        byeTeamSelectionMethod: "lowest_ranked",
+        byeTeamResults: "win",
+      },
+    } as Tournament;
+    const draw = generateRoundDraw({
+      tournament,
+      round: makeRound("preliminary"),
+      teams: drawTeams,
+      venues: [],
+      pastDebates: [],
+      standings: drawTeams.map((team, index) => ({ teamId: team.id, rank: index + 1 } as any)),
+    });
+
+    expect(draw).toHaveLength(2);
+    const bye = draw.find((debate) => debate.byeTeamId);
+    expect(bye).toMatchObject({
+      byeTeamId: "team-3",
+      byeResult: "win",
+      resultStatus: "confirmed",
+      venueName: "Bye",
+    });
+    expect(Object.values(bye!.teams).map((slot) => slot.teamId)).toEqual(["team-3"]);
+    expect(buildMatchupHistory([bye!]).sides.size).toBe(0);
+  });
+
+  it("records each BP remainder team as a bye and keeps them out of debate rooms", () => {
+    const drawTeams = Array.from({ length: 6 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index + 1}`,
+      name: `Team ${index + 1}`,
+    }));
+    const tournament = {
+      id: "t1",
+      format: "bp",
+      preferences: {
+        teamsInDebate: 4,
+        byeTeamSelectionMethod: "random",
+        byeTeamResults: "absent",
+      },
+    } as Tournament;
+    const draw = generateRoundDraw({
+      tournament,
+      round: makeRound("preliminary"),
+      teams: drawTeams,
+      venues: [],
+      pastDebates: [],
+      standings: [],
+    });
+
+    expect(draw.filter((debate) => debate.byeTeamId)).toHaveLength(2);
+    expect(draw.filter((debate) => !debate.byeTeamId)).toHaveLength(1);
+    expect(draw.filter((debate) => debate.byeTeamId).every((debate) =>
+      debate.byeResult === "absent" && debate.adjudicators.panellistIds.length === 0
+    )).toBe(true);
+  });
+
+  it("rejects a BP field too small to form a debate, rather than assigning everyone a bye", () => {
+    const tournament = {
+      id: "t1",
+      format: "bp",
+      preferences: { teamsInDebate: 4, byeTeamSelectionMethod: "random" },
+    } as Tournament;
+    expect(() => generateRoundDraw({
+      tournament,
+      round: makeRound("preliminary"),
+      teams: teams,
+      venues: [],
+      pastDebates: [],
+      standings: [],
+    })).toThrow("At least 4 teams are required");
   });
 
   it("draws multiple categories separately within the same pre-created round", () => {

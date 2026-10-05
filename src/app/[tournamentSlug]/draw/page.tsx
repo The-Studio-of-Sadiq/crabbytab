@@ -634,6 +634,24 @@ export default function DrawPage() {
           {filteredDebates.map((debate, dIdx) => {
             const clashes = getDebateClashes(debate);
 
+            if (debate.byeTeamId) {
+              const byeTeam = Object.values(debate.teams || {}).find((slot) => slot?.teamId === debate.byeTeamId);
+              return (
+                <div
+                  key={debate.id}
+                  className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                >
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Bye</span>
+                    <div className="font-semibold text-gray-900 text-sm">{byeTeam?.teamName || "Team"}</div>
+                  </div>
+                  <span className="text-xs font-semibold text-blue-800">
+                    {debate.byeResult === "win" ? "Full win awarded" : "Absent — no standings result"}
+                  </span>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={debate.id}

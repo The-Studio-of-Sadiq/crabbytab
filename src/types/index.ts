@@ -265,6 +265,8 @@ export interface Debate {
   tournamentId: string;
   roundId: string;
   roundSeq: number;
+  byeTeamId?: string;
+  byeResult?: ByeTeamResults;
   breakCategoryId?: string;
   venueId?: string;
   venueName?: string;

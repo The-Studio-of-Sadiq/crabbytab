@@ -542,6 +542,28 @@ export function autoAllocateAdjudicators(
   },
   context?: IntelligentAllocationContext
 ): AdjudicatorAllocationResult[] {
+  if (debates.some((debate) => debate.byeTeamId)) {
+    const eligibleDebates = debates.filter((debate) => !debate.byeTeamId);
+    const eligibleAllocations = autoAllocateAdjudicators(
+      eligibleDebates,
+      teamsMap,
+      adjudicators,
+      pastAdjudicatorTeams,
+      options,
+      context
+    );
+    const allocationByDebateId = new Map(eligibleAllocations.map((allocation) => [allocation.debateId, allocation]));
+
+    return debates.map((debate) => allocationByDebateId.get(debate.id) ?? {
+      debateId: debate.id,
+      panellistIds: [],
+      panellistNames: [],
+      traineeIds: [],
+      traineeNames: [],
+      conflicts: [],
+    });
+  }
+
   const skipCheckins = options.preferences?.skipAdjCheckins ?? false;
   const availableAdjs = skipCheckins ? adjudicators : adjudicators.filter((a) => a.checkedIn !== false);
   const numDebates = debates.length;

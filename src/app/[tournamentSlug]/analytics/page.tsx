@@ -128,7 +128,7 @@ export default function AnalyticsPage() {
           {rounds.map((round) => {
             const rDebates = debates.filter((d) => d.roundId === round.id);
             const rConfirmed = rDebates.filter((d) =>
-              confirmedBallots.some((b) => b.debateId === d.id)
+              d.byeTeamId || confirmedBallots.some((b) => b.debateId === d.id)
             ).length;
             const pct = rDebates.length > 0 ? Math.round((rConfirmed / rDebates.length) * 100) : 0;
 
@@ -138,7 +138,7 @@ export default function AnalyticsPage() {
                   <div className="flex items-center space-x-2">
                     <span className="font-bold text-gray-900">{round.name}</span>
                     <span className="text-gray-500 font-mono">
-                      ({rConfirmed} / {rDebates.length} ballots)
+                      ({rConfirmed} / {rDebates.length} results)
                     </span>
                   </div>
                   <span className="font-mono font-bold text-gray-700">{pct}%</span>

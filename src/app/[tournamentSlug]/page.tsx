@@ -38,6 +38,9 @@ export default function TournamentDashboardPage() {
   const confirmedBallots = activeRound
     ? ballots.filter((b) => b.roundId === activeRound.id && b.confirmed)
     : [];
+  const completedRoundDebates = roundDebates.filter(
+    (debate) => debate.byeTeamId || confirmedBallots.some((ballot) => ballot.debateId === debate.id)
+  ).length;
   const roundMotion = activeRound
     ? motions.find((m) => m.rounds && m.rounds.includes(activeRound.id))
     : null;
@@ -166,7 +169,7 @@ export default function TournamentDashboardPage() {
                   >
                     <FileCheck2 className="w-3.5 h-3.5" />
                     <span>
-                      Enter Ballots ({confirmedBallots.length}/{roundDebates.length})
+                      Enter Ballots ({completedRoundDebates}/{roundDebates.length})
                     </span>
                   </Link>
                 </>
@@ -178,10 +181,10 @@ export default function TournamentDashboardPage() {
           {roundDebates.length > 0 && (
             <div className="mt-4 pt-3 border-t border-blue-200/60">
               <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                <span>Ballot Submission Progress</span>
+                <span>Round Completion Progress</span>
                 <span className="font-semibold text-gray-900">
-                  {confirmedBallots.length} of {roundDebates.length} Ballots Confirmed (
-                  {Math.round((confirmedBallots.length / Math.max(1, roundDebates.length)) * 100)}%)
+                  {completedRoundDebates} of {roundDebates.length} Results Complete (
+                  {Math.round((completedRoundDebates / Math.max(1, roundDebates.length)) * 100)}%)
                 </span>
               </div>
               <div className="w-full h-2.5 bg-blue-200/70 rounded-full overflow-hidden">
@@ -333,7 +336,9 @@ export default function TournamentDashboardPage() {
                         </>
                       )}
                       <td className="text-xs text-gray-700">
-                        {debate.adjudicators?.chairName ? (
+                        {debate.byeTeamId ? (
+                          <span className="text-gray-500 italic text-[11px]">Not required</span>
+                        ) : debate.adjudicators?.chairName ? (
                           <span className="font-medium text-gray-900">
                             {debate.adjudicators.chairName}
                           </span>
@@ -351,7 +356,9 @@ export default function TournamentDashboardPage() {
                               : "bg-gray-100 text-gray-600 border border-gray-200"
                           }`}
                         >
-                          {debate.resultStatus || "none"}
+                          {debate.byeTeamId
+                            ? `Bye · ${debate.byeResult === "win" ? "Win" : "Absent"}`
+                            : debate.resultStatus || "none"}
                         </span>
                       </td>
                     </tr>
