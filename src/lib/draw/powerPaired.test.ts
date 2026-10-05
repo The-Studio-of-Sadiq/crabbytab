@@ -183,4 +183,93 @@ describe("Power-Paired Draw: configurable clash penalties", () => {
     });
     expect(rematchAvoided).toBe(true);
   });
+
+  it("applies avoidTeamHistory and avoidSameInstitution boolean flags", () => {
+    const t1 = createTeam("t1", "Team 1", "instA");
+    const t2 = createTeam("t2", "Team 2", "instA");
+    const t3 = createTeam("t3", "Team 3", "instB");
+    const t4 = createTeam("t4", "Team 4", "instB");
+    const teams = [t1, t2, t3, t4];
+    const standings = teams.map((t, i) => createStanding(t.id, t.name, 3, 150 - i));
+    const history: MatchupHistory = {
+      opponents: new Map([["t3", new Set(["t4"])], ["t4", new Set(["t3"])]]),
+      sides: new Map(),
+    };
+
+    // When avoidSameInstitution is false, institution clash penalty is ignored (0)
+    const draw = generatePowerPairedDraw(teams, standings, history, "uadc", "balanced", {
+      avoidSameInstitution: false,
+      repeatMatchupPenalty: 5000,
+    });
+    // Rematch between t3 and t4 should still be avoided
+    draw.forEach((d) => {
+      const ids = d.teams.map((t) => t.id);
+      expect(ids.includes("t3") && ids.includes("t4")).toBe(false);
+    });
+  });
+
+  it("supports BP position cost options (renyi_entropy, sum_squared_deviations) and Hungarian assignment", () => {
+    const teams = Array.from({ length: 8 }, (_, i) => createTeam(`t${i + 1}`, `Team ${i + 1}`));
+    const standings = teams.map((t, idx) => createStanding(t.id, t.name, 6 - Math.floor(idx / 4), 300 - idx * 5));
+    const history: MatchupHistory = {
+      opponents: new Map(),
+      sides: new Map([
+        ["t1", ["OG", "OO"]],
+        ["t2", ["CG", "CO"]],
+        ["t3", ["OG", "CG"]],
+        ["t4", ["OO", "CO"]],
+      ]),
+    };
+
+    const drawHungarian = generatePowerPairedDraw(teams, standings, history, "bp", "balanced", {
+      bpAssignmentMethod: "hungarian",
+      bpPositionCost: "renyi_entropy",
+      renyiOrder: 1.0,
+      bpPositionCostExponent: 4.0,
+    });
+
+    expect(drawHungarian).toHaveLength(2);
+    drawHungarian.forEach((d) => {
+      expect(d.teamsWithSides.OG).toBeDefined();
+      expect(d.teamsWithSides.OO).toBeDefined();
+      expect(d.teamsWithSides.CG).toBeDefined();
+      expect(d.teamsWithSides.CO).toBeDefined();
+    });
+
+    const drawSumSq = generatePowerPairedDraw(teams, standings, history, "bp", "balanced", {
+      bpAssignmentMethod: "hungarian",
+      bpPositionCost: "sum_squared_deviations",
+      bpPositionCostExponent: 2.0,
+    });
+    expect(drawSumSq).toHaveLength(2);
+  });
+
+  it("supports bpPullupDistribution (top, bottom, anywhere)", () => {
+    // 8 teams: 5 on bracket 3, 3 on bracket 2 -> 1 team pulled down to bracket 2
+    const teams = Array.from({ length: 8 }, (_, i) => createTeam(`t${i + 1}`, `Team ${i + 1}`));
+    const standings = [
+      createStanding("t1", "T1", 3, 300),
+      createStanding("t2", "T2", 3, 290),
+      createStanding("t3", "T3", 3, 280),
+      createStanding("t4", "T4", 3, 270),
+      createStanding("t5", "T5", 3, 260),
+      createStanding("t6", "T6", 2, 250),
+      createStanding("t7", "T7", 2, 240),
+      createStanding("t8", "T8", 2, 230),
+    ];
+    const history: MatchupHistory = {
+      opponents: new Map(),
+      sides: new Map(),
+    };
+
+    const drawTop = generatePowerPairedDraw(teams, standings, history, "bp", "balanced", {
+      bpPullupDistribution: "top",
+    });
+    expect(drawTop).toHaveLength(2);
+
+    const drawBottom = generatePowerPairedDraw(teams, standings, history, "bp", "balanced", {
+      bpPullupDistribution: "bottom",
+    });
+    expect(drawBottom).toHaveLength(2);
+  });
 });

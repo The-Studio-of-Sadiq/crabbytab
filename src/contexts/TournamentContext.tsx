@@ -854,11 +854,12 @@ export function TournamentProvider({
     const allocations = autoAllocateAdjudicators(
       generated, teamsMap, adjudicators, pastAdjTeams,
       {
-        panelSize: 1,
+        panelSize: tournament.preferences?.noPanellistAdjs ? 1 : 1,
         balancePanels: true,
         respectInstitutionConflicts: true,
         respectPersonalConflicts: true,
         respectHistoryConflicts: true,
+        preferences: tournament.preferences,
       },
       intelligentContext
     );
@@ -954,11 +955,12 @@ export function TournamentProvider({
     };
 
     const allocations = autoAllocateAdjudicators(roundDebates, teamsMap, adjudicators, pastAdjTeams, {
-      panelSize,
+      panelSize: tournament.preferences?.noPanellistAdjs ? 1 : panelSize,
       balancePanels: true,
       respectInstitutionConflicts: true,
       respectPersonalConflicts: true,
       respectHistoryConflicts: true,
+      preferences: tournament.preferences,
     }, intelligentContext);
 
     const updatedRoundDebates = roundDebates.map((d, idx) => {

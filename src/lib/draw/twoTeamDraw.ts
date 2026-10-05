@@ -13,6 +13,14 @@ export interface TwoTeamDrawConfig {
   pullupRestriction: PullupRestriction;
   penalties: ClashPenalties;
   sideRule: "balanced" | "random";
+  sideBalancePenalty?: number;
+  pairingDeviationPenalty?: number;
+  maxTimesPerSide?: number;
+  maxAllowedSideImbalance?: number;
+  pullupPenalty?: number;
+  previouslySawPullupPenalty?: number;
+  avoidSameInstitution?: boolean;
+  avoidTeamHistory?: boolean;
 }
 
 export const DEFAULT_TWO_TEAM_DRAW_CONFIG: TwoTeamDrawConfig = {
@@ -101,7 +109,7 @@ export function generateTwoTeamDraw(
       drafts.push({
         bracket: group.bracket,
         teams: room,
-        teamsWithSides: allocateSidesForDebate(room, history.sides, format, cfg.sideRule),
+        teamsWithSides: allocateSidesForDebate(room, history.sides, format, cfg.sideRule, cfg),
       });
     }
     void pulledUpSet; // flags/pulledUp surfacing on the Debate itself is C3's concern

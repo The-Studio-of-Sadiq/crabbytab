@@ -1,5 +1,5 @@
-import { Team, TeamStandingRow, DebateSide, TournamentFormat } from "@/types";
-import { allocateSidesForDebate } from "./sideAllocator";
+import { Team, TeamStandingRow, DebateSide, TournamentFormat, BPPullupDistribution, BPPositionCost, BPAssignmentMethod } from "@/types";
+import { allocateSidesForDebate, SideAllocationOptions } from "./sideAllocator";
 
 export interface MatchupHistory {
   // Key: teamId, Value: set of teamIds they have debated before
@@ -13,6 +13,26 @@ export interface PairedDebateDraft {
   teamsWithSides: Record<DebateSide, Team>;
 }
 
+export interface BPDrawOptions {
+  repeatMatchupPenalty?: number;
+  institutionClashPenalty?: number;
+  avoidSameInstitution?: boolean;
+  avoidTeamHistory?: boolean;
+  teamInstitutionPenalty?: number;
+  teamHistoryPenalty?: number;
+  pullupPenalty?: number;
+  previouslySawPullupPenalty?: number;
+  bpPullupDistribution?: BPPullupDistribution;
+  bpPositionCost?: BPPositionCost;
+  renyiOrder?: number;
+  bpPositionCostExponent?: number;
+  bpAssignmentMethod?: BPAssignmentMethod;
+  sideBalancePenalty?: number;
+  pairingDeviationPenalty?: number;
+  maxTimesPerSide?: number;
+  maxAllowedSideImbalance?: number;
+}
+
 /**
  * Calculates clash penalty between a set of candidate teams.
  */
@@ -20,25 +40,43 @@ function calculateDebateClashPenalty(
   teams: Team[],
   history: MatchupHistory,
   repeatMatchupPenalty: number,
-  institutionClashPenalty: number
+  institutionClashPenalty: number,
+  pulledUpTeamIds: Set<string>,
+  pullupPenalty: number,
+  previouslySawPullupPenalty: number,
+  standingMap: Map<string, TeamStandingRow>
 ): number {
   let penalty = 0;
   const n = teams.length;
 
   for (let i = 0; i < n; i++) {
+    const t1 = teams[i];
+    if (pullupPenalty > 0 && pulledUpTeamIds.has(t1.id)) {
+      penalty += pullupPenalty;
+    }
+    if (previouslySawPullupPenalty > 0) {
+      const priorPullups = standingMap.get(t1.id)?.metrics?.pullups ?? 0;
+      if (priorPullups > 0) {
+        penalty += previouslySawPullupPenalty * priorPullups;
+      }
+    }
+
     for (let j = i + 1; j < n; j++) {
-      const t1 = teams[i];
       const t2 = teams[j];
 
-      // Repeat matchup penalty (heavy)
-      const pastOpponents = history.opponents.get(t1.id);
-      if (pastOpponents && pastOpponents.has(t2.id)) {
-        penalty += repeatMatchupPenalty;
+      // Repeat matchup penalty
+      if (repeatMatchupPenalty > 0) {
+        const pastOpponents = history.opponents.get(t1.id);
+        if (pastOpponents && pastOpponents.has(t2.id)) {
+          penalty += repeatMatchupPenalty;
+        }
       }
 
       // Institutional clash penalty
-      if (t1.institutionId && t2.institutionId && t1.institutionId === t2.institutionId) {
-        penalty += institutionClashPenalty;
+      if (institutionClashPenalty > 0) {
+        if (t1.institutionId && t2.institutionId && t1.institutionId === t2.institutionId) {
+          penalty += institutionClashPenalty;
+        }
       }
     }
   }
@@ -46,7 +84,8 @@ function calculateDebateClashPenalty(
 }
 
 /**
- * Generates Swiss / Power-Paired debates based on standings and historical matchups.
+ * Generates Swiss / Power-Paired debates based on standings, historical matchups,
+ * and tournament preferences (pullup distribution, position cost functions, Hungarian assignment).
  */
 export function generatePowerPairedDraw(
   teams: Team[],
@@ -54,7 +93,7 @@ export function generatePowerPairedDraw(
   history: MatchupHistory,
   format: TournamentFormat,
   sideRule: "balanced" | "random" = "balanced",
-  penalties: { repeatMatchupPenalty: number; institutionClashPenalty: number } = {
+  options: BPDrawOptions = {
     repeatMatchupPenalty: 1000,
     institutionClashPenalty: 200,
   }
@@ -67,6 +106,20 @@ export function generatePowerPairedDraw(
       `Number of teams (${totalTeams}) must be a multiple of ${teamsPerDebate} for ${format.toUpperCase()} format.`
     );
   }
+
+  const repeatMatchupPenalty =
+    options.avoidTeamHistory === false
+      ? 0
+      : (options.teamHistoryPenalty ?? options.repeatMatchupPenalty ?? 1000);
+
+  const institutionClashPenalty =
+    options.avoidSameInstitution === false
+      ? 0
+      : (options.teamInstitutionPenalty ?? options.institutionClashPenalty ?? 200);
+
+  const pullupPenalty = options.pullupPenalty ?? 0;
+  const previouslySawPullupPenalty = options.previouslySawPullupPenalty ?? 0;
+  const pullupDistribution = options.bpPullupDistribution ?? "anywhere";
 
   // Create a fast lookup map for team objects
   const teamMap = new Map<string, Team>();
@@ -98,11 +151,15 @@ export function generatePowerPairedDraw(
   // Sort bracket keys in descending order
   const bracketKeys = Array.from(bracketMap.keys()).sort((a, b) => b - a);
 
-  // Flatten brackets handling pull-downs
+  // Flatten brackets handling pull-downs / pull-ups
   const completeBrackets: { bracketPts: number; teams: Team[] }[] = [];
+  const pulledUpTeamIds = new Set<string>();
   let pullDownBuffer: Team[] = [];
 
   for (const pts of bracketKeys) {
+    if (pullDownBuffer.length > 0) {
+      pullDownBuffer.forEach((t) => pulledUpTeamIds.add(t.id));
+    }
     let currentTeams = [...pullDownBuffer, ...(bracketMap.get(pts) || [])];
     pullDownBuffer = [];
 
@@ -121,6 +178,7 @@ export function generatePowerPairedDraw(
 
   // If leftover in buffer, push into last bracket
   if (pullDownBuffer.length > 0) {
+    pullDownBuffer.forEach((t) => pulledUpTeamIds.add(t.id));
     if (completeBrackets.length > 0) {
       completeBrackets[completeBrackets.length - 1].teams.push(...pullDownBuffer);
     } else {
@@ -128,27 +186,68 @@ export function generatePowerPairedDraw(
     }
   }
 
+  // Side allocation options passed to Hungarian side assigner
+  const sideAllocationOptions: SideAllocationOptions = {
+    bpPositionCost: options.bpPositionCost,
+    renyiOrder: options.renyiOrder,
+    bpPositionCostExponent: options.bpPositionCostExponent,
+    bpAssignmentMethod: options.bpAssignmentMethod,
+    sideBalancePenalty: options.sideBalancePenalty,
+    maxTimesPerSide: options.maxTimesPerSide,
+    maxAllowedSideImbalance: options.maxAllowedSideImbalance,
+  };
+
   // Pair each bracket
   const pairedDebates: PairedDebateDraft[] = [];
 
   for (const { bracketPts, teams: bracketTeams } of completeBrackets) {
     const debatesInBracket = Math.floor(bracketTeams.length / teamsPerDebate);
 
+    // Apply BP pullup distribution preference: "top", "bottom", or "anywhere" (WUDC)
+    let orderedBracketTeams = [...bracketTeams];
+    if (pullupDistribution === "top") {
+      const pullups = orderedBracketTeams.filter((t) => pulledUpTeamIds.has(t.id));
+      const regulars = orderedBracketTeams.filter((t) => !pulledUpTeamIds.has(t.id));
+      orderedBracketTeams = [...pullups, ...regulars];
+    } else if (pullupDistribution === "bottom") {
+      const pullups = orderedBracketTeams.filter((t) => pulledUpTeamIds.has(t.id));
+      const regulars = orderedBracketTeams.filter((t) => !pulledUpTeamIds.has(t.id));
+      orderedBracketTeams = [...regulars, ...pullups];
+    }
+
     // Greedy search / simulated annealing to minimize clash penalties within the bracket
     let bestBracketGrouping: Team[][] = [];
     let bestScore = Infinity;
 
     // Run multiple randomized passes to find minimal clash grouping
-    const passes = 25;
+    const passes = 30;
     for (let pass = 0; pass < passes; pass++) {
-      const shuffled = pass === 0 ? [...bracketTeams] : [...bracketTeams].sort(() => Math.random() - 0.5);
+      let candidate: Team[];
+      if (pass === 0) {
+        candidate = [...orderedBracketTeams];
+      } else if (pullupDistribution === "top" || pullupDistribution === "bottom") {
+        // Shuffle within chunks
+        candidate = [...orderedBracketTeams].sort(() => Math.random() - 0.5);
+      } else {
+        candidate = [...orderedBracketTeams].sort(() => Math.random() - 0.5);
+      }
+
       const candidateGroups: Team[][] = [];
       let currentPenalty = 0;
 
       for (let d = 0; d < debatesInBracket; d++) {
-        const group = shuffled.slice(d * teamsPerDebate, (d + 1) * teamsPerDebate);
+        const group = candidate.slice(d * teamsPerDebate, (d + 1) * teamsPerDebate);
         candidateGroups.push(group);
-        currentPenalty += calculateDebateClashPenalty(group, history, penalties.repeatMatchupPenalty, penalties.institutionClashPenalty);
+        currentPenalty += calculateDebateClashPenalty(
+          group,
+          history,
+          repeatMatchupPenalty,
+          institutionClashPenalty,
+          pulledUpTeamIds,
+          pullupPenalty,
+          previouslySawPullupPenalty,
+          standingMap
+        );
       }
 
       if (currentPenalty < bestScore) {
@@ -160,7 +259,13 @@ export function generatePowerPairedDraw(
 
     // Allocate sides for each debate
     for (const group of bestBracketGrouping) {
-      const teamsWithSides = allocateSidesForDebate(group, history.sides, format, sideRule);
+      const teamsWithSides = allocateSidesForDebate(
+        group,
+        history.sides,
+        format,
+        sideRule,
+        sideAllocationOptions
+      );
       pairedDebates.push({
         bracket: bracketPts,
         teams: group,

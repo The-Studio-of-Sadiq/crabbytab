@@ -26,6 +26,9 @@ function roomCost(
 export interface ClashPenalties {
   repeatMatchupPenalty: number;
   institutionClashPenalty: number;
+  previouslySawPullupPenalty?: number;
+  sideBalancePenalty?: number;
+  pairingDeviationPenalty?: number;
 }
 
 export const DEFAULT_CLASH_PENALTIES: ClashPenalties = {

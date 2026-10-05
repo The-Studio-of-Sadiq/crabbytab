@@ -100,7 +100,24 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   }
 
   // Filter checked-in teams (or all active if checkins aren't used)
-  const activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
+  let activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
+
+  // If uneven number of teams, check bye team selection method preference
+  const byeMethod = tournament.preferences?.byeTeamSelectionMethod;
+  if (activeTeams.length % teamsPerDebate !== 0 && byeMethod && byeMethod !== "none") {
+    const excess = activeTeams.length % teamsPerDebate;
+    if (byeMethod === "random") {
+      const shuffled = [...activeTeams].sort(() => Math.random() - 0.5);
+      const byeIds = new Set(shuffled.slice(0, excess).map((t) => t.id));
+      activeTeams = activeTeams.filter((t) => !byeIds.has(t.id));
+    } else if (byeMethod === "lowest_ranked") {
+      const standingMap = new Map(standings.map((s) => [s.teamId, s.rank ?? 9999]));
+      const sorted = [...activeTeams].sort((a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999));
+      const byeIds = new Set(sorted.slice(0, excess).map((t) => t.id));
+      activeTeams = activeTeams.filter((t) => !byeIds.has(t.id));
+    }
+  }
+
   const totalTeams = activeTeams.length;
 
   if (totalTeams < teamsPerDebate) {
@@ -231,12 +248,27 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       });
     }
   } else if (isBP) {
-    // BP keeps its cost-based clash-minimizing approach, with configurable penalties.
-    const penalties = {
+    // BP power-paired draw with full tournament preferences (pullup distribution, position cost functions, Hungarian assignment)
+    const bpOptions = {
       repeatMatchupPenalty: tournament.preferences?.repeatMatchupPenalty ?? 1000,
       institutionClashPenalty: tournament.preferences?.institutionClashPenalty ?? 200,
+      avoidSameInstitution: tournament.preferences?.avoidSameInstitution,
+      avoidTeamHistory: tournament.preferences?.avoidTeamHistory,
+      teamInstitutionPenalty: tournament.preferences?.teamInstitutionPenalty,
+      teamHistoryPenalty: tournament.preferences?.teamHistoryPenalty,
+      pullupPenalty: tournament.preferences?.pullupPenalty,
+      previouslySawPullupPenalty: tournament.preferences?.previouslySawPullupPenalty,
+      bpPullupDistribution: tournament.preferences?.bpPullupDistribution,
+      bpPositionCost: tournament.preferences?.bpPositionCost,
+      renyiOrder: tournament.preferences?.renyiOrder,
+      bpPositionCostExponent: tournament.preferences?.bpPositionCostExponent,
+      bpAssignmentMethod: tournament.preferences?.bpAssignmentMethod,
+      sideBalancePenalty: tournament.preferences?.sideBalancePenalty,
+      pairingDeviationPenalty: tournament.preferences?.pairingDeviationPenalty,
+      maxTimesPerSide: tournament.preferences?.maxTimesPerSide,
+      maxAllowedSideImbalance: tournament.preferences?.maxAllowedSideImbalance,
     };
-    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule, penalties);
+    const powerDraw = generatePowerPairedDraw(activeTeams, standings, history, tournament.format, sideRule, bpOptions);
     debateDrafts = powerDraw.map((p) => ({
       bracket: p.bracket,
       teamsWithSides: p.teamsWithSides,
@@ -250,6 +282,25 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       conflictAvoidance: tournament.preferences?.conflictAvoidance,
       pullupRestriction: tournament.preferences?.pullupRestriction,
       sideRule,
+      penalties: {
+        repeatMatchupPenalty: tournament.preferences?.avoidTeamHistory === false
+          ? 0
+          : (tournament.preferences?.teamHistoryPenalty ?? tournament.preferences?.repeatMatchupPenalty ?? 1000),
+        institutionClashPenalty: tournament.preferences?.avoidSameInstitution === false
+          ? 0
+          : (tournament.preferences?.teamInstitutionPenalty ?? tournament.preferences?.institutionClashPenalty ?? 200),
+        previouslySawPullupPenalty: tournament.preferences?.previouslySawPullupPenalty ?? 0,
+        sideBalancePenalty: tournament.preferences?.sideBalancePenalty ?? 0,
+        pairingDeviationPenalty: tournament.preferences?.pairingDeviationPenalty ?? 0,
+      },
+      sideBalancePenalty: tournament.preferences?.sideBalancePenalty,
+      pairingDeviationPenalty: tournament.preferences?.pairingDeviationPenalty,
+      maxTimesPerSide: tournament.preferences?.maxTimesPerSide,
+      maxAllowedSideImbalance: tournament.preferences?.maxAllowedSideImbalance,
+      pullupPenalty: tournament.preferences?.pullupPenalty,
+      previouslySawPullupPenalty: tournament.preferences?.previouslySawPullupPenalty,
+      avoidSameInstitution: tournament.preferences?.avoidSameInstitution,
+      avoidTeamHistory: tournament.preferences?.avoidTeamHistory,
     });
     debateDrafts = twoTeamDraw.map((p) => ({
       bracket: p.bracket,

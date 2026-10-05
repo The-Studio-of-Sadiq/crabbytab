@@ -1,4 +1,4 @@
-import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission } from "@/types";
+import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, TournamentPreferences } from "@/types";
 import { solveHungarian } from "./hungarian";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
@@ -9,6 +9,7 @@ export interface AllocationOptions {
   respectInstitutionConflicts: boolean;
   respectPersonalConflicts: boolean;
   respectHistoryConflicts: boolean;
+  preferences?: TournamentPreferences;
 }
 
 export interface AdjudicatorAllocationResult {
@@ -55,26 +56,26 @@ export interface AllocationCostBreakdown {
 }
 
 // ─── Cost function weights ───────────────────────────────────────────
-// These are tunable; higher = more penalty = more avoided in the matching.
+// Tunable by tournament preferences; higher = more penalty = more avoided in the matching.
 
-const WEIGHTS = {
-  /** Penalty per unit of |priorityScore − panelStrength| */
-  PRIORITY_STRENGTH_MISMATCH: 100,
-  /** Hard institutional clash (same institution adj + team) */
-  INSTITUTION_CONFLICT: 10_000,
-  /** Declared personal conflict */
-  PERSONAL_CONFLICT: 10_000,
-  /** Declared institutional conflict from conflicts[] array */
-  DECLARED_INSTITUTION_CONFLICT: 8_000,
-  /** Adjudicator judged this team in a previous round */
-  REPEAT_TEAM: 500,
-  /** Two panellists from the same panel as a previous round */
-  REPEAT_PANEL: 200,
-  /** Trainee placed in the highest-priority debate */
-  TRAINEE_TOP_DEBATE: 3_000,
-  /** Trainee assigned as chair (should never happen, but guard) */
-  TRAINEE_AS_CHAIR: 50_000,
-};
+export function getAllocationWeights(prefs?: TournamentPreferences) {
+  const conflictPenalty = prefs?.adjConflictPenalty ?? 1_000_000;
+  const historyPenalty = prefs?.adjHistoryPenalty ?? 10_000;
+  const mismatchPenalty = prefs?.importanceMismatchPenalty ?? 10_000_000;
+
+  return {
+    PRIORITY_STRENGTH_MISMATCH: mismatchPenalty,
+    INSTITUTION_CONFLICT: conflictPenalty,
+    PERSONAL_CONFLICT: conflictPenalty,
+    DECLARED_INSTITUTION_CONFLICT: Math.round(conflictPenalty * 0.8),
+    REPEAT_TEAM: historyPenalty,
+    REPEAT_PANEL: Math.round(historyPenalty * 0.4),
+    TRAINEE_TOP_DEBATE: Math.round(conflictPenalty * 0.3),
+    TRAINEE_AS_CHAIR: conflictPenalty * 5,
+  };
+}
+
+export const WEIGHTS = getAllocationWeights();
 
 // ─── Conflict Detection ─────────────────────────────────────────────
 
@@ -84,8 +85,10 @@ const WEIGHTS = {
 export function calculateAdjDebateConflict(
   adj: Adjudicator,
   debateTeams: Team[],
-  pastAdjudicatorTeams: Map<string, Set<string>> = new Map() // adjId -> Set of teamIds
+  pastAdjudicatorTeams: Map<string, Set<string>> = new Map(), // adjId -> Set of teamIds
+  customWeights?: ReturnType<typeof getAllocationWeights>
 ): AdjDebateConflictResult {
+  const weights = customWeights || WEIGHTS;
   let penalty = 0;
   const reasons: string[] = [];
   let hasInstitutionalClash = false;
@@ -98,7 +101,7 @@ export function calculateAdjDebateConflict(
     // 1. Direct Institutional Conflict (unless judge is explicitly marked independent with no institution)
     if (!adj.independent) {
       if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-        penalty += WEIGHTS.INSTITUTION_CONFLICT;
+        penalty += weights.INSTITUTION_CONFLICT;
         hasInstitutionalClash = true;
         reasons.push(`Institutional clash with ${team.name} (${team.institutionName || "Same Institution"})`);
       } else if (
@@ -106,7 +109,7 @@ export function calculateAdjDebateConflict(
         team.institutionName &&
         adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
       ) {
-        penalty += WEIGHTS.INSTITUTION_CONFLICT;
+        penalty += weights.INSTITUTION_CONFLICT;
         hasInstitutionalClash = true;
         reasons.push(`Institutional clash with ${team.name} (${team.institutionName})`);
       }
@@ -116,7 +119,7 @@ export function calculateAdjDebateConflict(
     if (adj.conflicts && adj.conflicts.length > 0) {
       for (const conflict of adj.conflicts) {
         if (conflict.teamId && conflict.teamId === team.id) {
-          penalty += WEIGHTS.PERSONAL_CONFLICT;
+          penalty += weights.PERSONAL_CONFLICT;
           hasPersonalClash = true;
           reasons.push(`Personal clash with team "${team.name}"`);
         }
@@ -125,7 +128,7 @@ export function calculateAdjDebateConflict(
           ((team.institutionId && conflict.institutionId === team.institutionId) ||
             (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
         ) {
-          penalty += WEIGHTS.DECLARED_INSTITUTION_CONFLICT;
+          penalty += weights.DECLARED_INSTITUTION_CONFLICT;
           hasInstitutionalClash = true;
           reasons.push(`Declared institutional clash with ${team.name}`);
         }
@@ -135,7 +138,7 @@ export function calculateAdjDebateConflict(
     // 3. Past debate history clash (adjudicated this team in earlier rounds)
     const judgedTeams = pastAdjudicatorTeams.get(adj.id);
     if (judgedTeams && judgedTeams.has(team.id)) {
-      penalty += WEIGHTS.REPEAT_TEAM;
+      penalty += weights.REPEAT_TEAM;
       hasHistoryClash = true;
       reasons.push(`Previously judged ${team.name}`);
     }
@@ -376,6 +379,7 @@ export function computeAssignmentCost(
   role: "chair" | "panellist" | "trainee",
   options: AllocationOptions
 ): AllocationCostBreakdown {
+  const weights = getAllocationWeights(options.preferences);
   let priorityStrengthMismatch = 0;
   let institutionConflict = 0;
   let personalConflict = 0;
@@ -386,20 +390,20 @@ export function computeAssignmentCost(
   // 1. Priority-Strength Mismatch
   // We want high-scored judges in high-priority debates
   const mismatch = Math.abs(debatePriority - adjEffectiveScore);
-  priorityStrengthMismatch = mismatch * WEIGHTS.PRIORITY_STRENGTH_MISMATCH;
+  priorityStrengthMismatch = mismatch * weights.PRIORITY_STRENGTH_MISMATCH;
 
   // 2. Institution Conflict
   if (options.respectInstitutionConflicts && !adj.independent) {
     for (const team of debateTeams) {
       if (!team) continue;
       if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-        institutionConflict += WEIGHTS.INSTITUTION_CONFLICT;
+        institutionConflict += weights.INSTITUTION_CONFLICT;
       } else if (
         adj.institutionName &&
         team.institutionName &&
         adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
       ) {
-        institutionConflict += WEIGHTS.INSTITUTION_CONFLICT;
+        institutionConflict += weights.INSTITUTION_CONFLICT;
       }
     }
   }
@@ -410,14 +414,14 @@ export function computeAssignmentCost(
       for (const team of debateTeams) {
         if (!team) continue;
         if (conflict.teamId && conflict.teamId === team.id) {
-          personalConflict += WEIGHTS.PERSONAL_CONFLICT;
+          personalConflict += weights.PERSONAL_CONFLICT;
         }
         if (
           conflict.institutionId &&
           ((team.institutionId && conflict.institutionId === team.institutionId) ||
             (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
         ) {
-          institutionConflict += WEIGHTS.DECLARED_INSTITUTION_CONFLICT;
+          institutionConflict += weights.DECLARED_INSTITUTION_CONFLICT;
         }
       }
     }
@@ -430,7 +434,7 @@ export function computeAssignmentCost(
       for (const team of debateTeams) {
         if (!team) continue;
         if (judgedTeams.has(team.id)) {
-          repeatTeamConflict += WEIGHTS.REPEAT_TEAM;
+          repeatTeamConflict += weights.REPEAT_TEAM;
         }
       }
     }
@@ -441,18 +445,18 @@ export function computeAssignmentCost(
     const key = [adj.id, otherAdjId].sort().join(":");
     const coCount = pastPanelHistory.get(key) || 0;
     if (coCount > 0) {
-      repeatPanelConflict += WEIGHTS.REPEAT_PANEL * coCount;
+      repeatPanelConflict += weights.REPEAT_PANEL * coCount;
     }
   }
 
   // 6. Trainee Suitability
   if (adj.trainee) {
     if (role === "chair") {
-      traineeSuitability += WEIGHTS.TRAINEE_AS_CHAIR;
+      traineeSuitability += weights.TRAINEE_AS_CHAIR;
     }
     // Prefer trainees in lower-priority debates
     if (debatePriority > 7) {
-      traineeSuitability += WEIGHTS.TRAINEE_TOP_DEBATE;
+      traineeSuitability += weights.TRAINEE_TOP_DEBATE;
     }
   }
 
@@ -520,7 +524,8 @@ export function autoAllocateAdjudicators(
   },
   context?: IntelligentAllocationContext
 ): AdjudicatorAllocationResult[] {
-  const availableAdjs = adjudicators.filter((a) => a.checkedIn !== false);
+  const skipCheckins = options.preferences?.skipAdjCheckins ?? false;
+  const availableAdjs = skipCheckins ? adjudicators : adjudicators.filter((a) => a.checkedIn !== false);
   const numDebates = debates.length;
 
   if (numDebates === 0 || availableAdjs.length === 0) {
@@ -533,6 +538,11 @@ export function autoAllocateAdjudicators(
       conflicts: [],
     }));
   }
+
+  const weights = getAllocationWeights(options.preferences);
+  const minScoreToVote = options.preferences?.minAdjScoreToVote ?? 1.5;
+  const noPanellists = options.preferences?.noPanellistAdjs ?? false;
+  const noTrainees = options.preferences?.noTraineeAdjs ?? false;
 
   // ─── Step 1: Compute debate priorities ───
   let breakLiveness = new Map<string, number>();
@@ -588,8 +598,15 @@ export function autoAllocateAdjudicators(
   }
 
   // ─── Step 4: Chair assignment via Hungarian algorithm ───
-  const nonTrainees = availableAdjs.filter((a) => !a.trainee);
-  const trainees = availableAdjs.filter((a) => a.trainee);
+  // Adjudicators can only vote (chair/panellist) if not marked trainee AND score >= minScoreToVote
+  const nonTrainees = availableAdjs.filter(
+    (a) => !a.trainee && (adjScores.get(a.id) ?? a.score ?? 5) >= minScoreToVote
+  );
+  const trainees = noTrainees
+    ? []
+    : availableAdjs.filter(
+        (a) => a.trainee || (adjScores.get(a.id) ?? a.score ?? 5) < minScoreToVote
+      );
 
   const chairCostMatrix: number[][] = [];
 
@@ -647,7 +664,7 @@ export function autoAllocateAdjudicators(
       usedAdjIds.add(chair.id);
       debateChairIds.set(debate.id, chair.id);
 
-      const { reasons } = calculateAdjDebateConflict(chair, debateTeams, fullPastAdjTeams);
+      const { reasons } = calculateAdjDebateConflict(chair, debateTeams, fullPastAdjTeams, weights);
       conflicts.push(...reasons);
     }
 
@@ -665,7 +682,7 @@ export function autoAllocateAdjudicators(
 
   // ─── Step 5: Assign Panellists using greedy cost-minimized assignment ───
   const remainingNonTrainees = nonTrainees.filter((a) => !usedAdjIds.has(a.id));
-  const panellistsNeededPerDebate = Math.max(0, options.panelSize - 1);
+  const panellistsNeededPerDebate = noPanellists ? 0 : Math.max(0, options.panelSize - 1);
 
   if (panellistsNeededPerDebate > 0 && remainingNonTrainees.length > 0) {
     // Sort remaining non-trainees by score (highest first)
@@ -729,7 +746,7 @@ export function autoAllocateAdjudicators(
           usedAdjIds.add(chosen.id);
           sortedRemaining.splice(bestIdx, 1);
 
-          const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams);
+          const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams, weights);
           res.conflicts.push(...reasons);
         }
       }
@@ -737,23 +754,25 @@ export function autoAllocateAdjudicators(
   }
 
   // ─── Step 6: Distribute trainees (prefer lower-priority debates) ───
-  const sortedTrainees = [...trainees].sort(
-    (a, b) => (adjScores.get(a.id) ?? 0) - (adjScores.get(b.id) ?? 0)
-  );
+  if (!noTrainees && trainees.length > 0) {
+    const sortedTrainees = [...trainees].sort(
+      (a, b) => (adjScores.get(a.id) ?? 0) - (adjScores.get(b.id) ?? 0)
+    );
 
-  // Assign trainees starting from the lowest-priority debates
-  const reversePriorityOrder = [...sortedDebateIndices].reverse();
-  let traineeIdx = 0;
+    // Assign trainees starting from the lowest-priority debates
+    const reversePriorityOrder = [...sortedDebateIndices].reverse();
+    let traineeIdx = 0;
 
-  while (traineeIdx < sortedTrainees.length) {
-    for (const debateIdx of reversePriorityOrder) {
-      if (traineeIdx >= sortedTrainees.length) break;
-      const debate = debates[debateIdx];
-      const res = resultsMap.get(debate.id)!;
-      const trainee = sortedTrainees[traineeIdx++];
+    while (traineeIdx < sortedTrainees.length) {
+      for (const debateIdx of reversePriorityOrder) {
+        if (traineeIdx >= sortedTrainees.length) break;
+        const debate = debates[debateIdx];
+        const res = resultsMap.get(debate.id)!;
+        const trainee = sortedTrainees[traineeIdx++];
 
-      res.traineeIds.push(trainee.id);
-      res.traineeNames.push(trainee.name);
+        res.traineeIds.push(trainee.id);
+        res.traineeNames.push(trainee.name);
+      }
     }
   }
 
