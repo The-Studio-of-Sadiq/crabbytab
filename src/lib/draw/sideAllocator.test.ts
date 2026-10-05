@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allocateSidesForDebate, calculateSidePenalty } from "./sideAllocator";
+import { allocateSidesForDebate, calculateSidePenalty, computeBPSideCost } from "./sideAllocator";
 import { Team, DebateSide } from "@/types";
 
 function makeTeam(id: string, name: string): Team {
@@ -90,6 +90,14 @@ describe("Side Allocator (sideAllocator)", () => {
     const penaltySame = calculateSidePenalty(["OG"], "OG", "bp");
     const penaltyDiff = calculateSidePenalty(["OG"], "OO", "bp");
     expect(penaltySame).toBeGreaterThan(penaltyDiff);
+  });
+
+  it("uses the configured sum-of-squared-deviations position cost", () => {
+    expect(
+      computeBPSideCost(["OG", "OG", "OO"], "OG", {
+        bpPositionCost: "sum_squared_deviations",
+      })
+    ).toBe(1_296_000);
   });
 
   it("throws if team count does not match format sides", () => {

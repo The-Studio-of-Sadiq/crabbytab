@@ -747,7 +747,7 @@ function ConfigFormContent() {
                     }
                   >
                     <option value="renyi_entropy">Rényi entropy</option>
-                    <option value="std_dev">Standard deviation</option>
+                    <option value="sum_squared_deviations">Sum of squared deviations</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     In BP, which position cost function to use (see documentation for details)

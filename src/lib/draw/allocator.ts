@@ -600,12 +600,12 @@ export function autoAllocateAdjudicators(
   // ─── Step 4: Chair assignment via Hungarian algorithm ───
   // Adjudicators can only vote (chair/panellist) if not marked trainee AND score >= minScoreToVote
   const nonTrainees = availableAdjs.filter(
-    (a) => !a.trainee && (adjScores.get(a.id) ?? a.score ?? 5) >= minScoreToVote
+    (a) => !a.trainee && (adjScores.get(a.id) ?? 5) >= minScoreToVote
   );
   const trainees = noTrainees
     ? []
     : availableAdjs.filter(
-        (a) => a.trainee || (adjScores.get(a.id) ?? a.score ?? 5) < minScoreToVote
+        (a) => a.trainee || (adjScores.get(a.id) ?? 5) < minScoreToVote
       );
 
   const chairCostMatrix: number[][] = [];

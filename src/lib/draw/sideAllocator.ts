@@ -1,4 +1,4 @@
-import { Team, DebateSide, BPSide, TwoTeamSide } from "@/types";
+import { Team, DebateSide, BPSide, TwoTeamSide, BPPositionCost } from "@/types";
 import { solveHungarian } from "./hungarian";
 
 export interface TeamSideHistory {
@@ -7,7 +7,7 @@ export interface TeamSideHistory {
 }
 
 export interface SideAllocationOptions {
-  bpPositionCost?: "renyi_entropy" | "sum_squared_deviations";
+  bpPositionCost?: BPPositionCost;
   renyiOrder?: number;
   bpPositionCostExponent?: number;
   bpAssignmentMethod?: "hungarian" | "random";
@@ -64,9 +64,10 @@ export function computeBPSideCost(
 
   // Base cost calculation
   let baseCost = 0;
-  const costFunction = options?.bpPositionCost ?? "renyi_entropy";
+  // Keep reading persisted preferences written with the former "std_dev" value.
+  const costFunction: string = options?.bpPositionCost ?? "renyi_entropy";
 
-  if (costFunction === "sum_squared_deviations") {
+  if (costFunction === "sum_squared_deviations" || costFunction === "std_dev") {
     const mean = total / 4;
     baseCost = counts.reduce((acc, c) => acc + Math.pow(c - mean, 2), 0);
   } else {

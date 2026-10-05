@@ -44,7 +44,7 @@ export type PullupRestriction =
   | "lowest_draw_strength_wins";
 
 export type BPPullupDistribution = "anywhere" | "top" | "bottom";
-export type BPPositionCost = "renyi_entropy" | "std_dev";
+export type BPPositionCost = "renyi_entropy" | "sum_squared_deviations";
 export type BPAssignmentMethod = "hungarian" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";

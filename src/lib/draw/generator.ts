@@ -10,7 +10,7 @@ import {
   BPSide,
   TwoTeamSide,
 } from "@/types";
-import { generatePowerPairedDraw, MatchupHistory } from "./powerPaired";
+import { BPDrawOptions, generatePowerPairedDraw, MatchupHistory } from "./powerPaired";
 import { allocateSidesForDebate } from "./sideAllocator";
 import { generateRoundRobinDraw } from "./roundRobin";
 import { generateTwoTeamDraw } from "./twoTeamDraw";
@@ -249,7 +249,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
   } else if (isBP) {
     // BP power-paired draw with full tournament preferences (pullup distribution, position cost functions, Hungarian assignment)
-    const bpOptions = {
+    const bpOptions: BPDrawOptions = {
       repeatMatchupPenalty: tournament.preferences?.repeatMatchupPenalty ?? 1000,
       institutionClashPenalty: tournament.preferences?.institutionClashPenalty ?? 200,
       avoidSameInstitution: tournament.preferences?.avoidSameInstitution,

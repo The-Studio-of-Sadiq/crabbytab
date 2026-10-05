@@ -6,12 +6,12 @@ import {
 } from "./allocator";
 import { Adjudicator, Debate, Team, TournamentPreferences } from "@/types";
 
-function createAdj(id: string, name: string, score: number = 5, checkedIn: boolean = true, institutionId?: string): Adjudicator {
+function createAdj(id: string, name: string, baseScore: number = 5, checkedIn: boolean = true, institutionId?: string): Adjudicator {
   return {
     id,
     tournamentId: "t1",
     name,
-    score,
+    baseScore,
     checkedIn,
     trainee: false,
     independent: false,
