@@ -20,8 +20,10 @@ const BP_SIDES: BPSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: TwoTeamSide[] = ["AFF", "NEG"];
 
 /**
- * Calculates BP position cost using Rényi entropy or sum of squared deviations,
- * raised to bpPositionCostExponent, with side balance and hard maxTimesPerSide preference.
+ * Calculates BP position cost using Rényi entropy or a squared-deviation penalty.
+ * The latter sums squared differences between each side count and the mean; it is
+ * an optimization cost, not a statistical standard deviation. The selected base
+ * cost is raised to bpPositionCostExponent and scaled before other penalties apply.
  */
 export function computeBPSideCost(
   history: DebateSide[],
@@ -97,6 +99,7 @@ export function computeBPSideCost(
   }
 
   const exponent = options?.bpPositionCostExponent ?? 4.0;
+  // Exponent and scale control optimization weight; this is not a reported statistic.
   let cost = Math.pow(baseCost, exponent) * 1000 + hardPenalty;
 
   if (balancePenaltyWeight > 0) {
