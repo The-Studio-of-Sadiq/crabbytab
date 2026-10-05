@@ -1,4 +1,4 @@
-import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, TournamentPreferences } from "@/types";
+import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, FeedbackSubmission, TournamentPreferences } from "@/types";
 import { solveHungarian } from "./hungarian";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
@@ -296,6 +296,24 @@ export function effectiveAdjScore(
     return adj.baseScore * 0.4 + feedbackScore * 0.6;
   }
   return adj.baseScore || 5;
+}
+
+export function calculateAdjudicatorFeedbackScores(
+  submissions: FeedbackSubmission[]
+): Map<string, number> {
+  const totals = new Map<string, { total: number; count: number }>();
+  for (const submission of submissions) {
+    if (!submission.confirmed || !Number.isFinite(submission.score)) continue;
+
+    const current = totals.get(submission.targetAdjudicatorId) ?? { total: 0, count: 0 };
+    current.total += submission.score;
+    current.count += 1;
+    totals.set(submission.targetAdjudicatorId, current);
+  }
+
+  return new Map(
+    [...totals].map(([adjudicatorId, { total, count }]) => [adjudicatorId, total / count])
+  );
 }
 
 // ─── Past Panel History ─────────────────────────────────────────────

@@ -72,6 +72,36 @@ describe("Round draw eligibility", () => {
     expect(getEligibleTeamsForRound(legacyTeams, makeRound("elimination"))).toEqual(legacyTeams);
   });
 
+  it("does not assign venues marked unavailable", () => {
+    const drawTeams = Array.from({ length: 4 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index}`,
+      name: `Team ${index}`,
+    }));
+    const tournament = {
+      id: "t1",
+      format: "bp",
+      preferences: { teamsInDebate: 4, sideAllocationRule: "balanced" },
+    } as Tournament;
+    const round = { ...makeRound("preliminary"), drawType: "random" as const };
+
+    const draw = generateRoundDraw({
+      tournament,
+      round,
+      teams: drawTeams,
+      venues: [
+        { id: "unavailable", tournamentId: "t1", name: "Unavailable Room", priority: 100, available: false },
+        { id: "available", tournamentId: "t1", name: "Available Room", priority: 1, available: true },
+      ],
+      pastDebates: [],
+      standings: [],
+    });
+
+    expect(draw).toHaveLength(1);
+    expect(draw[0].venueId).toBe("available");
+    expect(draw[0].venueName).toBe("Available Room");
+  });
+
   it("draws multiple categories separately within the same pre-created round", () => {
     const categoryTeams = [
       ...Array.from({ length: 4 }, (_, index) => ({

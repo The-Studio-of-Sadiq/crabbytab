@@ -131,7 +131,9 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   }
 
   const history = buildMatchupHistory(pastDebates);
-  const sortedVenues = [...venues].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  const sortedVenues = venues
+    .filter((venue) => venue.available !== false)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0));
   const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
 
   // Handle Manual draw: create empty debates with room ranks and venues

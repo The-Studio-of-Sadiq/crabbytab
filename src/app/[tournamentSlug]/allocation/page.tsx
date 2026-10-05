@@ -5,6 +5,7 @@ import { useTournament } from "@/contexts/TournamentContext";
 import { Adjudicator, Debate, Team } from "@/types";
 import {
   calculateAdjDebateConflict,
+  calculateAdjudicatorFeedbackScores,
   calculateDebatePriorities,
   computeBreakLiveness,
   effectiveAdjScore,
@@ -47,6 +48,7 @@ export default function AllocationPage() {
     setActiveRound,
     debates,
     adjudicators,
+    feedback,
     teams,
     autoAllocate,
     updateDebate,
@@ -81,6 +83,11 @@ export default function AllocationPage() {
     adjudicators.forEach((a) => map.set(a.id, a));
     return map;
   }, [adjudicators]);
+
+  const feedbackScores = useMemo(
+    () => calculateAdjudicatorFeedbackScores(feedback),
+    [feedback]
+  );
 
   // ─── Debate Priorities ───
   const debatePriorities = useMemo(() => {
@@ -144,8 +151,10 @@ export default function AllocationPage() {
 
   // Sort available adjs by effective score (highest first)
   const sortedFilteredAdjs = useMemo(
-    () => [...filteredAdjs].sort((a, b) => effectiveAdjScore(b) - effectiveAdjScore(a)),
-    [filteredAdjs]
+    () => [...filteredAdjs].sort(
+      (a, b) => effectiveAdjScore(b, feedbackScores) - effectiveAdjScore(a, feedbackScores)
+    ),
+    [filteredAdjs, feedbackScores]
   );
 
   // ─── Panel Strength per Debate ───
@@ -161,12 +170,12 @@ export default function AllocationPage() {
       const scores = panelAdjIds
         .map((id) => adjsMap.get(id))
         .filter((a): a is Adjudicator => a !== undefined)
-        .map((a) => effectiveAdjScore(a));
+        .map((a) => effectiveAdjScore(a, feedbackScores));
       const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
       map.set(debate.id, Math.round(avg * 10) / 10);
     }
     return map;
-  }, [roundDebates, adjsMap]);
+  }, [roundDebates, adjsMap, feedbackScores]);
 
   // Priority score color coding
   const getPriorityColor = (score: number) => {
@@ -608,7 +617,7 @@ export default function AllocationPage() {
             <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
               {sortedFilteredAdjs.map((adj) => {
                 const isSelected = selectedAdjForManual?.id === adj.id;
-                const score = effectiveAdjScore(adj);
+                const score = effectiveAdjScore(adj, feedbackScores);
 
                 return (
                   <div
@@ -825,7 +834,10 @@ export default function AllocationPage() {
                                 </span>
                               )}
                               <span className="font-mono text-[10px] text-blue-600">
-                                {effectiveAdjScore(adjsMap.get(debate.adjudicators.chairId!)!).toFixed(1)}
+                                {effectiveAdjScore(
+                                  adjsMap.get(debate.adjudicators.chairId!)!,
+                                  feedbackScores
+                                ).toFixed(1)}
                               </span>
                             </div>
                           ) : (
@@ -923,7 +935,7 @@ export default function AllocationPage() {
                                   )}
                                   {pAdj && (
                                     <span className="text-[10px] font-mono text-blue-600">
-                                      {effectiveAdjScore(pAdj).toFixed(1)}
+                                      {effectiveAdjScore(pAdj, feedbackScores).toFixed(1)}
                                     </span>
                                   )}
                                   {pClashes.length > 0 && (

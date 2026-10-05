@@ -2,9 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   getAllocationWeights,
   autoAllocateAdjudicators,
+  calculateAdjudicatorFeedbackScores,
   calculateAdjDebateConflict,
 } from "./allocator";
-import { Adjudicator, Debate, Team, TournamentPreferences } from "@/types";
+import { Adjudicator, Debate, FeedbackSubmission, Team, TournamentPreferences } from "@/types";
 
 function createAdj(id: string, name: string, baseScore: number = 5, checkedIn: boolean = true, institutionId?: string): Adjudicator {
   return {
@@ -67,6 +68,32 @@ function createDebate(id: string, teams: Team[]): Debate {
 }
 
 describe("Adjudicator Allocator Preferences", () => {
+  it("averages confirmed feedback per adjudicator and ignores unconfirmed entries", () => {
+    const submissions: FeedbackSubmission[] = [
+      {
+        id: "fb-1", tournamentId: "t1", roundId: "r1", debateId: "d1",
+        targetAdjudicatorId: "adj-1", targetAdjudicatorName: "Judge",
+        sourceType: "team", sourceId: "team-1", sourceName: "Team 1",
+        score: 8, confirmed: true, timestamp: "",
+      },
+      {
+        id: "fb-2", tournamentId: "t1", roundId: "r2", debateId: "d2",
+        targetAdjudicatorId: "adj-1", targetAdjudicatorName: "Judge",
+        sourceType: "team", sourceId: "team-2", sourceName: "Team 2",
+        score: 10, confirmed: true, timestamp: "",
+      },
+      {
+        id: "fb-3", tournamentId: "t1", roundId: "r3", debateId: "d3",
+        targetAdjudicatorId: "adj-1", targetAdjudicatorName: "Judge",
+        sourceType: "team", sourceId: "team-3", sourceName: "Team 3",
+        score: 2, confirmed: false, timestamp: "",
+      },
+    ];
+
+    expect(calculateAdjudicatorFeedbackScores(submissions).get("adj-1")).toBe(9);
+    expect(calculateAdjudicatorFeedbackScores([]).size).toBe(0);
+  });
+
   it("getAllocationWeights reflects configured penalties", () => {
     const customPrefs: TournamentPreferences = {
       adjConflictPenalty: 500_000,

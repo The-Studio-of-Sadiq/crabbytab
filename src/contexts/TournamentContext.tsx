@@ -35,7 +35,12 @@ import {
 } from "firebase/firestore";
 import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { applyEliminationAdvancement, getAdvancingTeamIds } from "@/lib/draw/elimination";
-import { autoAllocateAdjudicators, buildPastAdjTeams, IntelligentAllocationContext } from "@/lib/draw/allocator";
+import {
+  autoAllocateAdjudicators,
+  buildPastAdjTeams,
+  calculateAdjudicatorFeedbackScores,
+  IntelligentAllocationContext,
+} from "@/lib/draw/allocator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
@@ -849,6 +854,7 @@ export function TournamentProvider({
       totalPrelimRounds,
       completedRounds: completedPrelimRounds,
       isBP: tournament.format === "bp",
+      feedbackScores: calculateAdjudicatorFeedbackScores(feedback),
     };
 
     const allocations = autoAllocateAdjudicators(
@@ -952,6 +958,7 @@ export function TournamentProvider({
       totalPrelimRounds,
       completedRounds: completedPrelimRounds,
       isBP: tournament.format === "bp",
+      feedbackScores: calculateAdjudicatorFeedbackScores(feedback),
     };
 
     const allocations = autoAllocateAdjudicators(roundDebates, teamsMap, adjudicators, pastAdjTeams, {
