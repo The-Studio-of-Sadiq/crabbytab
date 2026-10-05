@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Shield,
   Eye,
+  Key,
 } from "lucide-react";
 
 function NavLink({
@@ -226,6 +227,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             badge={`${teams.length} teams`}
           />
           <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
+          <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
           <Suspense
             fallback={
               <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />

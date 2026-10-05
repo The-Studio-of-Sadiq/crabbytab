@@ -40,6 +40,7 @@ import { calculateStandings } from "@/lib/standings/calculator";
 import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { safeJsonParse } from "@/lib/safeJson";
+import { generatePrivateKey } from "@/lib/privateUrls";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -98,6 +99,7 @@ export interface TournamentContextType {
   generateBreak: (categoryId: string) => Promise<Round | null>;
   proceedToNextEliminationRound: (roundId: string) => Promise<Round | null>;
   addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
+  generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -1227,6 +1229,7 @@ export function TournamentProvider({
       ...teamData,
       id: `team-${Date.now()}-${teams.length + 1}`,
       tournamentId: tournament?.id || tournamentSlug,
+      privateUrlKey: teamData.privateUrlKey || generatePrivateKey("team"),
     };
     const updated = [...teams, newTeam];
     setTeams(updated);
@@ -1253,6 +1256,7 @@ export function TournamentProvider({
       ...adjData,
       id: `adj-${Date.now()}-${adjudicators.length + 1}`,
       tournamentId: tournament?.id || tournamentSlug,
+      privateUrlKey: adjData.privateUrlKey || generatePrivateKey("adj"),
     };
     const updated = [...adjudicators, newAdj];
     setAdjudicators(updated);
@@ -1466,6 +1470,52 @@ export function TournamentProvider({
     await setFirestoreDoc("feedback", newFb.id, newFb);
   };
 
+  const generatePrivateUrlKeys = async (forceRegenerate = false) => {
+    let teamsChanged = false;
+    const updatedTeams = teams.map((t) => {
+      if (forceRegenerate || !t.privateUrlKey) {
+        teamsChanged = true;
+        return { ...t, privateUrlKey: generatePrivateKey("team") };
+      }
+      return t;
+    });
+
+    let adjsChanged = false;
+    const updatedAdjs = adjudicators.map((a) => {
+      if (forceRegenerate || !a.privateUrlKey) {
+        adjsChanged = true;
+        return { ...a, privateUrlKey: generatePrivateKey("adj") };
+      }
+      return a;
+    });
+
+    if (teamsChanged) {
+      setTeams(updatedTeams);
+      persistLocal("teams", updatedTeams);
+    }
+    if (adjsChanged) {
+      setAdjudicators(updatedAdjs);
+      persistLocal("adjudicators", updatedAdjs);
+    }
+
+    if (db && tournament?.id && (teamsChanged || adjsChanged)) {
+      const ops: Array<(batch: WriteBatch) => void> = [];
+      if (teamsChanged) {
+        for (const t of updatedTeams) {
+          const ref = doc(db, "tournaments", tournament.id, "teams", t.id);
+          ops.push((batch) => batch.set(ref, cleanUndefined(t)));
+        }
+      }
+      if (adjsChanged) {
+        for (const a of updatedAdjs) {
+          const ref = doc(db, "tournaments", tournament.id, "adjudicators", a.id);
+          ops.push((batch) => batch.set(ref, cleanUndefined(a)));
+        }
+      }
+      await commitChunkedBatches(ops);
+    }
+  };
+
   return (
     <TournamentContext.Provider
       value={{
@@ -1518,6 +1568,7 @@ export function TournamentProvider({
         generateBreak,
         proceedToNextEliminationRound,
         addFeedback,
+        generatePrivateUrlKeys,
       }}
     >
       {children}

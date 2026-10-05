@@ -197,6 +197,7 @@ export interface Team {
   seed?: number;
   emoji?: string;
   checkedIn?: boolean;
+  privateUrlKey?: string; // Secret key for team's private URL
 }
 
 export interface AdjudicatorConflict {
@@ -220,6 +221,7 @@ export interface Adjudicator {
   checkedIn?: boolean;
   conflicts: AdjudicatorConflict[];
   gender?: string;
+  privateUrlKey?: string; // Secret key for adjudicator's private URL
 }
 
 export interface Venue {
