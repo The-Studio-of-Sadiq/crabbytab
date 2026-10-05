@@ -116,6 +116,11 @@ export interface TournamentPreferences {
 
   byeTeamResults?: ByeTeamResults; // "absent"
   byeTeamSelectionMethod?: ByeTeamSelectionMethod; // "none"
+
+  /** Tabbycat Scoring & Ballots Features */
+  marginIncludesDissenters?: boolean; // If checked, a team's winning margin includes dissenting adjudicators
+  ballotIntroExplanation?: string; // Any explanatory text needed to introduce the ballot form, e.g. speaker scale
+  teamScoreIncludesGhosts?: boolean; // If checked, all speaker scores, including for duplicate speeches, will be counted for team scores
 }
 
 export interface Tournament {

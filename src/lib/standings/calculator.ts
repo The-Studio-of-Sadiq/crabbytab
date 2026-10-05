@@ -90,10 +90,21 @@ export function calculateStandings(
       const side = sideKey as DebateSide;
       const teamScore = ballot.teamScores[side];
       const speakerScores = ballot.speakerScores[side] || [];
-      const substantiveScores = speakerScores
-        .filter((sc) => !(isReplyPosition && sc.position === 4))
-        .map((sc) => sc.score || 0);
-      const totalSpeakersScore = substantiveScores.reduce((sum, sc) => sum + sc, 0);
+      const includeGhosts = tournament.preferences?.teamScoreIncludesGhosts ?? false;
+      let substantiveList = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
+      if (!includeGhosts) {
+        const seenSpeakerIds = new Set<string>();
+        substantiveList = substantiveList.filter((sc) => {
+          if (!sc.speakerId) return true;
+          if (seenSpeakerIds.has(sc.speakerId)) return false;
+          seenSpeakerIds.add(sc.speakerId);
+          return true;
+        });
+      }
+      const substantiveScores = substantiveList.map((sc) => sc.score || 0);
+      const totalSpeakersScore = teamScore?.totalSpeakerScore !== undefined
+        ? teamScore.totalSpeakerScore
+        : substantiveScores.reduce((sum, sc) => sum + sc, 0);
 
       const pts = teamScore ? teamScore.points || 0 : 0;
       const win = isBP ? pts >= 2 : Boolean(teamScore?.win) || pts === 1;

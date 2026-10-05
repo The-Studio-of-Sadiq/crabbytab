@@ -90,59 +90,76 @@ function ConfigFormContent() {
     router.replace(`/${tournamentSlug}/config?category=${cat}`, { scroll: false });
   };
 
+  const defaultPrefs: TournamentPreferences = {
+    teamsInDebate: 4,
+    substantiveSpeakers: 2,
+    replyScoresEnabled: false,
+    minSpeakerScore: 68,
+    maxSpeakerScore: 84,
+    stepSpeakerScore: 1,
+    minReplyScore: 34,
+    maxReplyScore: 42,
+    drawRule: "power_paired",
+    sideAllocationRule: "balanced",
+    ballotDoubleEntry: false,
+    publicDraw: true,
+    publicResults: true,
+    publicStandings: true,
+    publicMotions: true,
+    feedbackEnabled: true,
+    feedbackMinScore: 1,
+    feedbackMaxScore: 10,
+    // Tabbycat Draw Rules defaults:
+    minAdjScoreToVote: 1.5,
+    adjConflictPenalty: 1000000,
+    adjHistoryPenalty: 10000,
+    importanceMismatchPenalty: 10000000,
+    skipAdjCheckins: false,
+    noPanellistAdjs: false,
+    noTraineeAdjs: false,
+    teamInstitutionPenalty: 1,
+    teamHistoryPenalty: 1000,
+    avoidSameInstitution: true,
+    avoidTeamHistory: true,
+    previouslySawPullupPenalty: 0,
+    sideBalancePenalty: 0,
+    pairingDeviationPenalty: 0,
+    maxTimesPerSide: 5,
+    maxAllowedSideImbalance: 0,
+    preliminaryPanelsPerScheduleSlot: 1,
+    oddBracketMethod: "intermediate_bubble",
+    pairingMethod: "fold",
+    conflictAvoidance: "one_up_one_down",
+    pullupRestriction: "none",
+    pullupPenalty: 0,
+    bpPullupDistribution: "anywhere",
+    bpPositionCost: "renyi_entropy",
+    renyiOrder: 1.0,
+    bpPositionCostExponent: 4.0,
+    bpAssignmentMethod: "hungarian",
+    byeTeamResults: "absent",
+    byeTeamSelectionMethod: "none",
+    marginIncludesDissenters: true,
+    ballotIntroExplanation: "",
+    teamScoreIncludesGhosts: false,
+  };
+
   const [format, setFormat] = useState<TournamentFormat>(tournament?.format || "bp");
-  const [prefs, setPrefs] = useState<TournamentPreferences>(
-    tournament?.preferences || {
-      teamsInDebate: 4,
-      substantiveSpeakers: 2,
-      replyScoresEnabled: false,
-      minSpeakerScore: 68,
-      maxSpeakerScore: 84,
-      stepSpeakerScore: 1,
-      minReplyScore: 34,
-      maxReplyScore: 42,
-      drawRule: "power_paired",
-      sideAllocationRule: "balanced",
-      ballotDoubleEntry: false,
-      publicDraw: true,
-      publicResults: true,
-      publicStandings: true,
-      publicMotions: true,
-      feedbackEnabled: true,
-      feedbackMinScore: 1,
-      feedbackMaxScore: 10,
-      // Tabbycat Draw Rules defaults:
-      minAdjScoreToVote: 1.5,
-      adjConflictPenalty: 1000000,
-      adjHistoryPenalty: 10000,
-      importanceMismatchPenalty: 10000000,
-      skipAdjCheckins: false,
-      noPanellistAdjs: false,
-      noTraineeAdjs: false,
-      teamInstitutionPenalty: 1,
-      teamHistoryPenalty: 1000,
-      avoidSameInstitution: true,
-      avoidTeamHistory: true,
-      previouslySawPullupPenalty: 0,
-      sideBalancePenalty: 0,
-      pairingDeviationPenalty: 0,
-      maxTimesPerSide: 5,
-      maxAllowedSideImbalance: 0,
-      preliminaryPanelsPerScheduleSlot: 1,
-      oddBracketMethod: "intermediate_bubble",
-      pairingMethod: "fold",
-      conflictAvoidance: "one_up_one_down",
-      pullupRestriction: "none",
-      pullupPenalty: 0,
-      bpPullupDistribution: "anywhere",
-      bpPositionCost: "renyi_entropy",
-      renyiOrder: 1.0,
-      bpPositionCostExponent: 4.0,
-      bpAssignmentMethod: "hungarian",
-      byeTeamResults: "absent",
-      byeTeamSelectionMethod: "none",
+  const [prefs, setPrefs] = useState<TournamentPreferences>(() => ({
+    ...defaultPrefs,
+    ...(tournament?.preferences || {}),
+  }));
+
+  useEffect(() => {
+    if (tournament) {
+      setFormat(tournament.format || "bp");
+      setPrefs((p) => ({
+        ...defaultPrefs,
+        ...p,
+        ...(tournament.preferences || {}),
+      }));
     }
-  );
+  }, [tournament]);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [prelimRoundCount, setPrelimRoundCount] = useState(0);
@@ -1159,14 +1176,64 @@ function ConfigFormContent() {
               )}
             </div>
 
-            {/* Ballot Verification & Feedback */}
+            {/* Ballot Rules & Options */}
             <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
               <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
                 <FileCheck2 className="w-4 h-4 text-emerald-600" />
-                <span>Ballot Verification & Adjudicator Feedback</span>
+                <span>Ballot Rules & Options</span>
               </h3>
 
               <div className="space-y-4 text-xs">
+                {/* Ballot introduction/explanation */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Ballot introduction/explanation
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={prefs.ballotIntroExplanation ?? ""}
+                    onChange={(e) => setPrefs((p) => ({ ...p, ballotIntroExplanation: e.target.value }))}
+                    placeholder="Any explanatory text needed to introduce the ballot form, e.g. speaker scale"
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Any explanatory text needed to introduce the ballot form, e.g. speaker scale
+                  </p>
+                </div>
+
+                {/* Margin includes dissenters */}
+                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={prefs.marginIncludesDissenters ?? true}
+                    onChange={(e) => setPrefs((p) => ({ ...p, marginIncludesDissenters: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <div>
+                    <span className="font-semibold text-gray-800 block">Margin includes dissenters</span>
+                    <span className="text-[11px] text-gray-500">
+                      If checked, a team&apos;s winning margin includes dissenting adjudicators
+                    </span>
+                  </div>
+                </label>
+
+                {/* Team score includes ghosts */}
+                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(prefs.teamScoreIncludesGhosts)}
+                    onChange={(e) => setPrefs((p) => ({ ...p, teamScoreIncludesGhosts: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600"
+                  />
+                  <div>
+                    <span className="font-semibold text-gray-800 block">Team score includes ghosts</span>
+                    <span className="text-[11px] text-gray-500">
+                      If checked, all speaker scores, including for duplicate speeches, will be counted for team scores
+                    </span>
+                  </div>
+                </label>
+
+                {/* Require Double-Entry Ballot Verification */}
                 <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1181,7 +1248,17 @@ function ConfigFormContent() {
                     </span>
                   </div>
                 </label>
+              </div>
+            </div>
 
+            {/* Adjudicator Feedback */}
+            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
+                <FileCheck2 className="w-4 h-4 text-emerald-600" />
+                <span>Adjudicator Feedback</span>
+              </h3>
+
+              <div className="space-y-4 text-xs">
                 <div className="p-3 rounded bg-gray-50 border border-gray-200 space-y-3">
                   <label className="flex items-center space-x-2.5 cursor-pointer">
                     <input

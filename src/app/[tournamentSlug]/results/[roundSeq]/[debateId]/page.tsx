@@ -328,7 +328,20 @@ export default function BallotEntryPage() {
 
         speakerScoresRecord[side] = allSpkList;
 
-        const total = allSpkList.reduce((sum, s) => sum + s.score, 0);
+        const includeGhosts = tournament?.preferences?.teamScoreIncludesGhosts ?? false;
+        let substantiveList = scores[side] || [];
+        if (!includeGhosts) {
+          const seenSpeakerIds = new Set<string>();
+          substantiveList = substantiveList.filter((spk) => {
+            if (!spk.speakerId) return true;
+            if (seenSpeakerIds.has(spk.speakerId)) return false;
+            seenSpeakerIds.add(spk.speakerId);
+            return true;
+          });
+        }
+        const substantiveTotal = substantiveList.reduce((sum, s) => sum + (s.score || 0), 0);
+        const replyTotal = replyEnabled && replyScores[side] ? replyScores[side].score || 0 : 0;
+        const total = substantiveTotal + replyTotal;
         const rank = ranks[side] || 1;
         const pts = isBP ? (rank === 1 ? 3 : rank === 2 ? 2 : rank === 3 ? 1 : 0) : rank === 1 ? 1 : 0;
 
@@ -587,6 +600,19 @@ export default function BallotEntryPage() {
         )}
 
         <form onSubmit={handleSubmit} className="p-5 space-y-6">
+          {/* Ballot Introduction / Explanation */}
+          {tournament?.preferences?.ballotIntroExplanation?.trim() && (
+            <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-md text-xs text-blue-900 leading-relaxed space-y-1">
+              <div className="font-bold text-blue-950 flex items-center space-x-1.5">
+                <FileCheck2 className="w-3.5 h-3.5 text-blue-600" />
+                <span>Ballot Introduction & Instructions</span>
+              </div>
+              <div className="whitespace-pre-line text-[11px] text-blue-900">
+                {tournament.preferences.ballotIntroExplanation}
+              </div>
+            </div>
+          )}
+
           {/* Motion Selector */}
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center space-x-1.5">
