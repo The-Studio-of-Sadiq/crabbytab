@@ -480,24 +480,45 @@ export default function PublicTournamentPage() {
                 No motions have been released to the public yet.
               </div>
             ) : (
-              releasedMotions.map((m) => (
-                <div key={m.id} className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs">
-                  <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                    {m.reference || "Motion"}
-                  </span>
-                  <blockquote className="text-base font-bold text-gray-900 my-2.5 pl-3 border-l-4 border-amber-500">
-                    &ldquo;{m.text}&rdquo;
-                  </blockquote>
-                  {m.infoSlide && (
-                    <div className="mt-2 p-3 bg-amber-50/50 rounded border border-amber-200 text-xs text-amber-950">
-                      <strong className="block text-[10px] uppercase font-bold text-amber-800">
-                        Infoslide:
-                      </strong>
-                      <p>{m.infoSlide}</p>
+              releasedMotions.map((m) => {
+                const assignedRounds = rounds.filter((r) => m.rounds && m.rounds.includes(r.id));
+                const assignedRoundNames = assignedRounds.map((r) => r.name).join(", ");
+
+                return (
+                  <div key={m.id} className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                        {m.reference || "Motion"}
+                      </span>
+                      {assignedRoundNames ? (
+                        <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                          Round: {assignedRoundNames}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic">Unassigned round</span>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))
+                    <blockquote className="text-base font-bold text-gray-900 my-2.5 pl-3 border-l-4 border-amber-500">
+                      &ldquo;{m.text}&rdquo;
+                    </blockquote>
+                    {m.infoSlide && (
+                      <div className="mt-2 p-3 bg-amber-50/50 rounded border border-amber-200 text-xs text-amber-950">
+                        <div className="flex items-center justify-between mb-1">
+                          <strong className="block text-[10px] uppercase font-bold text-amber-800">
+                            Infoslide:
+                          </strong>
+                          {assignedRoundNames && (
+                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                              Round: {assignedRoundNames}
+                            </span>
+                          )}
+                        </div>
+                        <p className="whitespace-pre-line">{m.infoSlide}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         )}
@@ -553,73 +574,98 @@ export default function PublicTournamentPage() {
         )}
       </main>
 
-      {isMotionPresentation && releasedMotions[motionSlideIndex] && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Motion presentation"
-          className="fixed inset-0 z-[60] flex flex-col bg-[#111820] text-white"
-        >
-          <header className="flex items-center justify-between border-b border-white/15 px-5 py-4 sm:px-8">
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase text-amber-300">
-                Motion {motionSlideIndex + 1} of {releasedMotions.length}
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold text-gray-200">
-                {releasedMotions[motionSlideIndex].reference || "Tournament motion"}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsMotionPresentation(false)}
-              aria-label="Close presentation"
-              title="Close presentation"
-              className="p-2 text-gray-300 hover:bg-white/10 hover:text-white rounded"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </header>
-          <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10 text-center sm:px-14">
-            <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">
-              {releasedMotions[motionSlideIndex].text}
-            </p>
-            {releasedMotions[motionSlideIndex].infoSlide && (
-              <div className="w-full max-w-4xl border-t border-amber-300/50 pt-6 text-left">
-                <p className="mb-2 text-xs font-bold uppercase text-amber-300">Information slide</p>
-                <p className="whitespace-pre-line text-base leading-relaxed text-gray-200 sm:text-lg">
-                  {releasedMotions[motionSlideIndex].infoSlide}
+      {isMotionPresentation && releasedMotions[motionSlideIndex] && (() => {
+        const currentMotion = releasedMotions[motionSlideIndex];
+        const currentAssignedRounds = rounds.filter((r) => currentMotion.rounds && currentMotion.rounds.includes(r.id));
+        const currentRoundNames = currentAssignedRounds.map((r) => r.name).join(", ");
+
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Motion presentation"
+            className="fixed inset-0 z-[60] flex flex-col bg-[#111820] text-white"
+          >
+            <header className="flex items-center justify-between border-b border-white/15 px-5 py-4 sm:px-8">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[11px] font-bold uppercase text-amber-300">
+                    Motion {motionSlideIndex + 1} of {releasedMotions.length}
+                  </p>
+                  {currentRoundNames && (
+                    <span className="text-[11px] font-semibold text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-400/30">
+                      Round: {currentRoundNames}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 truncate text-sm font-semibold text-gray-200">
+                  {currentMotion.reference || "Tournament motion"}
                 </p>
               </div>
-            )}
-          </div>
-          <footer className="flex items-center justify-between border-t border-white/15 px-5 py-4 sm:px-8">
-            <button
-              type="button"
-              onClick={() => setMotionSlideIndex((index) => Math.max(index - 1, 0))}
-              disabled={motionSlideIndex === 0}
-              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
-            >
-              <ChevronLeft className="w-4 h-4" /> Previous
-            </button>
-            <div className="flex items-center gap-1.5" aria-label={`Slide ${motionSlideIndex + 1}`}>
-              {releasedMotions.map((motion, index) => (
-                <span
-                  key={motion.id}
-                  className={`h-1.5 w-5 rounded-full ${index === motionSlideIndex ? "bg-amber-300" : "bg-white/25"}`}
-                />
-              ))}
+              <button
+                type="button"
+                onClick={() => setIsMotionPresentation(false)}
+                aria-label="Close presentation"
+                title="Close presentation"
+                className="p-2 text-gray-300 hover:bg-white/10 hover:text-white rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </header>
+            <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10 text-center sm:px-14">
+              {currentRoundNames && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/30 text-xs font-semibold text-amber-300 uppercase tracking-wider">
+                  <span>Assigned to: {currentRoundNames}</span>
+                </div>
+              )}
+              <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">
+                {currentMotion.text}
+              </p>
+              {currentMotion.infoSlide && (
+                <div className="w-full max-w-4xl border-t border-amber-300/50 pt-6 text-left">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold uppercase text-amber-300">Information slide</p>
+                    {currentRoundNames && (
+                      <span className="text-xs font-semibold text-amber-200 bg-amber-500/20 px-2.5 py-0.5 rounded border border-amber-400/30">
+                        Round: {currentRoundNames}
+                      </span>
+                    )}
+                  </div>
+                  <p className="whitespace-pre-line text-base leading-relaxed text-gray-200 sm:text-lg">
+                    {currentMotion.infoSlide}
+                  </p>
+                </div>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={() => setMotionSlideIndex((index) => Math.min(index + 1, releasedMotions.length - 1))}
-              disabled={motionSlideIndex === releasedMotions.length - 1}
-              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
-            >
-              Next <ChevronRight className="w-4 h-4" />
-            </button>
-          </footer>
-        </div>
-      )}
+            <footer className="flex items-center justify-between border-t border-white/15 px-5 py-4 sm:px-8">
+              <button
+                type="button"
+                onClick={() => setMotionSlideIndex((index) => Math.max(index - 1, 0))}
+                disabled={motionSlideIndex === 0}
+                className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" /> Previous
+              </button>
+              <div className="flex items-center gap-1.5" aria-label={`Slide ${motionSlideIndex + 1}`}>
+                {releasedMotions.map((motion, index) => (
+                  <span
+                    key={motion.id}
+                    className={`h-1.5 w-5 rounded-full ${index === motionSlideIndex ? "bg-amber-300" : "bg-white/25"}`}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setMotionSlideIndex((index) => Math.min(index + 1, releasedMotions.length - 1))}
+                disabled={motionSlideIndex === releasedMotions.length - 1}
+                className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            </footer>
+          </div>
+        );
+      })()}
 
       {/* Footer */}
       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
