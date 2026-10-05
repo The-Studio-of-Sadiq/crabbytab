@@ -9,6 +9,7 @@ import {
   EMAIL_RECIPIENT_GROUPS,
   EmailRecipientGroup,
   MAX_CAMPAIGN_RECIPIENTS,
+  prepareEmailMessages,
   resolveEmailRecipients,
   sendEmailCampaign,
 } from "@/lib/email/messaging";
@@ -17,6 +18,7 @@ import {
   EmailProviderConfigError,
 } from "@/lib/email/provider";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { createEmailCampaign } from "@/lib/email/history";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await authorizeTournamentEmailRequest(request, tournamentId);
+    const sender = await authorizeTournamentEmailRequest(request, tournamentId);
     const firestore = getAdminFirestore();
     const tournamentSnapshot = await firestore.collection("tournaments").doc(tournamentId).get();
     if (!tournamentSnapshot.exists) {
@@ -104,21 +106,34 @@ export async function POST(request: NextRequest) {
     }
 
     const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round);
-    if (recipients.length > MAX_CAMPAIGN_RECIPIENTS) {
-      throw new EmailCampaignInputError(
-        `This group has ${recipients.length} unique email addresses. Each send is limited to ${MAX_CAMPAIGN_RECIPIENTS} recipients.`
-      );
-    }
-
+    prepareEmailMessages(recipients, tournament.name, round?.name, subject, messageBody);
+    const provider = createSmtpEmailProvider();
+    const campaign = await createEmailCampaign(getAdminFirestore(), {
+      tournamentId,
+      senderUid: sender.uid,
+      senderEmail: sender.email || "",
+      senderName: sender.name || sender.email || sender.uid,
+      recipientGroup: group,
+      roundId: round?.id,
+      roundName: round?.name,
+      subjectTemplate: subject,
+      bodyTemplate: messageBody,
+      recipients,
+    });
     const result = await sendEmailCampaign(
-      createSmtpEmailProvider(),
+      provider,
       recipients,
       tournament.name,
       round?.name,
       subject,
       messageBody
     );
-    return NextResponse.json({ ...result, recipientCount: recipients.length });
+    await campaign.update(result);
+    return NextResponse.json({
+      ...result,
+      campaignId: campaign.id,
+      recipientCount: recipients.length,
+    });
   } catch (error) {
     if (error instanceof EmailAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

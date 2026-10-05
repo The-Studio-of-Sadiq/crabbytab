@@ -34,10 +34,37 @@ export interface EmailRecipient {
 export interface EmailCampaignResult {
   sent: number;
   failed: number;
-  results: { email: string; sent: boolean }[];
+  results: { email: string; sent: boolean; error?: string }[];
 }
 
 export class EmailCampaignInputError extends Error {}
+
+export interface StoredEmailCampaign {
+  id: string;
+  tournamentId: string;
+  createdAt: string;
+  senderUid: string;
+  senderEmail: string;
+  senderName: string;
+  recipientGroup: EmailRecipientGroup;
+  roundId?: string;
+  roundName?: string;
+  subjectTemplate: string;
+  bodyTemplate: string;
+  status: "sending" | "completed" | "failed";
+  sent: number;
+  failed: number;
+  results: EmailCampaignResult["results"];
+  failedRecipients: EmailRecipient[];
+  retryOf?: string;
+  retriedBy?: string;
+  retryInProgress?: boolean;
+}
+
+function describeSendError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Email delivery failed.";
+  return message.replace(/[\r\n\t]+/g, " ").slice(0, 300);
+}
 
 function debateVariables(
   debate: Debate | undefined,
@@ -208,14 +235,13 @@ export function renderEmailTemplate(
   });
 }
 
-export async function sendEmailCampaign(
-  provider: EmailProvider,
+export function prepareEmailMessages(
   recipients: EmailRecipient[],
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
   bodyTemplate: string
-): Promise<EmailCampaignResult> {
+): EmailMessage[] {
   if (recipients.length === 0) {
     throw new EmailCampaignInputError("No recipients with email addresses were found.");
   }
@@ -238,7 +264,7 @@ export async function sendEmailCampaign(
     }
   }
 
-  const messages: EmailMessage[] = recipients.map((recipient) => {
+  return recipients.map((recipient) => {
     const subject = renderEmailTemplate(subjectTemplate, recipient, tournamentName, roundName);
     if (subject.length > 200 || /[\r\n]/.test(subject)) {
       throw new EmailCampaignInputError(
@@ -251,15 +277,46 @@ export async function sendEmailCampaign(
       text: renderEmailTemplate(bodyTemplate, recipient, tournamentName, roundName),
     };
   });
+}
 
-  await provider.verifyConnection();
+export async function sendEmailCampaign(
+  provider: EmailProvider,
+  recipients: EmailRecipient[],
+  tournamentName: string,
+  roundName: string | undefined,
+  subjectTemplate: string,
+  bodyTemplate: string
+): Promise<EmailCampaignResult> {
+  const messages = prepareEmailMessages(
+    recipients,
+    tournamentName,
+    roundName,
+    subjectTemplate,
+    bodyTemplate
+  );
+
   const results: EmailCampaignResult["results"] = [];
+  try {
+    await provider.verifyConnection();
+  } catch (error) {
+    const description = describeSendError(error);
+    return {
+      sent: 0,
+      failed: messages.length,
+      results: messages.map((message) => ({
+        email: message.to,
+        sent: false,
+        error: description,
+      })),
+    };
+  }
+
   for (const message of messages) {
     try {
       await provider.send(message);
       results.push({ email: message.to, sent: true });
-    } catch {
-      results.push({ email: message.to, sent: false });
+    } catch (error) {
+      results.push({ email: message.to, sent: false, error: describeSendError(error) });
     }
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Mail, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -10,7 +10,11 @@ import {
   resolveEmailRecipients,
   MAX_CAMPAIGN_RECIPIENTS,
 } from "@/lib/email/messaging";
-import type { EmailCampaignResult, EmailRecipientGroup } from "@/lib/email/messaging";
+import type {
+  EmailCampaignResult,
+  EmailRecipientGroup,
+  StoredEmailCampaign,
+} from "@/lib/email/messaging";
 
 const RECIPIENT_GROUP_LABELS: Record<EmailRecipientGroup, string> = {
   all_teams: "All teams",
@@ -78,6 +82,35 @@ export default function EmailSettingsPage() {
   const [sendingCampaign, setSendingCampaign] = useState(false);
   const [campaignResult, setCampaignResult] = useState<EmailCampaignResult | null>(null);
   const [campaignError, setCampaignError] = useState("");
+  const [campaignHistory, setCampaignHistory] = useState<StoredEmailCampaign[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [retryingCampaignId, setRetryingCampaignId] = useState("");
+
+  const refreshCampaignHistory = useCallback(async () => {
+    if (!tournament || !user || !isOwnerOrAdmin) return;
+
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/email/history?tournamentId=${encodeURIComponent(tournament.id)}`,
+        { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to load campaign history.");
+      setCampaignHistory(result.campaigns as StoredEmailCampaign[]);
+    } catch (cause) {
+      setHistoryError(cause instanceof Error ? cause.message : "Unable to load campaign history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [tournament, user, isOwnerOrAdmin]);
+
+  useEffect(() => {
+    void refreshCampaignHistory();
+  }, [refreshCampaignHistory]);
 
   const selectedRound = rounds.find((round) => round.id === roundId);
   const requiresRound = ROUND_RECIPIENT_GROUPS.includes(recipientGroup);
@@ -158,10 +191,39 @@ export default function EmailSettingsPage() {
       if (!response.ok) throw new Error(result.error || "Unable to send the campaign.");
       setCampaignResult(result as EmailCampaignResult);
       setConfirmedSend(false);
+      await refreshCampaignHistory();
     } catch (cause) {
       setCampaignError(cause instanceof Error ? cause.message : "Unable to send the campaign.");
     } finally {
       setSendingCampaign(false);
+    }
+  };
+
+  const retryFailed = async (campaignId: string) => {
+    if (!tournament || !user) return;
+
+    setRetryingCampaignId(campaignId);
+    setCampaignResult(null);
+    setCampaignError("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/email/retry", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tournamentId: tournament.id, campaignId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to retry failed emails.");
+      setCampaignResult(result as EmailCampaignResult);
+      await refreshCampaignHistory();
+    } catch (cause) {
+      setCampaignError(cause instanceof Error ? cause.message : "Unable to retry failed emails.");
+      await refreshCampaignHistory();
+    } finally {
+      setRetryingCampaignId("");
     }
   };
 
@@ -394,12 +456,89 @@ export default function EmailSettingsPage() {
             {campaignResult.failed > 0 && (
               <ul className="list-inside list-disc text-red-700">
                 {campaignResult.results.filter((result) => !result.sent).map((result) => (
-                  <li key={result.email}>{result.email}</li>
+                  <li key={result.email}>
+                    {result.email}{result.error ? ` — ${result.error}` : ""}
+                  </li>
                 ))}
               </ul>
             )}
           </div>
         )}
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">Campaign history</h2>
+            <p className="mt-1 text-xs text-gray-600">
+              The latest 50 sends and retry attempts are stored for tournament administrators.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshCampaignHistory()}
+            disabled={historyLoading}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-50"
+          >
+            {historyLoading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        {historyError && <p role="alert" className="text-sm text-red-700">{historyError}</p>}
+        {!historyLoading && campaignHistory.length === 0 && !historyError && (
+          <p className="text-sm text-gray-500">No email campaigns have been sent yet.</p>
+        )}
+        <div className="space-y-3">
+          {campaignHistory.map((campaign) => (
+            <article key={campaign.id} className="rounded-md border border-gray-200 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <p className="break-words text-sm font-semibold text-gray-900">
+                    {campaign.subjectTemplate}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    {new Date(campaign.createdAt).toLocaleString()} · {RECIPIENT_GROUP_LABELS[campaign.recipientGroup]}
+                    {campaign.roundName ? ` · ${campaign.roundName}` : ""}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Sent by {campaign.senderName || campaign.senderEmail || "Unknown"}
+                    {campaign.retryOf ? " · Retry attempt" : ""}
+                    {campaign.status === "sending" ? " · In progress" : ""}
+                  </p>
+                  <p className="text-xs font-medium text-gray-700">
+                    {campaign.sent} sent · {campaign.failed} failed
+                  </p>
+                </div>
+                {campaign.failedRecipients.length > 0 &&
+                  campaign.status !== "sending" &&
+                  !campaign.retriedBy && (
+                  <button
+                    type="button"
+                    onClick={() => void retryFailed(campaign.id)}
+                    disabled={Boolean(retryingCampaignId)}
+                    className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {retryingCampaignId === campaign.id ? "Retrying..." : `Retry ${campaign.failedRecipients.length} failed`}
+                  </button>
+                )}
+              </div>
+              {campaign.failedRecipients.length > 0 && (
+                <details className="mt-3 border-t border-gray-100 pt-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-red-700">
+                    View failed recipients and errors
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-red-700">
+                    {campaign.results.filter((result) => !result.sent).map((result) => (
+                      <li key={result.email}>
+                        {result.email}{result.error ? ` — ${result.error}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );

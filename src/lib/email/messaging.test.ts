@@ -175,6 +175,34 @@ describe("email campaign service", () => {
       text: "From Tournament",
     });
     expect(result).toMatchObject({ sent: 1, failed: 1 });
+    expect(result.results[1]).toMatchObject({
+      email: "person2@example.com",
+      sent: false,
+      error: "SMTP failed",
+    });
+  });
+
+  it("reports every recipient as failed when SMTP verification fails", async () => {
+    const provider: EmailProvider = {
+      verifyConnection: vi.fn(async () => {
+        throw new Error("Connection unavailable");
+      }),
+      send: vi.fn(async () => undefined),
+    };
+    const result = await sendEmailCampaign(
+      provider,
+      [recipient(1), recipient(2)],
+      "Tournament",
+      undefined,
+      "Hello",
+      "Message"
+    );
+
+    expect(result).toMatchObject({ sent: 0, failed: 2 });
+    expect(result.results.every((item) =>
+      !item.sent && item.error === "Connection unavailable"
+    )).toBe(true);
+    expect(provider.send).not.toHaveBeenCalled();
   });
 
   it("rejects sends over 100 recipients before contacting the provider", async () => {
