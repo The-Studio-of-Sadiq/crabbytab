@@ -574,6 +574,7 @@ export function TournamentProvider({
   }, [tournament, user]);
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
+    if (!isOwnerOrAdmin) return;
     const timestamp = new Date().toISOString();
     const event: AuditEvent = {
       ...eventData,
@@ -1510,20 +1511,44 @@ export function TournamentProvider({
     setInstitutions(updated);
     persistLocal("institutions", updated);
     await setFirestoreDoc("institutions", newInst.id, newInst);
+    await recordAuditEvent({
+      action: "institution.created",
+      category: "tournament",
+      summary: `Institution ${newInst.name} added`,
+      details: { institutionId: newInst.id, name: newInst.name, code: newInst.code, region: newInst.region },
+    });
   };
 
   const updateInstitution = async (inst: Institution) => {
+    const previous = institutions.find((item) => item.id === inst.id);
     const updated = institutions.map((i) => (i.id === inst.id ? inst : i));
     setInstitutions(updated);
     persistLocal("institutions", updated);
     await setFirestoreDoc("institutions", inst.id, inst);
+    await recordAuditEvent({
+      action: "institution.updated",
+      category: "tournament",
+      summary: `Institution ${inst.name} updated`,
+      details: {
+        institutionId: inst.id,
+        previous: previous ? { name: previous.name, code: previous.code, region: previous.region } : undefined,
+        current: { name: inst.name, code: inst.code, region: inst.region },
+      },
+    });
   };
 
   const deleteInstitution = async (instId: string) => {
+    const deleted = institutions.find((item) => item.id === instId);
     const updated = institutions.filter((i) => i.id !== instId);
     setInstitutions(updated);
     persistLocal("institutions", updated);
     await deleteFirestoreDoc("institutions", instId);
+    await recordAuditEvent({
+      action: "institution.deleted",
+      category: "tournament",
+      summary: `Institution ${deleted?.name || instId} deleted`,
+      details: { institutionId: instId, name: deleted?.name },
+    });
   };
 
   const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
@@ -1537,20 +1562,62 @@ export function TournamentProvider({
     setTeams(updated);
     persistLocal("teams", updated);
     await setFirestoreDoc("teams", newTeam.id, newTeam);
+    await recordAuditEvent({
+      action: "team.created",
+      category: "tournament",
+      summary: `Team ${newTeam.name} added`,
+      details: {
+        teamId: newTeam.id,
+        name: newTeam.name,
+        institutionId: newTeam.institutionId,
+        breakCategories: newTeam.breakCategories,
+        speakerCount: newTeam.speakers.length,
+      },
+    });
   };
 
   const updateTeam = async (team: Team) => {
+    const previous = teams.find((item) => item.id === team.id);
     const updated = teams.map((t) => (t.id === team.id ? team : t));
     setTeams(updated);
     persistLocal("teams", updated);
     await setFirestoreDoc("teams", team.id, team);
+    await recordAuditEvent({
+      action: "team.updated",
+      category: "tournament",
+      summary: `Team ${team.name} updated`,
+      details: {
+        teamId: team.id,
+        previous: previous ? {
+          name: previous.name,
+          institutionId: previous.institutionId,
+          breakCategories: previous.breakCategories,
+          speakerCount: previous.speakers.length,
+          checkedIn: previous.checkedIn,
+        } : undefined,
+        current: {
+          name: team.name,
+          institutionId: team.institutionId,
+          breakCategories: team.breakCategories,
+          speakerCount: team.speakers.length,
+          checkedIn: team.checkedIn,
+        },
+      },
+    });
   };
 
   const deleteTeam = async (teamId: string) => {
+    const deleted = teams.find((item) => item.id === teamId);
     const updated = teams.filter((t) => t.id !== teamId);
     setTeams(updated);
     persistLocal("teams", updated);
     await deleteFirestoreDoc("teams", teamId);
+    await recordAuditEvent({
+      action: "team.deleted",
+      category: "tournament",
+      summary: `Team ${deleted?.name || teamId} deleted`,
+      details: { teamId, name: deleted?.name },
+    });
   };
 
   const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
@@ -1564,20 +1631,52 @@ export function TournamentProvider({
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
     await setFirestoreDoc("adjudicators", newAdj.id, newAdj);
+    await recordAuditEvent({
+      action: "adjudicator.created",
+      category: "tournament",
+      summary: `Adjudicator ${newAdj.name} added`,
+      details: {
+        adjudicatorId: newAdj.id,
+        name: newAdj.name,
+        institutionId: newAdj.institutionId,
+        baseScore: newAdj.baseScore,
+        trainee: newAdj.trainee,
+        independent: newAdj.independent,
+      },
+    });
   };
 
   const updateAdjudicator = async (adj: Adjudicator) => {
+    const previous = adjudicators.find((item) => item.id === adj.id);
     const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
     await setFirestoreDoc("adjudicators", adj.id, adj);
+    const safeAdj = ({ privateUrlKey: _privateUrlKey, ...safe }: Adjudicator) => safe;
+    await recordAuditEvent({
+      action: "adjudicator.updated",
+      category: "tournament",
+      summary: `Adjudicator ${adj.name} updated`,
+      details: {
+        adjudicatorId: adj.id,
+        previous: previous ? safeAdj(previous) : undefined,
+        current: safeAdj(adj),
+      },
+    });
   };
 
   const deleteAdjudicator = async (adjId: string) => {
+    const deleted = adjudicators.find((item) => item.id === adjId);
     const updated = adjudicators.filter((a) => a.id !== adjId);
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
     await deleteFirestoreDoc("adjudicators", adjId);
+    await recordAuditEvent({
+      action: "adjudicator.deleted",
+      category: "tournament",
+      summary: `Adjudicator ${deleted?.name || adjId} deleted`,
+      details: { adjudicatorId: adjId, name: deleted?.name },
+    });
   };
 
   const addVenue = async (venueData: Omit<Venue, "id" | "tournamentId">) => {
@@ -1590,20 +1689,44 @@ export function TournamentProvider({
     setVenues(updated);
     persistLocal("venues", updated);
     await setFirestoreDoc("venues", newVenue.id, newVenue);
+    await recordAuditEvent({
+      action: "venue.created",
+      category: "venue",
+      summary: `Venue ${newVenue.name} added`,
+      details: { venueId: newVenue.id, name: newVenue.name, priority: newVenue.priority, category: newVenue.category },
+    });
   };
 
   const updateVenue = async (venue: Venue) => {
+    const previous = venues.find((item) => item.id === venue.id);
     const updated = venues.map((v) => (v.id === venue.id ? venue : v));
     setVenues(updated);
     persistLocal("venues", updated);
     await setFirestoreDoc("venues", venue.id, venue);
+    await recordAuditEvent({
+      action: "venue.updated",
+      category: "venue",
+      summary: `Venue ${venue.name} updated`,
+      details: {
+        venueId: venue.id,
+        previous: previous ? { name: previous.name, priority: previous.priority, category: previous.category, available: previous.available } : undefined,
+        current: { name: venue.name, priority: venue.priority, category: venue.category, available: venue.available },
+      },
+    });
   };
 
   const deleteVenue = async (venueId: string) => {
+    const deleted = venues.find((item) => item.id === venueId);
     const updated = venues.filter((v) => v.id !== venueId);
     setVenues(updated);
     persistLocal("venues", updated);
     await deleteFirestoreDoc("venues", venueId);
+    await recordAuditEvent({
+      action: "venue.deleted",
+      category: "venue",
+      summary: `Venue ${deleted?.name || venueId} deleted`,
+      details: { venueId, name: deleted?.name },
+    });
   };
 
   const addMotion = async (motionData: Omit<Motion, "id" | "tournamentId">) => {
@@ -1616,9 +1739,21 @@ export function TournamentProvider({
     setMotions(updated);
     persistLocal("motions", updated);
     await setFirestoreDoc("motions", newMotion.id, newMotion);
+    await recordAuditEvent({
+      action: "motion.created",
+      category: "tournament",
+      summary: "Motion added",
+      details: {
+        motionId: newMotion.id,
+        reference: newMotion.reference,
+        roundIds: newMotion.rounds,
+        released: newMotion.released,
+      },
+    });
   };
 
   const updateMotion = async (motion: Motion) => {
+    const previous = motions.find((item) => item.id === motion.id);
     if (db && tournament?.id) {
       await setDoc(
         doc(db, "tournaments", tournament.id, "motions", motion.id),
@@ -1628,16 +1763,34 @@ export function TournamentProvider({
     const updated = motions.map((m) => (m.id === motion.id ? motion : m));
     setMotions(updated);
     persistLocal("motions", updated);
+    await recordAuditEvent({
+      action: "motion.updated",
+      category: "tournament",
+      summary: "Motion updated",
+      details: {
+        motionId: motion.id,
+        previous: previous ? { reference: previous.reference, rounds: previous.rounds, released: previous.released } : undefined,
+        current: { reference: motion.reference, rounds: motion.rounds, released: motion.released },
+      },
+    });
   };
 
   const deleteMotion = async (motionId: string) => {
+    const deleted = motions.find((item) => item.id === motionId);
     const updated = motions.filter((m) => m.id !== motionId);
     setMotions(updated);
     persistLocal("motions", updated);
     await deleteFirestoreDoc("motions", motionId);
+    await recordAuditEvent({
+      action: "motion.deleted",
+      category: "tournament",
+      summary: "Motion deleted",
+      details: { motionId, reference: deleted?.reference, roundIds: deleted?.rounds },
+    });
   };
 
   const saveBreakCategories = async (cats: BreakCategory[]) => {
+    const previousById = new Map(breakCategories.map((category) => [category.id, category]));
     setBreakCategories(cats);
     persistLocal("breaks", cats);
     if (db && tournament?.id) {
@@ -1647,6 +1800,66 @@ export function TournamentProvider({
         ops.push((batch) => batch.set(ref, c));
       }
       await commitChunkedBatches(ops);
+    }
+    const changes: Record<string, unknown>[] = [];
+    cats.forEach((category) => {
+      const previous = previousById.get(category.id);
+      if (!previous) {
+        changes.push({
+          type: "created",
+          category: {
+            categoryId: category.id,
+            name: category.name,
+            breakSize: category.breakSize,
+            reserveSize: category.reserveSize,
+            priority: category.priority,
+            isGeneral: category.isGeneral,
+          },
+        });
+        return;
+      }
+      if (
+        previous.name !== category.name ||
+        previous.breakSize !== category.breakSize ||
+        previous.reserveSize !== category.reserveSize ||
+        previous.priority !== category.priority ||
+        previous.isGeneral !== category.isGeneral
+      ) {
+        changes.push({
+          type: "updated",
+          categoryId: category.id,
+          previous: {
+            name: previous.name,
+            breakSize: previous.breakSize,
+            reserveSize: previous.reserveSize,
+            priority: previous.priority,
+            isGeneral: previous.isGeneral,
+          },
+          current: {
+            name: category.name,
+            breakSize: category.breakSize,
+            reserveSize: category.reserveSize,
+            priority: category.priority,
+            isGeneral: category.isGeneral,
+          },
+        });
+      }
+    });
+    const deleted = breakCategories.filter((category) => !cats.some((next) => next.id === category.id));
+    if (changes.length || deleted.length) {
+      await recordAuditEvent({
+        action: "break.categories_updated",
+        category: "break",
+        summary: "Break categories updated",
+        details: {
+          changes,
+          deleted: deleted.map((category) => ({
+            categoryId: category.id,
+            name: category.name,
+            breakSize: category.breakSize,
+          })),
+        },
+      });
     }
   };
 
@@ -1860,6 +2073,18 @@ export function TournamentProvider({
         }
       }
       await commitChunkedBatches(ops);
+    }
+    if (teamsChanged || adjsChanged) {
+      await recordAuditEvent({
+        action: "private_urls.regenerated",
+        category: "tournament",
+        summary: "Private access URLs generated",
+        details: {
+          forceRegenerate,
+          teamsUpdated: updatedTeams.filter((team) => forceRegenerate || !teams.find((old) => old.id === team.id)?.privateUrlKey).length,
+          adjudicatorsUpdated: updatedAdjs.filter((adj) => forceRegenerate || !adjudicators.find((old) => old.id === adj.id)?.privateUrlKey).length,
+        },
+      });
     }
   };
 

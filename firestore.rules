@@ -29,7 +29,7 @@ service cloud.firestore {
       // Audit events are append-only; only tournament administrators may read them.
       match /auditEvents/{eventId} {
         allow read: if isTournamentAdmin();
-        allow create: if request.auth != null &&
+        allow create: if isTournamentAdmin() &&
           request.resource.data.actorId == request.auth.uid &&
           request.resource.data.actorType == "user" &&
           request.resource.data.id == eventId &&
