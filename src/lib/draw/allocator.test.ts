@@ -202,6 +202,51 @@ describe("Adjudicator Allocator Preferences", () => {
       .toEqual([panelHigh.id]);
   });
 
+  it("avoids historical repeats between panellists on the same panel", () => {
+    const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debate = createDebate("d1", teams);
+    const chair = createAdj("chair", "Chair");
+    const panelA = createAdj("panel-a", "Panel A");
+    const panelB = createAdj("panel-b", "Panel B");
+    const panelC = createAdj("panel-c", "Panel C");
+    const pastDebate = createDebate("past", [createTeam("past-team", "Past Team")]);
+    pastDebate.adjudicators = {
+      chairId: "past-chair",
+      chairName: "Past Chair",
+      panellistIds: [panelA.id, panelB.id],
+      panellistNames: [panelA.name, panelB.name],
+      traineeIds: [],
+      traineeNames: [],
+    };
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      teamsMap,
+      [chair, panelA, panelB, panelC],
+      new Map(),
+      {
+        panelSize: 3,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [pastDebate],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 2,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(result[0].chairId).toBe(chair.id);
+    expect(result[0].panellistIds).toHaveLength(2);
+    expect(result[0].panellistIds).not.toEqual([panelA.id, panelB.id]);
+  });
+
   it("getAllocationWeights reflects configured penalties", () => {
     const customPrefs: TournamentPreferences = {
       adjConflictPenalty: 500_000,

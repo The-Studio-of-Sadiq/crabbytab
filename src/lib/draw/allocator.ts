@@ -765,7 +765,76 @@ export function autoAllocateAdjudicators(
       );
     });
 
-    const panelMatching = solveHungarian(panelCostMatrix);
+    const panelSlotsByDebate = new Map<string, number[]>();
+    panelSlots.forEach((debate, slotIdx) => {
+      const slots = panelSlotsByDebate.get(debate.id) ?? [];
+      slots.push(slotIdx);
+      panelSlotsByDebate.set(debate.id, slots);
+    });
+
+    const panelAssignmentCost = (assignment: number[]) => {
+      let total = 0;
+      assignment.forEach((adjIdx, slotIdx) => {
+        if (adjIdx >= 0) total += panelCostMatrix[slotIdx][adjIdx];
+      });
+
+      for (const slotIndices of panelSlotsByDebate.values()) {
+        for (let i = 0; i < slotIndices.length; i++) {
+          const firstAdjIdx = assignment[slotIndices[i]];
+          if (firstAdjIdx < 0) continue;
+          for (let j = i + 1; j < slotIndices.length; j++) {
+            const secondAdjIdx = assignment[slotIndices[j]];
+            if (secondAdjIdx < 0) continue;
+            const key = [
+              remainingNonTrainees[firstAdjIdx].id,
+              remainingNonTrainees[secondAdjIdx].id,
+            ].sort().join(":");
+            total += (pastPanelHistory.get(key) ?? 0) * weights.REPEAT_PANEL;
+          }
+        }
+      }
+      return total;
+    };
+
+    const panelMatching = solveHungarian(panelCostMatrix).map((adjIdx) =>
+      adjIdx >= 0 && adjIdx < remainingNonTrainees.length ? adjIdx : -1
+    );
+
+    // Pairwise repeat-panel penalties are not separable in the Hungarian matrix.
+    // Improve its global assignment by accepting cost-reducing replacements/swaps.
+    let currentPanelCost = panelAssignmentCost(panelMatching);
+    while (true) {
+      let bestCost = currentPanelCost;
+      let bestAssignment: number[] | undefined;
+      const slotByAdj = new Map<number, number>();
+      panelMatching.forEach((adjIdx, slotIdx) => {
+        if (adjIdx >= 0) slotByAdj.set(adjIdx, slotIdx);
+      });
+
+      for (let slotIdx = 0; slotIdx < panelMatching.length; slotIdx++) {
+        const currentAdjIdx = panelMatching[slotIdx];
+        for (let candidateIdx = 0; candidateIdx < remainingNonTrainees.length; candidateIdx++) {
+          if (candidateIdx === currentAdjIdx) continue;
+          const candidateSlot = slotByAdj.get(candidateIdx);
+          const candidateAssignment = [...panelMatching];
+          candidateAssignment[slotIdx] = candidateIdx;
+          if (candidateSlot !== undefined) {
+            candidateAssignment[candidateSlot] = currentAdjIdx;
+          }
+
+          const candidateCost = panelAssignmentCost(candidateAssignment);
+          if (candidateCost < bestCost) {
+            bestCost = candidateCost;
+            bestAssignment = candidateAssignment;
+          }
+        }
+      }
+
+      if (!bestAssignment) break;
+      panelMatching.splice(0, panelMatching.length, ...bestAssignment);
+      currentPanelCost = bestCost;
+    }
+
     panelSlots.forEach((debate, slotIdx) => {
       const adjIdx = panelMatching[slotIdx];
       if (adjIdx === undefined || adjIdx < 0 || adjIdx >= remainingNonTrainees.length) return;
