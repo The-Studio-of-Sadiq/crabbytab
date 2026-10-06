@@ -298,12 +298,16 @@ export function effectiveAdjScore(
   return adj.baseScore || 5;
 }
 
+export function isFeedbackEligibleForRating(submission: FeedbackSubmission): boolean {
+  return submission.confirmed && Number.isFinite(submission.score);
+}
+
 export function calculateAdjudicatorFeedbackScores(
   submissions: FeedbackSubmission[]
 ): Map<string, number> {
   const totals = new Map<string, { total: number; count: number }>();
   for (const submission of submissions) {
-    if (!submission.confirmed || !Number.isFinite(submission.score)) continue;
+    if (!isFeedbackEligibleForRating(submission)) continue;
 
     const current = totals.get(submission.targetAdjudicatorId) ?? { total: 0, count: 0 };
     current.total += submission.score;

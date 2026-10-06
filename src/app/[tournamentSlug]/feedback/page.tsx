@@ -13,6 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { isFeedbackEligibleForRating } from "@/lib/draw/allocator";
 
 export default function FeedbackPage() {
   const { tournament, adjudicators, feedback, addFeedback } = useTournament();
@@ -72,8 +73,9 @@ export default function FeedbackPage() {
     setShowModal(false);
   };
 
+  const ratingFeedback = feedback.filter(isFeedbackEligibleForRating);
   const adjFeedbackMap = new Map<string, { totalScore: number; count: number; agrees: number }>();
-  feedback.forEach((f) => {
+  ratingFeedback.forEach((f) => {
     if (!adjFeedbackMap.has(f.targetAdjudicatorId)) {
       adjFeedbackMap.set(f.targetAdjudicatorId, { totalScore: 0, count: 0, agrees: 0 });
     }
@@ -143,9 +145,9 @@ export default function FeedbackPage() {
         <div className="bg-white border border-[#d0d7de] p-4 rounded-lg">
           <span className="text-xs font-semibold text-gray-500 uppercase">Average Score</span>
           <div className="text-2xl font-bold text-gray-900 mt-1">
-            {feedback.length > 0
+            {ratingFeedback.length > 0
               ? (
-                  feedback.reduce((sum, f) => sum + f.score, 0) / feedback.length
+                  ratingFeedback.reduce((sum, f) => sum + f.score, 0) / ratingFeedback.length
                 ).toFixed(2)
               : "—"}
           </div>

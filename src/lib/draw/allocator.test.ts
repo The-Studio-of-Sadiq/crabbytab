@@ -94,6 +94,60 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(calculateAdjudicatorFeedbackScores([]).size).toBe(0);
   });
 
+  it("uses historical feedback ratings when assigning chairs", () => {
+    const teamsMap = new Map<string, Team>();
+    const lowPriorityTeams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
+    const highPriorityTeams = [createTeam("t3", "T3"), createTeam("t4", "T4")];
+    [...lowPriorityTeams, ...highPriorityTeams].forEach((team) => teamsMap.set(team.id, team));
+
+    const lowPriorityDebate = createDebate("d1", lowPriorityTeams);
+    const highPriorityDebate = { ...createDebate("d2", highPriorityTeams), bracket: 2 };
+    const feedbackHigh = createAdj("adj-feedback-high", "Feedback High", 1);
+    const feedbackLow = createAdj("adj-feedback-low", "Feedback Low", 10);
+    const submissions: FeedbackSubmission[] = [
+      {
+        id: "fb-high", tournamentId: "t1", roundId: "r1", debateId: "d1",
+        targetAdjudicatorId: feedbackHigh.id, targetAdjudicatorName: feedbackHigh.name,
+        sourceType: "team", sourceId: "team-1", sourceName: "Team 1",
+        score: 10, confirmed: true, timestamp: "",
+      },
+      {
+        id: "fb-low", tournamentId: "t1", roundId: "r1", debateId: "d1",
+        targetAdjudicatorId: feedbackLow.id, targetAdjudicatorName: feedbackLow.name,
+        sourceType: "team", sourceId: "team-2", sourceName: "Team 2",
+        score: 1, confirmed: true, timestamp: "",
+      },
+    ];
+
+    const allocations = autoAllocateAdjudicators(
+      [lowPriorityDebate, highPriorityDebate],
+      teamsMap,
+      [feedbackHigh, feedbackLow],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 2,
+        completedRounds: 0,
+        isBP: false,
+        feedbackScores: calculateAdjudicatorFeedbackScores(submissions),
+      }
+    );
+
+    expect(allocations.find((allocation) => allocation.debateId === highPriorityDebate.id)?.chairId)
+      .toBe(feedbackHigh.id);
+    expect(allocations.find((allocation) => allocation.debateId === lowPriorityDebate.id)?.chairId)
+      .toBe(feedbackLow.id);
+  });
+
   it("getAllocationWeights reflects configured penalties", () => {
     const customPrefs: TournamentPreferences = {
       adjConflictPenalty: 500_000,
