@@ -3,6 +3,15 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Tournaments root collection
     match /tournaments/{tournamentId} {
+      function isTournamentAdmin() {
+        let tournament = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data;
+        return request.auth != null && (
+          tournament.ownerId == request.auth.uid ||
+          tournament.ownerId == "director" ||
+          (tournament.admins != null && tournament.admins[request.auth.uid] == true)
+        );
+      }
+
       allow read: if true; // Public can view tournament metadata (draws, results, standings)
       allow create: if request.auth != null; // Authenticated user can create tournament
       allow update, delete: if request.auth != null && (
@@ -11,10 +20,27 @@ service cloud.firestore {
         resource.data.ownerId == "director"
       );
 
-      // Subcollections under a tournament
-      match /{document=**} {
-        allow read: if true; // Public can read public subcollections (draws, results, motions, standings)
-        allow write: if request.auth != null; // Admins and judges (or with auth tokens) can write
+      // Direct subcollections under a tournament
+      match /{collection}/{document} {
+        allow read: if collection != "auditEvents";
+        allow write: if collection != "auditEvents" && request.auth != null;
+      }
+
+      // Audit events are append-only; only tournament administrators may read them.
+      match /auditEvents/{eventId} {
+        allow read: if isTournamentAdmin();
+        allow create: if request.auth != null &&
+          request.resource.data.actorId == request.auth.uid &&
+          request.resource.data.actorType == "user" &&
+          request.resource.data.id == eventId &&
+          request.resource.data.tournamentId == tournamentId;
+        allow update, delete: if false;
+      }
+
+      // Legacy bundled tournament data remains publicly readable.
+      match /data/{document} {
+        allow read: if true;
+        allow write: if request.auth != null;
       }
     }
 

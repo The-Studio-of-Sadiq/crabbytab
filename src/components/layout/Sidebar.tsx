@@ -25,6 +25,7 @@ import {
   Eye,
   Key,
   Mail,
+  History,
 } from "lucide-react";
 
 function NavLink({
@@ -224,6 +225,9 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           <NavLink href={`/${tournamentSlug}/standings`} icon={Trophy} label="Standings" />
           <NavLink href={`/${tournamentSlug}/break`} icon={Award} label="Break" />
           <NavLink href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
+          {isOwnerOrAdmin && (
+            <NavLink href={`/${tournamentSlug}/audit`} icon={History} label="Audit log" />
+          )}
         </div>
 
         <div className="space-y-0.5">

@@ -141,6 +141,32 @@ export interface Tournament {
   migratedAt?: string;
 }
 
+export type AuditCategory =
+  | "tournament"
+  | "draw"
+  | "allocation"
+  | "ballot"
+  | "standings"
+  | "break"
+  | "feedback"
+  | "email"
+  | "venue";
+
+export interface AuditEvent {
+  id: string;
+  tournamentId: string;
+  timestamp: string;
+  actorId?: string;
+  actorName?: string;
+  actorType: "user" | "system" | "public";
+  action: string;
+  category: AuditCategory;
+  roundId?: string;
+  debateId?: string;
+  summary: string;
+  details?: Record<string, unknown>;
+}
+
 export type RoundStage = "preliminary" | "elimination";
 export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual";
 export type DrawStatus = "none" | "draft" | "confirmed" | "released";
