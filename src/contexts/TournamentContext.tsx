@@ -86,16 +86,16 @@ export interface TournamentContextType {
   autoAllocate: (roundId: string, panelSize?: number) => Promise<void>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
-  submitBallot: (ballot: BallotSubmission) => Promise<void>;
+  submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
   confirmBallot: (ballotId: string, debateId: string, submittedBallot?: BallotSubmission) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
-  updateTeam: (team: Team) => Promise<void>;
+  updateTeam: (team: Team, privatePasscode?: string) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
   addAdjudicator: (adj: Omit<Adjudicator, "id" | "tournamentId">) => Promise<void>;
-  updateAdjudicator: (adj: Adjudicator) => Promise<void>;
+  updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
   addVenue: (venue: Omit<Venue, "id" | "tournamentId">) => Promise<void>;
   updateVenue: (venue: Venue) => Promise<void>;
@@ -106,7 +106,10 @@ export interface TournamentContextType {
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
   generateBreak: (categoryId: string) => Promise<Round | null>;
   proceedToNextEliminationRound: (roundId: string) => Promise<Round | null>;
-  addFeedback: (fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => Promise<void>;
+  addFeedback: (
+    fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">,
+    privatePasscode?: string
+  ) => Promise<void>;
   recordAuditEvent: (event: {
     action: string;
     category: AuditCategory;
@@ -121,6 +124,34 @@ export interface TournamentContextType {
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
 const BATCH_CHUNK_SIZE = 400;
+
+async function submitParticipantAction<T>(
+  tournamentSlug: string,
+  privatePasscode: string,
+  action: string,
+  payload: unknown
+): Promise<T> {
+  const response = await fetch(`/api/private/${encodeURIComponent(tournamentSlug)}/portal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passcode: privatePasscode, action, payload }),
+  });
+  const responseBody: unknown = await response.json();
+  if (!response.ok) {
+    const message =
+      typeof responseBody === "object" &&
+      responseBody !== null &&
+      "error" in responseBody &&
+      typeof responseBody.error === "string"
+        ? responseBody.error
+        : "Participant action could not be saved.";
+    throw new Error(message);
+  }
+  if (typeof responseBody !== "object" || responseBody === null) {
+    throw new Error("The server returned an invalid participant action response.");
+  }
+  return responseBody as T;
+}
 
 /**
  * Recursively removes any object keys whose value is undefined, which Firestore rejects.
@@ -1290,7 +1321,38 @@ export function TournamentProvider({
     }
   };
 
-  const submitBallot = async (ballot: BallotSubmission) => {
+  const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
+    if (privatePasscode) {
+      const { ballot: savedBallot, debate: savedDebate } =
+        await submitParticipantAction<{ ballot: BallotSubmission; debate: Debate }>(
+          tournamentSlug,
+          privatePasscode,
+          "ballot",
+          ballot
+        );
+      const updatedBallots = [
+        ...ballots.filter((item) => item.debateId !== savedBallot.debateId),
+        savedBallot,
+      ];
+      setBallots(updatedBallots);
+      persistLocal("ballots", updatedBallots);
+
+      const updatedDebates = debates.map((item) =>
+        item.id === savedDebate.id ? savedDebate : item
+      );
+      setDebates(updatedDebates);
+      persistLocal("debates", updatedDebates);
+
+      const updatedRounds = rounds.map((round) =>
+        round.id === savedBallot.roundId
+          ? { ...round, resultsReleased: false, teamSpeaksReleased: false }
+          : round
+      );
+      setRounds(updatedRounds);
+      persistLocal("rounds", updatedRounds);
+      return;
+    }
+
     // If ballot already exists with same id or debateId
     const existingIdx = ballots.findIndex((b) => b.id === ballot.id || (!ballot.id && b.debateId === ballot.debateId));
     let updatedBallots: BallotSubmission[];
@@ -1576,11 +1638,20 @@ export function TournamentProvider({
     });
   };
 
-  const updateTeam = async (team: Team) => {
+  const updateTeam = async (team: Team, privatePasscode?: string) => {
+    if (privatePasscode) {
+      await submitParticipantAction(
+        tournamentSlug,
+        privatePasscode,
+        "team-check-in",
+        { checkedIn: Boolean(team.checkedIn) }
+      );
+    }
     const previous = teams.find((item) => item.id === team.id);
     const updated = teams.map((t) => (t.id === team.id ? team : t));
     setTeams(updated);
     persistLocal("teams", updated);
+    if (privatePasscode) return;
     await setFirestoreDoc("teams", team.id, team);
     await recordAuditEvent({
       action: "team.updated",
@@ -1646,11 +1717,20 @@ export function TournamentProvider({
     });
   };
 
-  const updateAdjudicator = async (adj: Adjudicator) => {
+  const updateAdjudicator = async (adj: Adjudicator, privatePasscode?: string) => {
+    if (privatePasscode) {
+      await submitParticipantAction(
+        tournamentSlug,
+        privatePasscode,
+        "adjudicator-check-in",
+        { checkedIn: Boolean(adj.checkedIn) }
+      );
+    }
     const previous = adjudicators.find((item) => item.id === adj.id);
     const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
+    if (privatePasscode) return;
     await setFirestoreDoc("adjudicators", adj.id, adj);
     const safeAdj = ({ privateUrlKey: _privateUrlKey, ...safe }: Adjudicator) => safe;
     await recordAuditEvent({
@@ -2002,7 +2082,24 @@ export function TournamentProvider({
     return nextRound;
   };
 
-  const addFeedback = async (fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">) => {
+  const addFeedback = async (
+    fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">,
+    privatePasscode?: string
+  ) => {
+    if (privatePasscode) {
+      const { feedback: savedFeedback } =
+        await submitParticipantAction<{ feedback: FeedbackSubmission }>(
+          tournamentSlug,
+          privatePasscode,
+          fbData.sourceType === "team" ? "team-feedback" : "adjudicator-feedback",
+          fbData
+        );
+      const updated = [...feedback, savedFeedback];
+      setFeedback(updated);
+      persistLocal("feedback", updated);
+      return;
+    }
+
     const newFb: FeedbackSubmission = {
       ...fbData,
       id: `fb-${Date.now()}`,

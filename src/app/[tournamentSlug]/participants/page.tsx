@@ -473,15 +473,17 @@ export default function ParticipantsPage() {
                       </span>
                     </td>
                     <td className="text-right space-x-1">
-                      <Link
-                        href={`/${tournamentSlug}/private/team/${team.privateUrlKey || team.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1 text-gray-400 hover:text-emerald-600 rounded transition inline-block align-middle"
-                        title="Open Team Private Portal"
-                      >
-                        <Key className="w-3.5 h-3.5" />
-                      </Link>
+                      {team.privateUrlKey && (
+                        <Link
+                          href={`/${tournamentSlug}/private/team/${team.privateUrlKey}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 text-gray-400 hover:text-emerald-600 rounded transition inline-block align-middle"
+                          title="Open Team Private Portal"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                        </Link>
+                      )}
                       <button
                         onClick={() => setEditingTeam(team)}
                         className="p-1 text-gray-400 hover:text-blue-600 rounded transition"
@@ -567,15 +569,17 @@ export default function ParticipantsPage() {
                       </span>
                     </td>
                     <td className="text-right space-x-1">
-                      <Link
-                        href={`/${tournamentSlug}/private/adjudicator/${adj.privateUrlKey || adj.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1 text-gray-400 hover:text-blue-600 rounded transition inline-block align-middle"
-                        title="Open Adjudicator Private Portal"
-                      >
-                        <Key className="w-3.5 h-3.5" />
-                      </Link>
+                      {adj.privateUrlKey && (
+                        <Link
+                          href={`/${tournamentSlug}/private/adjudicator/${adj.privateUrlKey}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 text-gray-400 hover:text-blue-600 rounded transition inline-block align-middle"
+                          title="Open Adjudicator Private Portal"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                        </Link>
+                      )}
                       <button
                         onClick={() => setEditingAdj(adj)}
                         className="p-1 text-gray-400 hover:text-indigo-600 rounded transition"

@@ -40,11 +40,9 @@ export default function TeamPrivatePortalPage() {
     updateTeam,
   } = useTournament();
 
-  // Find team by privateUrlKey or id
+  // The unique private URL key is the team's passcode.
   const team = useMemo(() => {
-    return teams.find(
-      (t) => t.privateUrlKey === privateKey || t.id === privateKey
-    );
+    return teams.find((t) => t.privateUrlKey === privateKey);
   }, [teams, privateKey]);
 
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
@@ -73,14 +71,18 @@ export default function TeamPrivatePortalPage() {
 
   // Check-in toggle
   const [isUpdatingCheckIn, setIsUpdatingCheckIn] = useState(false);
+  const [checkInError, setCheckInError] = useState("");
   const handleToggleCheckIn = async () => {
     if (!team) return;
     setIsUpdatingCheckIn(true);
+    setCheckInError("");
     try {
       await updateTeam({
         ...team,
         checkedIn: !team.checkedIn,
-      });
+      }, privateKey);
+    } catch (error) {
+      setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
     } finally {
       setIsUpdatingCheckIn(false);
     }
@@ -176,14 +178,14 @@ export default function TeamPrivatePortalPage() {
         agreeWithDecision: feedbackAgree,
         comments: feedbackComments.trim(),
         confirmed: true,
-      });
+      }, privateKey);
       setShowFeedbackModal(false);
       setFeedbackSuccessNotice(
         `Feedback for ${feedbackTargetAdjName} (${feedbackTargetAdjRole}) was recorded successfully.`
       );
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
-    } catch {
-      setFeedbackError("Failed to submit feedback. Please try again.");
+    } catch (error) {
+      setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
     } finally {
       setFeedbackSubmitting(false);
     }
@@ -284,6 +286,9 @@ export default function TeamPrivatePortalPage() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {checkInError && (
+          <p role="alert" className="text-xs text-red-700">{checkInError}</p>
+        )}
         {/* Success Notices */}
         {feedbackSuccessNotice && (
           <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">

@@ -18,8 +18,9 @@ export function TournamentChrome({
   const { user, loading } = useAuth();
 
   const isPublic = pathname?.includes("/public");
+  const isParticipantPortal = pathname?.includes("/private/");
   const isDisplay = pathname?.includes("/display");
-  const isStaff = !isPublic;
+  const isStaff = !isPublic && !isParticipantPortal;
 
   useEffect(() => {
     if (loading || !isStaff) return;
@@ -29,7 +30,7 @@ export function TournamentChrome({
     }
   }, [loading, isStaff, user, pathname, router, tournamentSlug]);
 
-  if (isPublic) {
+  if (isPublic || isParticipantPortal) {
     return <>{children}</>;
   }
 

@@ -3,12 +3,19 @@
  */
 
 export function generatePrivateKey(prefix = ""): string {
-  // 12-char secure unguessable alphanumeric key
   const chars = "abcdefghjkmnpqrstuvwxyz23456789";
   let result = prefix ? `${prefix}_` : "";
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+
+  while (result.length < (prefix ? prefix.length + 1 : 0) + 12) {
+    const randomValues = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(randomValues);
+    for (const value of randomValues) {
+      if (value >= 248) continue;
+      result += chars[value % chars.length];
+      if (result.length === (prefix ? prefix.length + 1 : 0) + 12) break;
+    }
   }
+
   return result;
 }
 

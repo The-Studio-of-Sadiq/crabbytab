@@ -99,14 +99,16 @@ export default function PrivateUrlsManagementPage() {
     if (activeTab === "adjudicators") {
       lines.push("Name\tInstitution\tRole\tPrivate URL");
       filteredAdjudicators.forEach((a) => {
-        const key = a.privateUrlKey || a.id;
+        const key = a.privateUrlKey;
+        if (!key) return;
         const url = getAbsolutePrivateUrl(tournamentSlug, "adjudicator", key);
         lines.push(`${a.name}\t${a.institutionName || "Unaffiliated"}\t${a.trainee ? "Trainee" : "Judge"}\t${url}`);
       });
     } else {
       lines.push("Team Name\tInstitution\tSpeakers\tPrivate URL");
       filteredTeams.forEach((t) => {
-        const key = t.privateUrlKey || t.id;
+        const key = t.privateUrlKey;
+        if (!key) return;
         const url = getAbsolutePrivateUrl(tournamentSlug, "team", key);
         const spks = (t.speakers || []).map((s) => s.name).join(", ");
         lines.push(`${t.name}\t${t.institutionName || "Unaffiliated"}\t${spks}\t${url}`);
@@ -253,9 +255,9 @@ export default function PrivateUrlsManagementPage() {
                   </tr>
                 ) : (
                   filteredAdjudicators.map((adj) => {
-                    const key = adj.privateUrlKey || adj.id;
-                    const fullUrl = getAbsolutePrivateUrl(tournamentSlug, "adjudicator", key);
-                    const path = getAdjudicatorPrivatePath(tournamentSlug, key);
+                    const key = adj.privateUrlKey;
+                    const fullUrl = key ? getAbsolutePrivateUrl(tournamentSlug, "adjudicator", key) : "";
+                    const path = key ? getAdjudicatorPrivatePath(tournamentSlug, key) : "";
                     const isCopied = copiedKey === adj.id;
 
                     return (
@@ -290,7 +292,7 @@ export default function PrivateUrlsManagementPage() {
                         <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
                           <div className="flex items-center space-x-1.5 max-w-xs truncate">
                             <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path}
+                              {path || "Generating passcode…"}
                             </span>
                           </div>
                         </td>
@@ -299,6 +301,7 @@ export default function PrivateUrlsManagementPage() {
                             <button
                               type="button"
                               onClick={() => handleCopy(fullUrl, adj.id)}
+                              disabled={!key}
                               className="px-2.5 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded text-xs font-medium flex items-center space-x-1 transition"
                               title="Copy full private link to clipboard"
                             >
@@ -315,15 +318,17 @@ export default function PrivateUrlsManagementPage() {
                               )}
                             </button>
 
-                            <Link
-                              href={path}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
-                              title="Open private portal as this adjudicator"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </Link>
+                            {key && (
+                              <Link
+                                href={path}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
+                                title="Open private portal as this adjudicator"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </Link>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -354,9 +359,9 @@ export default function PrivateUrlsManagementPage() {
                   </tr>
                 ) : (
                   filteredTeams.map((t) => {
-                    const key = t.privateUrlKey || t.id;
-                    const fullUrl = getAbsolutePrivateUrl(tournamentSlug, "team", key);
-                    const path = getTeamPrivatePath(tournamentSlug, key);
+                    const key = t.privateUrlKey;
+                    const fullUrl = key ? getAbsolutePrivateUrl(tournamentSlug, "team", key) : "";
+                    const path = key ? getTeamPrivatePath(tournamentSlug, key) : "";
                     const isCopied = copiedKey === t.id;
 
                     return (
@@ -371,7 +376,7 @@ export default function PrivateUrlsManagementPage() {
                         <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
                           <div className="flex items-center space-x-1.5 max-w-xs truncate">
                             <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path}
+                              {path || "Generating passcode…"}
                             </span>
                           </div>
                         </td>
@@ -380,6 +385,7 @@ export default function PrivateUrlsManagementPage() {
                             <button
                               type="button"
                               onClick={() => handleCopy(fullUrl, t.id)}
+                              disabled={!key}
                               className="px-2.5 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded text-xs font-medium flex items-center space-x-1 transition"
                               title="Copy full private link to clipboard"
                             >
@@ -396,15 +402,17 @@ export default function PrivateUrlsManagementPage() {
                               )}
                             </button>
 
-                            <Link
-                              href={path}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition"
-                              title="Open private portal as this team"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </Link>
+                            {key && (
+                              <Link
+                                href={path}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition"
+                                title="Open private portal as this team"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </Link>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -422,8 +430,8 @@ export default function PrivateUrlsManagementPage() {
         <div className="flex items-center space-x-2 text-gray-600">
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
           <span>
-            Private keys grant access to participant portals without needing a password. Never share
-            private URLs publicly.
+            Each private URL contains that participant&apos;s passcode. Anyone with the link can access
+            that portal, so distribute it privately.
           </span>
         </div>
 
