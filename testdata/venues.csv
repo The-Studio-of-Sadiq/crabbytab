@@ -1,0 +1,61 @@
+name,priority,category
+Senate Hall,100,Main
+Auditorium A,98,Main
+Auditorium B,95,Main
+Conference Hall,92,Main
+Grand Hall,90,Main
+Lecture Hall 1,88,Main
+Lecture Hall 2,86,Main
+Lecture Hall 3,84,Main
+Lecture Hall 4,82,Main
+Lecture Hall 5,80,Main
+Seminar Room 1,78,Main
+Seminar Room 2,76,Main
+Seminar Room 3,74,Main
+Seminar Room 4,72,Main
+Seminar Room 5,70,Main
+Debate Hall 1,68,Main
+Debate Hall 2,66,Main
+Debate Hall 3,64,Main
+Debate Hall 4,62,Main
+Debate Hall 5,60,Main
+Classroom A101,58,Standard
+Classroom A102,57,Standard
+Classroom A103,56,Standard
+Classroom A104,55,Standard
+Classroom A105,54,Standard
+Classroom B101,53,Standard
+Classroom B102,52,Standard
+Classroom B103,51,Standard
+Classroom B104,50,Standard
+Classroom B105,49,Standard
+Classroom C101,48,Standard
+Classroom C102,47,Standard
+Classroom C103,46,Standard
+Classroom C104,45,Standard
+Classroom C105,44,Standard
+Tutorial Room 1,43,Standard
+Tutorial Room 2,42,Standard
+Tutorial Room 3,41,Standard
+Tutorial Room 4,40,Standard
+Tutorial Room 5,39,Standard
+Accessible Room 1,38,Accessible
+Accessible Room 2,37,Accessible
+Accessible Room 3,36,Accessible
+Quiet Room 1,35,Quiet
+Quiet Room 2,34,Quiet
+Quiet Room 3,33,Quiet
+Online Room 1,32,Online
+Online Room 2,31,Online
+Online Room 3,30,Online
+Online Room 4,29,Online
+Online Room 5,28,Online
+Overflow Room 1,27,Overflow
+Overflow Room 2,26,Overflow
+Overflow Room 3,25,Overflow
+Faculty Room 1,24,Standard
+Faculty Room 2,23,Standard
+Faculty Room 3,22,Standard
+Meeting Room 1,21,Standard
+Meeting Room 2,20,Standard
+Meeting Room 3,19,Standard

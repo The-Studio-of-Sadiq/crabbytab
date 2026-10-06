@@ -1,0 +1,102 @@
+name,email,institution,score,trainee
+Arif Rahman,arif.adj01@example.com,University of Dhaka,9,false
+Nabila Islam,nabila.adj02@example.com,University of Dhaka,8,false
+Tanvir Hasan,tanvir.adj03@example.com,Bangladesh University of Engineering and Technology,10,false
+Farzana Karim,farzana.adj04@example.com,Bangladesh University of Engineering and Technology,9,false
+Sakib Ahmed,sakib.adj05@example.com,Jahangirnagar University,8,false
+Mim Rahman,mim.adj06@example.com,Jahangirnagar University,7,true
+Rafi Chowdhury,rafi.adj07@example.com,University of Chittagong,9,false
+Sumaiya Akter,sumaiya.adj08@example.com,University of Chittagong,8,true
+Mahin Rahman,mahin.adj09@example.com,University of Rajshahi,10,false
+Tanjila Ahmed,tanjila.adj10@example.com,University of Rajshahi,7,true
+Imtiaz Rahman,imtiaz.adj11@example.com,Khulna University,9,false
+Mehjabin Akter,mehjabin.adj12@example.com,Khulna University,8,false
+Rahat Islam,rahat.adj13@example.com,Bangladesh Agricultural University,7,true
+Nadia Rahman,nadia.adj14@example.com,Bangladesh Agricultural University,9,false
+Raihan Ahmed,raihan.adj15@example.com,Shahjalal University of Science and Technology,10,false
+Orin Rahman,orin.adj16@example.com,Shahjalal University of Science and Technology,8,true
+Adnan Hasan,adnan.adj17@example.com,Chittagong University of Engineering and Technology,9,false
+Tasnim Jahan,tasnim.adj18@example.com,Chittagong University of Engineering and Technology,7,true
+Nafis Rahman,nafis.adj19@example.com,Rajshahi University of Engineering and Technology,8,false
+Anika Islam,anika.adj20@example.com,Rajshahi University of Engineering and Technology,9,false
+Shafin Ahmed,shafin.adj21@example.com,Khulna University of Engineering and Technology,10,false
+Sadia Rahman,sadia.adj22@example.com,Khulna University of Engineering and Technology,8,true
+Fahim Hasan,fahim.adj23@example.com,Dhaka University of Engineering and Technology,9,false
+Mahi Akter,mahi.adj24@example.com,Dhaka University of Engineering and Technology,7,true
+Rashed Islam,rashed.adj25@example.com,Bangladesh University of Professionals,10,false
+Labiba Sultana,labiba.adj26@example.com,Bangladesh University of Professionals,8,false
+Sabbir Hasan,sabbir.adj27@example.com,Islamic University,7,true
+Nusrat Jahan,nusrat.adj28@example.com,Islamic University,9,false
+Tahmid Ahmed,tahmid.adj29@example.com,Jagannath University,8,false
+Brishti Rahman,brishti.adj30@example.com,Jagannath University,7,true
+Ayman Hasan,ayman.adj31@example.com,Comilla University,9,false
+Mahi Islam,mahi.adj32@example.com,Comilla University,8,false
+Fardin Ahmed,fardin.adj33@example.com,Barishal University,10,false
+Jannatul Akter,jannatul.adj34@example.com,Barishal University,7,true
+Shadman Islam,shadman.adj35@example.com,Begum Rokeya University, Rangpur,9,false
+Afia Rahman,afia.adj36@example.com,Begum Rokeya University, Rangpur,8,true
+Nayeem Hasan,nayeem.adj37@example.com,Noakhali Science and Technology University,9,false
+Tanjila Sultana,tanjila.adj38@example.com,Noakhali Science and Technology University,7,true
+Rafiul Islam,rafiul.adj39@example.com,Pabna University of Science and Technology,8,false
+Sumaiya Rahman,sumaiya.adj40@example.com,Pabna University of Science and Technology,9,false
+Shahriar Ahmed,shahriar.adj41@example.com,Jashore University of Science and Technology,10,false
+Mim Sultana,mim.adj42@example.com,Jashore University of Science and Technology,8,true
+Arman Hossain,arman.adj43@example.com,Hajee Mohammad Danesh Science and Technology University,9,false
+Nabila Sultana,nabila.adj44@example.com,Hajee Mohammad Danesh Science and Technology University,7,true
+Rifat Hasan,rifat.adj45@example.com,North South University,10,false
+Tasfia Rahman,tasfia.adj46@example.com,North South University,9,false
+Shuvo Ahmed,shuvo.adj47@example.com,BRAC University,8,true
+Maria Islam,maria.adj48@example.com,BRAC University,9,false
+Sakib Rahman,sakib.adj49@example.com,Daffodil International University,8,false
+Nusrat Akter,nusrat.adj50@example.com,University of Liberal Arts Bangladesh,7,true
+name,email,institution,score,trainee
+Adjudicator 51,adj51@example.com,University of Dhaka,9,false
+Adjudicator 52,adj52@example.com,North South University,8,false
+Adjudicator 53,adj53@example.com,BRAC University,10,false
+Adjudicator 54,adj54@example.com,Bangladesh University of Engineering and Technology,9,true
+Adjudicator 55,adj55@example.com,Jahangirnagar University,8,true
+Adjudicator 56,adj56@example.com,University of Chittagong,9,false
+Adjudicator 57,adj57@example.com,University of Rajshahi,8,true
+Adjudicator 58,adj58@example.com,Khulna University,10,false
+Adjudicator 59,adj59@example.com,Shahjalal University of Science and Technology,9,true
+Adjudicator 60,adj60@example.com,East West University,8,false
+Adjudicator 61,adj61@example.com,American International University-Bangladesh,9,true
+Adjudicator 62,adj62@example.com,United International University,8,false
+Adjudicator 63,adj63@example.com,Daffodil International University,10,false
+Adjudicator 64,adj64@example.com,Independent University, Bangladesh,9,true
+Adjudicator 65,adj65@example.com,Ahsanullah University of Science and Technology,8,false
+Adjudicator 66,adj66@example.com,University of Asia Pacific,9,true
+Adjudicator 67,adj67@example.com,International University of Business Agriculture and Technology,8,false
+Adjudicator 68,adj68@example.com,Stamford University Bangladesh,9,true
+Adjudicator 69,adj69@example.com,East Delta University,10,false
+Adjudicator 70,adj70@example.com,Premier University,8,true
+Adjudicator 71,adj71@example.com,University of Liberal Arts Bangladesh,9,false
+Adjudicator 72,adj72@example.com,Jagannath University,8,true
+Adjudicator 73,adj73@example.com,Comilla University,9,false
+Adjudicator 74,adj74@example.com,Barishal University,8,true
+Adjudicator 75,adj75@example.com,Begum Rokeya University, Rangpur,9,false
+Adjudicator 76,adj76@example.com,Jatiya Kabi Kazi Nazrul Islam University,8,true
+Adjudicator 77,adj77@example.com,Noakhali Science and Technology University,10,false
+Adjudicator 78,adj78@example.com,Pabna University of Science and Technology,9,false
+Adjudicator 79,adj79@example.com,Jessore University of Science and Technology,8,true
+Adjudicator 80,adj80@example.com,Patuakhali Science and Technology University,9,false
+Adjudicator 81,adj81@example.com,Mawlana Bhashani Science and Technology University,8,true
+Adjudicator 82,adj82@example.com,Hajee Mohammad Danesh Science and Technology University,10,false
+Adjudicator 83,adj83@example.com,Bangladesh University of Textiles,9,false
+Adjudicator 84,adj84@example.com,Sylhet Agricultural University,8,true
+Adjudicator 85,adj85@example.com,Chittagong Veterinary and Animal Sciences University,9,false
+Adjudicator 86,adj86@example.com,Bangladesh University of Professionals,10,false
+Adjudicator 87,adj87@example.com,Islamic University,8,false
+Adjudicator 88,adj88@example.com,Rangamati Science and Technology University,9,false
+Adjudicator 89,adj89@example.com,National University,8,false
+Adjudicator 90,adj90@example.com,Bangladesh Open University,9,false
+Adjudicator 91,adj91@example.com,Bangladesh University of Health Sciences,8,false
+Adjudicator 92,adj92@example.com,She-e-Bangla Agricultural University,9,false
+Adjudicator 93,adj93@example.com,Bangladesh University of Engineering and Technology,10,false
+Adjudicator 94,adj94@example.com,University of Dhaka,9,false
+Adjudicator 95,adj95@example.com,North South University,8,false
+Adjudicator 96,adj96@example.com,BRAC University,9,false
+Adjudicator 97,adj97@example.com,East West University,10,false
+Adjudicator 98,adj98@example.com,Daffodil International University,8,false
+Adjudicator 99,adj99@example.com,United International University,9,false
+Adjudicator 100,adj100@example.com,American International University-Bangladesh,8,false

@@ -1,0 +1,133 @@
+team-name,institution,speaker1,speaker1 email,speaker2,speaker 2 email,speaker3,speaker 3 email
+DU 1,"University of Dhaka",Arif Rahman,arif.du1@example.com,Nabila Islam,nabila.du1@example.com,Tanvir Hasan,tanvir.du1@example.com
+DU 2,"University of Dhaka",Sakib Ahmed,sakib.du2@example.com,Farzana Karim,farzana.du2@example.com,Rafi Chowdhury,rafi.du2@example.com
+DU 3,"University of Dhaka",Mehedi Hasan,mehedi.du3@example.com,Sadia Rahman,sadia.du3@example.com,Imran Hossain,imran.du3@example.com
+BUET 1,"Bangladesh University of Engineering and Technology",Adnan Kabir,adnan.buet1@example.com,Maliha Sultana,maliha.buet1@example.com,Rakib Hasan,rakib.buet1@example.com
+BUET 2,"Bangladesh University of Engineering and Technology",Nafis Rahman,nafis.buet2@example.com,Tasnim Akter,tasnim.buet2@example.com,Siam Ahmed,siam.buet2@example.com
+BUET 3,"Bangladesh University of Engineering and Technology",Fahim Chowdhury,fahim.buet3@example.com,Samia Islam,samia.buet3@example.com,Shafin Ahmed,shafin.buet3@example.com
+JU 1,"Jahangirnagar University",Arafat Hossain,arafat.ju1@example.com,Mim Rahman,mim.ju1@example.com,Shadman Islam,shadman.ju1@example.com
+JU 2,"Jahangirnagar University",Tahmid Hasan,tahmid.ju2@example.com,Anika Sultana,anika.ju2@example.com,Rayan Ahmed,rayan.ju2@example.com
+JU 3,"Jahangirnagar University",Nayeem Islam,nayeem.ju3@example.com,Jannatul Ferdous,jannatul.ju3@example.com,Saad Rahman,saad.ju3@example.com
+CU 1,"University of Chittagong",Sakib Hossain,sakib.cu1@example.com,Sumaiya Akter,sumaiya.cu1@example.com,Rafiul Islam,rafiul.cu1@example.com
+CU 2,"University of Chittagong",Mahin Rahman,mahin.cu2@example.com,Tanjila Ahmed,tanjila.cu2@example.com,Hasib Chowdhury,hasib.cu2@example.com
+CU 3,"University of Chittagong",Fardin Islam,fardin.cu3@example.com,Nusrat Jahan,nusrat.cu3@example.com,Adib Hasan,adib.cu3@example.com
+RU 1,"University of Rajshahi",Shakil Ahmed,shakil.ru1@example.com,Brishti Rahman,brishti.ru1@example.com,Rashed Islam,rashed.ru1@example.com
+RU 2,"University of Rajshahi",Sabbir Hossain,sabbir.ru2@example.com,Labiba Sultana,labiba.ru2@example.com,Rayhan Kabir,rayhan.ru2@example.com
+RU 3,"University of Rajshahi",Nafis Hasan,nafis.ru3@example.com,Mahira Islam,mahira.ru3@example.com,Saif Ahmed,saif.ru3@example.com
+KU 1,"Khulna University",Imtiaz Rahman,imtiaz.ku1@example.com,Mehjabin Akter,mehjabin.ku1@example.com,Shuvo Hasan,shuvo.ku1@example.com
+KU 2,"Khulna University",Rifat Islam,rifat.ku2@example.com,Tasfia Rahman,tasfia.ku2@example.com,Anik Chowdhury,anik.ku2@example.com
+KU 3,"Khulna University",Faisal Ahmed,faisal.ku3@example.com,Mahi Sultana,mahi.ku3@example.com,Tawhid Islam,tawhid.ku3@example.com
+BAU 1,"Bangladesh Agricultural University",Hasan Mahmud,hasan.bau1@example.com,Sharmin Akter,sharmin.bau1@example.com,Emon Hossain,emon.bau1@example.com
+BAU 2,"Bangladesh Agricultural University",Rahat Islam,rahat.bau2@example.com,Nadia Rahman,nadia.bau2@example.com,Shafin Hasan,shafin.bau2@example.com
+BAU 3,"Bangladesh Agricultural University",Jubair Ahmed,jubair.bau3@example.com,Afia Sultana,afia.bau3@example.com,Mehedi Islam,mehedi.bau3@example.com
+SUST 1,"Shahjalal University of Science and Technology",Raihan Ahmed,raihan.sust1@example.com,Orin Rahman,orin.sust1@example.com,Shakib Islam,shakib.sust1@example.com
+SUST 2,"Shahjalal University of Science and Technology",Abrar Hasan,abrar.sust2@example.com,Sumaiya Islam,sumaiya.sust2@example.com,Rafid Chowdhury,rafid.sust2@example.com
+SUST 3,"Shahjalal University of Science and Technology",Ayman Rahman,ayman.sust3@example.com,Nafisa Ahmed,nafisa.sust3@example.com,Siam Hossain,siam.sust3@example.com
+CUET 1,"Chittagong University of Engineering and Technology",Tanvir Ahmed,tanvir.cuet1@example.com,Maria Rahman,maria.cuet1@example.com,Shafin Islam,shafin.cuet1@example.com
+CUET 2,"Chittagong University of Engineering and Technology",Fahad Hasan,fahad.cuet2@example.com,Tasnim Jahan,tasnim.cuet2@example.com,Rakin Ahmed,rakin.cuet2@example.com
+CUET 3,"Chittagong University of Engineering and Technology",Adnan Islam,adnan.cuet3@example.com,Sadia Sultana,sadia.cuet3@example.com,Arman Hossain,arman.cuet3@example.com
+RUET 1,"Rajshahi University of Engineering and Technology",Sakib Rahman,sakib.ruet1@example.com,Anika Islam,anika.ruet1@example.com,Riad Hasan,riad.ruet1@example.com
+RUET 2,"Rajshahi University of Engineering and Technology",Nabil Ahmed,nabil.ruet2@example.com,Farha Rahman,farha.ruet2@example.com,Tahsin Islam,tahsin.ruet2@example.com
+RUET 3,"Rajshahi University of Engineering and Technology",Rahat Hasan,rahat.ruet3@example.com,Mahi Akter,mahi.ruet3@example.com,Arif Islam,arif.ruet3@example.com
+KUET 1,"Khulna University of Engineering and Technology",Shahriar Ahmed,shahriar.kuet1@example.com,Nusrat Rahman,nusrat.kuet1@example.com,Adib Hossain,adib.kuet1@example.com
+KUET 2,"Khulna University of Engineering and Technology",Fardin Hasan,fardin.kuet2@example.com,Mim Akter,mim.kuet2@example.com,Samiul Islam,samiul.kuet2@example.com
+KUET 3,"Khulna University of Engineering and Technology",Rafi Ahmed,rafi.kuet3@example.com,Tanjila Sultana,tanjila.kuet3@example.com,Nayeem Hasan,nayeem.kuet3@example.com
+DUET 1,"Dhaka University of Engineering and Technology",Mahin Ahmed,mahin.duet1@example.com,Samia Rahman,samia.duet1@example.com,Shadman Hasan,shadman.duet1@example.com
+DUET 2,"Dhaka University of Engineering and Technology",Rashed Islam,rashed.duet2@example.com,Labiba Akter,labiba.duet2@example.com,Fahim Rahman,fahim.duet2@example.com
+DUET 3,"Dhaka University of Engineering and Technology",Siam Ahmed,siam.duet3@example.com,Maria Islam,maria.duet3@example.com,Tawhid Hasan,tawhid.duet3@example.com
+BSMRAU 1,"Bangabandhu Sheikh Mujibur Rahman Agricultural University",Imran Ahmed,imran.bsmrau1@example.com,Brishti Akter,brishti.bsmrau1@example.com,Rafi Hasan,rafi.bsmrau1@example.com
+BSMRAU 2,"Bangabandhu Sheikh Mujibur Rahman Agricultural University",Nafis Islam,nafis.bsmrau2@example.com,Afia Rahman,afia.bsmrau2@example.com,Sabbir Ahmed,sabbir.bsmrau2@example.com
+BSMRAU 3,"Bangabandhu Sheikh Mujibur Rahman Agricultural University",Rayan Hasan,rayan.bsmrau3@example.com,Mahi Islam,mahi.bsmrau3@example.com,Shuvo Rahman,shuvo.bsmrau3@example.com
+SAU 1,"Sher-e-Bangla Agricultural University",Fahad Rahman,fahad.sau1@example.com,Tasfia Akter,tasfia.sau1@example.com,Emon Islam,emon.sau1@example.com
+SAU 2,"Sher-e-Bangla Agricultural University",Adnan Hasan,adnan.sau2@example.com,Nabila Ahmed,nabila.sau2@example.com,Rifat Islam,rifat.sau2@example.com
+SAU 3,"Sher-e-Bangla Agricultural University",Sakib Hossain,sakib.sau3@example.com,Sumaiya Rahman,sumaiya.sau3@example.com,Arman Islam,arman.sau3@example.com
+BSMRMU 1,"Bangabandhu Sheikh Mujibur Rahman Maritime University",Tahmid Ahmed,tahmid.bsmrmu1@example.com,Mim Rahman,mim.bsmrmu1@example.com,Rakib Islam,rakib.bsmrmu1@example.com
+BSMRMU 2,"Bangabandhu Sheikh Mujibur Rahman Maritime University",Nayeem Hasan,nayeem.bsmrmu2@example.com,Samia Akter,samia.bsmrmu2@example.com,Shafin Rahman,shafin.bsmrmu2@example.com
+BSMRMU 3,"Bangabandhu Sheikh Mujibur Rahman Maritime University",Rafiul Ahmed,rafiul.bsmrmu3@example.com,Tanjila Islam,tanjila.bsmrmu3@example.com,Adib Hasan,adib.bsmrmu3@example.com
+BUP 1,"Bangladesh University of Professionals",Arif Hossain,arif.bup1@example.com,Nafisa Rahman,nafisa.bup1@example.com,Siam Islam,siam.bup1@example.com
+BUP 2,"Bangladesh University of Professionals",Rahat Ahmed,rahat.bup2@example.com,Mehjabin Islam,mehjabin.bup2@example.com,Tanvir Hasan,tanvir.bup2@example.com
+BUP 3,"Bangladesh University of Professionals",Fardin Rahman,fardin.bup3@example.com,Jannatul Akter,jannatul.bup3@example.com,Shakil Islam,shakil.bup3@example.com
+IU 1,"Islamic University",Sabbir Rahman,sabbir.iu1@example.com,Maria Akter,maria.iu1@example.com,Hasib Islam,hasib.iu1@example.com
+IU 2,"Islamic University",Rafi Hasan,rafi.iu2@example.com,Tasnim Rahman,tasnim.iu2@example.com,Nabil Ahmed,nabil.iu2@example.com
+IU 3,"Islamic University",Mahin Islam,mahin.iu3@example.com,Brishti Sultana,brishti.iu3@example.com,Riad Hasan,riad.iu3@example.com
+JU 4,"Jagannath University",Sakib Ahmed,sakib.jnu1@example.com,Nusrat Islam,nusrat.jnu1@example.com,Adnan Rahman,adnan.jnu1@example.com
+JU 5,"Jagannath University",Fahim Hasan,fahim.jnu2@example.com,Anika Rahman,anika.jnu2@example.com,Rifat Ahmed,rifat.jnu2@example.com
+JU 6,"Jagannath University",Tahsin Islam,tahsin.jnu3@example.com,Sumaiya Akter,sumaiya.jnu3@example.com,Raihan Hasan,raihan.jnu3@example.com
+CoU 1,"Comilla University",Shadman Ahmed,shadman.cou1@example.com,Mahi Rahman,mahi.cou1@example.com,Samiul Islam,samiul.cou1@example.com
+CoU 2,"Comilla University",Rashed Hasan,rashed.cou2@example.com,Farzana Islam,farzana.cou2@example.com,Tawhid Ahmed,tawhid.cou2@example.com
+CoU 3,"Comilla University",Imran Rahman,imran.cou3@example.com,Tanjila Akter,tanjila.cou3@example.com,Nayeem Islam,nayeem.cou3@example.com
+BU 1,"Barishal University",Ayman Hasan,ayman.bu1@example.com,Sadia Rahman,sadia.bu1@example.com,Rafi Islam,rafi.bu1@example.com
+BU 2,"Barishal University",Nafis Ahmed,nafis.bu2@example.com,Mim Sultana,mim.bu2@example.com,Arman Hasan,arman.bu2@example.com
+BU 3,"Barishal University",Saad Rahman,saad.bu3@example.com,Nabila Islam,nabila.bu3@example.com,Shakib Hasan,shakib.bu3@example.com
+BRUR 1,"Begum Rokeya University, Rangpur",Rifat Rahman,rifat.brur1@example.com,Labiba Islam,labiba.brur1@example.com,Fahad Ahmed,fahad.brur1@example.com
+BRUR 2,"Begum Rokeya University, Rangpur",Sakib Hasan,sakib.brur2@example.com,Tasfia Rahman,tasfia.brur2@example.com,Raihan Islam,raihan.brur2@example.com
+BRUR 3,"Begum Rokeya University, Rangpur",Mahin Ahmed,mahin.brur3@example.com,Afia Sultana,afia.brur3@example.com,Shuvo Islam,shuvo.brur3@example.com
+JKKNIU 1,"Jatiya Kabi Kazi Nazrul Islam University",Nabil Hasan,nabil.jkkniu1@example.com,Sumaiya Rahman,sumaiya.jkkniu1@example.com,Rafi Ahmed,rafi.jkkniu1@example.com
+JKKNIU 2,"Jatiya Kabi Kazi Nazrul Islam University",Adib Islam,adib.jkkniu2@example.com,Nusrat Akter,nusrat.jkkniu2@example.com,Tanvir Rahman,tanvir.jkkniu2@example.com
+JKKNIU 3,"Jatiya Kabi Kazi Nazrul Islam University",Faisal Hasan,faisal.jkkniu3@example.com,Maria Sultana,maria.jkkniu3@example.com,Rayan Islam,rayan.jkkniu3@example.com
+NSTU 1,"Noakhali Science and Technology University",Shahriar Rahman,shahriar.nstu1@example.com,Mim Ahmed,mim.nstu1@example.com,Sabbir Islam,sabbir.nstu1@example.com
+NSTU 2,"Noakhali Science and Technology University",Rafi Hasan,rafi.nstu2@example.com,Tasnim Islam,tasnim.nstu2@example.com,Arman Ahmed,arman.nstu2@example.com
+NSTU 3,"Noakhali Science and Technology University",Nayeem Rahman,nayeem.nstu3@example.com,Farha Akter,farha.nstu3@example.com,Siam Hasan,siam.nstu3@example.com
+PUST 1,"Pabna University of Science and Technology",Imran Hasan,imran.pust1@example.com,Anika Sultana,anika.pust1@example.com,Rifat Islam,rifat.pust1@example.com
+PUST 2,"Pabna University of Science and Technology",Fardin Ahmed,fardin.pust2@example.com,Nabila Rahman,nabila.pust2@example.com,Shadman Islam,shadman.pust2@example.com
+PUST 3,"Pabna University of Science and Technology",Sakib Hasan,sakib.pust3@example.com,Mahi Akter,mahi.pust3@example.com,Tahmid Rahman,tahmid.pust3@example.com
+JUST 1,"Jessore University of Science and Technology",Raihan Ahmed,raihan.just1@example.com,Sadia Islam,sadia.just1@example.com,Nafis Hasan,nafis.just1@example.com
+JUST 2,"Jessore University of Science and Technology",Adnan Rahman,adnan.just2@example.com,Sumaiya Akter,sumaiya.just2@example.com,Rafi Islam,rafi.just2@example.com
+JUST 3,"Jessore University of Science and Technology",Mahin Hasan,mahin.just3@example.com,Nusrat Rahman,nusrat.just3@example.com,Shafin Ahmed,shafin.just3@example.com
+RSTU 1,"Rangamati Science and Technology University",Tawhid Rahman,tawhid.rstu1@example.com,Mim Islam,mim.rstu1@example.com,Rahat Hasan,rahat.rstu1@example.com
+RSTU 2,"Rangamati Science and Technology University",Fahim Ahmed,fahim.rstu2@example.com,Brishti Rahman,brishti.rstu2@example.com,Nabil Islam,nabil.rstu2@example.com
+RSTU 3,"Rangamati Science and Technology University",Sakib Rahman,sakib.rstu3@example.com,Afia Akter,afia.rstu3@example.com,Riad Hasan,riad.rstu3@example.com
+PSTU 1,"Patuakhali Science and Technology University",Shuvo Ahmed,shuvo.pstu1@example.com,Tanjila Rahman,tanjila.pstu1@example.com,Imran Islam,imran.pstu1@example.com
+PSTU 2,"Patuakhali Science and Technology University",Rafi Hasan,rafi.pstu2@example.com,Maria Islam,maria.pstu2@example.com,Adib Rahman,adib.pstu2@example.com
+PSTU 3,"Patuakhali Science and Technology University",Nafis Ahmed,nafis.pstu3@example.com,Labiba Rahman,labiba.pstu3@example.com,Tahsin Islam,tahsin.pstu3@example.com
+MBSTU 1,"Mawlana Bhashani Science and Technology University",Samiul Rahman,samiul.mbstu1@example.com,Nabila Akter,nabila.mbstu1@example.com,Rifat Hasan,rifat.mbstu1@example.com
+MBSTU 2,"Mawlana Bhashani Science and Technology University",Arman Islam,arman.mbstu2@example.com,Sumaiya Rahman,sumaiya.mbstu2@example.com,Shakil Ahmed,shakil.mbstu2@example.com
+MBSTU 3,"Mawlana Bhashani Science and Technology University",Fardin Hasan,fardin.mbstu3@example.com,Mahi Islam,mahi.mbstu3@example.com,Raihan Ahmed,raihan.mbstu3@example.com
+HSTU 1,"Hajee Mohammad Danesh Science and Technology University",Rashed Rahman,rashed.hstu1@example.com,Tasnim Akter,tasnim.hstu1@example.com,Sabbir Hasan,sabbir.hstu1@example.com
+HSTU 2,"Hajee Mohammad Danesh Science and Technology University",Nayeem Ahmed,nayeem.hstu2@example.com,Anika Islam,anika.hstu2@example.com,Rafi Rahman,rafi.hstu2@example.com
+HSTU 3,"Hajee Mohammad Danesh Science and Technology University",Fahad Hasan,fahad.hstu3@example.com,Brishti Sultana,brishti.hstu3@example.com,Tanvir Islam,tanvir.hstu3@example.com
+BUTEX 1,"Bangladesh University of Textiles",Shadman Rahman,shadman.butex1@example.com,Mim Akter,mim.butex1@example.com,Siam Hasan,siam.butex1@example.com
+BUTEX 2,"Bangladesh University of Textiles",Adnan Ahmed,adnan.butex2@example.com,Nusrat Islam,nusrat.butex2@example.com,Rafi Hasan,rafi.butex2@example.com
+BUTEX 3,"Bangladesh University of Textiles",Imran Rahman,imran.butex3@example.com,Afia Islam,afia.butex3@example.com,Sakib Ahmed,sakib.butex3@example.com
+SAU Sylhet 1,"Sylhet Agricultural University",Rahat Islam,rahat.sylsau1@example.com,Tasfia Rahman,tasfia.sylsau1@example.com,Nabil Hasan,nabil.sylsau1@example.com
+SAU Sylhet 2,"Sylhet Agricultural University",Faisal Ahmed,faisal.sylsau2@example.com,Maria Akter,maria.sylsau2@example.com,Tawhid Islam,tawhid.sylsau2@example.com
+SAU Sylhet 3,"Sylhet Agricultural University",Rafi Rahman,rafi.sylsau3@example.com,Sumaiya Islam,sumaiya.sylsau3@example.com,Shafin Hasan,shafin.sylsau3@example.com
+CVASU 1,"Chittagong Veterinary and Animal Sciences University",Arman Rahman,arman.cvasu1@example.com,Nabila Sultana,nabila.cvasu1@example.com,Raihan Islam,raihan.cvasu1@example.com
+CVASU 2,"Chittagong Veterinary and Animal Sciences University",Sakib Hasan,sakib.cvasu2@example.com,Mim Rahman,mim.cvasu2@example.com,Fahim Islam,fahim.cvasu2@example.com
+CVASU 3,"Chittagong Veterinary and Animal Sciences University",Adib Ahmed,adib.cvasu3@example.com,Tanjila Islam,tanjila.cvasu3@example.com,Rifat Rahman,rifat.cvasu3@example.com
+DUP 1,"Dhaka University of Professionals",Nafis Rahman,nafis.dup1@example.com,Anika Akter,anika.dup1@example.com,Shuvo Hasan,shuvo.dup1@example.com
+DUP 2,"Dhaka University of Professionals",Imran Ahmed,imran.dup2@example.com,Mahi Islam,mahi.dup2@example.com,Rashed Hasan,rashed.dup2@example.com
+BOU 1,"Bangladesh Open University",Samiul Ahmed,samiul.bou1@example.com,Farzana Rahman,farzana.bou1@example.com,Rafi Islam,rafi.bou1@example.com
+BOU 2,"Bangladesh Open University",Tahmid Hasan,tahmid.bou2@example.com,Nusrat Akter,nusrat.bou2@example.com,Adnan Islam,adnan.bou2@example.com
+NU 1,"National University",Shakil Rahman,shakil.nu1@example.com,Mim Sultana,mim.nu1@example.com,Raihan Hasan,raihan.nu1@example.com
+NU 2,"National University",Fahad Ahmed,fahad.nu2@example.com,Sumaiya Islam,sumaiya.nu2@example.com,Nabil Rahman,nabil.nu2@example.com
+BUHS 1,"Bangladesh University of Health Sciences",Rafi Hasan,rafi.buhs1@example.com,Tasnim Rahman,tasnim.buhs1@example.com,Imran Islam,imran.buhs1@example.com
+BUHS 2,"Bangladesh University of Health Sciences",Adib Ahmed,adib.buhs2@example.com,Maria Islam,maria.buhs2@example.com,Sakib Hasan,sakib.buhs2@example.com
+NSU 1,"North South University",Ayman Rahman,ayman.nsu1@example.com,Nabila Akter,nabila.nsu1@example.com,Tawhid Hasan,tawhid.nsu1@example.com
+NSU 2,"North South University",Raihan Islam,raihan.nsu2@example.com,Sumaiya Rahman,sumaiya.nsu2@example.com,Fardin Ahmed,fardin.nsu2@example.com
+BRACU 1,"BRAC University",Shadman Hasan,shadman.bracu1@example.com,Mim Rahman,mim.bracu1@example.com,Rafi Ahmed,rafi.bracu1@example.com
+BRACU 2,"BRAC University",Nafis Islam,nafis.bracu2@example.com,Anika Rahman,anika.bracu2@example.com,Samiul Hasan,samiul.bracu2@example.com
+EWU 1,"East West University",Fahim Rahman,fahim.ewu1@example.com,Tasfia Islam,tasfia.ewu1@example.com,Rashed Ahmed,rashed.ewu1@example.com
+EWU 2,"East West University",Sakib Hasan,sakib.ewu2@example.com,Nusrat Rahman,nusrat.ewu2@example.com,Arman Islam,arman.ewu2@example.com
+AIUB 1,"American International University-Bangladesh",Rafi Hasan,rafi.aiub1@example.com,Maria Rahman,maria.aiub1@example.com,Tahmid Islam,tahmid.aiub1@example.com
+AIUB 2,"American International University-Bangladesh",Adnan Ahmed,adnan.aiub2@example.com,Sumaiya Akter,sumaiya.aiub2@example.com,Shuvo Hasan,shuvo.aiub2@example.com
+UIU 1,"United International University",Imran Rahman,imran.uiu1@example.com,Nabila Islam,nabila.uiu1@example.com,Raihan Hasan,raihan.uiu1@example.com
+UIU 2,"United International University",Fardin Ahmed,fardin.uiu2@example.com,Mim Akter,mim.uiu2@example.com,Sakib Islam,sakib.uiu2@example.com
+DIU 1,"Daffodil International University",Nayeem Rahman,nayeem.diu1@example.com,Tasnim Sultana,tasnim.diu1@example.com,Rafi Ahmed,rafi.diu1@example.com
+DIU 2,"Daffodil International University",Shadman Islam,shadman.diu2@example.com,Afia Rahman,afia.diu2@example.com,Tawhid Hasan,tawhid.diu2@example.com
+IUB 1,"Independent University, Bangladesh",Arman Rahman,arman.iub1@example.com,Nusrat Akter,nusrat.iub1@example.com,Fahim Hasan,fahim.iub1@example.com
+IUB 2,"Independent University, Bangladesh",Samiul Islam,samiul.iub2@example.com,Maria Sultana,maria.iub2@example.com,Rashed Ahmed,rashed.iub2@example.com
+UAP 1,"University of Asia Pacific",Rafi Rahman,rafi.uap1@example.com,Sumaiya Islam,sumaiya.uap1@example.com,Nabil Hasan,nabil.uap1@example.com
+UAP 2,"University of Asia Pacific",Adib Ahmed,adib.uap2@example.com,Mim Rahman,mim.uap2@example.com,Sakib Islam,sakib.uap2@example.com
+AUST 1,"Ahsanullah University of Science and Technology",Tahsin Rahman,tahsin.aust1@example.com,Nabila Akter,nabila.aust1@example.com,Imran Hasan,imran.aust1@example.com
+AUST 2,"Ahsanullah University of Science and Technology",Fahad Islam,fahad.aust2@example.com,Tasfia Rahman,tasfia.aust2@example.com,Raihan Ahmed,raihan.aust2@example.com
+IUBAT 1,"International University of Business Agriculture and Technology",Shuvo Rahman,shuvo.iubat1@example.com,Anika Islam,anika.iubat1@example.com,Rafi Hasan,rafi.iubat1@example.com
+IUBAT 2,"International University of Business Agriculture and Technology",Sakib Ahmed,sakib.iubat2@example.com,Mahi Akter,mahi.iubat2@example.com,Nafis Islam,nafis.iubat2@example.com
+SUB 1,"Stamford University Bangladesh",Rashed Hasan,rashed.sub1@example.com,Sumaiya Rahman,sumaiya.sub1@example.com,Tanvir Islam,tanvir.sub1@example.com
+SUB 2,"Stamford University Bangladesh",Adnan Rahman,adnan.sub2@example.com,Nusrat Islam,nusrat.sub2@example.com,Fardin Ahmed,fardin.sub2@example.com
+EDU 1,"East Delta University",Raihan Hasan,raihan.edu1@example.com,Maria Akter,maria.edu1@example.com,Samiul Islam,samiul.edu1@example.com
+EDU 2,"East Delta University",Fahim Rahman,fahim.edu2@example.com,Tasnim Islam,tasnim.edu2@example.com,Rafi Ahmed,rafi.edu2@example.com
+PUB 1,"Premier University",Nabil Rahman,nabil.pub1@example.com,Afia Sultana,afia.pub1@example.com,Shadman Hasan,shadman.pub1@example.com
+PUB 2,"Premier University",Imran Islam,imran.pub2@example.com,Mim Rahman,mim.pub2@example.com,Sakib Ahmed,sakib.pub2@example.com
+ULAB 1,"University of Liberal Arts Bangladesh",Tawhid Rahman,tawhid.ulab1@example.com,Nabila Islam,nabila.ulab1@example.com,Rafi Hasan,rafi.ulab1@example.com
+ULAB 2,"University of Liberal Arts Bangladesh",Adib Ahmed,adib.ulab2@example.com,Sumaiya Rahman,sumaiya.ulab2@example.com,Fahad Islam,fahad.ulab2@example.com
