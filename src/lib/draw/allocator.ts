@@ -875,5 +875,24 @@ export function autoAllocateAdjudicators(
     }
   }
 
+  for (const debate of debates) {
+    const result = resultsMap.get(debate.id);
+    if (!result) continue;
+
+    const panelMembers = [...(result.chairId ? [result.chairId] : []), ...result.panellistIds];
+    if (panelMembers.length === 0) continue;
+
+    const chairId = [...panelMembers].sort(
+      (a, b) => (adjScores.get(b) ?? 0) - (adjScores.get(a) ?? 0)
+    )[0];
+
+    result.chairId = chairId;
+    result.chairName = availableAdjs.find((adj) => adj.id === chairId)?.name ?? result.chairName;
+    result.panellistIds = panelMembers.filter((id) => id !== chairId);
+    result.panellistNames = result.panellistIds.map(
+      (id) => availableAdjs.find((adj) => adj.id === id)?.name ?? id
+    );
+  }
+
   return debates.map((d) => resultsMap.get(d.id)!);
 }

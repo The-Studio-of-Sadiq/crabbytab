@@ -148,7 +148,34 @@ describe("Adjudicator Allocator Preferences", () => {
       .toBe(feedbackLow.id);
   });
 
-  it("globally matches panellists to panel slots instead of taking the local best fit", () => {
+  it("selects the strongest eligible adjudicator as chair after the full panel is chosen", () => {
+    const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debate = createDebate("d1", teams);
+    const weak = createAdj("weak", "Weak", 3);
+    const medium = createAdj("medium", "Medium", 5);
+    const strong = createAdj("strong", "Strong", 9);
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      teamsMap,
+      [weak, medium, strong],
+      new Map(),
+      {
+        panelSize: 3,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+
+    expect(result[0].chairId).toBe("strong");
+    expect(result[0].panellistIds).toEqual(expect.arrayContaining(["weak", "medium"]));
+    expect(result[0].panellistIds).not.toContain("strong");
+  });
+
+  it("preserves the global panel assignment while promoting the strongest panel member to chair", () => {
     const teamsMap = new Map<string, Team>();
     const highPriorityTeams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const lowPriorityTeams = [createTeam("t3", "T3"), createTeam("t4", "T4")];
@@ -196,10 +223,13 @@ describe("Adjudicator Allocator Preferences", () => {
       }
     );
 
-    expect(allocations.find((allocation) => allocation.debateId === highPriorityDebate.id)?.panellistIds)
-      .toEqual([panelLow.id]);
-    expect(allocations.find((allocation) => allocation.debateId === lowPriorityDebate.id)?.panellistIds)
-      .toEqual([panelHigh.id]);
+    const highResult = allocations.find((allocation) => allocation.debateId === highPriorityDebate.id)!;
+    const lowResult = allocations.find((allocation) => allocation.debateId === lowPriorityDebate.id)!;
+
+    expect(highResult.chairId).toBe(chairHigh.id);
+    expect(highResult.panellistIds).toEqual([panelLow.id]);
+    expect(lowResult.chairId).toBe(panelHigh.id);
+    expect(lowResult.panellistIds).toEqual([chairLow.id]);
   });
 
   it("avoids historical repeats between panellists on the same panel", () => {
