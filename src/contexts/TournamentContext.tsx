@@ -821,12 +821,21 @@ export function TournamentProvider({
     }
   };
 
+  const getPastDebatesForRound = (targetRound: Round) => {
+    const priorRoundIds = new Set(
+      rounds
+        .filter((round) => !round.cancelled && round.seq < targetRound.seq)
+        .map((round) => round.id)
+    );
+    return debates.filter((debate) => priorRoundIds.has(debate.roundId));
+  };
+
   const generateDraw = async (roundId: string) => {
     const round = rounds.find((r) => r.id === roundId);
     if (!round || !tournament) return;
 
     // Filter past debates before this round
-    const pastDebates = debates.filter((d) => d.roundSeq < round.seq);
+    const pastDebates = getPastDebatesForRound(round);
 
     const generated = generateRoundDraw({
       tournament,
@@ -939,11 +948,7 @@ export function TournamentProvider({
     teams.forEach((t) => teamsMap.set(t.id, t));
 
     // Build past history from all debates before this round
-    const pastDebates = debates.filter((d) => {
-      if (d.roundId === roundId) return false;
-      const dRound = rounds.find((r) => r.id === d.roundId);
-      return dRound && round ? dRound.seq < round.seq : false;
-    });
+    const pastDebates = round ? getPastDebatesForRound(round) : [];
     const pastAdjTeams = buildPastAdjTeams(pastDebates);
 
     const completedPrelimRounds = rounds.filter(

@@ -148,6 +148,60 @@ describe("Adjudicator Allocator Preferences", () => {
       .toBe(feedbackLow.id);
   });
 
+  it("globally matches panellists to panel slots instead of taking the local best fit", () => {
+    const teamsMap = new Map<string, Team>();
+    const highPriorityTeams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
+    const lowPriorityTeams = [createTeam("t3", "T3"), createTeam("t4", "T4")];
+    [...highPriorityTeams, ...lowPriorityTeams].forEach((team) => teamsMap.set(team.id, team));
+
+    const highPriorityDebate = { ...createDebate("d1", highPriorityTeams), importance: 10 };
+    const lowPriorityDebate = createDebate("d2", lowPriorityTeams);
+    const chairHigh = createAdj("chair-high", "Chair High", 4);
+    const chairLow = createAdj("chair-low", "Chair Low", 2);
+    const panelHigh = createAdj("panel-high", "Panel High", 4);
+    const panelLow = createAdj("panel-low", "Panel Low", 2);
+    const pastDebate = createDebate("past", [createTeam("past-1", "Past 1")]);
+    pastDebate.adjudicators = {
+      chairId: chairLow.id,
+      chairName: chairLow.name,
+      panellistIds: [panelLow.id],
+      panellistNames: [panelLow.name],
+      traineeIds: [],
+      traineeNames: [],
+    };
+
+    const allocations = autoAllocateAdjudicators(
+      [highPriorityDebate, lowPriorityDebate],
+      teamsMap,
+      [chairHigh, chairLow, panelHigh, panelLow],
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+        preferences: {
+          importanceMismatchPenalty: 1,
+          adjHistoryPenalty: 100,
+        },
+      },
+      {
+        allPastDebates: [pastDebate],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 2,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(allocations.find((allocation) => allocation.debateId === highPriorityDebate.id)?.panellistIds)
+      .toEqual([panelLow.id]);
+    expect(allocations.find((allocation) => allocation.debateId === lowPriorityDebate.id)?.panellistIds)
+      .toEqual([panelHigh.id]);
+  });
+
   it("getAllocationWeights reflects configured penalties", () => {
     const customPrefs: TournamentPreferences = {
       adjConflictPenalty: 500_000,

@@ -5,6 +5,7 @@ import { solveHungarian } from "./hungarian";
 
 export interface AllocationOptions {
   panelSize: number; // e.g., 1 (solo chair), 3 (chair + 2 panellists), or 5
+  /** Match each full panel's average strength to its debate priority. */
   balancePanels: boolean;
   respectInstitutionConflicts: boolean;
   respectPersonalConflicts: boolean;
@@ -399,7 +400,8 @@ export function computeAssignmentCost(
   pastPanelHistory: Map<string, number>,
   currentPanelAdjIds: string[], // other adjs already assigned to this debate
   role: "chair" | "panellist" | "trainee",
-  options: AllocationOptions
+  options: AllocationOptions,
+  strengthTarget: number = debatePriority
 ): AllocationCostBreakdown {
   const weights = getAllocationWeights(options.preferences);
   let priorityStrengthMismatch = 0;
@@ -411,7 +413,7 @@ export function computeAssignmentCost(
 
   // 1. Priority-Strength Mismatch
   // We want high-scored judges in high-priority debates
-  const mismatch = Math.abs(debatePriority - adjEffectiveScore);
+  const mismatch = Math.abs(strengthTarget - adjEffectiveScore);
   priorityStrengthMismatch = mismatch * weights.PRIORITY_STRENGTH_MISMATCH;
 
   // 2. Institution Conflict
@@ -529,7 +531,7 @@ export interface IntelligentAllocationContext {
  * 2. Compute effective adjudicator scores (base + feedback blend)
  * 3. Build past history maps (teams judged, panel co-occurrences)
  * 4. Use Hungarian algorithm for chair assignment with multi-factor cost
- * 5. Greedily assign panellists prioritizing high-priority debates
+ * 5. Globally assign panellists across all debate panel slots
  * 6. Distribute trainees to lower-priority debates
  */
 export function autoAllocateAdjudicators(
@@ -724,77 +726,61 @@ export function autoAllocateAdjudicators(
     });
   }
 
-  // ─── Step 5: Assign Panellists using greedy cost-minimized assignment ───
+  // ─── Step 5: Assign Panellists using global minimum-cost matching ───
   const remainingNonTrainees = nonTrainees.filter((a) => !usedAdjIds.has(a.id));
   const panellistsNeededPerDebate = noPanellists ? 0 : Math.max(0, options.panelSize - 1);
 
   if (panellistsNeededPerDebate > 0 && remainingNonTrainees.length > 0) {
-    // Sort remaining non-trainees by score (highest first)
-    const sortedRemaining = [...remainingNonTrainees].sort(
-      (a, b) => (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5)
+    const panelSlots = sortedDebateIndices.flatMap((debateIdx) =>
+      Array.from({ length: panellistsNeededPerDebate }, () => debates[debateIdx])
     );
+    const panelCostMatrix = panelSlots.map((debate) => {
+      const res = resultsMap.get(debate.id)!;
+      const debateTeams: Team[] = Object.values(debate.teams)
+        .map((t) => teamsMap.get(t.teamId))
+        .filter((t): t is Team => t !== undefined);
+      const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
+      const chairScore = res.chairId
+        ? adjScores.get(res.chairId) ?? 5
+        : 5;
+      const strengthTarget = options.balancePanels
+        ? (debatePriority * options.panelSize - chairScore) / panellistsNeededPerDebate
+        : debatePriority;
+      const currentPanelIds = res.chairId ? [res.chairId] : [];
 
-    // For each panellist slot (iterating by slot to spread talent)
-    for (let slot = 0; slot < panellistsNeededPerDebate; slot++) {
-      if (sortedRemaining.length === 0) break;
+      return remainingNonTrainees.map((adj) =>
+        computeAssignmentCost(
+          adj,
+          debate,
+          debateTeams,
+          debatePriority,
+          adjScores.get(adj.id) ?? 5,
+          fullPastAdjTeams,
+          pastPanelHistory,
+          currentPanelIds,
+          "panellist",
+          options,
+          strengthTarget
+        ).total
+      );
+    });
 
-      // For each debate (in priority order), find best available panellist
-      for (let r = 0; r < numDebates; r++) {
-        if (sortedRemaining.length === 0) break;
+    const panelMatching = solveHungarian(panelCostMatrix);
+    panelSlots.forEach((debate, slotIdx) => {
+      const adjIdx = panelMatching[slotIdx];
+      if (adjIdx === undefined || adjIdx < 0 || adjIdx >= remainingNonTrainees.length) return;
 
-        const debate = debates[sortedDebateIndices[r]];
-        const res = resultsMap.get(debate.id)!;
-        const debateTeams: Team[] = Object.values(debate.teams)
-          .map((t) => teamsMap.get(t.teamId))
-          .filter((t): t is Team => t !== undefined);
-        const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
+      const chosen = remainingNonTrainees[adjIdx];
+      const res = resultsMap.get(debate.id)!;
+      res.panellistIds.push(chosen.id);
+      res.panellistNames.push(chosen.name);
 
-        // Current panel for repeat-panel calculation
-        const currentPanelIds = [
-          res.chairId,
-          ...res.panellistIds,
-        ].filter(Boolean) as string[];
-
-        // Score each available adj for this debate
-        let bestIdx = -1;
-        let bestCost = Infinity;
-
-        for (let i = 0; i < sortedRemaining.length; i++) {
-          const adj = sortedRemaining[i];
-          if (usedAdjIds.has(adj.id)) continue;
-
-          const adjScore = adjScores.get(adj.id) ?? 5;
-          const cost = computeAssignmentCost(
-            adj,
-            debate,
-            debateTeams,
-            debatePriority,
-            adjScore,
-            fullPastAdjTeams,
-            pastPanelHistory,
-            currentPanelIds,
-            "panellist",
-            options
-          );
-
-          if (cost.total < bestCost) {
-            bestCost = cost.total;
-            bestIdx = i;
-          }
-        }
-
-        if (bestIdx >= 0) {
-          const chosen = sortedRemaining[bestIdx];
-          res.panellistIds.push(chosen.id);
-          res.panellistNames.push(chosen.name);
-          usedAdjIds.add(chosen.id);
-          sortedRemaining.splice(bestIdx, 1);
-
-          const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams, weights);
-          res.conflicts.push(...reasons);
-        }
-      }
-    }
+      const debateTeams: Team[] = Object.values(debate.teams)
+        .map((t) => teamsMap.get(t.teamId))
+        .filter((t): t is Team => t !== undefined);
+      const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams, weights);
+      res.conflicts.push(...reasons);
+    });
   }
 
   // ─── Step 6: Distribute trainees (prefer lower-priority debates) ───
