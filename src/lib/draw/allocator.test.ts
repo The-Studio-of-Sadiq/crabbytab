@@ -175,6 +175,144 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(result[0].panellistIds).not.toContain("strong");
   });
 
+  it("prefers a lower-rated chair over an institutionally conflicted adjudicator", () => {
+    const team = createTeam("team", "Team", "team-institution");
+    const debate = createDebate("debate", [team]);
+    const conflicted = createAdj("conflicted", "Conflicted", 10, true, "team-institution");
+    const eligible = createAdj("eligible", "Eligible", 4);
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      new Map([[team.id, team]]),
+      [conflicted, eligible],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(result[0].chairId).toBe(eligible.id);
+    expect(result[0].conflicts).toEqual([]);
+  });
+
+  it("prefers a lower-rated chair over an adjudicator with a repeat-team clash", () => {
+    const team = createTeam("team", "Team");
+    const debate = createDebate("debate", [team]);
+    const conflicted = createAdj("conflicted", "Conflicted", 10);
+    const eligible = createAdj("eligible", "Eligible", 4);
+    const pastDebate = createDebate("past", [team]);
+    pastDebate.adjudicators = {
+      chairId: conflicted.id,
+      chairName: conflicted.name,
+      panellistIds: [],
+      panellistNames: [],
+      traineeIds: [],
+      traineeNames: [],
+    };
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      new Map([[team.id, team]]),
+      [conflicted, eligible],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [pastDebate],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(result[0].chairId).toBe(eligible.id);
+    expect(result[0].conflicts).toEqual([]);
+  });
+
+  it("does not promote an institutionally conflicted panel member over a clean adjudicator", () => {
+    const team = createTeam("team", "Team", "team-institution");
+    const debate = createDebate("debate", [team]);
+    const conflicted = createAdj("conflicted", "Conflicted", 10, true, "team-institution");
+    const eligible = createAdj("eligible", "Eligible", 4);
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      new Map([[team.id, team]]),
+      [conflicted, eligible],
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+
+    expect(result[0].chairId).toBe(eligible.id);
+    expect(result[0].panellistIds).toContain(conflicted.id);
+  });
+
+  it("does not promote a history-conflicted panel member over a clean adjudicator", () => {
+    const team = createTeam("team", "Team");
+    const debate = createDebate("debate", [team]);
+    const conflicted = createAdj("conflicted", "Conflicted", 10);
+    const eligible = createAdj("eligible", "Eligible", 4);
+    const pastDebate = createDebate("past", [team]);
+    pastDebate.adjudicators = {
+      chairId: conflicted.id,
+      chairName: conflicted.name,
+      panellistIds: [],
+      panellistNames: [],
+      traineeIds: [],
+      traineeNames: [],
+    };
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      new Map([[team.id, team]]),
+      [conflicted, eligible],
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [pastDebate],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(result[0].chairId).toBe(eligible.id);
+    expect(result[0].panellistIds).toContain(conflicted.id);
+  });
+
   it("preserves the global panel assignment while promoting the strongest panel member to chair", () => {
     const teamsMap = new Map<string, Team>();
     const highPriorityTeams = [createTeam("t1", "T1"), createTeam("t2", "T2")];

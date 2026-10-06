@@ -76,6 +76,40 @@ export function getAllocationWeights(prefs?: TournamentPreferences) {
   };
 }
 
+function prioritizeClashAvoidance(
+  options: AllocationOptions,
+  debateCount: number
+): ReturnType<typeof getAllocationWeights> {
+  const weights = getAllocationWeights(options.preferences);
+  const maximumStrengthMismatch =
+    weights.PRIORITY_STRENGTH_MISMATCH * 20 * debateCount * Math.max(1, options.panelSize);
+  const clashPenaltyFloor = maximumStrengthMismatch + 1;
+  const adjustedWeights = { ...weights };
+
+  if (options.respectInstitutionConflicts) {
+    adjustedWeights.INSTITUTION_CONFLICT = Math.max(
+      weights.INSTITUTION_CONFLICT,
+      clashPenaltyFloor
+    );
+    adjustedWeights.DECLARED_INSTITUTION_CONFLICT = Math.max(
+      weights.DECLARED_INSTITUTION_CONFLICT,
+      clashPenaltyFloor
+    );
+  }
+  if (options.respectPersonalConflicts) {
+    adjustedWeights.PERSONAL_CONFLICT = Math.max(
+      weights.PERSONAL_CONFLICT,
+      clashPenaltyFloor
+    );
+  }
+  if (options.respectHistoryConflicts) {
+    adjustedWeights.REPEAT_TEAM = Math.max(weights.REPEAT_TEAM, clashPenaltyFloor);
+    adjustedWeights.REPEAT_PANEL = Math.max(weights.REPEAT_PANEL, clashPenaltyFloor);
+  }
+
+  return adjustedWeights;
+}
+
 export const WEIGHTS = getAllocationWeights();
 
 // ─── Conflict Detection ─────────────────────────────────────────────
@@ -401,9 +435,10 @@ export function computeAssignmentCost(
   currentPanelAdjIds: string[], // other adjs already assigned to this debate
   role: "chair" | "panellist" | "trainee",
   options: AllocationOptions,
-  strengthTarget: number = debatePriority
+  strengthTarget: number = debatePriority,
+  weightOverrides?: ReturnType<typeof getAllocationWeights>
 ): AllocationCostBreakdown {
-  const weights = getAllocationWeights(options.preferences);
+  const weights = weightOverrides ?? getAllocationWeights(options.preferences);
   let priorityStrengthMismatch = 0;
   let institutionConflict = 0;
   let personalConflict = 0;
@@ -589,6 +624,7 @@ export function autoAllocateAdjudicators(
   const minScoreToVote = options.preferences?.minAdjScoreToVote ?? 1.5;
   const noPanellists = options.preferences?.noPanellistAdjs ?? false;
   const noTrainees = options.preferences?.noTraineeAdjs ?? false;
+  const allocationWeights = prioritizeClashAvoidance(options, numDebates);
 
   // ─── Step 1: Compute debate priorities ───
   let breakLiveness = new Map<string, number>();
@@ -678,7 +714,9 @@ export function autoAllocateAdjudicators(
         pastPanelHistory,
         [], // no panel yet for chair assignment
         "chair",
-        options
+        options,
+        debatePriority,
+        allocationWeights
       );
 
       row.push(cost.total);
@@ -760,7 +798,8 @@ export function autoAllocateAdjudicators(
           currentPanelIds,
           "panellist",
           options,
-          strengthTarget
+          strengthTarget,
+          allocationWeights
         ).total
       );
     });
@@ -789,7 +828,7 @@ export function autoAllocateAdjudicators(
               remainingNonTrainees[firstAdjIdx].id,
               remainingNonTrainees[secondAdjIdx].id,
             ].sort().join(":");
-            total += (pastPanelHistory.get(key) ?? 0) * weights.REPEAT_PANEL;
+            total += (pastPanelHistory.get(key) ?? 0) * allocationWeights.REPEAT_PANEL;
           }
         }
       }
@@ -882,7 +921,27 @@ export function autoAllocateAdjudicators(
     const panelMembers = [...(result.chairId ? [result.chairId] : []), ...result.panellistIds];
     if (panelMembers.length === 0) continue;
 
-    const chairId = [...panelMembers].sort(
+    const debateTeams: Team[] = Object.values(debate.teams)
+      .map((teamSlot) => teamsMap.get(teamSlot.teamId))
+      .filter((team): team is Team => team !== undefined);
+    const conflictFreeChairIds = panelMembers.filter((adjId) => {
+      const adj = availableAdjs.find((candidate) => candidate.id === adjId);
+      if (!adj) return false;
+
+      const conflict = calculateAdjDebateConflict(
+        adj,
+        debateTeams,
+        fullPastAdjTeams,
+        allocationWeights
+      );
+      return !(
+        (options.respectInstitutionConflicts && conflict.hasInstitutionalClash) ||
+        (options.respectPersonalConflicts && conflict.hasPersonalClash) ||
+        (options.respectHistoryConflicts && conflict.hasHistoryClash)
+      );
+    });
+    const chairCandidates = conflictFreeChairIds.length > 0 ? conflictFreeChairIds : panelMembers;
+    const chairId = [...chairCandidates].sort(
       (a, b) => (adjScores.get(b) ?? 0) - (adjScores.get(a) ?? 0)
     )[0];
 
