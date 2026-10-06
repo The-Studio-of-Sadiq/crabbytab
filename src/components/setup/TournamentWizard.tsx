@@ -10,18 +10,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import {
-  collection,
-  doc,
-  getDocs,
-  limit,
-  query,
-  runTransaction,
-  where,
-} from "firebase/firestore";
 import type { Tournament, TournamentFormat, TournamentPreferences } from "@/types";
-import { useAuth } from "@/contexts/AuthContext";
-import { db } from "@/lib/firebase";
 import {
   BreakDraft,
   FORMAT_PRESETS,
@@ -192,7 +181,6 @@ function Toggle({
 
 export function TournamentWizard() {
   const router = useRouter();
-  const { user, configured } = useAuth();
 
   const [s, setS] = useState<WizardState>(initialState);
   const [step, setStep] = useState(0);
@@ -323,16 +311,6 @@ export function TournamentWizard() {
     } catch {
       // localStorage unavailable: nothing to check
     }
-    if (!db) return "";
-    try {
-      const snap = await getDocs(
-        query(collection(db, "tournaments"), where("slug", "==", s.slug), limit(1))
-      );
-      if (!snap.empty) return `"${s.slug}" is already taken. Choose a different slug.`;
-    } catch (e) {
-      console.warn("Slug availability check failed:", e);
-      // The create transaction re-checks atomically, so don't block here.
-    }
     return "";
   };
 
@@ -377,18 +355,11 @@ export function TournamentWizard() {
       }
     }
 
-    if (configured && !user) {
-      router.replace("/login?next=/tournaments/new");
-      return;
-    }
-
     setBusy(true);
     const id = `tourn-${s.slug}`;
     const now = new Date().toISOString();
 
-    // Signed-in owner when Firebase is configured. Without Firebase the app
-    // runs in local-only mode, where "director" is the only possible owner.
-    const ownerId = user?.uid ?? "director";
+    const ownerId = "director";
 
     const tournament: Tournament = {
       id,
@@ -434,27 +405,7 @@ export function TournamentWizard() {
     const breakCategories = buildBreakCategories(id, s.breaks);
 
     try {
-      if (db) {
-        const firestoreDb = db;
-        // Atomic: refuse to overwrite a tournament someone else created
-        // between the availability check and now.
-        const tRef = doc(firestoreDb, "tournaments", id);
-        await runTransaction(firestoreDb, async (tx) => {
-          const existing = await tx.get(tRef);
-          if (existing.exists()) {
-            throw new Error(`"${s.slug}" was just taken by another tournament. Go back and pick a new slug.`);
-          }
-          tx.set(tRef, tournament);
-          for (const r of rounds) {
-            tx.set(doc(firestoreDb, "tournaments", id, "rounds", r.id), r);
-          }
-          for (const bc of breakCategories) {
-            tx.set(doc(firestoreDb, "tournaments", id, "breakCategories", bc.id), bc);
-          }
-        });
-      }
-
-      // Local cache, same keys TournamentContext reads.
+      // The device is the source of truth until the director explicitly uploads.
       const prefix = `crabbytab_t_${s.slug}`;
       localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournament));
       localStorage.setItem(`${prefix}_rounds`, JSON.stringify(rounds));
@@ -836,11 +787,9 @@ export function TournamentWizard() {
               )}
             </div>
 
-            {!configured && (
-              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-2.5">
-                Firebase isn&apos;t configured, so this tournament will be saved on this device only.
-              </p>
-            )}
+            <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded p-2.5">
+              This tournament is saved on this device. Upload it to Firestore only when you choose to.
+            </p>
           </div>
         )}
 

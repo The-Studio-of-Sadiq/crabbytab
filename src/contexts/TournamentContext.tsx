@@ -27,12 +27,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
-  deleteDoc,
-  onSnapshot,
-  query,
-  where,
   writeBatch,
-  runTransaction,
   WriteBatch,
 } from "firebase/firestore";
 import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
@@ -70,6 +65,10 @@ export interface TournamentContextType {
   replyStandings: SpeakerStandingRow[];
   breakResults: BreakCategoryResult[];
   isOwnerOrAdmin: boolean;
+  cloudSyncState: "idle" | "syncing" | "success" | "error";
+  cloudSyncMessage: string;
+  localSaveError: string;
+  uploadToCloud: () => Promise<void>;
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
@@ -124,34 +123,19 @@ export interface TournamentContextType {
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
 const BATCH_CHUNK_SIZE = 400;
-
-async function submitParticipantAction<T>(
-  tournamentSlug: string,
-  privatePasscode: string,
-  action: string,
-  payload: unknown
-): Promise<T> {
-  const response = await fetch(`/api/private/${encodeURIComponent(tournamentSlug)}/portal`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ passcode: privatePasscode, action, payload }),
-  });
-  const responseBody: unknown = await response.json();
-  if (!response.ok) {
-    const message =
-      typeof responseBody === "object" &&
-      responseBody !== null &&
-      "error" in responseBody &&
-      typeof responseBody.error === "string"
-        ? responseBody.error
-        : "Participant action could not be saved.";
-    throw new Error(message);
-  }
-  if (typeof responseBody !== "object" || responseBody === null) {
-    throw new Error("The server returned an invalid participant action response.");
-  }
-  return responseBody as T;
-}
+const AUTOMATIC_CLOUD_WRITES = false;
+const CLOUD_COLLECTIONS = [
+  "rounds",
+  "teams",
+  "adjudicators",
+  "venues",
+  "motions",
+  "breakCategories",
+  "debates",
+  "ballots",
+  "feedback",
+  "institutions",
+] as const;
 
 /**
  * Recursively removes any object keys whose value is undefined, which Firestore rejects.
@@ -210,6 +194,9 @@ export function TournamentProvider({
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const auditEventsRef = useRef<AuditEvent[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [cloudSyncState, setCloudSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
+  const [cloudSyncMessage, setCloudSyncMessage] = useState("");
+  const [localSaveError, setLocalSaveError] = useState("");
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
 
@@ -220,378 +207,92 @@ export function TournamentProvider({
       try {
         localStorage.setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
       } catch (e) {
-        console.warn("LocalStorage save error:", e);
+        const message = e instanceof Error ? e.message : "Local storage is unavailable.";
+        setLocalSaveError(`Could not save ${key} locally: ${message}`);
+        console.error(`Local storage save failed for ${key}:`, e);
       }
     },
     [storagePrefix]
   );
 
-  // Helper to write single entity to Firestore subcollection
-  const setFirestoreDoc = useCallback(
-    async (subcollection: string, docId: string, data: any) => {
-      if (!db || !tournament?.id) return;
-      try {
-        await setDoc(doc(db, "tournaments", tournament.id, subcollection, docId), cleanUndefined(data));
-      } catch (err) {
-        console.warn(`Error writing to ${subcollection}/${docId}:`, err);
-      }
-    },
-    [tournament?.id]
-  );
-
-  // Helper to delete single entity from Firestore subcollection
-  const deleteFirestoreDoc = useCallback(
-    async (subcollection: string, docId: string) => {
-      if (!db || !tournament?.id) return;
-      try {
-        await deleteDoc(doc(db, "tournaments", tournament.id, subcollection, docId));
-      } catch (err) {
-        console.warn(`Error deleting from ${subcollection}/${docId}:`, err);
-      }
-    },
-    [tournament?.id]
-  );
-
-  // Load initial data from LocalStorage & Firestore
+  // Local storage is the working copy. Cloud reads and writes happen only on explicit actions.
   useEffect(() => {
     let isMounted = true;
-    const unsubscribers: (() => void)[] = [];
-
-    async function loadData() {
+    function loadLocalData() {
       setLoading(true);
       auditEventsRef.current = [];
       setAuditEvents([]);
-
-      // 1. Read local cache first for instant UI response
-      let localTournament: Tournament | null = null;
       try {
-        const localT = localStorage.getItem(`${storagePrefix}_meta`);
-        const parsedTournament = safeJsonParse<Tournament | null>(localT, null);
-        if (parsedTournament) {
-          localTournament = parsedTournament;
-          if (isMounted) setTournament(localTournament);
+        if (typeof window === "undefined" || !isMounted) return;
+        const readLocal = <T,>(key: string, fallback: T): T =>
+          safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
+        const localTournament = readLocal<Tournament | null>("meta", null);
+        if (localTournament) {
+          setTournament(localTournament);
+        } else {
+          const defaultTournament: Tournament = {
+            id: `tourn-${tournamentSlug}`,
+            name: `${tournamentSlug.toUpperCase()} Tournament`,
+            shortName: tournamentSlug.toUpperCase(),
+            slug: tournamentSlug,
+            format: "bp",
+            active: true,
+            ownerId: "director",
+            admins: { director: true },
+            preferences: {
+              teamsInDebate: 4,
+              substantiveSpeakers: 2,
+              replyScoresEnabled: false,
+              minSpeakerScore: 68,
+              maxSpeakerScore: 84,
+              stepSpeakerScore: 1,
+              minReplyScore: 34,
+              maxReplyScore: 42,
+              drawRule: "power_paired",
+              sideAllocationRule: "balanced",
+              ballotDoubleEntry: false,
+              publicDraw: true,
+              publicResults: true,
+              publicStandings: true,
+              publicMotions: true,
+              feedbackEnabled: true,
+              feedbackMinScore: 1,
+              feedbackMaxScore: 10,
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          setTournament(defaultTournament);
+          persistLocal("meta", defaultTournament);
         }
 
-        const localRounds = localStorage.getItem(`${storagePrefix}_rounds`);
-        if (localRounds && isMounted) {
-          const parsed = safeJsonParse<Round[]>(localRounds, []);
-          if (Array.isArray(parsed)) {
-            setRounds(parsed);
-            if (parsed.length > 0) {
-              setActiveRound(parsed.find((round: Round) => !round.cancelled) || null);
-            }
-          }
-        }
-
-        const localTeams = localStorage.getItem(`${storagePrefix}_teams`);
-        if (localTeams && isMounted) setTeams(safeJsonParse<Team[]>(localTeams, []));
-
-        const localAdjs = localStorage.getItem(`${storagePrefix}_adjudicators`);
-        if (localAdjs && isMounted) setAdjudicators(safeJsonParse<Adjudicator[]>(localAdjs, []));
-
-        const localVenues = localStorage.getItem(`${storagePrefix}_venues`);
-        if (localVenues && isMounted) setVenues(safeJsonParse<Venue[]>(localVenues, []));
-
-        const localMotions = localStorage.getItem(`${storagePrefix}_motions`);
-        if (localMotions && isMounted) setMotions(safeJsonParse<Motion[]>(localMotions, []));
-
-        const localBreaks = localStorage.getItem(`${storagePrefix}_breaks`);
-        if (localBreaks && isMounted) setBreakCategories(safeJsonParse<BreakCategory[]>(localBreaks, []));
-
-        const localDebates = localStorage.getItem(`${storagePrefix}_debates`);
-        if (localDebates && isMounted) setDebates(safeJsonParse<Debate[]>(localDebates, []));
-
-        const localBallots = localStorage.getItem(`${storagePrefix}_ballots`);
-        if (localBallots && isMounted) setBallots(safeJsonParse<BallotSubmission[]>(localBallots, []));
-
-        const localFeedback = localStorage.getItem(`${storagePrefix}_feedback`);
-        if (localFeedback && isMounted) setFeedback(safeJsonParse<FeedbackSubmission[]>(localFeedback, []));
-
-        const localAuditEvents = localStorage.getItem(`${storagePrefix}_auditEvents`);
-        if (localAuditEvents && isMounted) {
-          const parsedAuditEvents = safeJsonParse<AuditEvent[]>(localAuditEvents, []);
-          auditEventsRef.current = parsedAuditEvents;
-          setAuditEvents(parsedAuditEvents);
-        }
-
-        const localInstitutions = localStorage.getItem(`${storagePrefix}_institutions`);
-        if (localInstitutions && isMounted) setInstitutions(safeJsonParse<Institution[]>(localInstitutions, []));
+        const localRounds = readLocal<Round[]>("rounds", []);
+        setRounds(localRounds);
+        setActiveRound(localRounds.find((round) => !round.cancelled) || null);
+        setTeams(readLocal<Team[]>("teams", []));
+        setAdjudicators(readLocal<Adjudicator[]>("adjudicators", []));
+        setVenues(readLocal<Venue[]>("venues", []));
+        setMotions(readLocal<Motion[]>("motions", []));
+        setBreakCategories(readLocal<BreakCategory[]>("breaks", []));
+        setDebates(readLocal<Debate[]>("debates", []));
+        setBallots(readLocal<BallotSubmission[]>("ballots", []));
+        setFeedback(readLocal<FeedbackSubmission[]>("feedback", []));
+        const localAuditEvents = readLocal<AuditEvent[]>("auditEvents", []);
+        auditEventsRef.current = localAuditEvents;
+        setAuditEvents(localAuditEvents);
+        setInstitutions(readLocal<Institution[]>("institutions", []));
       } catch (e) {
         console.warn("Error reading local storage cache:", e);
-      }
-
-      // 2. Fetch from Firestore if configured
-      let firestoreTournId = `tourn-${tournamentSlug}`;
-      let firestoreFound = false;
-
-      if (db) {
-        try {
-          let tData: Tournament | null = null;
-
-          // Check by standard ID `tourn-<slug>`
-          const directSnap = await getDoc(doc(db, "tournaments", firestoreTournId));
-          if (directSnap.exists()) {
-            tData = directSnap.data() as Tournament;
-            firestoreFound = true;
-          } else {
-            // Also check by raw slug as document ID
-            const rawSnap = await getDoc(doc(db, "tournaments", tournamentSlug));
-            if (rawSnap.exists()) {
-              tData = rawSnap.data() as Tournament;
-              firestoreTournId = tournamentSlug;
-              firestoreFound = true;
-            } else {
-              // Query by slug field
-              const q = query(collection(db, "tournaments"), where("slug", "==", tournamentSlug));
-              const querySnap = await getDocs(q);
-              if (!querySnap.empty) {
-                tData = querySnap.docs[0].data() as Tournament;
-                firestoreTournId = querySnap.docs[0].id;
-                firestoreFound = true;
-              }
-            }
-          }
-
-          if (tData && isMounted) {
-            setTournament(tData);
-            persistLocal("meta", tData);
-
-            // MIGRATION CHECK:
-            // Check if per-entity collections are empty while data/bundle exists.
-            // Check rounds collection as canonical indicator.
-            const roundsSnap = await getDocs(collection(db, "tournaments", firestoreTournId, "rounds"));
-            const bundleRef = doc(db, "tournaments", firestoreTournId, "data", "bundle");
-            const bundleSnap = await getDoc(bundleRef);
-
-            if (roundsSnap.empty && bundleSnap.exists()) {
-              console.log(`Migrating tournament ${firestoreTournId} from data/bundle to subcollections...`);
-              const b = bundleSnap.data() || {};
-              const ops: Array<(batch: WriteBatch) => void> = [];
-
-              const addBatchOps = <T extends { id: string }>(subcoll: string, items?: T[]) => {
-                if (Array.isArray(items)) {
-                  for (const item of items) {
-                    if (item && item.id) {
-                      const itemRef = doc(db!, "tournaments", firestoreTournId, subcoll, item.id);
-                      ops.push((batch) => batch.set(itemRef, cleanUndefined(item)));
-                    }
-                  }
-                }
-              };
-
-              addBatchOps("rounds", b.rounds);
-              addBatchOps("teams", b.teams);
-              addBatchOps("adjudicators", b.adjudicators);
-              addBatchOps("venues", b.venues);
-              addBatchOps("motions", b.motions);
-              addBatchOps("breakCategories", b.breakCategories);
-              addBatchOps("debates", b.debates);
-              addBatchOps("ballots", b.ballots);
-              addBatchOps("feedback", b.feedback);
-              addBatchOps("institutions", b.institutions);
-
-              const nowIso = new Date().toISOString();
-              const tournRef = doc(db, "tournaments", firestoreTournId);
-              ops.push((batch) =>
-                batch.update(tournRef, {
-                  migratedAt: nowIso,
-                  updatedAt: nowIso,
-                })
-              );
-
-              await commitChunkedBatches(ops);
-              console.log(`Migration completed for tournament ${firestoreTournId}.`);
-            }
-
-            // Set up onSnapshot listeners:
-            // 1 listener for tournament doc
-            // 10 data subcollections plus metadata, and audit history for admins.
-            const canReadAuditEvents = Boolean(
-              user &&
-              (
-                tData.ownerId === user.uid ||
-                tData.ownerId === "director" ||
-                tData.admins?.[user.uid]
-              )
-            );
-            const totalListeners = 11 + Number(canReadAuditEvents);
-            let loadedListenersCount = 0;
-            const markListenerReady = () => {
-              loadedListenersCount++;
-              if (loadedListenersCount >= totalListeners && isMounted) {
-                setLoading(false);
-              }
-            };
-
-            // 1. Tournament metadata listener
-            const unsubTourn = onSnapshot(
-              doc(db, "tournaments", firestoreTournId),
-              (snap) => {
-                if (snap.exists() && isMounted) {
-                  const fresh = snap.data() as Tournament;
-                  setTournament(fresh);
-                  persistLocal("meta", fresh);
-                }
-                markListenerReady();
-              },
-              (err) => {
-                console.warn("Tournament doc listener error:", err);
-                markListenerReady();
-              }
-            );
-            unsubscribers.push(unsubTourn);
-
-            // Subcollection listeners:
-            // Helper to subscribe to a subcollection
-            const subscribeSubcollection = <T extends { id: string }>(
-              subcollName: string,
-              storageKey: string,
-              setter: (items: T[]) => void,
-              onFirstLoad?: (items: T[]) => void
-            ) => {
-              let isFirst = true;
-              const unsub = onSnapshot(
-                collection(db!, "tournaments", firestoreTournId, subcollName),
-                (snapshot) => {
-                  if (isMounted) {
-                    const items = snapshot.docs.map((d) => d.data() as T);
-                    setter(items);
-                    persistLocal(storageKey, items);
-                    if (isFirst && onFirstLoad) {
-                      onFirstLoad(items);
-                    }
-                  }
-                  if (isFirst) {
-                    isFirst = false;
-                    markListenerReady();
-                  }
-                },
-                (err) => {
-                  console.warn(`Subcollection listener error for ${subcollName}:`, err);
-                  if (isFirst) {
-                    isFirst = false;
-                    markListenerReady();
-                  }
-                }
-              );
-              unsubscribers.push(unsub);
-            };
-
-            // 2. rounds
-            subscribeSubcollection<Round>("rounds", "rounds", setRounds, (rList) => {
-              if (rList.length > 0) {
-                const activeRounds = rList.filter((r) => !r.cancelled);
-                setActiveRound((prev) => {
-                  if (prev) {
-                    const match = rList.find((r) => r.id === prev.id);
-                    if (match && !match.cancelled) return match;
-                  }
-                  return activeRounds[activeRounds.length - 1] || null;
-                });
-              }
-            });
-
-            // 3. teams
-            subscribeSubcollection<Team>("teams", "teams", setTeams);
-
-            // 4. adjudicators
-            subscribeSubcollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
-
-            // 5. venues
-            subscribeSubcollection<Venue>("venues", "venues", setVenues);
-
-            // 6. motions
-            subscribeSubcollection<Motion>("motions", "motions", setMotions);
-
-            // 7. breakCategories
-            subscribeSubcollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
-
-            // 8. debates
-            subscribeSubcollection<Debate>("debates", "debates", setDebates);
-
-            // 9. ballots
-            subscribeSubcollection<BallotSubmission>("ballots", "ballots", setBallots);
-
-            // 10. feedback
-            subscribeSubcollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
-
-            // 11. institutions
-            subscribeSubcollection<Institution>("institutions", "institutions", setInstitutions);
-
-            // 12. audit events
-            if (canReadAuditEvents) {
-              subscribeSubcollection<AuditEvent>("auditEvents", "auditEvents", (items) => {
-                auditEventsRef.current = items;
-                setAuditEvents(items);
-              });
-            } else {
-              auditEventsRef.current = [];
-              setAuditEvents([]);
-            }
-          }
-        } catch (err) {
-          console.warn("Error fetching tournament from Firestore:", err);
-        }
-      }
-
-      // 3. Fallback: If tournament was neither in Firestore nor in localStorage
-      const curLocalCheck = localStorage.getItem(`${storagePrefix}_meta`);
-      if (!firestoreFound && !curLocalCheck && isMounted) {
-        // Initialize a fresh tournament
-        const defaultT: Tournament = {
-          id: `tourn-${tournamentSlug}`,
-          name: `${tournamentSlug.toUpperCase()} Tournament`,
-          shortName: tournamentSlug.toUpperCase(),
-          slug: tournamentSlug,
-          format: "bp",
-          active: true,
-          ownerId: user?.uid || "director",
-          admins: user?.uid ? { [user.uid]: true } : { director: true },
-          preferences: {
-            teamsInDebate: 4,
-            substantiveSpeakers: 2,
-            replyScoresEnabled: false,
-            minSpeakerScore: 68,
-            maxSpeakerScore: 84,
-            stepSpeakerScore: 1,
-            minReplyScore: 34,
-            maxReplyScore: 42,
-            drawRule: "power_paired",
-            sideAllocationRule: "balanced",
-            ballotDoubleEntry: false,
-            publicDraw: true,
-            publicResults: true,
-            publicStandings: true,
-            publicMotions: true,
-            feedbackEnabled: true,
-            feedbackMinScore: 1,
-            feedbackMaxScore: 10,
-          },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        setTournament(defaultT);
-        persistLocal("meta", defaultT);
-
-        if (db && user) {
-          setDoc(doc(db, "tournaments", defaultT.id), defaultT, { merge: true }).catch(console.warn);
-        }
-      }
-
-      // If Firestore was not configured or not found, set loading to false here
-      if (!firestoreFound && isMounted) {
-        setLoading(false);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     }
 
-    loadData();
-
+    loadLocalData();
     return () => {
       isMounted = false;
-      unsubscribers.forEach((unsub) => unsub());
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, user]);
+  }, [tournamentSlug, storagePrefix, persistLocal]);
 
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
@@ -605,7 +306,6 @@ export function TournamentProvider({
   }, [tournament, user]);
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
-    if (!isOwnerOrAdmin) return;
     const timestamp = new Date().toISOString();
     const event: AuditEvent = {
       ...eventData,
@@ -616,13 +316,13 @@ export function TournamentProvider({
       timestamp,
       actorId: user?.uid,
       actorName: user?.displayName || user?.email || undefined,
-      actorType: user ? "user" : "public",
+      actorType: user ? "user" : "system",
     };
     const updated = [event, ...auditEventsRef.current];
     auditEventsRef.current = updated;
     setAuditEvents(updated);
     persistLocal("auditEvents", updated);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       await setDoc(
         doc(db, "tournaments", tournament.id, "auditEvents", event.id),
         cleanUndefined(event)
@@ -660,7 +360,7 @@ export function TournamentProvider({
     setTournament(t);
     persistLocal("meta", t);
     try {
-      if (db) {
+      if (AUTOMATIC_CLOUD_WRITES && db) {
         await setDoc(doc(db, "tournaments", t.id), t, { merge: true });
       }
     } catch (e) {
@@ -732,7 +432,6 @@ export function TournamentProvider({
     setActiveRound(newRound);
     persistLocal("rounds", updated);
 
-    await setFirestoreDoc("rounds", newRound.id, newRound);
     await recordAuditEvent({
       action: "round.created",
       category: "tournament",
@@ -749,7 +448,7 @@ export function TournamentProvider({
 
   const updateRound = async (round: Round) => {
     const previous = rounds.find((item) => item.id === round.id);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       await setDoc(
         doc(db, "tournaments", tournament.id, "rounds", round.id),
         cleanUndefined(round)
@@ -858,7 +557,7 @@ export function TournamentProvider({
     const changedDebates = updatedDebates.filter(
       (debate, index) => debate.roundSeq !== debates[index].roundSeq
     );
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       ordered.forEach((round) => {
         ops.push((batch) =>
@@ -937,7 +636,7 @@ export function TournamentProvider({
       motions[index].rounds?.includes(roundId)
     );
 
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       ops.push((batch) =>
         batch.delete(doc(db!, "tournaments", tournament.id, "rounds", roundId))
@@ -1101,7 +800,7 @@ export function TournamentProvider({
     persistLocal("rounds", updatedRounds);
 
     // Multi-document write using chunked writeBatch (at most 400 operations per chunk)
-    if (db && tournament.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
 
       // 1. Delete previous debates for this round
@@ -1224,7 +923,7 @@ export function TournamentProvider({
     persistLocal("debates", updated);
 
     // Batch update allocated debates
-    if (db && tournament.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const d of updatedRoundDebates) {
         const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
@@ -1257,7 +956,6 @@ export function TournamentProvider({
     const updated = debates.map((d) => (d.id === debate.id ? debate : d));
     setDebates(updated);
     persistLocal("debates", updated);
-    await setFirestoreDoc("debates", debate.id, debate);
     if (previous && JSON.stringify(previous.adjudicators) !== JSON.stringify(debate.adjudicators)) {
       await recordAuditEvent({
         action: "adjudicators.manual_assignment_updated",
@@ -1291,7 +989,7 @@ export function TournamentProvider({
     const previousById = new Map(debates.map((debate) => [debate.id, debate]));
     setDebates(newDebates);
     persistLocal("debates", newDebates);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const d of newDebates) {
         const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
@@ -1322,37 +1020,6 @@ export function TournamentProvider({
   };
 
   const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
-    if (privatePasscode) {
-      const { ballot: savedBallot, debate: savedDebate } =
-        await submitParticipantAction<{ ballot: BallotSubmission; debate: Debate }>(
-          tournamentSlug,
-          privatePasscode,
-          "ballot",
-          ballot
-        );
-      const updatedBallots = [
-        ...ballots.filter((item) => item.debateId !== savedBallot.debateId),
-        savedBallot,
-      ];
-      setBallots(updatedBallots);
-      persistLocal("ballots", updatedBallots);
-
-      const updatedDebates = debates.map((item) =>
-        item.id === savedDebate.id ? savedDebate : item
-      );
-      setDebates(updatedDebates);
-      persistLocal("debates", updatedDebates);
-
-      const updatedRounds = rounds.map((round) =>
-        round.id === savedBallot.roundId
-          ? { ...round, resultsReleased: false, teamSpeaksReleased: false }
-          : round
-      );
-      setRounds(updatedRounds);
-      persistLocal("rounds", updatedRounds);
-      return;
-    }
-
     // If ballot already exists with same id or debateId
     const existingIdx = ballots.findIndex((b) => b.id === ballot.id || (!ballot.id && b.debateId === ballot.debateId));
     let updatedBallots: BallotSubmission[];
@@ -1387,10 +1054,8 @@ export function TournamentProvider({
       updatedDebates = debates.map((d) => (d.id === debate.id ? updatedDebate : d));
       setDebates(updatedDebates);
       persistLocal("debates", updatedDebates);
-      await setFirestoreDoc("debates", updatedDebate.id, updatedDebate);
     }
 
-    await setFirestoreDoc("ballots", finalBallot.id, finalBallot);
     await recordAuditEvent({
       action: "ballot.submitted",
       category: "ballot",
@@ -1416,81 +1081,7 @@ export function TournamentProvider({
   ) => {
     const nowIso = new Date().toISOString();
 
-    // 1. Transactional update in Firestore if available:
-    // Read the ballot and its debate; mark this ballot confirmed and other versions for that debate discarded;
-    // set debate.resultStatus = "confirmed" and write team points/speaker totals onto the debate slots.
-    if (db && tournament?.id) {
-      const debateRef = doc(db, "tournaments", tournament.id, "debates", debateId);
-      const ballotRef = doc(db, "tournaments", tournament.id, "ballots", ballotId);
-
-      // Query all ballots for this debate to mark other versions discarded
-      const ballotsQuery = query(
-        collection(db, "tournaments", tournament.id, "ballots"),
-        where("debateId", "==", debateId)
-      );
-      const ballotsSnap = await getDocs(ballotsQuery);
-
-      await runTransaction(db, async (tx) => {
-        const debateDoc = await tx.get(debateRef);
-        const targetBallotDoc = await tx.get(ballotRef);
-
-        let confirmedBallotData: BallotSubmission;
-        if (targetBallotDoc.exists()) {
-          confirmedBallotData = targetBallotDoc.data() as BallotSubmission;
-        } else {
-          // If not in firestore yet, find in local state
-          const localB = submittedBallot || ballots.find((b) => b.id === ballotId || b.debateId === debateId);
-          if (!localB) throw new Error(`Ballot ${ballotId} not found.`);
-          confirmedBallotData = localB;
-        }
-
-        // Set target ballot to confirmed and not discarded
-        const updatedConfirmedBallot: BallotSubmission = {
-          ...confirmedBallotData,
-          confirmed: true,
-          discarded: false,
-          confirmedTimestamp: nowIso,
-        };
-        tx.set(ballotRef, cleanUndefined(updatedConfirmedBallot));
-
-        // Mark other ballot versions for this debate as discarded
-        ballotsSnap.forEach((dSnap) => {
-          if (dSnap.id !== ballotId) {
-            tx.update(dSnap.ref, { discarded: true, confirmed: false });
-          }
-        });
-
-        // Update debate slots with team points and speaker totals
-        if (debateDoc.exists()) {
-          const debData = debateDoc.data() as Debate;
-          const updatedTeams = { ...debData.teams };
-
-          for (const [key, slot] of Object.entries(updatedTeams)) {
-            const sideKey = key as DebateSide;
-            if (slot && slot.teamId) {
-              const teamScore = confirmedBallotData.teamScores?.[sideKey];
-              const speakerScores = confirmedBallotData.speakerScores?.[sideKey] || [];
-              const totalSpeakersScore = speakerScores.reduce(
-                (sum, s) => sum + (s.score || 0),
-                0
-              );
-              updatedTeams[sideKey] = {
-                ...slot,
-                points: teamScore ? teamScore.points : slot.points,
-                speakerScoreTotal: totalSpeakersScore || teamScore?.totalSpeakerScore || slot.speakerScoreTotal,
-              };
-            }
-          }
-
-          tx.update(debateRef, cleanUndefined({
-            resultStatus: "confirmed",
-            teams: updatedTeams,
-          }));
-        }
-      });
-    }
-
-    // 2. Update local state
+    // Confirm ballots in the local working copy; cloud writes happen on explicit upload.
     const confirmedBallot = submittedBallot || ballots.find((b) => b.id === ballotId || b.debateId === debateId);
     const updatedBallots = ballots.map((b) => {
       if (b.id === ballotId || (b.debateId === debateId && b.id === ballotId)) {
@@ -1572,7 +1163,6 @@ export function TournamentProvider({
     const updated = [...institutions, newInst];
     setInstitutions(updated);
     persistLocal("institutions", updated);
-    await setFirestoreDoc("institutions", newInst.id, newInst);
     await recordAuditEvent({
       action: "institution.created",
       category: "tournament",
@@ -1586,7 +1176,6 @@ export function TournamentProvider({
     const updated = institutions.map((i) => (i.id === inst.id ? inst : i));
     setInstitutions(updated);
     persistLocal("institutions", updated);
-    await setFirestoreDoc("institutions", inst.id, inst);
     await recordAuditEvent({
       action: "institution.updated",
       category: "tournament",
@@ -1604,7 +1193,6 @@ export function TournamentProvider({
     const updated = institutions.filter((i) => i.id !== instId);
     setInstitutions(updated);
     persistLocal("institutions", updated);
-    await deleteFirestoreDoc("institutions", instId);
     await recordAuditEvent({
       action: "institution.deleted",
       category: "tournament",
@@ -1623,7 +1211,6 @@ export function TournamentProvider({
     const updated = [...teams, newTeam];
     setTeams(updated);
     persistLocal("teams", updated);
-    await setFirestoreDoc("teams", newTeam.id, newTeam);
     await recordAuditEvent({
       action: "team.created",
       category: "tournament",
@@ -1638,21 +1225,11 @@ export function TournamentProvider({
     });
   };
 
-  const updateTeam = async (team: Team, privatePasscode?: string) => {
-    if (privatePasscode) {
-      await submitParticipantAction(
-        tournamentSlug,
-        privatePasscode,
-        "team-check-in",
-        { checkedIn: Boolean(team.checkedIn) }
-      );
-    }
+  const updateTeam = async (team: Team, _privatePasscode?: string) => {
     const previous = teams.find((item) => item.id === team.id);
     const updated = teams.map((t) => (t.id === team.id ? team : t));
     setTeams(updated);
     persistLocal("teams", updated);
-    if (privatePasscode) return;
-    await setFirestoreDoc("teams", team.id, team);
     await recordAuditEvent({
       action: "team.updated",
       category: "tournament",
@@ -1682,7 +1259,6 @@ export function TournamentProvider({
     const updated = teams.filter((t) => t.id !== teamId);
     setTeams(updated);
     persistLocal("teams", updated);
-    await deleteFirestoreDoc("teams", teamId);
     await recordAuditEvent({
       action: "team.deleted",
       category: "tournament",
@@ -1701,7 +1277,6 @@ export function TournamentProvider({
     const updated = [...adjudicators, newAdj];
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
-    await setFirestoreDoc("adjudicators", newAdj.id, newAdj);
     await recordAuditEvent({
       action: "adjudicator.created",
       category: "tournament",
@@ -1717,21 +1292,11 @@ export function TournamentProvider({
     });
   };
 
-  const updateAdjudicator = async (adj: Adjudicator, privatePasscode?: string) => {
-    if (privatePasscode) {
-      await submitParticipantAction(
-        tournamentSlug,
-        privatePasscode,
-        "adjudicator-check-in",
-        { checkedIn: Boolean(adj.checkedIn) }
-      );
-    }
+  const updateAdjudicator = async (adj: Adjudicator, _privatePasscode?: string) => {
     const previous = adjudicators.find((item) => item.id === adj.id);
     const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
-    if (privatePasscode) return;
-    await setFirestoreDoc("adjudicators", adj.id, adj);
     const safeAdj = ({ privateUrlKey: _privateUrlKey, ...safe }: Adjudicator) => safe;
     await recordAuditEvent({
       action: "adjudicator.updated",
@@ -1750,7 +1315,6 @@ export function TournamentProvider({
     const updated = adjudicators.filter((a) => a.id !== adjId);
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
-    await deleteFirestoreDoc("adjudicators", adjId);
     await recordAuditEvent({
       action: "adjudicator.deleted",
       category: "tournament",
@@ -1768,7 +1332,6 @@ export function TournamentProvider({
     const updated = [...venues, newVenue];
     setVenues(updated);
     persistLocal("venues", updated);
-    await setFirestoreDoc("venues", newVenue.id, newVenue);
     await recordAuditEvent({
       action: "venue.created",
       category: "venue",
@@ -1782,7 +1345,6 @@ export function TournamentProvider({
     const updated = venues.map((v) => (v.id === venue.id ? venue : v));
     setVenues(updated);
     persistLocal("venues", updated);
-    await setFirestoreDoc("venues", venue.id, venue);
     await recordAuditEvent({
       action: "venue.updated",
       category: "venue",
@@ -1800,7 +1362,6 @@ export function TournamentProvider({
     const updated = venues.filter((v) => v.id !== venueId);
     setVenues(updated);
     persistLocal("venues", updated);
-    await deleteFirestoreDoc("venues", venueId);
     await recordAuditEvent({
       action: "venue.deleted",
       category: "venue",
@@ -1818,7 +1379,6 @@ export function TournamentProvider({
     const updated = [...motions, newMotion];
     setMotions(updated);
     persistLocal("motions", updated);
-    await setFirestoreDoc("motions", newMotion.id, newMotion);
     await recordAuditEvent({
       action: "motion.created",
       category: "tournament",
@@ -1834,7 +1394,7 @@ export function TournamentProvider({
 
   const updateMotion = async (motion: Motion) => {
     const previous = motions.find((item) => item.id === motion.id);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       await setDoc(
         doc(db, "tournaments", tournament.id, "motions", motion.id),
         cleanUndefined(motion)
@@ -1860,7 +1420,6 @@ export function TournamentProvider({
     const updated = motions.filter((m) => m.id !== motionId);
     setMotions(updated);
     persistLocal("motions", updated);
-    await deleteFirestoreDoc("motions", motionId);
     await recordAuditEvent({
       action: "motion.deleted",
       category: "tournament",
@@ -1873,7 +1432,7 @@ export function TournamentProvider({
     const previousById = new Map(breakCategories.map((category) => [category.id, category]));
     setBreakCategories(cats);
     persistLocal("breaks", cats);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const c of cats) {
         const ref = doc(db, "tournaments", tournament.id, "breakCategories", c.id);
@@ -1983,7 +1542,7 @@ export function TournamentProvider({
     setActiveRound(firstCategoryRound);
     persistLocal("teams", updatedTeams);
     persistLocal("rounds", updatedRounds);
-    if (db && tournament?.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const team of updatedTeams) {
         const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
@@ -2057,7 +1616,7 @@ export function TournamentProvider({
     setActiveRound(nextRound || updatedRound);
     persistLocal("teams", updatedTeams);
     persistLocal("rounds", updatedRounds);
-    if (db && tournament.id) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       for (const team of updatedTeams.filter((item) => participatingTeamIds.has(item.id))) {
         const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
@@ -2086,20 +1645,6 @@ export function TournamentProvider({
     fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">,
     privatePasscode?: string
   ) => {
-    if (privatePasscode) {
-      const { feedback: savedFeedback } =
-        await submitParticipantAction<{ feedback: FeedbackSubmission }>(
-          tournamentSlug,
-          privatePasscode,
-          fbData.sourceType === "team" ? "team-feedback" : "adjudicator-feedback",
-          fbData
-        );
-      const updated = [...feedback, savedFeedback];
-      setFeedback(updated);
-      persistLocal("feedback", updated);
-      return;
-    }
-
     const newFb: FeedbackSubmission = {
       ...fbData,
       id: `fb-${Date.now()}`,
@@ -2109,7 +1654,6 @@ export function TournamentProvider({
     const updated = [...feedback, newFb];
     setFeedback(updated);
     persistLocal("feedback", updated);
-    await setFirestoreDoc("feedback", newFb.id, newFb);
     await recordAuditEvent({
       action: "feedback.submitted",
       category: "feedback",
@@ -2155,7 +1699,7 @@ export function TournamentProvider({
       persistLocal("adjudicators", updatedAdjs);
     }
 
-    if (db && tournament?.id && (teamsChanged || adjsChanged)) {
+    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id && (teamsChanged || adjsChanged)) {
       const ops: Array<(batch: WriteBatch) => void> = [];
       if (teamsChanged) {
         for (const t of updatedTeams) {
@@ -2185,6 +1729,95 @@ export function TournamentProvider({
     }
   };
 
+  const uploadToCloud = async () => {
+    if (!db) {
+      const message = "Cloud sync is unavailable because Firebase is not configured.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw new Error(message);
+    }
+    if (!user) {
+      const message = "Sign in before uploading this tournament to the cloud.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw new Error(message);
+    }
+    if (!tournament || !isOwnerOrAdmin) {
+      const message = "You do not have permission to upload this tournament.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw new Error(message);
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const message = "You are offline. Your changes are saved on this device; try uploading when connected.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw new Error(message);
+    }
+
+    setCloudSyncState("syncing");
+    setCloudSyncMessage("Uploading this device's local tournament to Firestore…");
+    try {
+      const tournamentRef = doc(db, "tournaments", tournament.id);
+      const cloudTournament = await getDoc(tournamentRef);
+      if (
+        cloudTournament.exists() &&
+        cloudTournament.data().ownerId !== "director" &&
+        cloudTournament.data().ownerId !== user.uid &&
+        cloudTournament.data().admins?.[user.uid] !== true
+      ) {
+        throw new Error("This cloud tournament belongs to another account.");
+      }
+
+      const metadata = {
+        ...tournament,
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(tournamentRef, cleanUndefined(metadata), { merge: true });
+
+      const localCollections: Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>> = {
+        rounds,
+        teams,
+        adjudicators,
+        venues,
+        motions,
+        breakCategories,
+        debates,
+        ballots,
+        feedback,
+        institutions,
+      };
+      const operations: Array<(batch: WriteBatch) => void> = [];
+      for (const collectionName of CLOUD_COLLECTIONS) {
+        const collectionRef = collection(db, "tournaments", tournament.id, collectionName);
+        const remoteSnapshot = await getDocs(collectionRef);
+        const localItems = localCollections[collectionName];
+        const localIds = new Set(localItems.map((item) => item.id));
+        for (const remoteDoc of remoteSnapshot.docs) {
+          if (!localIds.has(remoteDoc.id)) {
+            operations.push((batch) => batch.delete(remoteDoc.ref));
+          }
+        }
+        for (const item of localItems) {
+          operations.push((batch) => {
+            batch.set(
+              doc(db!, "tournaments", tournament.id, collectionName, item.id),
+              cleanUndefined(item)
+            );
+          });
+        }
+      }
+      await commitChunkedBatches(operations);
+      setCloudSyncState("success");
+      setCloudSyncMessage(`Uploaded local tournament at ${new Date().toLocaleTimeString()}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cloud upload failed.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw error;
+    }
+  };
+
   return (
     <TournamentContext.Provider
       value={{
@@ -2208,6 +1841,10 @@ export function TournamentProvider({
         replyStandings,
         breakResults,
         isOwnerOrAdmin,
+        cloudSyncState,
+        cloudSyncMessage,
+        localSaveError,
+        uploadToCloud,
         saveTournament,
         createRound,
         setPreliminaryRoundCount,

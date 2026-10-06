@@ -20,15 +20,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import {
   collection,
-  onSnapshot,
   getDocs,
   doc,
-  deleteDoc,
+  getDoc,
 } from "firebase/firestore";
 import { safeJsonParse } from "@/lib/safeJson";
 
 interface StoredTournamentSummary {
-  id?: string;
+  id: string;
   slug: string;
   name: string;
   format: TournamentFormat;
@@ -36,6 +35,7 @@ interface StoredTournamentSummary {
   ownerId?: string;
   ownerEmail?: string;
   isOwner?: boolean;
+  isLocal?: boolean;
 }
 
 export default function HomePage() {
@@ -45,10 +45,10 @@ export default function HomePage() {
   const [loadingTournaments, setLoadingTournaments] = useState(true);
   const [filterTab, setFilterTab] = useState<"all" | "mine">("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [cloudError, setCloudError] = useState("");
 
   // Creating a tournament happens in the guided setup wizard.
-  const goCreate = () =>
-    router.push(user ? "/tournaments/new" : "/login?next=/tournaments/new");
+  const goCreate = () => router.push("/tournaments/new");
 
   // Scan localStorage for local copies
   const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
@@ -71,6 +71,7 @@ export default function HomePage() {
               createdAt: item.createdAt || new Date().toISOString(),
               ownerId: item.ownerId,
               ownerEmail: item.ownerEmail,
+              isLocal: true,
             });
           }
         } catch (e) {
@@ -82,113 +83,106 @@ export default function HomePage() {
     return list;
   }, []);
 
-  // Fetch from Firestore and combine with localStorage
+  // Load local tournaments only; cloud access is always initiated by the user.
   const loadTournaments = useCallback(async () => {
-    setIsRefreshing(true);
     const localList = getLocalTournaments();
-    const map = new Map<string, StoredTournamentSummary>();
-
-    // Seed map with local tournaments
-    localList.forEach((t) => map.set(t.slug, t));
-
-    if (db) {
-      try {
-        const querySnapshot = await getDocs(collection(db, "tournaments"));
-        querySnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const tSlug = data.slug || docSnap.id.replace(/^tourn-/, "");
-          const isOwn = Boolean(
-            user &&
-              (data.ownerId === user.uid ||
-                (user.email && data.ownerEmail === user.email) ||
-                (data.admins && data.admins[user.uid]))
-          );
-
-          map.set(tSlug, {
-            id: docSnap.id,
-            slug: tSlug,
-            name: data.name || tSlug,
-            format: (data.format as TournamentFormat) || "bp",
-            createdAt: data.createdAt || new Date().toISOString(),
-            ownerId: data.ownerId,
-            ownerEmail: data.ownerEmail,
-            isOwner: isOwn,
-          });
-
-          // Sync into localStorage cache as well
-          try {
-            localStorage.setItem(
-              `crabbytab_t_${tSlug}_meta`,
-              JSON.stringify({ ...data, id: docSnap.id, slug: tSlug })
-            );
-          } catch (e) {
-            // ignore
-          }
-        });
-      } catch (err) {
-        console.warn("Could not fetch tournaments from Firestore:", err);
-      }
-    }
-
-    const merged = Array.from(map.values()).sort(
+    setTournaments(localList.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
-    setTournaments(merged);
+    ));
     setLoadingTournaments(false);
-    setIsRefreshing(false);
-  }, [getLocalTournaments, user]);
+  }, [getLocalTournaments]);
 
-  // Initial load and real-time subscription
   useEffect(() => {
     loadTournaments();
+  }, [loadTournaments]);
 
-    if (!db) return;
+  const refreshCloudTournaments = async () => {
+    if (!db) {
+      setCloudError("Cloud access is not configured. Local tournaments are still available.");
+      return;
+    }
+    setIsRefreshing(true);
+    setCloudError("");
+    try {
+      const localSlugs = new Set(getLocalTournaments().map((item) => item.slug));
+      const snapshot = await getDocs(collection(db, "tournaments"));
+      const cloudItems = snapshot.docs.map((cloudDoc) => {
+        const data = cloudDoc.data();
+        const slug = typeof data.slug === "string" ? data.slug : cloudDoc.id.replace(/^tourn-/, "");
+        return {
+          id: cloudDoc.id,
+          slug,
+          name: typeof data.name === "string" ? data.name : slug,
+          format: (data.format as TournamentFormat) || "bp",
+          createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
+          ownerId: typeof data.ownerId === "string" ? data.ownerId : undefined,
+          ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : undefined,
+          isOwner: Boolean(user && (data.ownerId === user.uid || data.admins?.[user.uid] === true)),
+          isLocal: localSlugs.has(slug),
+        } satisfies StoredTournamentSummary;
+      });
+      const localItems = getLocalTournaments();
+      const cloudBySlug = new Map<string, StoredTournamentSummary>(
+        cloudItems.map((item) => [item.slug, item])
+      );
+      localItems.forEach((item) => {
+        if (!cloudBySlug.has(item.slug)) cloudBySlug.set(item.slug, item);
+      });
+      setTournaments([...cloudBySlug.values()].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ));
+    } catch (error) {
+      console.error("Could not refresh cloud tournaments:", error);
+      setCloudError("Could not load the cloud tournament list. Check your connection and try again.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
-    // Set up real-time listener on tournaments collection
-    const unsubscribe = onSnapshot(
-      collection(db, "tournaments"),
-      (snapshot) => {
-        const localList = getLocalTournaments();
-        const map = new Map<string, StoredTournamentSummary>();
-        localList.forEach((t) => map.set(t.slug, t));
+  const downloadTournament = async (summary: StoredTournamentSummary) => {
+    if (!db || !summary.id) {
+      setCloudError("Cloud download is unavailable because Firebase is not configured.");
+      return;
+    }
+    if (summary.isLocal && !window.confirm("Replace this device's local copy with the cloud copy? This discards unsynced local changes.")) {
+      return;
+    }
 
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const tSlug = data.slug || docSnap.id.replace(/^tourn-/, "");
-          const isOwn = Boolean(
-            user &&
-              (data.ownerId === user.uid ||
-                (user.email && data.ownerEmail === user.email) ||
-                (data.admins && data.admins[user.uid]))
-          );
-
-          map.set(tSlug, {
-            id: docSnap.id,
-            slug: tSlug,
-            name: data.name || tSlug,
-            format: (data.format as TournamentFormat) || "bp",
-            createdAt: data.createdAt || new Date().toISOString(),
-            ownerId: data.ownerId,
-            ownerEmail: data.ownerEmail,
-            isOwner: isOwn,
-          });
-        });
-
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    setIsRefreshing(true);
+    try {
+      const tournamentSnapshot = await getDoc(doc(db, "tournaments", summary.id));
+      if (!tournamentSnapshot.exists()) throw new Error("Tournament no longer exists in the cloud.");
+      const tournamentData = { ...tournamentSnapshot.data(), id: summary.id, slug: summary.slug };
+      const prefix = `crabbytab_t_${summary.slug}`;
+      localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournamentData));
+      const collections: Array<[string, string]> = [
+        ["rounds", "rounds"],
+        ["teams", "teams"],
+        ["adjudicators", "adjudicators"],
+        ["venues", "venues"],
+        ["motions", "motions"],
+        ["breakCategories", "breaks"],
+        ["debates", "debates"],
+        ["ballots", "ballots"],
+        ["feedback", "feedback"],
+        ["institutions", "institutions"],
+      ];
+      for (const [collectionName, storageKey] of collections) {
+        const docs = await getDocs(collection(db, "tournaments", summary.id, collectionName));
+        localStorage.setItem(
+          `${prefix}_${storageKey}`,
+          JSON.stringify(docs.docs.map((document) => document.data()))
         );
-
-        setTournaments(merged);
-        setLoadingTournaments(false);
-      },
-      (error) => {
-        console.warn("Firestore onSnapshot error:", error);
       }
-    );
-
-    return () => unsubscribe();
-  }, [loadTournaments, getLocalTournaments, user]);
+      await loadTournaments();
+      router.push(`/${summary.slug}`);
+    } catch (error) {
+      console.error("Could not download tournament:", error);
+      window.alert(error instanceof Error ? error.message : "Could not download tournament.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleDelete = async (t: StoredTournamentSummary) => {
     if (!confirm(`Are you sure you want to delete tournament "${t.name}"? This action cannot be undone.`)) {
@@ -207,15 +201,6 @@ export default function HomePage() {
       keysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch (e) {
       console.warn("LocalStorage delete error:", e);
-    }
-
-    // 2. Delete from Firestore if exists
-    if (db && t.id) {
-      try {
-        await deleteDoc(doc(db, "tournaments", t.id));
-      } catch (err) {
-        console.warn("Firestore delete warning:", err);
-      }
     }
 
     // Refresh list
@@ -271,27 +256,19 @@ export default function HomePage() {
                 >
                   Sign out
                 </button>
-                <button
-                  onClick={goCreate}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Create Tournament</span>
-                </button>
               </>
             ) : (
-              <>
-                <Link href="/login" className="text-xs text-gray-300 hover:text-white px-2 py-1">
-                  Sign in
-                </Link>
-                <Link
-                  href="/register"
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
-                >
-                  <span>Create account</span>
-                </Link>
-              </>
+              <Link href="/login" className="text-xs text-gray-300 hover:text-white px-2 py-1">
+                Sign in to upload
+              </Link>
             )}
+            <button
+              onClick={goCreate}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Tournament</span>
+            </button>
           </div>
         </div>
       </header>
@@ -308,23 +285,14 @@ export default function HomePage() {
                 </h2>
                 <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>Cloud Connected</span>
+                  <span>Offline-first · saved on this device</span>
                 </span>
               </div>
               <p className="text-sm text-gray-600 max-w-2xl">
-                A serverless Tabbycat-style tab system: public draw and standings for participants, a staff tab room for directors,
-                and real-time pairing with institutional clash detection.
+                Your working copy stays on this device. Continue tabbing without a connection, then explicitly upload when you are ready.
               </p>
             </div>
             <div className="flex items-center space-x-3 shrink-0">
-              {!user && !authLoading && (
-                <Link
-                  href="/login"
-                  className="inline-flex items-center px-4 py-2.5 border border-gray-300 text-gray-800 rounded-md text-xs font-bold hover:bg-gray-50 transition"
-                >
-                  Sign in to tab room
-                </Link>
-              )}
             </div>
           </div>
         </div>
@@ -362,17 +330,22 @@ export default function HomePage() {
                 </button>
               )}
             </div>
+            {cloudError && (
+              <p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
+                {cloudError}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => loadTournaments()}
+              onClick={refreshCloudTournaments}
               disabled={isRefreshing}
               className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition disabled:opacity-50"
-              title="Refresh tournaments from cloud"
+              title="Explicitly refresh the cloud list; this does not upload or change local tournaments"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-gray-500 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
-              <span>{isRefreshing ? "Syncing..." : "Sync Cloud"}</span>
+              <span>{isRefreshing ? "Loading..." : "Refresh Cloud List"}</span>
             </button>
           </div>
         </div>
@@ -472,16 +445,18 @@ export default function HomePage() {
 
                   <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <Link
-                        href={`/${t.slug}/public`}
-                        className="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center space-x-1"
-                        title="View Public Tab"
-                      >
-                        <span>Public Tab</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </Link>
+                      {t.isLocal && (
+                        <Link
+                          href={`/${t.slug}/public`}
+                          className="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center space-x-1"
+                          title="View Public Tab"
+                        >
+                          <span>Public Tab</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      )}
 
-                      {isMine && (
+                      {t.isLocal && (
                         <button
                           onClick={() => handleDelete(t)}
                           className="p-1 text-gray-400 hover:text-red-600 transition rounded"
@@ -492,13 +467,25 @@ export default function HomePage() {
                       )}
                     </div>
 
-                    <Link
-                      href={`/${t.slug}`}
-                      className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition"
-                    >
-                      <span>Enter Tab Room</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    {t.isLocal ? (
+                      <Link
+                        href={`/${t.slug}`}
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition"
+                      >
+                        <span>Enter Tab Room</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => downloadTournament(t)}
+                        disabled={isRefreshing}
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition disabled:opacity-50"
+                      >
+                        <span>Download to Device</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -509,7 +496,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
-        CrabbyTab — Serverless Tabbycat Clone &bull; Powered by Next.js 15 &bull; Realtime Cloud Firestore
+        CrabbyTab &bull; Offline-first tournament tabulation
       </footer>
     </div>
   );

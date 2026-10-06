@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -12,18 +12,54 @@ import {
   ChevronDown,
   LogOut,
   Shield,
+  Cloud,
+  CloudOff,
+  Upload,
 } from "lucide-react";
 
 export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   const router = useRouter();
-  const { tournament, rounds, activeRound, setActiveRound, createRound } = useTournament();
+  const {
+    tournament,
+    rounds,
+    activeRound,
+    setActiveRound,
+    createRound,
+    cloudSyncState,
+    cloudSyncMessage,
+    localSaveError,
+    uploadToCloud,
+  } = useTournament();
   const { user, logout } = useAuth();
+  const [isOnline, setIsOnline] = useState(true);
   const [showRoundModal, setShowRoundModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [newRoundName, setNewRoundName] = useState("");
   const [newRoundAbbr, setNewRoundAbbr] = useState("");
   const [newRoundStage, setNewRoundStage] = useState<"preliminary" | "elimination">("preliminary");
   const [isCreatingRound, setIsCreatingRound] = useState(false);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    updateOnlineStatus();
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
+
+  const handleUpload = async () => {
+    if (!window.confirm("Upload this device's local copy to Firestore? This replaces cloud data for this tournament.")) {
+      return;
+    }
+    try {
+      await uploadToCloud();
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
 
   const handleCreateRound = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,6 +149,50 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
 
           {/* Right Actions */}
           <div className="flex items-center space-x-3">
+            <span
+              className={`hidden sm:inline-flex items-center space-x-1 text-[10px] ${
+                isOnline ? "text-emerald-300" : "text-amber-300"
+              }`}
+              title={isOnline ? "Offline-first; changes are saved locally" : "Offline; changes are saved locally"}
+            >
+              {isOnline ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
+              <span>{isOnline ? "Local copy" : "Offline"}</span>
+            </span>
+            {user ? (
+              <button
+                type="button"
+                onClick={handleUpload}
+                disabled={!isOnline || cloudSyncState === "syncing"}
+                title={cloudSyncMessage || "Explicitly upload this device's local copy to Firestore"}
+                className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
+              >
+                <Upload className="w-3 h-3" />
+                <span>{cloudSyncState === "syncing" ? "Uploading…" : "Upload"}</span>
+              </button>
+            ) : (
+              <Link
+                href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}
+                title="Sign in only when you want to upload your local copy"
+                className="text-[10px] text-blue-200 hover:text-white underline"
+              >
+                Sign in to upload
+              </Link>
+            )}
+            {cloudSyncMessage && (
+              <span
+                role="status"
+                className={`hidden lg:inline max-w-[220px] truncate text-[10px] ${
+                  cloudSyncState === "error" ? "text-red-300" : "text-emerald-200"
+                }`}
+              >
+                {cloudSyncMessage}
+              </span>
+            )}
+            {localSaveError && (
+              <span role="alert" className="hidden lg:inline max-w-[220px] truncate text-[10px] text-red-300">
+                {localSaveError}
+              </span>
+            )}
             {/* Public View Link */}
             <Link
               href={`/${tournamentSlug}/public`}

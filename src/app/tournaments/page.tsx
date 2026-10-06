@@ -18,7 +18,7 @@ import type { Tournament } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import { getFormatPreset } from "@/lib/setup/presets";
-import { SetupShell, useRequireLogin } from "@/components/setup/SetupShell";
+import { SetupShell } from "@/components/setup/SetupShell";
 
 type Summary = Pick<Tournament, "id" | "name" | "slug" | "format" | "createdAt" | "ownerId" | "admins">;
 
@@ -69,7 +69,6 @@ function TournamentRow({ t, uid }: { t: Summary; uid?: string }) {
 }
 
 export default function TournamentsHubPage() {
-  const { ready } = useRequireLogin("/tournaments");
   const { user, configured } = useAuth();
 
   const [mine, setMine] = useState<Summary[]>([]);
@@ -81,37 +80,36 @@ export default function TournamentsHubPage() {
   const [searchError, setSearchError] = useState("");
   const searchSeq = useRef(0);
 
-  // "Your tournaments": owned or administered by the signed-in user.
+  // The local tournament list is available without sign-in or a network connection.
   useEffect(() => {
-    if (!ready) return;
-    if (!db || !user) {
+    if (typeof window === "undefined") {
       setLoadingMine(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
+    const list: Summary[] = [];
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
       try {
-        const col = collection(db!, "tournaments");
-        const [owned, admin] = await Promise.all([
-          getDocs(query(col, where("ownerId", "==", user.uid), limit(50))),
-          getDocs(query(col, where(new FieldPath("admins", user.uid), "==", true), limit(50))),
-        ]);
-        if (cancelled) return;
-        const list = mergeById([
-          owned.docs.map((d) => toSummary(d.id, d.data())),
-          admin.docs.map((d) => toSummary(d.id, d.data())),
-        ]).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setMine(list);
-      } catch (e) {
-        console.warn("Could not load your tournaments:", e);
-      } finally {
-        if (!cancelled) setLoadingMine(false);
+        const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
+        if (value?.id && value.slug && value.name && value.format && value.createdAt) {
+          list.push({
+            id: value.id,
+            slug: value.slug,
+            name: value.name,
+            format: value.format,
+            createdAt: value.createdAt,
+            ownerId: value.ownerId || "director",
+            admins: value.admins || {},
+          });
+        }
+      } catch (error) {
+        console.warn(`Could not read local tournament at ${key}:`, error);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [ready, user]);
+    }
+    setMine(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    setLoadingMine(false);
+  }, []);
 
   // Search: prefix match on slug and on the lowercase name, debounced.
   useEffect(() => {
@@ -152,10 +150,7 @@ export default function TournamentsHubPage() {
 
   return (
     <SetupShell>
-      {!ready ? (
-        <p className="text-sm text-gray-500">Checking your session...</p>
-      ) : (
-        <div className="space-y-8">
+      <div className="space-y-8">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
               {user?.displayName ? `Welcome, ${user.displayName}` : "Welcome"}
@@ -232,9 +227,9 @@ export default function TournamentsHubPage() {
           </section>
 
           {/* Mine */}
-          {db && (
+          {(
             <section>
-              <h2 className="text-sm font-bold text-gray-900 mb-2">Your tournaments</h2>
+              <h2 className="text-sm font-bold text-gray-900 mb-2">Tournaments on this device</h2>
               <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs">
                 {loadingMine ? (
                   <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading...</p>
@@ -252,8 +247,7 @@ export default function TournamentsHubPage() {
               </div>
             </section>
           )}
-        </div>
-      )}
+      </div>
     </SetupShell>
   );
 }

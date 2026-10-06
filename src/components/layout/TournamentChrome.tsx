@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
+import React from "react";
+import { usePathname } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 
@@ -14,32 +13,13 @@ export function TournamentChrome({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, loading } = useAuth();
 
   const isPublic = pathname?.includes("/public");
   const isParticipantPortal = pathname?.includes("/private/");
   const isDisplay = pathname?.includes("/display");
-  const isStaff = !isPublic && !isParticipantPortal;
-
-  useEffect(() => {
-    if (loading || !isStaff) return;
-    if (!user) {
-      const next = pathname || `/${tournamentSlug}`;
-      router.replace(`/login?next=${encodeURIComponent(next)}`);
-    }
-  }, [loading, isStaff, user, pathname, router, tournamentSlug]);
 
   if (isPublic || isParticipantPortal) {
     return <>{children}</>;
-  }
-
-  if (loading || !user) {
-    return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center text-sm text-gray-600">
-        {loading ? "Checking sign-in…" : "Redirecting to sign in…"}
-      </div>
-    );
   }
 
   if (isDisplay) {

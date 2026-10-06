@@ -47,21 +47,3 @@ export function SetupShell({
     </div>
   );
 }
-
-/**
- * Sends signed-out visitors to /login and returns whether the page may render.
- * When Firebase isn't configured the app runs in local-only mode, so there is
- * no login to require.
- */
-export function useRequireLogin(nextPath: string): { ready: boolean } {
-  const router = useRouter();
-  const { user, loading, configured } = useAuth();
-
-  React.useEffect(() => {
-    if (!loading && configured && !user) {
-      router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
-    }
-  }, [loading, configured, user, router, nextPath]);
-
-  return { ready: !loading && (!configured || Boolean(user)) };
-}
