@@ -100,6 +100,7 @@ export interface TournamentContextType {
   updateVenue: (venue: Venue) => Promise<void>;
   deleteVenue: (venueId: string) => Promise<void>;
   addMotion: (motion: Omit<Motion, "id" | "tournamentId">) => Promise<void>;
+  addMotions: (motions: Omit<Motion, "id" | "tournamentId">[]) => Promise<void>;
   updateMotion: (motion: Motion) => Promise<void>;
   deleteMotion: (motionId: string) => Promise<void>;
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
@@ -1370,26 +1371,36 @@ export function TournamentProvider({
     });
   };
 
-  const addMotion = async (motionData: Omit<Motion, "id" | "tournamentId">) => {
-    const newMotion: Motion = {
-      ...motionData,
-      id: `motion-${Date.now()}-${motions.length + 1}`,
+  const addMotions = async (motionData: Omit<Motion, "id" | "tournamentId">[]) => {
+    if (motionData.length === 0) return;
+
+    const newMotions: Motion[] = motionData.map((data) => ({
+      ...data,
+      id: `motion-${typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
-    };
-    const updated = [...motions, newMotion];
+    }));
+    const updated = [...motions, ...newMotions];
     setMotions(updated);
     persistLocal("motions", updated);
-    await recordAuditEvent({
-      action: "motion.created",
-      category: "tournament",
-      summary: "Motion added",
-      details: {
-        motionId: newMotion.id,
-        reference: newMotion.reference,
-        roundIds: newMotion.rounds,
-        released: newMotion.released,
-      },
-    });
+    for (const newMotion of newMotions) {
+      await recordAuditEvent({
+        action: "motion.created",
+        category: "tournament",
+        summary: "Motion added",
+        details: {
+          motionId: newMotion.id,
+          reference: newMotion.reference,
+          roundIds: newMotion.rounds,
+          released: newMotion.released,
+        },
+      });
+    }
+  };
+
+  const addMotion = async (motionData: Omit<Motion, "id" | "tournamentId">) => {
+    await addMotions([motionData]);
   };
 
   const updateMotion = async (motion: Motion) => {
@@ -1869,6 +1880,7 @@ export function TournamentProvider({
         updateVenue,
         deleteVenue,
         addMotion,
+        addMotions,
         updateMotion,
         deleteMotion,
         saveBreakCategories,

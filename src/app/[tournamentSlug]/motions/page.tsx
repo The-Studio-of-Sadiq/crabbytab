@@ -22,7 +22,7 @@ import { Motion } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 export default function MotionsPage() {
-  const { tournament, motions, rounds, addMotion, updateMotion, deleteMotion } = useTournament();
+  const { tournament, motions, rounds, addMotion, addMotions, updateMotion, deleteMotion } = useTournament();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterRoundId, setFilterRoundId] = useState("");
@@ -33,6 +33,8 @@ export default function MotionsPage() {
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [selectedFileName, setSelectedFileName] = useState("");
+  const [isImportingMotions, setIsImportingMotions] = useState(false);
+  const [csvImportError, setCsvImportError] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,22 +130,27 @@ export default function MotionsPage() {
   const handleCsvImport = async () => {
     if (!csvText.trim()) return;
 
-    const parsedMotions = parseMotionsCsv(csvText, tournament?.id || "", rounds);
-    for (const m of parsedMotions) {
-      // Ensure released is explicitly false
-      await addMotion({
-        text: m.text,
-        infoSlide: m.infoSlide,
-        reference: m.reference,
-        rounds: m.rounds,
-        released: false, // Private by default
-        seq: motions.length + 1,
-      });
-    }
+    setIsImportingMotions(true);
+    setCsvImportError("");
+    try {
+      const parsedMotions = parseMotionsCsv(csvText, tournament?.id || "", rounds);
+      await addMotions(parsedMotions.map((motion, idx) => ({
+        text: motion.text,
+        infoSlide: motion.infoSlide,
+        reference: motion.reference,
+        rounds: motion.rounds,
+        released: false,
+        seq: motions.length + idx + 1,
+      })));
 
-    setCsvText("");
-    setSelectedFileName("");
-    setShowCsvModal(false);
+      setCsvText("");
+      setSelectedFileName("");
+      setShowCsvModal(false);
+    } catch (error) {
+      setCsvImportError(error instanceof Error ? error.message : "Could not import motions from this CSV.");
+    } finally {
+      setIsImportingMotions(false);
+    }
   };
 
   return (
@@ -545,10 +552,15 @@ export default function MotionsPage() {
                 rows={6}
                 placeholder={"text,reference,infoslide,round\n\"This House would ban algorithmic feeds.\",\"R1: Tech\",\"Chronological feeds only.\",\"Round 1\"\n\"This House regrets the glorification of work ethic.\",\"R2: Culture\",\"\",\"Round 2\""}
                 value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
+                onChange={(e) => {
+                  setCsvText(e.target.value);
+                  setCsvImportError("");
+                }}
                 className="w-full border border-gray-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
               />
             </div>
+
+            {csvImportError && <p role="alert" className="text-xs text-red-700 mb-3">{csvImportError}</p>}
 
             <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-800 mb-4">
               All imported motions will remain <strong>private (unreleased)</strong> by default.
@@ -569,10 +581,10 @@ export default function MotionsPage() {
               <button
                 type="button"
                 onClick={handleCsvImport}
-                disabled={!csvText.trim()}
+                disabled={!csvText.trim() || isImportingMotions}
                 className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
               >
-                Import Motions
+                {isImportingMotions ? "Importing..." : "Import Motions"}
               </button>
             </div>
           </div>
