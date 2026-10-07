@@ -92,12 +92,15 @@ export interface TournamentContextType {
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
+  addTeams: (teams: Omit<Team, "id" | "tournamentId">[]) => Promise<void>;
   updateTeam: (team: Team, privatePasscode?: string) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
   addAdjudicator: (adj: Omit<Adjudicator, "id" | "tournamentId">) => Promise<void>;
+  addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<void>;
   updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
   addVenue: (venue: Omit<Venue, "id" | "tournamentId">) => Promise<void>;
+  addVenues: (venues: Omit<Venue, "id" | "tournamentId">[]) => Promise<void>;
   updateVenue: (venue: Venue) => Promise<void>;
   deleteVenue: (venueId: string) => Promise<void>;
   addMotion: (motion: Omit<Motion, "id" | "tournamentId">) => Promise<void>;
@@ -1218,28 +1221,38 @@ export function TournamentProvider({
     });
   };
 
-  const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
-    const newTeam: Team = {
-      ...teamData,
-      id: `team-${Date.now()}-${teams.length + 1}`,
+  const addTeams = async (teamData: Omit<Team, "id" | "tournamentId">[]) => {
+    if (teamData.length === 0) return;
+
+    const newTeams: Team[] = teamData.map((data) => ({
+      ...data,
+      id: `team-${typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
-      privateUrlKey: teamData.privateUrlKey || generatePrivateKey("team"),
-    };
-    const updated = [...teams, newTeam];
+      privateUrlKey: data.privateUrlKey || generatePrivateKey("team"),
+    }));
+    const updated = [...teams, ...newTeams];
     setTeams(updated);
     persistLocal("teams", updated);
-    await recordAuditEvent({
-      action: "team.created",
-      category: "tournament",
-      summary: `Team ${newTeam.name} added`,
-      details: {
-        teamId: newTeam.id,
-        name: newTeam.name,
-        institutionId: newTeam.institutionId,
-        breakCategories: newTeam.breakCategories,
-        speakerCount: newTeam.speakers.length,
-      },
-    });
+    for (const newTeam of newTeams) {
+      await recordAuditEvent({
+        action: "team.created",
+        category: "tournament",
+        summary: `Team ${newTeam.name} added`,
+        details: {
+          teamId: newTeam.id,
+          name: newTeam.name,
+          institutionId: newTeam.institutionId,
+          breakCategories: newTeam.breakCategories,
+          speakerCount: newTeam.speakers.length,
+        },
+      });
+    }
+  };
+
+  const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
+    await addTeams([teamData]);
   };
 
   const updateTeam = async (team: Team, _privatePasscode?: string) => {
@@ -1284,29 +1297,39 @@ export function TournamentProvider({
     });
   };
 
-  const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
-    const newAdj: Adjudicator = {
-      ...adjData,
-      id: `adj-${Date.now()}-${adjudicators.length + 1}`,
+  const addAdjudicators = async (adjData: Omit<Adjudicator, "id" | "tournamentId">[]) => {
+    if (adjData.length === 0) return;
+
+    const newAdjudicators: Adjudicator[] = adjData.map((data) => ({
+      ...data,
+      id: `adj-${typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
-      privateUrlKey: adjData.privateUrlKey || generatePrivateKey("adj"),
-    };
-    const updated = [...adjudicators, newAdj];
+      privateUrlKey: data.privateUrlKey || generatePrivateKey("adj"),
+    }));
+    const updated = [...adjudicators, ...newAdjudicators];
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
-    await recordAuditEvent({
-      action: "adjudicator.created",
-      category: "tournament",
-      summary: `Adjudicator ${newAdj.name} added`,
-      details: {
-        adjudicatorId: newAdj.id,
-        name: newAdj.name,
-        institutionId: newAdj.institutionId,
-        baseScore: newAdj.baseScore,
-        trainee: newAdj.trainee,
-        independent: newAdj.independent,
-      },
-    });
+    for (const newAdj of newAdjudicators) {
+      await recordAuditEvent({
+        action: "adjudicator.created",
+        category: "tournament",
+        summary: `Adjudicator ${newAdj.name} added`,
+        details: {
+          adjudicatorId: newAdj.id,
+          name: newAdj.name,
+          institutionId: newAdj.institutionId,
+          baseScore: newAdj.baseScore,
+          trainee: newAdj.trainee,
+          independent: newAdj.independent,
+        },
+      });
+    }
+  };
+
+  const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
+    await addAdjudicators([adjData]);
   };
 
   const updateAdjudicator = async (adj: Adjudicator, _privatePasscode?: string) => {
@@ -1340,21 +1363,31 @@ export function TournamentProvider({
     });
   };
 
-  const addVenue = async (venueData: Omit<Venue, "id" | "tournamentId">) => {
-    const newVenue: Venue = {
-      ...venueData,
-      id: `ven-${Date.now()}-${venues.length + 1}`,
+  const addVenues = async (venueData: Omit<Venue, "id" | "tournamentId">[]) => {
+    if (venueData.length === 0) return;
+
+    const newVenues: Venue[] = venueData.map((data) => ({
+      ...data,
+      id: `ven-${typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
-    };
-    const updated = [...venues, newVenue];
+    }));
+    const updated = [...venues, ...newVenues];
     setVenues(updated);
     persistLocal("venues", updated);
-    await recordAuditEvent({
-      action: "venue.created",
-      category: "venue",
-      summary: `Venue ${newVenue.name} added`,
-      details: { venueId: newVenue.id, name: newVenue.name, priority: newVenue.priority, category: newVenue.category },
-    });
+    for (const newVenue of newVenues) {
+      await recordAuditEvent({
+        action: "venue.created",
+        category: "venue",
+        summary: `Venue ${newVenue.name} added`,
+        details: { venueId: newVenue.id, name: newVenue.name, priority: newVenue.priority, category: newVenue.category },
+      });
+    }
+  };
+
+  const addVenue = async (venueData: Omit<Venue, "id" | "tournamentId">) => {
+    await addVenues([venueData]);
   };
 
   const updateVenue = async (venue: Venue) => {
@@ -1888,12 +1921,15 @@ export function TournamentProvider({
         updateInstitution,
         deleteInstitution,
         addTeam,
+        addTeams,
         updateTeam,
         deleteTeam,
         addAdjudicator,
+        addAdjudicators,
         updateAdjudicator,
         deleteAdjudicator,
         addVenue,
+        addVenues,
         updateVenue,
         deleteVenue,
         addMotion,

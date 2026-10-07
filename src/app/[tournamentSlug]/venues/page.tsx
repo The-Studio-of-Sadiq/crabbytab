@@ -17,7 +17,7 @@ import {
 import { Venue } from "@/types";
 
 export default function VenuesPage() {
-  const { tournament, venues, addVenue, updateVenue, deleteVenue } = useTournament();
+  const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue } = useTournament();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [newName, setNewName] = useState("");
@@ -96,14 +96,12 @@ export default function VenuesPage() {
     if (csvPreview.length === 0) return;
     setIsImporting(true);
     try {
-      for (const venue of csvPreview) {
-        await addVenue({
-          name: venue.name,
-          priority: venue.priority,
-          category: venue.category,
-          available: true,
-        });
-      }
+      await addVenues(csvPreview.map(({ name, priority, category }) => ({
+        name,
+        priority,
+        category,
+        available: true,
+      })));
       setCsvText("");
       setCsvPreview([]);
       setShowCsvModal(false);

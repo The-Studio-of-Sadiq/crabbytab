@@ -33,9 +33,11 @@ export default function ParticipantsPage() {
     adjudicators,
     institutions,
     addTeam,
+    addTeams,
     updateTeam,
     deleteTeam,
     addAdjudicator,
+    addAdjudicators,
     updateAdjudicator,
     deleteAdjudicator,
     addInstitution,
@@ -273,38 +275,42 @@ export default function ParticipantsPage() {
         await addInstitutions(parsed.map(({ name, code, region }) => ({ name, code, region })));
       } else if (activeTab === "teams") {
         const parsed = parseTeamsCsv(csvText, tournament?.id || "");
-        for (const t of parsed) {
+        const matchedTeams = parsed.map((team) => {
           // Match institution from existing list if possible
-          if (t.institutionName) {
+          if (team.institutionName) {
             const matchedInst = institutions.find(
               (inst) =>
-                inst.name.toLowerCase() === t.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === t.institutionName?.toLowerCase()
+                inst.name.toLowerCase() === team.institutionName?.toLowerCase() ||
+                inst.code.toLowerCase() === team.institutionName?.toLowerCase()
             );
             if (matchedInst) {
-              t.institutionId = matchedInst.id;
-              t.institutionName = matchedInst.name;
+              return { ...team, institutionId: matchedInst.id, institutionName: matchedInst.name };
             }
           }
-          await addTeam(t);
-        }
+          return team;
+        });
+        await addTeams(matchedTeams);
       } else {
         const parsed = parseAdjudicatorsCsv(csvText, tournament?.id || "");
-        for (const a of parsed) {
-          if (a.institutionName && !a.independent) {
+        const matchedAdjudicators = parsed.map((adjudicator) => {
+          if (adjudicator.institutionName && !adjudicator.independent) {
             const matchedInst = institutions.find(
               (inst) =>
-                inst.name.toLowerCase() === a.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === a.institutionName?.toLowerCase()
+                inst.name.toLowerCase() === adjudicator.institutionName?.toLowerCase() ||
+                inst.code.toLowerCase() === adjudicator.institutionName?.toLowerCase()
             );
             if (matchedInst) {
-              a.institutionId = matchedInst.id;
-              a.institutionName = matchedInst.name;
-              a.conflicts = [{ institutionId: matchedInst.id, type: "institution" }];
+              return {
+                ...adjudicator,
+                institutionId: matchedInst.id,
+                institutionName: matchedInst.name,
+                conflicts: [{ institutionId: matchedInst.id, type: "institution" as const }],
+              };
             }
           }
-          await addAdjudicator(a);
-        }
+          return adjudicator;
+        });
+        await addAdjudicators(matchedAdjudicators);
       }
       setCsvText("");
       setShowCsvModal(false);
