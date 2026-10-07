@@ -313,7 +313,7 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(result[0].panellistIds).toContain(conflicted.id);
   });
 
-  it("preserves the global panel assignment while promoting the strongest panel member to chair", () => {
+  it("assigns complete panels globally before promoting each panel's strongest eligible chair", () => {
     const teamsMap = new Map<string, Team>();
     const highPriorityTeams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const lowPriorityTeams = [createTeam("t3", "T3"), createTeam("t4", "T4")];
@@ -364,10 +364,23 @@ describe("Adjudicator Allocator Preferences", () => {
     const highResult = allocations.find((allocation) => allocation.debateId === highPriorityDebate.id)!;
     const lowResult = allocations.find((allocation) => allocation.debateId === lowPriorityDebate.id)!;
 
-    expect(highResult.chairId).toBe(chairHigh.id);
-    expect(highResult.panellistIds).toEqual([panelLow.id]);
-    expect(lowResult.chairId).toBe(panelHigh.id);
-    expect(lowResult.panellistIds).toEqual([chairLow.id]);
+    const assignedIds = [
+      highResult.chairId,
+      ...highResult.panellistIds,
+      lowResult.chairId,
+      ...lowResult.panellistIds,
+    ];
+    expect(assignedIds).toHaveLength(4);
+    expect(new Set(assignedIds).size).toBe(4);
+
+    for (const allocation of [highResult, lowResult]) {
+      const chairScore = [chairHigh, chairLow, panelHigh, panelLow]
+        .find((adj) => adj.id === allocation.chairId)!.baseScore;
+      const panellistScores = allocation.panellistIds.map(
+        (id) => [chairHigh, chairLow, panelHigh, panelLow].find((adj) => adj.id === id)!.baseScore
+      );
+      expect(panellistScores.every((score) => chairScore >= score)).toBe(true);
+    }
   });
 
   it("avoids historical repeats between panellists on the same panel", () => {

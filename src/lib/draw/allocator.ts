@@ -565,8 +565,8 @@ export interface IntelligentAllocationContext {
  * 1. Compute debate priority scores (bracket + break liveness + manual priority)
  * 2. Compute effective adjudicator scores (base + feedback blend)
  * 3. Build past history maps (teams judged, panel co-occurrences)
- * 4. Use Hungarian algorithm for chair assignment with multi-factor cost
- * 5. Globally assign panellists across all debate panel slots
+ * 4. Globally assign complete voting panels using each debate's target strength
+ * 5. Promote the strongest clash-free voting panel member to chair
  * 6. Distribute trainees to lower-priority debates
  */
 export function autoAllocateAdjudicators(
@@ -679,7 +679,7 @@ export function autoAllocateAdjudicators(
     });
   }
 
-  // ─── Step 4: Chair assignment via Hungarian algorithm ───
+  // ─── Step 4: Identify voting adjudicators and trainees ───
   // Adjudicators can only vote (chair/panellist) if not marked trainee AND score >= minScoreToVote
   const nonTrainees = availableAdjs.filter(
     (a) => !a.trainee && (adjScores.get(a.id) ?? 5) >= minScoreToVote
@@ -690,103 +690,31 @@ export function autoAllocateAdjudicators(
         (a) => a.trainee || (adjScores.get(a.id) ?? 5) < minScoreToVote
       );
 
-  const chairCostMatrix: number[][] = [];
-
-  for (let r = 0; r < numDebates; r++) {
-    const debate = debates[sortedDebateIndices[r]];
-    const debateTeams: Team[] = Object.values(debate.teams)
-      .map((t) => teamsMap.get(t.teamId))
-      .filter((t): t is Team => t !== undefined);
-    const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
-
-    const row: number[] = [];
-    for (let c = 0; c < nonTrainees.length; c++) {
-      const adj = nonTrainees[c];
-      const adjScore = adjScores.get(adj.id) ?? 5;
-
-      const cost = computeAssignmentCost(
-        adj,
-        debate,
-        debateTeams,
-        debatePriority,
-        adjScore,
-        fullPastAdjTeams,
-        pastPanelHistory,
-        [], // no panel yet for chair assignment
-        "chair",
-        options,
-        debatePriority,
-        allocationWeights
-      );
-
-      row.push(cost.total);
-    }
-    chairCostMatrix.push(row);
-  }
-
-  const chairMatching = solveHungarian(chairCostMatrix);
-
   const resultsMap = new Map<string, AdjudicatorAllocationResult>();
-  const usedAdjIds = new Set<string>();
-  const debateChairIds = new Map<string, string>(); // debateId -> chairId
-
-  for (let r = 0; r < numDebates; r++) {
-    const debate = debates[sortedDebateIndices[r]];
-    const adjCol = chairMatching[r];
-    const debateTeams: Team[] = Object.values(debate.teams)
-      .map((t) => teamsMap.get(t.teamId))
-      .filter((t): t is Team => t !== undefined);
-
-    let chairId: string | undefined;
-    let chairName: string | undefined;
-    const conflicts: string[] = [];
-
-    if (adjCol !== undefined && adjCol >= 0 && adjCol < nonTrainees.length) {
-      const chair = nonTrainees[adjCol];
-      chairId = chair.id;
-      chairName = chair.name;
-      usedAdjIds.add(chair.id);
-      debateChairIds.set(debate.id, chair.id);
-
-      const { reasons } = calculateAdjDebateConflict(chair, debateTeams, fullPastAdjTeams, weights);
-      conflicts.push(...reasons);
-    }
-
+  for (const debate of debates) {
     resultsMap.set(debate.id, {
       debateId: debate.id,
-      chairId,
-      chairName,
       panellistIds: [],
       panellistNames: [],
       traineeIds: [],
       traineeNames: [],
-      conflicts,
+      conflicts: [],
     });
   }
 
-  // ─── Step 5: Assign Panellists using global minimum-cost matching ───
-  const remainingNonTrainees = nonTrainees.filter((a) => !usedAdjIds.has(a.id));
-  const panellistsNeededPerDebate = noPanellists ? 0 : Math.max(0, options.panelSize - 1);
-
-  if (panellistsNeededPerDebate > 0 && remainingNonTrainees.length > 0) {
+  // ─── Step 5: Assign complete voting panels via global minimum-cost matching ───
+  const votingPanelSize = noPanellists ? 1 : Math.max(1, options.panelSize);
+  if (nonTrainees.length > 0) {
     const panelSlots = sortedDebateIndices.flatMap((debateIdx) =>
-      Array.from({ length: panellistsNeededPerDebate }, () => debates[debateIdx])
+      Array.from({ length: votingPanelSize }, () => debates[debateIdx])
     );
     const panelCostMatrix = panelSlots.map((debate) => {
-      const res = resultsMap.get(debate.id)!;
       const debateTeams: Team[] = Object.values(debate.teams)
         .map((t) => teamsMap.get(t.teamId))
         .filter((t): t is Team => t !== undefined);
       const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
-      const chairScore = res.chairId
-        ? adjScores.get(res.chairId) ?? 5
-        : 5;
-      const strengthTarget = options.balancePanels
-        ? (debatePriority * options.panelSize - chairScore) / panellistsNeededPerDebate
-        : debatePriority;
-      const currentPanelIds = res.chairId ? [res.chairId] : [];
 
-      return remainingNonTrainees.map((adj) =>
+      return nonTrainees.map((adj) =>
         computeAssignmentCost(
           adj,
           debate,
@@ -795,10 +723,10 @@ export function autoAllocateAdjudicators(
           adjScores.get(adj.id) ?? 5,
           fullPastAdjTeams,
           pastPanelHistory,
-          currentPanelIds,
+          [],
           "panellist",
           options,
-          strengthTarget,
+          debatePriority,
           allocationWeights
         ).total
       );
@@ -825,8 +753,8 @@ export function autoAllocateAdjudicators(
             const secondAdjIdx = assignment[slotIndices[j]];
             if (secondAdjIdx < 0) continue;
             const key = [
-              remainingNonTrainees[firstAdjIdx].id,
-              remainingNonTrainees[secondAdjIdx].id,
+              nonTrainees[firstAdjIdx].id,
+              nonTrainees[secondAdjIdx].id,
             ].sort().join(":");
             total += (pastPanelHistory.get(key) ?? 0) * allocationWeights.REPEAT_PANEL;
           }
@@ -836,7 +764,7 @@ export function autoAllocateAdjudicators(
     };
 
     const panelMatching = solveHungarian(panelCostMatrix).map((adjIdx) =>
-      adjIdx >= 0 && adjIdx < remainingNonTrainees.length ? adjIdx : -1
+      adjIdx >= 0 && adjIdx < nonTrainees.length ? adjIdx : -1
     );
 
     // Pairwise repeat-panel penalties are not separable in the Hungarian matrix.
@@ -852,7 +780,7 @@ export function autoAllocateAdjudicators(
 
       for (let slotIdx = 0; slotIdx < panelMatching.length; slotIdx++) {
         const currentAdjIdx = panelMatching[slotIdx];
-        for (let candidateIdx = 0; candidateIdx < remainingNonTrainees.length; candidateIdx++) {
+        for (let candidateIdx = 0; candidateIdx < nonTrainees.length; candidateIdx++) {
           if (candidateIdx === currentAdjIdx) continue;
           const candidateSlot = slotByAdj.get(candidateIdx);
           const candidateAssignment = [...panelMatching];
@@ -876,9 +804,9 @@ export function autoAllocateAdjudicators(
 
     panelSlots.forEach((debate, slotIdx) => {
       const adjIdx = panelMatching[slotIdx];
-      if (adjIdx === undefined || adjIdx < 0 || adjIdx >= remainingNonTrainees.length) return;
+      if (adjIdx === undefined || adjIdx < 0 || adjIdx >= nonTrainees.length) return;
 
-      const chosen = remainingNonTrainees[adjIdx];
+      const chosen = nonTrainees[adjIdx];
       const res = resultsMap.get(debate.id)!;
       res.panellistIds.push(chosen.id);
       res.panellistNames.push(chosen.name);
@@ -918,7 +846,7 @@ export function autoAllocateAdjudicators(
     const result = resultsMap.get(debate.id);
     if (!result) continue;
 
-    const panelMembers = [...(result.chairId ? [result.chairId] : []), ...result.panellistIds];
+    const panelMembers = result.panellistIds;
     if (panelMembers.length === 0) continue;
 
     const debateTeams: Team[] = Object.values(debate.teams)
