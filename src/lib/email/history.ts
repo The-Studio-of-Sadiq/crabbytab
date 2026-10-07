@@ -6,6 +6,12 @@ import {
   StoredEmailCampaign,
 } from "@/lib/email/messaging";
 
+function withoutUndefinedProperties<T extends Record<string, unknown>>(record: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  ) as Partial<T>;
+}
+
 export interface NewEmailCampaign {
   tournamentId: string;
   senderUid: string;
@@ -24,7 +30,11 @@ function withoutPrivateCredentials(recipient: EmailRecipient): EmailRecipient {
   const safeRecipient = { ...recipient };
   delete safeRecipient.privateUrl;
   delete safeRecipient.passcode;
-  return safeRecipient;
+  return {
+    ...withoutUndefinedProperties(safeRecipient),
+    email: safeRecipient.email,
+    name: safeRecipient.name,
+  };
 }
 
 export async function createEmailCampaign(
@@ -44,8 +54,8 @@ export async function createEmailCampaign(
     senderEmail: campaign.senderEmail,
     senderName: campaign.senderName,
     recipientGroup: campaign.recipientGroup,
-    roundId: campaign.roundId,
-    roundName: campaign.roundName,
+    ...(campaign.roundId !== undefined ? { roundId: campaign.roundId } : {}),
+    ...(campaign.roundName !== undefined ? { roundName: campaign.roundName } : {}),
     subjectTemplate: campaign.subjectTemplate,
     bodyTemplate: campaign.bodyTemplate,
     status: "sending",
@@ -53,7 +63,7 @@ export async function createEmailCampaign(
     failed: campaign.recipients.length,
     results: [],
     failedRecipients: campaign.recipients.map(withoutPrivateCredentials),
-    retryOf: campaign.retryOf,
+    ...(campaign.retryOf !== undefined ? { retryOf: campaign.retryOf } : {}),
   };
 
   await reference.create(record);
