@@ -113,6 +113,7 @@ export default function PublicTournamentPage() {
     : [];
 
   const roundResultsReleased = Boolean(activeRound?.resultsReleased && !activeRound.silent);
+  const showPublicAdjudicators = activeRound?.adjudicatorsRevealed === true;
   const roundTeamSpeaksReleased = Boolean(roundResultsReleased && activeRound?.teamSpeaksReleased);
 
   const releasedMotions = motions
@@ -304,7 +305,9 @@ export default function PublicTournamentPage() {
                           )}
                         </div>
                         <span className="text-xs text-gray-600 font-medium">
-                          Chair: <strong className="text-gray-900">{d.adjudicators?.chairName || "TBD"}</strong>
+                          Chair: <strong className="text-gray-900">
+                            {showPublicAdjudicators ? d.adjudicators?.chairName || "TBD" : "TBA"}
+                          </strong>
                         </span>
                       </div>
 
@@ -343,7 +346,7 @@ export default function PublicTournamentPage() {
                       </div>
 
                       {/* Panellists and Trainees footer */}
-                      {(panellistNames.length > 0 || traineeNames.length > 0) && (
+                      {showPublicAdjudicators && (panellistNames.length > 0 || traineeNames.length > 0) && (
                         <div className="mt-3 px-3 py-1.5 bg-gray-50 rounded border border-gray-100 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
                           {panellistNames.length > 0 && (
                             <div>
@@ -481,15 +484,17 @@ export default function PublicTournamentPage() {
                             <td className="text-xs">
                               <div>
                                 <span className="font-semibold text-gray-700">Chair:</span>{" "}
-                                <span className="text-gray-900 font-medium">{d.adjudicators?.chairName || "—"}</span>
+                                <span className="text-gray-900 font-medium">
+                                  {showPublicAdjudicators ? d.adjudicators?.chairName || "—" : "TBA"}
+                                </span>
                               </div>
-                              {panellistNames.length > 0 && (
+                              {showPublicAdjudicators && panellistNames.length > 0 && (
                                 <div className="text-[11px] text-gray-600 mt-0.5">
                                   <span className="font-medium text-gray-700">Panellists:</span>{" "}
                                   <span>{panellistNames.join(", ")}</span>
                                 </div>
                               )}
-                              {traineeNames.length > 0 && (
+                              {showPublicAdjudicators && traineeNames.length > 0 && (
                                 <div className="text-[11px] text-gray-500 italic mt-0.5">
                                   <span className="font-medium not-italic text-gray-600">Trainees:</span>{" "}
                                   <span>{traineeNames.join(", ")}</span>

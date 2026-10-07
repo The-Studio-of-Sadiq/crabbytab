@@ -25,6 +25,8 @@ import {
   Building2,
   Trash2,
   RotateCcw,
+  Eye,
+  EyeOff,
   Layers,
   Gauge,
   Zap,
@@ -46,6 +48,7 @@ export default function AllocationPage() {
     activeRound,
     rounds,
     setActiveRound,
+    updateRound,
     debates,
     adjudicators,
     feedback,
@@ -60,6 +63,7 @@ export default function AllocationPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [panelSize, setPanelSize] = useState<number>(1);
   const [isAllocating, setIsAllocating] = useState(false);
+  const [revealError, setRevealError] = useState("");
   const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
   const [showPriorityPanel, setShowPriorityPanel] = useState(true);
 
@@ -412,6 +416,19 @@ export default function AllocationPage() {
     }
   };
 
+  const handleToggleAdjudicatorReveal = async () => {
+    if (!activeRound) return;
+    setRevealError("");
+    try {
+      await updateRound({
+        ...activeRound,
+        adjudicatorsRevealed: !activeRound.adjudicatorsRevealed,
+      });
+    } catch (error) {
+      setRevealError(error instanceof Error ? error.message : "Could not update adjudicator visibility.");
+    }
+  };
+
   // --- Drag and Drop Handlers for Judges ---
   const handleDragStartJudge = (e: React.DragEvent, payload: JudgeDragPayload) => {
     setDraggingJudge(payload);
@@ -491,7 +508,7 @@ export default function AllocationPage() {
             <span>Adjudicator Allocation</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Intelligent priority-based allocation with break liveness, bracket importance, and multi-factor clash detection.
+            Allocate adjudicators independently of the team draw. Assignments stay private until you reveal them.
           </p>
         </div>
 
@@ -520,6 +537,24 @@ export default function AllocationPage() {
           </button>
 
           <button
+            onClick={handleToggleAdjudicatorReveal}
+            disabled={!activeRound || assignedAdjIds.size === 0}
+            className={`inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded text-xs font-bold shadow-xs transition disabled:opacity-50 ${
+              activeRound?.adjudicatorsRevealed
+                ? "bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white"
+            }`}
+            title={activeRound?.adjudicatorsRevealed
+              ? "Hide adjudicator assignments from teams and public viewers"
+              : "Reveal adjudicator assignments to teams and public viewers"}
+          >
+            {activeRound?.adjudicatorsRevealed
+              ? <EyeOff className="w-3.5 h-3.5" />
+              : <Eye className="w-3.5 h-3.5" />}
+            <span>{activeRound?.adjudicatorsRevealed ? "Hide Adjudicators" : "Reveal Adjudicators"}</span>
+          </button>
+
+          <button
             onClick={() => setShowPriorityPanel(!showPriorityPanel)}
             className={`inline-flex items-center space-x-1.5 px-3 py-1.5 font-semibold border rounded text-xs shadow-2xs transition ${
               showPriorityPanel
@@ -542,6 +577,8 @@ export default function AllocationPage() {
           </button>
         </div>
       </div>
+
+      {revealError && <p role="alert" className="text-xs text-red-700">{revealError}</p>}
 
       {/* Round Selector Bar */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1">

@@ -335,6 +335,14 @@ export function TournamentProvider({
     }
   };
 
+  const hideRevealedAdjudicators = async (roundIds: Set<string>) => {
+    for (const round of rounds) {
+      if (roundIds.has(round.id) && round.adjudicatorsRevealed) {
+        await updateRound({ ...round, adjudicatorsRevealed: false });
+      }
+    }
+  };
+
   // Dynamic Standings Recalculation (Instantaneous in-browser compute)
   const standingsResult = useMemo(() => {
     if (!tournament) return { teams: [], speakers: [], replies: [] };
@@ -466,6 +474,7 @@ export function TournamentProvider({
     if (previous) {
       const trackedFields = [
         "drawStatus",
+        "adjudicatorsRevealed",
         "completed",
         "resultsReleased",
         "teamSpeaksReleased",
@@ -735,50 +744,6 @@ export function TournamentProvider({
       standings: teamStandings,
     });
 
-    // Auto-allocate judges with intelligent priority-based matching
-    const teamsMap = new Map<string, Team>();
-    teams.forEach((t) => teamsMap.set(t.id, t));
-    const pastAdjTeams = buildPastAdjTeams(pastDebates);
-
-    const completedPrelimRounds = rounds.filter(
-      (r) => r.stage === "preliminary" && !r.cancelled && r.completed
-    ).length;
-    const totalPrelimRounds = rounds.filter((r) => r.stage === "preliminary" && !r.cancelled).length;
-
-    const intelligentContext: IntelligentAllocationContext = {
-      allPastDebates: pastDebates,
-      standings: teamStandings,
-      breakCategories,
-      totalPrelimRounds,
-      completedRounds: completedPrelimRounds,
-      isBP: tournament.format === "bp",
-      feedbackScores: calculateAdjudicatorFeedbackScores(feedback),
-    };
-
-    const allocations = autoAllocateAdjudicators(
-      generated, teamsMap, adjudicators, pastAdjTeams,
-      {
-        panelSize: tournament.preferences?.noPanellistAdjs ? 1 : 1,
-        balancePanels: true,
-        respectInstitutionConflicts: true,
-        respectPersonalConflicts: true,
-        respectHistoryConflicts: true,
-        preferences: tournament.preferences,
-      },
-      intelligentContext
-    );
-    generated.forEach((d, idx) => {
-      const alloc = allocations[idx];
-      if (alloc) {
-        d.adjudicators.chairId = alloc.chairId;
-        d.adjudicators.chairName = alloc.chairName;
-        d.adjudicators.panellistIds = alloc.panellistIds;
-        d.adjudicators.panellistNames = alloc.panellistNames;
-        d.adjudicators.traineeIds = alloc.traineeIds;
-        d.adjudicators.traineeNames = alloc.traineeNames;
-      }
-    });
-
     // Attach round motion if available
     const roundMotion = motions.find((m) => m.rounds && m.rounds.includes(round.id));
     if (roundMotion) {
@@ -798,7 +763,7 @@ export function TournamentProvider({
     persistLocal("debates", updatedDebates);
 
     // Update round draw status
-    const updatedRound: Round = { ...round, drawStatus: "draft" };
+    const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false };
     const updatedRounds = rounds.map((r) => (r.id === round.id ? updatedRound : r));
     setRounds(updatedRounds);
     setActiveRound(updatedRound);
@@ -842,31 +807,6 @@ export function TournamentProvider({
         pairingMethod: tournament.preferences?.pairingMethod ?? tournament.preferences?.drawRule,
         conflictAvoidance: tournament.preferences?.conflictAvoidance,
         sideAllocationRule: tournament.preferences?.sideAllocationRule,
-        adjudicatorAssignments: allocations.map((allocation) => ({
-          debateId: allocation.debateId,
-          chairId: allocation.chairId,
-          panellistIds: allocation.panellistIds,
-          traineeIds: allocation.traineeIds,
-          conflicts: allocation.conflicts,
-        })),
-      },
-    });
-    await recordAuditEvent({
-      action: "adjudicators.allocated",
-      category: "allocation",
-      summary: `Allocated adjudicators as part of ${round.name} draw generation`,
-      roundId: round.id,
-      details: {
-        panelSize: 1,
-        debateCount: allocations.length,
-        adjudicatorCount: adjudicators.length,
-        assignments: allocations.map((allocation) => ({
-          debateId: allocation.debateId,
-          chairId: allocation.chairId,
-          panellistIds: allocation.panellistIds,
-          traineeIds: allocation.traineeIds,
-          conflicts: allocation.conflicts,
-        })),
       },
     });
   };
@@ -926,6 +866,7 @@ export function TournamentProvider({
     const updated = [...otherDebates, ...updatedRoundDebates];
     setDebates(updated);
     persistLocal("debates", updated);
+    await hideRevealedAdjudicators(new Set([roundId]));
 
     // Batch update allocated debates
     if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
@@ -962,6 +903,7 @@ export function TournamentProvider({
     setDebates(updated);
     persistLocal("debates", updated);
     if (previous && JSON.stringify(previous.adjudicators) !== JSON.stringify(debate.adjudicators)) {
+      await hideRevealedAdjudicators(new Set([debate.roundId]));
       await recordAuditEvent({
         action: "adjudicators.manual_assignment_updated",
         category: "allocation",
@@ -1013,6 +955,7 @@ export function TournamentProvider({
       }];
     });
     if (changedAssignments.length > 0) {
+      await hideRevealedAdjudicators(new Set(changedAssignments.map((assignment) => assignment.roundId)));
       await recordAuditEvent({
         action: "adjudicators.manual_assignments_updated",
         category: "allocation",

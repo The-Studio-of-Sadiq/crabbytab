@@ -180,6 +180,7 @@ export interface Round {
   stage: RoundStage;
   drawType: DrawType;
   drawStatus: DrawStatus;
+  adjudicatorsRevealed?: boolean;
   feedbackWeight: number;
   silent: boolean;
   motionsReleased: boolean;

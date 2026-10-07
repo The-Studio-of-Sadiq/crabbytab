@@ -156,6 +156,7 @@ function ConfigDropdown({ tournamentSlug }: { tournamentSlug: string }) {
 }
 
 export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
+  const pathname = usePathname();
   const {
     tournament,
     activeRound,
@@ -167,6 +168,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
     isOwnerOrAdmin,
   } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
+  const [participantsOpen, setParticipantsOpen] = useState(false);
 
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
 
@@ -176,6 +178,12 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
   }, [activeRound, rounds]);
 
   const isRoundOpen = (id: string) => openRounds[id] ?? id === expandedRoundId;
+  const isParticipantsPage = pathname?.startsWith(`/${tournamentSlug}/participants`) ?? false;
+  const isVenuesPage = pathname?.startsWith(`/${tournamentSlug}/venues`) ?? false;
+
+  React.useEffect(() => {
+    if (isParticipantsPage || isVenuesPage) setParticipantsOpen(true);
+  }, [isParticipantsPage, isVenuesPage]);
 
   return (
     <aside className="w-64 bg-[#f6f8fa] border-r border-[#d0d7de] flex flex-col shrink-0 min-h-[calc(100vh-3.5rem)] select-none">
@@ -234,13 +242,41 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
             Setup
           </div>
-          <NavLink
-            href={`/${tournamentSlug}/participants`}
-            icon={UserCheck}
-            label="Participants"
-            badge={`${teams.length} teams`}
-          />
-          <NavLink href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between rounded-md">
+              <Link
+                href={`/${tournamentSlug}/participants`}
+                className={`flex-1 flex items-center justify-between text-xs font-medium rounded-md px-3 py-2 transition ${
+                  isParticipantsPage || isVenuesPage
+                    ? "bg-blue-50 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  <UserCheck className={`w-4 h-4 ${isParticipantsPage || isVenuesPage ? "text-blue-600" : "text-gray-500"}`} />
+                  <span>Participants</span>
+                </div>
+                <span className="text-[10px] font-semibold px-1.5 rounded bg-gray-200 text-gray-700">
+                  {teams.length} teams
+                </span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setParticipantsOpen((open) => !open)}
+                title={participantsOpen ? "Collapse participants menu" : "Expand participants menu"}
+                aria-label={participantsOpen ? "Collapse participants menu" : "Expand participants menu"}
+                aria-expanded={participantsOpen}
+                className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition"
+              >
+                {participantsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            {participantsOpen && (
+              <div className="ml-3 pl-2.5 border-l border-gray-200 space-y-0.5 pt-0.5">
+                <NavLink nested href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
+              </div>
+            )}
+          </div>
           <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
           {isOwnerOrAdmin && (
             <NavLink href={`/${tournamentSlug}/email`} icon={Mail} label="Email" />

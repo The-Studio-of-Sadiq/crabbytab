@@ -1,20 +1,14 @@
 "use client";
 
-import React, { useState, useMemo, useId } from "react";
+import React, { useState, useMemo } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
 import {
   Shuffle,
-  Users2,
   Printer,
-  Download,
   CheckCircle2,
   AlertTriangle,
-  Send,
   Lock,
-  Unlock,
-  Settings2,
-  Sparkles,
   MapPin,
   Search,
   Plus,
@@ -26,8 +20,7 @@ import {
   Layers,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
-import { DebateSide, Debate, Team, Venue, Adjudicator } from "@/types";
-import { calculateAdjDebateConflict } from "@/lib/draw/allocator";
+import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
@@ -51,9 +44,7 @@ export default function DrawPage() {
     debates,
     teams,
     venues,
-    adjudicators,
     generateDraw,
-    autoAllocate,
     updateRound,
     updateDebate,
     updateDebates,
@@ -61,7 +52,6 @@ export default function DrawPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isAllocating, setIsAllocating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
   const [isSavingDrawRelease, setIsSavingDrawRelease] = useState(false);
@@ -104,9 +94,8 @@ export default function DrawPage() {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
     const venueMatch = (d.venueName || "").toLowerCase().includes(query);
-    const chairMatch = (d.adjudicators?.chairName || "").toLowerCase().includes(query);
     const teamMatch = Object.values(d.teams || {}).some((t) => (t?.teamName || "").toLowerCase().includes(query));
-    return venueMatch || chairMatch || teamMatch;
+    return venueMatch || teamMatch;
   });
 
   // Calculate Clashes for a debate
@@ -116,7 +105,6 @@ export default function DrawPage() {
       .filter((t): t is Team => t !== undefined);
 
     const teamClashes: string[] = [];
-    const judgeClashes: string[] = [];
 
     // 1. Team-Team Institutional Clashes
     const instCounts = new Map<string, string[]>();
@@ -135,28 +123,7 @@ export default function DrawPage() {
       }
     });
 
-    // 2. Chair / Panellist Clashes
-    if (debate.adjudicators?.chairId) {
-      const chair = adjudicators.find((a) => a.id === debate.adjudicators.chairId);
-      if (chair) {
-        const res = calculateAdjDebateConflict(chair, debateTeams);
-        if (res.hasClash) {
-          judgeClashes.push(`Chair ${chair.name}: ${res.reasons.join(", ")}`);
-        }
-      }
-    }
-
-    (debate.adjudicators?.panellistIds || []).forEach((pId) => {
-      const panellist = adjudicators.find((a) => a.id === pId);
-      if (panellist) {
-        const res = calculateAdjDebateConflict(panellist, debateTeams);
-        if (res.hasClash) {
-          judgeClashes.push(`Panellist ${panellist.name}: ${res.reasons.join(", ")}`);
-        }
-      }
-    });
-
-    return { teamClashes, judgeClashes, hasAny: teamClashes.length > 0 || judgeClashes.length > 0 };
+    return { teamClashes };
   };
 
   // Generate draw
@@ -172,17 +139,6 @@ export default function DrawPage() {
       await generateDraw(activeRound.id);
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  // Auto Allocate Judges
-  const handleAutoAllocate = async () => {
-    if (!activeRound || roundDebates.length === 0) return;
-    setIsAllocating(true);
-    try {
-      await autoAllocate(activeRound.id, 1);
-    } finally {
-      setIsAllocating(false);
     }
   };
 
@@ -431,7 +387,7 @@ export default function DrawPage() {
             <span>Draw & Matchups</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Generate Swiss pairings, manually edit draw via drag-and-drop, and detect institutional bias in real time.
+            Generate and edit team matchups here. Assign adjudicators separately on the Allocation page.
           </p>
         </div>
 
@@ -453,15 +409,6 @@ export default function DrawPage() {
           >
             <Shuffle className="w-3.5 h-3.5" />
             <span>{isGenerating ? "Generating..." : "Generate Draw"}</span>
-          </button>
-
-          <button
-            onClick={handleAutoAllocate}
-            disabled={isAllocating || roundDebates.length === 0}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
-          >
-            <Users2 className="w-3.5 h-3.5" />
-            <span>{isAllocating ? "Allocating..." : "Auto-Allocate Judges"}</span>
           </button>
 
           <button
@@ -693,30 +640,10 @@ export default function DrawPage() {
                       </span>
                     ))}
 
-                    {clashes.judgeClashes.map((c, cIdx) => (
-                      <span
-                        key={cIdx}
-                        className="inline-flex items-center space-x-1 text-[10px] font-bold text-red-800 bg-red-100 border border-red-300 px-2 py-0.5 rounded"
-                      >
-                        <AlertTriangle className="w-3 h-3 text-red-600" />
-                        <span>{c}</span>
-                      </span>
-                    ))}
                   </div>
 
-                  {/* Chair Info & Delete Room */}
+                  {/* Delete Room */}
                   <div className="flex items-center space-x-3 text-xs">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-gray-500 font-medium">Chair:</span>
-                      {debate.adjudicators?.chairName ? (
-                        <span className="font-bold text-gray-900 bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
-                          {debate.adjudicators.chairName}
-                        </span>
-                      ) : (
-                        <span className="text-red-500 font-semibold text-[11px] italic">Unassigned</span>
-                      )}
-                    </div>
-
                     <button
                       onClick={() => handleDeleteDebate(debate.id)}
                       className="p-1 text-gray-400 hover:text-red-600 rounded transition"
@@ -876,24 +803,6 @@ export default function DrawPage() {
                   )}
                 </div>
 
-                {/* Panellists and Trainees footer */}
-                {((debate.adjudicators?.panellistNames?.length || 0) > 0 ||
-                  (debate.adjudicators?.traineeNames?.length || 0) > 0) && (
-                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs text-gray-600">
-                    {debate.adjudicators?.panellistNames?.length > 0 && (
-                      <div>
-                        <span className="font-semibold text-gray-700 mr-1">Panellists:</span>
-                        <span>{debate.adjudicators.panellistNames.join(", ")}</span>
-                      </div>
-                    )}
-                    {debate.adjudicators?.traineeNames?.length > 0 && (
-                      <div>
-                        <span className="font-semibold text-gray-700 mr-1">Trainees:</span>
-                        <span className="italic">{debate.adjudicators.traineeNames.join(", ")}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

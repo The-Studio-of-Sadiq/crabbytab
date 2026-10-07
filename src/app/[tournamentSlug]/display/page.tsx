@@ -17,6 +17,7 @@ export default function DisplayPage() {
   // S1: Staff pages always show everything.
   // For non-staff (general display viewers), require publicDraw to be enabled AND round draw to be released.
   const showDraw = isOwnerOrAdmin || (prefs?.publicDraw !== false && activeRound?.drawStatus === "confirmed");
+  const showAdjudicators = isOwnerOrAdmin || activeRound?.adjudicatorsRevealed === true;
   const showMotion = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
   const roundDebates = activeRound && showDraw ? debates.filter((d) => d.roundId === activeRound.id) : [];
@@ -103,7 +104,7 @@ export default function DisplayPage() {
                     <span className="text-sm text-gray-400">
                       {debate.byeTeamId
                         ? "No adjudicator required"
-                        : `Chair: ${debate.adjudicators?.chairName || "TBA"}`}
+                        : `Chair: ${showAdjudicators ? debate.adjudicators?.chairName || "TBA" : "TBA"}`}
                     </span>
                   </div>
                   {debate.byeTeamId ? (
@@ -121,6 +122,18 @@ export default function DisplayPage() {
                           <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {showAdjudicators && !debate.byeTeamId &&
+                    ((debate.adjudicators?.panellistNames?.length || 0) > 0 ||
+                      (debate.adjudicators?.traineeNames?.length || 0) > 0) && (
+                    <div className="mt-3 space-y-1 text-sm text-gray-400">
+                      {debate.adjudicators?.panellistNames?.length ? (
+                        <p>Panellists: {debate.adjudicators.panellistNames.join(", ")}</p>
+                      ) : null}
+                      {debate.adjudicators?.traineeNames?.length ? (
+                        <p>Trainees: {debate.adjudicators.traineeNames.join(", ")}</p>
+                      ) : null}
                     </div>
                   )}
                 </div>

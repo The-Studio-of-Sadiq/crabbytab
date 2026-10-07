@@ -405,21 +405,21 @@ export default function TeamPrivatePortalPage() {
 
               // Collect panel of adjudicators who judged this debate
               const panel: { id: string; name: string; role: string }[] = [];
-              if (debate.adjudicators?.chairId) {
+              if (round?.adjudicatorsRevealed && debate.adjudicators?.chairId) {
                 panel.push({
                   id: debate.adjudicators.chairId,
                   name: debate.adjudicators.chairName || "Chair",
                   role: "Chair",
                 });
               }
-              debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
+              if (round?.adjudicatorsRevealed) debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
                 panel.push({
                   id: pid,
                   name: debate.adjudicators?.panellistNames?.[idx] || "Panellist",
                   role: "Panellist",
                 });
               });
-              debate.adjudicators?.traineeIds?.forEach((tid, idx) => {
+              if (round?.adjudicatorsRevealed) debate.adjudicators?.traineeIds?.forEach((tid, idx) => {
                 panel.push({
                   id: tid,
                   name: debate.adjudicators?.traineeNames?.[idx] || "Trainee",
@@ -562,7 +562,11 @@ export default function TeamPrivatePortalPage() {
                           </span>
                         </div>
 
-                        {panel.length === 0 ? (
+                        {!round?.adjudicatorsRevealed ? (
+                          <p className="text-[11px] text-gray-500 italic">
+                            Adjudicators have not been revealed by the tournament organizers yet.
+                          </p>
+                        ) : panel.length === 0 ? (
                           <p className="text-[11px] text-gray-500 italic">
                             No adjudicators allocated to this room yet.
                           </p>
