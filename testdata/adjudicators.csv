@@ -33,8 +33,8 @@ Ayman Hasan,ayman.adj31@example.com,Comilla University,9,false
 Mahi Islam,mahi.adj32@example.com,Comilla University,8,false
 Fardin Ahmed,fardin.adj33@example.com,Barishal University,10,false
 Jannatul Akter,jannatul.adj34@example.com,Barishal University,7,true
-Shadman Islam,shadman.adj35@example.com,Begum Rokeya University, Rangpur,9,false
-Afia Rahman,afia.adj36@example.com,Begum Rokeya University, Rangpur,8,true
+Shadman Islam,shadman.adj35@example.com,"Begum Rokeya University, Rangpur",9,false
+Afia Rahman,afia.adj36@example.com,"Begum Rokeya University, Rangpur",8,true
 Nayeem Hasan,nayeem.adj37@example.com,Noakhali Science and Technology University,9,false
 Tanjila Sultana,tanjila.adj38@example.com,Noakhali Science and Technology University,7,true
 Rafiul Islam,rafiul.adj39@example.com,Pabna University of Science and Technology,8,false
@@ -49,7 +49,6 @@ Shuvo Ahmed,shuvo.adj47@example.com,BRAC University,8,true
 Maria Islam,maria.adj48@example.com,BRAC University,9,false
 Sakib Rahman,sakib.adj49@example.com,Daffodil International University,8,false
 Nusrat Akter,nusrat.adj50@example.com,University of Liberal Arts Bangladesh,7,true
-name,email,institution,score,trainee
 Adjudicator 51,adj51@example.com,University of Dhaka,9,false
 Adjudicator 52,adj52@example.com,North South University,8,false
 Adjudicator 53,adj53@example.com,BRAC University,10,false
@@ -74,29 +73,29 @@ Adjudicator 71,adj71@example.com,University of Liberal Arts Bangladesh,9,false
 Adjudicator 72,adj72@example.com,Jagannath University,8,true
 Adjudicator 73,adj73@example.com,Comilla University,9,false
 Adjudicator 74,adj74@example.com,Barishal University,8,true
-Adjudicator 75,adj75@example.com,Begum Rokeya University, Rangpur,9,false
-Adjudicator 76,adj76@example.com,Jatiya Kabi Kazi Nazrul Islam University,8,true
-Adjudicator 77,adj77@example.com,Noakhali Science and Technology University,10,false
-Adjudicator 78,adj78@example.com,Pabna University of Science and Technology,9,false
-Adjudicator 79,adj79@example.com,Jessore University of Science and Technology,8,true
-Adjudicator 80,adj80@example.com,Patuakhali Science and Technology University,9,false
-Adjudicator 81,adj81@example.com,Mawlana Bhashani Science and Technology University,8,true
-Adjudicator 82,adj82@example.com,Hajee Mohammad Danesh Science and Technology University,10,false
-Adjudicator 83,adj83@example.com,Bangladesh University of Textiles,9,false
-Adjudicator 84,adj84@example.com,Sylhet Agricultural University,8,true
-Adjudicator 85,adj85@example.com,Chittagong Veterinary and Animal Sciences University,9,false
-Adjudicator 86,adj86@example.com,Bangladesh University of Professionals,10,false
-Adjudicator 87,adj87@example.com,Islamic University,8,false
-Adjudicator 88,adj88@example.com,Rangamati Science and Technology University,9,false
-Adjudicator 89,adj89@example.com,National University,8,false
-Adjudicator 90,adj90@example.com,Bangladesh Open University,9,false
-Adjudicator 91,adj91@example.com,Bangladesh University of Health Sciences,8,false
-Adjudicator 92,adj92@example.com,She-e-Bangla Agricultural University,9,false
-Adjudicator 93,adj93@example.com,Bangladesh University of Engineering and Technology,10,false
-Adjudicator 94,adj94@example.com,University of Dhaka,9,false
-Adjudicator 95,adj95@example.com,North South University,8,false
-Adjudicator 96,adj96@example.com,BRAC University,9,false
-Adjudicator 97,adj97@example.com,East West University,10,false
-Adjudicator 98,adj98@example.com,Daffodil International University,8,false
-Adjudicator 99,adj99@example.com,United International University,9,false
-Adjudicator 100,adj100@example.com,American International University-Bangladesh,8,false
+Adjudicator 75,adj75@example.com,"Begum Rokeya University, Rangpur",9,false
+Adjudicator 76,adj76@example.com,"Jatiya Kabi Kazi Nazrul Islam University",8,true
+Adjudicator 77,adj77@example.com,"Noakhali Science and Technology University",10,false
+Adjudicator 78,adj78@example.com,"Pabna University of Science and Technology",9,false
+Adjudicator 79,adj79@example.com,"Jessore University of Science and Technology",8,true
+Adjudicator 80,adj80@example.com,"Patuakhali Science and Technology University",9,false
+Adjudicator 81,adj81@example.com,"Mawlana Bhashani Science and Technology University",8,true
+Adjudicator 82,adj82@example.com,"Hajee Mohammad Danesh Science and Technology University",10,false
+Adjudicator 83,adj83@example.com,"Bangladesh University of Textiles",9,false
+Adjudicator 84,adj84@example.com,"Sylhet Agricultural University",8,true
+Adjudicator 85,adj85@example.com,"Chittagong Veterinary and Animal Sciences University",9,false
+Adjudicator 86,adj86@example.com,"Bangladesh University of Professionals",10,false
+Adjudicator 87,adj87@example.com,"Islamic University",8,false
+Adjudicator 88,adj88@example.com,"Rangamati Science and Technology University",9,false
+Adjudicator 89,adj89@example.com,"National University",8,false
+Adjudicator 90,adj90@example.com,"Bangladesh Open University",9,false
+Adjudicator 91,adj91@example.com,"Bangladesh University of Health Sciences",8,false
+Adjudicator 92,adj92@example.com,"She-e-Bangla Agricultural University",9,false
+Adjudicator 93,adj93@example.com,"Bangladesh University of Engineering and Technology",10,false
+Adjudicator 94,adj94@example.com,"University of Dhaka",9,false
+Adjudicator 95,adj95@example.com,"North South University",8,false
+Adjudicator 96,adj96@example.com,"BRAC University",9,false
+Adjudicator 97,adj97@example.com,"East West University",10,false
+Adjudicator 98,adj98@example.com,"Daffodil International University",8,false
+Adjudicator 99,adj99@example.com,"United International University",9,false
+Adjudicator 100,adj100@example.com,"American International University-Bangladesh",8,false

@@ -567,8 +567,8 @@ export interface IntelligentAllocationContext {
  * 1. Compute debate priority scores (bracket + break liveness + manual priority)
  * 2. Compute effective adjudicator scores (base + feedback blend)
  * 3. Build past history maps (teams judged, panel co-occurrences)
- * 4. Globally assign complete voting panels using each debate's target strength
- * 5. Promote the strongest clash-free voting panel member to chair
+ * 4. Match the highest-scored adjudicators to chairs in room-priority order
+ * 5. Fill remaining voting panel slots with remaining adjudicators
  * 6. Distribute trainees to lower-priority debates
  */
 export function autoAllocateAdjudicators(
@@ -744,15 +744,23 @@ export function autoAllocateAdjudicators(
         }))
       ),
     ];
-    const basePanelCostMatrix = panelSlots.map(({ debate, isChairSlot }) => {
+    const adjudicatorRank = new Map(
+      [...nonTrainees]
+        .sort((a, b) =>
+          b.baseScore - a.baseScore ||
+          (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5) ||
+          a.id.localeCompare(b.id)
+        )
+        .map((adj, rank) => [adj.id, rank])
+    );
+    const basePanelCostMatrix = panelSlots.map(({ debate }, slotIdx) => {
       const debateTeams: Team[] = Object.values(debate.teams)
         .map((t) => teamsMap.get(t.teamId))
         .filter((t): t is Team => t !== undefined);
       const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
-      const strengthTarget = isChairSlot ? debatePriority : debatePriority - 10;
 
-      return nonTrainees.map((adj) =>
-        computeAssignmentCost(
+      return nonTrainees.map((adj) => {
+        const cost = computeAssignmentCost(
           adj,
           debate,
           debateTeams,
@@ -763,30 +771,14 @@ export function autoAllocateAdjudicators(
           [],
           "panellist",
           options,
-          strengthTarget,
+          debatePriority,
           allocationWeights
-        ).total
-      );
+        );
+        return cost.total - cost.priorityStrengthMismatch +
+          Math.abs(slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)) * 1_000;
+      });
     });
-    const chairRolePriorityUnit = votingPanelSize > 1
-      ? getAllocationWeights(options.preferences).PRIORITY_STRENGTH_MISMATCH * 19
-      : 0;
-    const adjudicatorRank = new Map(
-      [...nonTrainees]
-        .sort((a, b) => (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5))
-        .map((adj, rank) => [
-          adj.id,
-          nonTrainees.length > 1 ? rank / (nonTrainees.length - 1) : 0,
-        ])
-    );
-    const panelCostMatrix = basePanelCostMatrix.map((row, slotIdx) =>
-      row.map((cost, adjIdx) => {
-        const rank = adjudicatorRank.get(nonTrainees[adjIdx].id) ?? nonTrainees.length;
-        const isChairSlot = panelSlots[slotIdx].isChairSlot;
-        const roleRank = isChairSlot ? rank : 1 - rank;
-        return cost + roleRank * chairRolePriorityUnit;
-      })
-    );
+    const panelCostMatrix = basePanelCostMatrix;
 
     const panelSlotsByDebate = new Map<string, number[]>();
     panelSlots.forEach(({ debate }, slotIdx) => {

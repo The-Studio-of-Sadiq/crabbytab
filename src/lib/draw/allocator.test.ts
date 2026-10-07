@@ -102,8 +102,8 @@ describe("Adjudicator Allocator Preferences", () => {
 
     const lowPriorityDebate = createDebate("d1", lowPriorityTeams);
     const highPriorityDebate = { ...createDebate("d2", highPriorityTeams), bracket: 2 };
-    const feedbackHigh = createAdj("adj-feedback-high", "Feedback High", 1);
-    const feedbackLow = createAdj("adj-feedback-low", "Feedback Low", 10);
+    const feedbackHigh = createAdj("adj-feedback-high", "Feedback High", 5);
+    const feedbackLow = createAdj("adj-feedback-low", "Feedback Low", 5);
     const submissions: FeedbackSubmission[] = [
       {
         id: "fb-high", tournamentId: "t1", roundId: "r1", debateId: "d1",
@@ -198,6 +198,59 @@ describe("Adjudicator Allocator Preferences", () => {
       .toBe(otherHighScoredAdj.id);
     const panelistIds = results.flatMap((result) => result.panellistIds);
     expect(panelistIds).toEqual(expect.arrayContaining([lowerScoredAdj.id, lowestScoredAdj.id]));
+  });
+
+  it("uses all available score-10 adjudicators as chairs before assigning lower scores", () => {
+    const debateTeams = Array.from({ length: 6 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
+    const debates = [
+      { ...createDebate("high-room", debateTeams.slice(0, 2)), venueId: "venue-high" },
+      { ...createDebate("middle-room", debateTeams.slice(2, 4)), venueId: "venue-middle" },
+      { ...createDebate("low-room", debateTeams.slice(4, 6)), venueId: "venue-low" },
+    ];
+    const score10Adjudicators = [
+      createAdj("score-10-a", "Score 10 A", 10),
+      createAdj("score-10-b", "Score 10 B", 10),
+    ];
+    const lowerScoreAdjudicators = [
+      createAdj("score-5-a", "Score 5 A", 5),
+      createAdj("score-5-b", "Score 5 B", 5),
+    ];
+    const teamsMap = new Map(debateTeams.map((team) => [team.id, team]));
+
+    const results = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      [...lowerScoreAdjudicators, ...score10Adjudicators],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+        venuePriorities: new Map([
+          ["venue-high", 100],
+          ["venue-middle", 50],
+          ["venue-low", 10],
+        ]),
+      }
+    );
+
+    const chairIds = results.map((result) => result.chairId);
+    expect(chairIds).toEqual([
+      "score-10-a",
+      "score-10-b",
+      expect.stringMatching(/^score-5-/),
+    ]);
+    expect(chairIds).not.toContain(undefined);
   });
 
   it("selects the strongest eligible adjudicator as chair after the full panel is chosen", () => {
