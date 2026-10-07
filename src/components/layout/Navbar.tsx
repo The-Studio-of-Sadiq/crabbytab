@@ -15,6 +15,7 @@ import {
   Cloud,
   CloudOff,
   Upload,
+  CloudDownload,
 } from "lucide-react";
 
 export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
@@ -29,6 +30,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     cloudSyncMessage,
     localSaveError,
     uploadToCloud,
+    downloadFromCloud,
   } = useTournament();
   const { user, logout } = useAuth();
   const [isOnline, setIsOnline] = useState(true);
@@ -56,6 +58,21 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     }
     try {
       await uploadToCloud();
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
+
+  const handleDownload = async () => {
+    if (
+      !window.confirm(
+        "Download the latest Firestore copy? This replaces this device's local tournament data, including unsynced changes."
+      )
+    ) {
+      return;
+    }
+    try {
+      await downloadFromCloud();
     } catch {
       // The sync state displays the specific failure.
     }
@@ -159,16 +176,28 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
               <span>{isOnline ? "Local copy" : "Offline"}</span>
             </span>
             {user ? (
-              <button
-                type="button"
-                onClick={handleUpload}
-                disabled={!isOnline || cloudSyncState === "syncing"}
-                title={cloudSyncMessage || "Explicitly upload this device's local copy to Firestore"}
-                className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
-              >
-                <Upload className="w-3 h-3" />
-                <span>{cloudSyncState === "syncing" ? "Uploading…" : "Upload"}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={!isOnline || cloudSyncState === "syncing"}
+                  title="Replace this device's local tournament data with the latest Firestore copy"
+                  className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
+                >
+                  <CloudDownload className="w-3 h-3" />
+                  <span>{cloudSyncState === "syncing" ? "Syncing…" : "Download"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpload}
+                  disabled={!isOnline || cloudSyncState === "syncing"}
+                  title={cloudSyncMessage || "Explicitly upload this device's local copy to Firestore"}
+                  className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>{cloudSyncState === "syncing" ? "Syncing…" : "Upload"}</span>
+                </button>
+              </>
             ) : (
               <Link
                 href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}

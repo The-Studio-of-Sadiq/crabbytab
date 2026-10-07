@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -22,6 +22,7 @@ import {
   Clock,
   Sparkles,
   Lock,
+  RefreshCw,
 } from "lucide-react";
 import { DebateSide, Debate, BallotSubmission } from "@/types";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
@@ -36,6 +37,9 @@ export default function AdjudicatorPrivatePortalPage() {
     tournament,
     loading,
     cloudLoadError,
+    privateSyncState,
+    privateSyncMessage,
+    syncPrivatePortal,
     adjudicators,
     teams,
     rounds,
@@ -62,8 +66,40 @@ export default function AdjudicatorPrivatePortalPage() {
   // Filter state
   const [selectedRoundTab, setSelectedRoundTab] = useState<string>("active");
   const [enteredPasscode, setEnteredPasscode] = useState("");
+  const [activePasscode, setActivePasscode] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [passcodeError, setPasscodeError] = useState("");
   const [verifiedPasscodeFor, setVerifiedPasscodeFor] = useState("");
+  const syncPrivatePortalRef = useRef(syncPrivatePortal);
+  syncPrivatePortalRef.current = syncPrivatePortal;
+  const rememberedPasscodeKey = `crabbytab_adjudicator_passcode_${tournamentSlug}_${privateKey}`;
+
+  useEffect(() => {
+    if (!adjudicator?.privatePasscode || typeof window === "undefined") return;
+    const remembered = localStorage.getItem(rememberedPasscodeKey);
+    if (remembered && remembered === adjudicator.privatePasscode) {
+      setEnteredPasscode(remembered);
+      setActivePasscode(remembered);
+      setVerifiedPasscodeFor(privateKey);
+      setRememberMe(true);
+    } else if (remembered) {
+      localStorage.removeItem(rememberedPasscodeKey);
+    }
+  }, [adjudicator, privateKey, rememberedPasscodeKey]);
+
+  useEffect(() => {
+    if (verifiedPasscodeFor !== privateKey || !activePasscode) return;
+    const sync = () => {
+      if (navigator.onLine) {
+        void syncPrivatePortalRef.current(privateKey, activePasscode).catch((error) => {
+          console.error("Could not sync adjudicator portal:", error);
+        });
+      }
+    };
+    sync();
+    window.addEventListener("online", sync);
+    return () => window.removeEventListener("online", sync);
+  }, [activePasscode, privateKey, verifiedPasscodeFor]);
 
   const handlePasscodeSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -76,7 +112,13 @@ export default function AdjudicatorPrivatePortalPage() {
       return;
     }
     setPasscodeError("");
+    setActivePasscode(enteredPasscode.trim());
     setVerifiedPasscodeFor(privateKey);
+    if (rememberMe) {
+      localStorage.setItem(rememberedPasscodeKey, enteredPasscode.trim());
+    } else {
+      localStorage.removeItem(rememberedPasscodeKey);
+    }
   };
 
   // Feedback Modal State
@@ -116,7 +158,7 @@ export default function AdjudicatorPrivatePortalPage() {
       await updateAdjudicator({
         ...adjudicator,
         checkedIn: !adjudicator.checkedIn,
-      }, privateKey);
+      }, activePasscode);
     } catch (error) {
       setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
     } finally {
@@ -229,7 +271,7 @@ export default function AdjudicatorPrivatePortalPage() {
         agreeWithDecision: feedbackAgree,
         comments: feedbackComments.trim(),
         confirmed: true,
-      }, privateKey);
+      }, activePasscode, privateKey);
       setShowFeedbackModal(false);
       setFeedbackSuccessNotice(`Feedback for ${feedbackTargetAdjName} was recorded successfully.`);
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
@@ -392,7 +434,7 @@ export default function AdjudicatorPrivatePortalPage() {
         confirmedTimestamp: new Date().toISOString(),
       };
 
-      await submitBallot(candidateBallot, privateKey);
+      await submitBallot(candidateBallot, activePasscode);
       setShowBallotModal(false);
       setBallotSuccessNotice(`Ballot for ${ballotDebate.venueName} successfully submitted!`);
       setTimeout(() => setBallotSuccessNotice(""), 6000);
@@ -488,6 +530,15 @@ export default function AdjudicatorPrivatePortalPage() {
               required
             />
           </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(event) => setRememberMe(event.target.checked)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Remember me on this device
+          </label>
           {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
           <button
             type="submit"
@@ -535,6 +586,17 @@ export default function AdjudicatorPrivatePortalPage() {
           <div className="flex items-center space-x-2">
             <button
               type="button"
+              onClick={() => void syncPrivatePortal(privateKey, activePasscode).catch((error) => {
+                console.error("Could not sync adjudicator portal:", error);
+              })}
+              disabled={privateSyncState === "syncing"}
+              className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${privateSyncState === "syncing" ? "animate-spin" : ""}`} />
+              Sync / Download
+            </button>
+            <button
+              type="button"
               onClick={handleToggleCheckIn}
               disabled={isUpdatingCheckIn}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition border ${
@@ -563,6 +625,18 @@ export default function AdjudicatorPrivatePortalPage() {
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         {checkInError && (
           <p role="alert" className="text-xs text-red-700">{checkInError}</p>
+        )}
+        {privateSyncMessage && (
+          <p
+            role={privateSyncState === "error" ? "alert" : "status"}
+            className={`rounded-md border px-3 py-2 text-xs ${
+              privateSyncState === "error"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-blue-200 bg-blue-50 text-blue-900"
+            }`}
+          >
+            {privateSyncMessage}
+          </p>
         )}
         {/* Success Notices */}
         {feedbackSuccessNotice && (

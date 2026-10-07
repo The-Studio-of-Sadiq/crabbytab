@@ -71,8 +71,12 @@ export interface TournamentContextType {
   isOwnerOrAdmin: boolean;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
   cloudSyncMessage: string;
+  privateSyncState: "idle" | "syncing" | "error";
+  privateSyncMessage: string;
   localSaveError: string;
   uploadToCloud: () => Promise<void>;
+  downloadFromCloud: () => Promise<void>;
+  syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
@@ -116,7 +120,8 @@ export interface TournamentContextType {
   proceedToNextEliminationRound: (roundId: string) => Promise<Round | null>;
   addFeedback: (
     fb: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">,
-    privatePasscode?: string
+    privatePasscode?: string,
+    privateUrlKey?: string
   ) => Promise<void>;
   recordAuditEvent: (event: {
     action: string;
@@ -207,9 +212,15 @@ export function TournamentProvider({
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [cloudSyncState, setCloudSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [cloudSyncMessage, setCloudSyncMessage] = useState("");
+  const [privateSyncState, setPrivateSyncState] = useState<"idle" | "syncing" | "error">("idle");
+  const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
+  const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
+  type PrivateSyncItem =
+    | { collection: "ballots"; record: BallotSubmission }
+    | { collection: "feedback"; record: FeedbackSubmission };
 
   // Helper to persist state to local storage
   const persistLocal = useCallback(
@@ -458,6 +469,104 @@ export function TournamentProvider({
       isMounted = false;
     };
   }, [tournamentSlug, storagePrefix, persistLocal, pathname]);
+
+  const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
+    privateUrlKey,
+    passcode
+  ) => {
+    if (!tournament || !db) {
+      throw new Error("Cloud sync is unavailable for this tournament.");
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("You are offline. Your submissions are saved on this device and will sync when online.");
+    }
+
+    setPrivateSyncState("syncing");
+    setPrivateSyncMessage("Syncing submissions and downloading saved ballots and feedback…");
+    try {
+      const pending = safeJsonParse<PrivateSyncItem[]>(
+        typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+        []
+      );
+      const response = await fetch("/api/private/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tournamentId: tournament.id,
+          privateUrlKey,
+          passcode,
+          pending,
+        }),
+      });
+      const result = (await response.json()) as {
+        error?: string;
+        ballots?: BallotSubmission[];
+        feedback?: FeedbackSubmission[];
+        uploadedCount?: number;
+      };
+      if (!response.ok) throw new Error(result.error || "Could not sync private portal data.");
+
+      const uploadedIds = new Set(pending.map((item) => item.record.id));
+      const remaining = pending.filter((item) => !uploadedIds.has(item.record.id));
+      persistLocal(privateQueueKey.slice(storagePrefix.length + 1), remaining);
+
+      const downloadedBallots = result.ballots || [];
+      const mergedBallots = [
+        ...ballots.filter((item) => !downloadedBallots.some((remote) => remote.id === item.id)),
+        ...downloadedBallots,
+      ];
+      const downloadedFeedback = result.feedback || [];
+      const mergedFeedback = [
+        ...feedback.filter((item) => !downloadedFeedback.some((remote) => remote.id === item.id)),
+        ...downloadedFeedback,
+      ];
+      setBallots(mergedBallots);
+      setFeedback(mergedFeedback);
+      persistLocal("ballots", mergedBallots);
+      persistLocal("feedback", mergedFeedback);
+      setPrivateSyncState("idle");
+      setPrivateSyncMessage(
+        `Synced ${result.uploadedCount || 0} pending item(s); downloaded ${downloadedBallots.length} ballot(s) and ${downloadedFeedback.length} feedback item(s).`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Private portal sync failed.";
+      setPrivateSyncState("error");
+      setPrivateSyncMessage(message);
+      throw error;
+    }
+  };
+
+  const queuePrivateRecord = async (
+    item: PrivateSyncItem,
+    privateUrlKey?: string,
+    passcode?: string
+  ) => {
+    const current = safeJsonParse<PrivateSyncItem[]>(
+      typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+      []
+    );
+    const queued = [
+      ...current.filter((entry) => {
+        if (entry.record.id === item.record.id) return false;
+        return !(
+          item.collection === "ballots" &&
+          entry.collection === "ballots" &&
+          entry.record.debateId === item.record.debateId
+        );
+      }),
+      item,
+    ];
+    persistLocal(privateQueueKey.slice(storagePrefix.length + 1), queued);
+    if (privateUrlKey && passcode && typeof navigator !== "undefined" && navigator.onLine) {
+      try {
+        await syncPrivatePortal(privateUrlKey, passcode);
+      } catch (error) {
+        console.error("Private portal submission queued for retry:", error);
+      }
+    } else {
+      setPrivateSyncMessage("Saved on this device; it will sync when you are online.");
+    }
+  };
 
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
@@ -1180,6 +1289,13 @@ export function TournamentProvider({
     });
     if (finalBallot.confirmed) {
       await confirmBallot(finalBallot.id, finalBallot.debateId, finalBallot);
+      if (privatePasscode) {
+        await queuePrivateRecord(
+          { collection: "ballots", record: finalBallot },
+          adjudicators.find((adj) => adj.id === finalBallot.submitterId)?.privateUrlKey,
+          privatePasscode
+        );
+      }
     }
   };
 
@@ -1812,7 +1928,8 @@ export function TournamentProvider({
 
   const addFeedback = async (
     fbData: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">,
-    privatePasscode?: string
+    privatePasscode?: string,
+    privateUrlKey?: string
   ) => {
     const newFb: FeedbackSubmission = {
       ...fbData,
@@ -1823,6 +1940,13 @@ export function TournamentProvider({
     const updated = [...feedback, newFb];
     setFeedback(updated);
     persistLocal("feedback", updated);
+    if (newFb.sourceType === "adjudicator" && privatePasscode) {
+      await queuePrivateRecord(
+        { collection: "feedback", record: newFb },
+        privateUrlKey || adjudicators.find((adj) => adj.id === newFb.sourceId)?.privateUrlKey,
+        privatePasscode
+      );
+    }
     await recordAuditEvent({
       action: "feedback.submitted",
       category: "feedback",
@@ -1995,6 +2119,82 @@ export function TournamentProvider({
     }
   };
 
+  const downloadFromCloud = async () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin) {
+      throw new Error("Sign in as a tournament administrator to download cloud data.");
+    }
+    const firestore = db;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("You are offline. Connect to the internet before downloading.");
+    }
+
+    setCloudSyncState("syncing");
+    setCloudSyncMessage("Downloading the latest tournament data from Firestore…");
+    try {
+      const tournamentSnapshot = await getDoc(doc(db, "tournaments", tournament.id));
+      if (!tournamentSnapshot.exists()) throw new Error("This tournament is not available in Firestore.");
+      const cloudTournament = {
+        ...tournamentSnapshot.data(),
+        id: tournamentSnapshot.id,
+        slug: tournament.slug,
+      } as Tournament;
+      if (
+        cloudTournament.ownerId !== "director" &&
+        cloudTournament.ownerId !== user.uid &&
+        cloudTournament.admins?.[user.uid] !== true
+      ) {
+        throw new Error("This cloud tournament belongs to another account.");
+      }
+
+      const snapshots = await Promise.all(
+        CLOUD_COLLECTIONS.map((name) =>
+          getDocs(collection(firestore, "tournaments", tournament.id, name))
+        )
+      );
+      const collections = Object.fromEntries(
+        CLOUD_COLLECTIONS.map((name, index) => [
+          name,
+          snapshots[index].docs.map((document) => ({
+            ...document.data(),
+            id: document.id,
+          })),
+        ])
+      ) as Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>>;
+      const downloadedRounds = collections.rounds as Round[];
+
+      setTournament(cloudTournament);
+      persistLocal("meta", cloudTournament);
+      setRounds(downloadedRounds);
+      persistLocal("rounds", downloadedRounds);
+      setActiveRound(downloadedRounds.find((round) => !round.cancelled) || null);
+      const applyDownloadedCollection = <T,>(
+        cloudName: (typeof CLOUD_COLLECTIONS)[number],
+        localName: string,
+        setValue: (items: T[]) => void
+      ) => {
+        const items = collections[cloudName] as T[];
+        setValue(items);
+        persistLocal(localName, items);
+      };
+      applyDownloadedCollection<Team>("teams", "teams", setTeams);
+      applyDownloadedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
+      applyDownloadedCollection<Venue>("venues", "venues", setVenues);
+      applyDownloadedCollection<Motion>("motions", "motions", setMotions);
+      applyDownloadedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
+      applyDownloadedCollection<Debate>("debates", "debates", setDebates);
+      applyDownloadedCollection<BallotSubmission>("ballots", "ballots", setBallots);
+      applyDownloadedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
+      applyDownloadedCollection<Institution>("institutions", "institutions", setInstitutions);
+      setCloudSyncState("success");
+      setCloudSyncMessage("Downloaded the latest tournament data, including adjudicator ballots and feedback.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cloud download failed.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw error;
+    }
+  };
+
   return (
     <TournamentContext.Provider
       value={{
@@ -2021,8 +2221,12 @@ export function TournamentProvider({
         isOwnerOrAdmin,
         cloudSyncState,
         cloudSyncMessage,
+        privateSyncState,
+        privateSyncMessage,
         localSaveError,
         uploadToCloud,
+        downloadFromCloud,
+        syncPrivatePortal,
         saveTournament,
         createRound,
         setPreliminaryRoundCount,
