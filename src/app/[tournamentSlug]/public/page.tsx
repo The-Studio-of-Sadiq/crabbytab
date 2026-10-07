@@ -33,6 +33,8 @@ export default function PublicTournamentPage() {
 
   const {
     tournament,
+    loading,
+    cloudLoadError,
     activeRound,
     rounds,
     setActiveRound,
@@ -84,6 +86,15 @@ export default function PublicTournamentPage() {
   };
 
   const isBP = tournament?.format === "bp";
+  const formatLabel = tournament
+    ? {
+        bp: "British Parliamentary",
+        uadc: "UADC",
+        australs: "Australs",
+        wsdc: "WSDC",
+        custom_2team: "Custom 2-Team",
+      }[tournament.format]
+    : "Tournament";
   const prefs = tournament?.preferences;
 
   // S1: Public toggles
@@ -109,7 +120,11 @@ export default function PublicTournamentPage() {
 
   // Only released debates/rounds
   const releasedDebates = activeRound
-    ? debates.filter((d) => d.roundId === activeRound.id && activeRound.drawStatus === "confirmed")
+    ? debates.filter(
+        (d) =>
+          d.roundId === activeRound.id &&
+          (activeRound.drawStatus === "confirmed" || activeRound.drawStatus === "released")
+      )
     : [];
 
   const roundResultsReleased = Boolean(activeRound?.resultsReleased && !activeRound.silent);
@@ -152,6 +167,28 @@ export default function PublicTournamentPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMotionPresentation, releasedMotions.length]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <div className="text-center space-y-2">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-gray-500">Loading public tournament details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (cloudLoadError) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <div className="max-w-lg w-full bg-white border border-amber-200 rounded-xl p-8 text-center shadow-sm space-y-3">
+          <h1 className="text-lg font-bold text-gray-900">Public tournament data unavailable</h1>
+          <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
       {/* Public Header */}
@@ -169,7 +206,7 @@ export default function PublicTournamentPage() {
                 {tournament?.name || "Debate Tournament Tab"}
               </h1>
               <span className="text-[11px] text-gray-400">
-                Official Public Tab &bull; {isBP ? "British Parliamentary" : "2-Team Asian/Australs"}
+                Official Public Tab &bull; {formatLabel}
               </span>
             </div>
           </div>

@@ -31,6 +31,7 @@ export default function TeamPrivatePortalPage() {
   const {
     tournament,
     loading,
+    cloudLoadError,
     teams,
     rounds,
     activeRound,
@@ -197,6 +198,26 @@ export default function TeamPrivatePortalPage() {
         <div className="text-center space-y-2">
           <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs text-gray-500">Loading your team portal...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (cloudLoadError) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-8 text-center shadow-sm space-y-4">
+          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-900">Tournament data unavailable</h1>
+          <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
+          <Link
+            href={`/${tournamentSlug}/public`}
+            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
+          >
+            Visit Public Tournament Page
+          </Link>
         </div>
       </div>
     );

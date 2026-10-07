@@ -249,6 +249,7 @@ export interface Adjudicator {
   conflicts: AdjudicatorConflict[];
   gender?: string;
   privateUrlKey?: string; // Secret key for adjudicator's private URL
+  privatePasscode?: string; // Separate passcode required to access the private portal
 }
 
 export interface Venue {

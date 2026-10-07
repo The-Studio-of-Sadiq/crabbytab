@@ -35,6 +35,7 @@ export default function AdjudicatorPrivatePortalPage() {
   const {
     tournament,
     loading,
+    cloudLoadError,
     adjudicators,
     teams,
     rounds,
@@ -47,7 +48,7 @@ export default function AdjudicatorPrivatePortalPage() {
     updateAdjudicator,
   } = useTournament();
 
-  // The unique private URL key is the adjudicator's passcode.
+  // The URL key identifies the adjudicator; a separate passcode gates access.
   const adjudicator = useMemo(() => {
     return adjudicators.find((a) => a.privateUrlKey === privateKey);
   }, [adjudicators, privateKey]);
@@ -60,6 +61,23 @@ export default function AdjudicatorPrivatePortalPage() {
 
   // Filter state
   const [selectedRoundTab, setSelectedRoundTab] = useState<string>("active");
+  const [enteredPasscode, setEnteredPasscode] = useState("");
+  const [passcodeError, setPasscodeError] = useState("");
+  const [verifiedPasscodeFor, setVerifiedPasscodeFor] = useState("");
+
+  const handlePasscodeSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!adjudicator?.privatePasscode) {
+      setPasscodeError("A personal passcode has not been set up for this adjudicator. Contact the tournament tabroom.");
+      return;
+    }
+    if (enteredPasscode.trim() !== adjudicator.privatePasscode) {
+      setPasscodeError("That passcode does not match. Please try again.");
+      return;
+    }
+    setPasscodeError("");
+    setVerifiedPasscodeFor(privateKey);
+  };
 
   // Feedback Modal State
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -396,6 +414,26 @@ export default function AdjudicatorPrivatePortalPage() {
     );
   }
 
+  if (cloudLoadError) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-8 text-center shadow-sm space-y-4">
+          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-900">Tournament data unavailable</h1>
+          <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
+          <Link
+            href={`/${tournamentSlug}/public`}
+            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
+          >
+            Visit Public Tournament Page
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (!adjudicator) {
     return (
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
@@ -415,6 +453,52 @@ export default function AdjudicatorPrivatePortalPage() {
             Visit Public Tournament Page
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  if (verifiedPasscodeFor !== privateKey) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <form
+          onSubmit={handlePasscodeSubmit}
+          className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 shadow-sm space-y-5"
+        >
+          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div className="text-center space-y-2">
+            <h1 className="text-lg font-bold text-gray-900">Adjudicator passcode required</h1>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Enter the personal passcode provided by the tournament tabroom to open your private portal.
+            </p>
+          </div>
+          <label className="block text-xs font-semibold text-gray-700">
+            Personal passcode
+            <input
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={enteredPasscode}
+              onChange={(event) => {
+                setEnteredPasscode(event.target.value);
+                setPasscodeError("");
+              }}
+              className="mt-1.5 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              required
+            />
+          </label>
+          {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
+          <button
+            type="submit"
+            className="w-full px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
+          >
+            Open private portal
+          </button>
+          <p className="text-center text-[11px] text-gray-500">
+            {tournament?.shortName || tournament?.name || "Tournament"}
+          </p>
+        </form>
       </div>
     );
   }

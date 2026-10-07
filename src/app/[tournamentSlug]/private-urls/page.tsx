@@ -19,7 +19,12 @@ import {
   Download,
   Share2,
 } from "lucide-react";
-import { getAbsolutePrivateUrl, getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
+import {
+  generatePrivateKey,
+  getAbsolutePrivateUrl,
+  getAdjudicatorPrivatePath,
+  getTeamPrivatePath,
+} from "@/lib/privateUrls";
 
 export default function PrivateUrlsManagementPage() {
   const params = useParams();
@@ -32,6 +37,7 @@ export default function PrivateUrlsManagementPage() {
     adjudicators,
     institutions,
     generatePrivateUrlKeys,
+    updateAdjudicator,
   } = useTournament();
 
   const [activeTab, setActiveTab] = useState<"adjudicators" | "teams">("adjudicators");
@@ -40,13 +46,14 @@ export default function PrivateUrlsManagementPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [copiedAllNotice, setCopiedAllNotice] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   // Auto-generate keys on first visit if any are missing
   React.useEffect(() => {
     if (loading) return;
-    const missingAdjKeys = adjudicators.some((a) => !a.privateUrlKey);
+    const missingAdjCredentials = adjudicators.some((a) => !a.privateUrlKey || !a.privatePasscode);
     const missingTeamKeys = teams.some((t) => !t.privateUrlKey);
-    if (missingAdjKeys || missingTeamKeys) {
+    if (missingAdjCredentials || missingTeamKeys) {
       generatePrivateUrlKeys(false);
     }
   }, [loading, adjudicators, teams, generatePrivateUrlKeys]);
@@ -66,6 +73,17 @@ export default function PrivateUrlsManagementPage() {
       setShowRegenConfirm(false);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleGeneratePasscode = async (adjId: string) => {
+    const adjudicator = adjudicators.find((item) => item.id === adjId);
+    if (!adjudicator) return;
+    setActionError("");
+    try {
+      await updateAdjudicator({ ...adjudicator, privatePasscode: generatePrivateKey() });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not generate the passcode.");
     }
   };
 
@@ -97,12 +115,12 @@ export default function PrivateUrlsManagementPage() {
   const handleCopyAll = () => {
     const lines: string[] = [];
     if (activeTab === "adjudicators") {
-      lines.push("Name\tInstitution\tRole\tPrivate URL");
+      lines.push("Name\tInstitution\tRole\tPrivate URL\tPersonal Passcode");
       filteredAdjudicators.forEach((a) => {
         const key = a.privateUrlKey;
         if (!key) return;
         const url = getAbsolutePrivateUrl(tournamentSlug, "adjudicator", key);
-        lines.push(`${a.name}\t${a.institutionName || "Unaffiliated"}\t${a.trainee ? "Trainee" : "Judge"}\t${url}`);
+        lines.push(`${a.name}\t${a.institutionName || "Unaffiliated"}\t${a.trainee ? "Trainee" : "Judge"}\t${url}\t${a.privatePasscode || ""}`);
       });
     } else {
       lines.push("Team Name\tInstitution\tSpeakers\tPrivate URL");
@@ -162,7 +180,7 @@ export default function PrivateUrlsManagementPage() {
             className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50 shadow-2xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
-            <span>Ensure All Keys Assigned</span>
+            <span>Ensure All Credentials Assigned</span>
           </button>
         </div>
       </div>
@@ -233,6 +251,11 @@ export default function PrivateUrlsManagementPage() {
       </div>
 
       {/* Main Table */}
+      {actionError && (
+        <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {actionError}
+        </p>
+      )}
       <div className="bg-white border border-[#d0d7de] rounded-xl shadow-xs overflow-hidden">
         {activeTab === "adjudicators" ? (
           <div className="overflow-x-auto">
@@ -243,13 +266,14 @@ export default function PrivateUrlsManagementPage() {
                   <th className="py-2.5 px-4">Institution</th>
                   <th className="py-2.5 px-4">Role / Rating</th>
                   <th className="py-2.5 px-4">Private URL Link</th>
+                  <th className="py-2.5 px-4">Personal Passcode</th>
                   <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredAdjudicators.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-gray-500">
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
                       No adjudicators found.
                     </td>
                   </tr>
@@ -292,9 +316,33 @@ export default function PrivateUrlsManagementPage() {
                         <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
                           <div className="flex items-center space-x-1.5 max-w-xs truncate">
                             <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path || "Generating passcode…"}
+                              {path || "Generating private link…"}
                             </span>
                           </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
+                          {adj.privatePasscode ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1">
+                                {adj.privatePasscode}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(adj.privatePasscode!, `${adj.id}:passcode`)}
+                                className="rounded border border-gray-300 bg-white px-2 py-1 font-sans text-[10px] hover:bg-gray-50"
+                              >
+                                {copiedKey === `${adj.id}:passcode` ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleGeneratePasscode(adj.id)}
+                              className="rounded border border-blue-200 bg-blue-50 px-2 py-1 font-sans text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                              Generate passcode
+                            </button>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1.5">
@@ -376,7 +424,7 @@ export default function PrivateUrlsManagementPage() {
                         <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
                           <div className="flex items-center space-x-1.5 max-w-xs truncate">
                             <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path || "Generating passcode…"}
+                              {path || "Generating private link…"}
                             </span>
                           </div>
                         </td>
@@ -430,8 +478,7 @@ export default function PrivateUrlsManagementPage() {
         <div className="flex items-center space-x-2 text-gray-600">
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
           <span>
-            Each private URL contains that participant&apos;s passcode. Anyone with the link can access
-            that portal, so distribute it privately.
+          Adjudicators must use their separate personal passcode after opening the link. Share each link and passcode privately.
           </span>
         </div>
 
@@ -443,6 +490,9 @@ export default function PrivateUrlsManagementPage() {
           Regenerate All Private Keys
         </button>
       </div>
+      <p className="text-[11px] text-gray-500">
+        Upload the tournament from the tabroom after updating links or passcodes so the latest data is available on other devices.
+      </p>
 
       {showRegenConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">

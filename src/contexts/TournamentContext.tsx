@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { usePathname } from "next/navigation";
 import {
   Tournament,
   Round,
@@ -27,6 +28,8 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  query,
+  where,
   writeBatch,
   WriteBatch,
 } from "firebase/firestore";
@@ -47,6 +50,7 @@ import { generatePrivateKey } from "@/lib/privateUrls";
 export interface TournamentContextType {
   tournament: Tournament | null;
   loading: boolean;
+  cloudLoadError: string;
   rounds: Round[];
   activeRound: Round | null;
   setActiveRound: (round: Round | null) => void;
@@ -184,8 +188,10 @@ export function TournamentProvider({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
+  const pathname = usePathname();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cloudLoadError, setCloudLoadError] = useState("");
   const [rounds, setRounds] = useState<Round[]>([]);
   const [activeRound, setActiveRound] = useState<Round | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -220,18 +226,156 @@ export function TournamentProvider({
     [storagePrefix]
   );
 
-  // Local storage is the working copy. Cloud reads and writes happen only on explicit actions.
+  // Local storage is the working copy. Shared links fall back to the published cloud copy.
   useEffect(() => {
     let isMounted = true;
-    function loadLocalData() {
+    async function loadLocalData() {
       setLoading(true);
+      setCloudLoadError("");
       auditEventsRef.current = [];
       setAuditEvents([]);
       try {
         if (typeof window === "undefined" || !isMounted) return;
         const readLocal = <T,>(key: string, fallback: T): T =>
           safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
-        const localTournament = readLocal<Tournament | null>("meta", null);
+        let localTournament = readLocal<Tournament | null>("meta", null);
+        const isSharedView = pathname?.includes("/public") || pathname?.includes("/private/");
+
+        if (!localTournament && db) {
+          try {
+            const tournamentQuery = query(
+              collection(db, "tournaments"),
+              where("slug", "==", tournamentSlug)
+            );
+            const snapshot = await getDocs(tournamentQuery);
+            if (!isMounted) return;
+
+            const cloudTournamentDoc =
+              snapshot.docs[0] ||
+              (await getDoc(doc(db, "tournaments", `tourn-${tournamentSlug}`)));
+            if (!isMounted) return;
+
+            if (cloudTournamentDoc.exists()) {
+              const data = cloudTournamentDoc.data();
+              localTournament = {
+                ...data,
+                id: cloudTournamentDoc.id,
+                slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
+              } as Tournament;
+
+              const cloudCollections = Object.fromEntries(
+                await Promise.all(
+                  CLOUD_COLLECTIONS.map(async (name) => {
+                    const collectionSnapshot = await getDocs(
+                      collection(db!, "tournaments", cloudTournamentDoc.id, name)
+                    );
+                    return [
+                      name,
+                      collectionSnapshot.docs.map((item) => ({ ...item.data(), id: item.id })),
+                    ];
+                  })
+                )
+              ) as Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>>;
+              if (!isMounted) return;
+
+              const localCollectionNames: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
+                rounds: "rounds",
+                teams: "teams",
+                adjudicators: "adjudicators",
+                venues: "venues",
+                motions: "motions",
+                breakCategories: "breaks",
+                debates: "debates",
+                ballots: "ballots",
+                feedback: "feedback",
+                institutions: "institutions",
+              };
+              const storeCloudCollection = <T,>(
+                name: (typeof CLOUD_COLLECTIONS)[number],
+                setValue: (items: T[]) => void
+              ) => {
+                const items = cloudCollections[name] as T[];
+                setValue(items);
+                persistLocal(localCollectionNames[name], items);
+              };
+
+              setTournament(localTournament);
+              persistLocal("meta", localTournament);
+              const loadedRounds = cloudCollections.rounds as Round[];
+              const publicRound = isSharedView
+                ? [...loadedRounds]
+                    .filter(
+                      (round) =>
+                        !round.cancelled &&
+                        (round.drawStatus === "confirmed" ||
+                          round.drawStatus === "released" ||
+                          round.resultsReleased ||
+                          round.adjudicatorsRevealed)
+                    )
+                    .sort((a, b) => b.seq - a.seq)[0]
+                : undefined;
+              setRounds(loadedRounds);
+              setActiveRound(
+                publicRound || loadedRounds.find((round) => !round.cancelled) || null
+              );
+              storeCloudCollection<Team>("teams", setTeams);
+              storeCloudCollection<Adjudicator>("adjudicators", setAdjudicators);
+              storeCloudCollection<Venue>("venues", setVenues);
+              storeCloudCollection<Motion>("motions", setMotions);
+              storeCloudCollection<BreakCategory>("breakCategories", setBreakCategories);
+              storeCloudCollection<Debate>("debates", setDebates);
+              storeCloudCollection<BallotSubmission>("ballots", setBallots);
+              storeCloudCollection<FeedbackSubmission>("feedback", setFeedback);
+              storeCloudCollection<Institution>("institutions", setInstitutions);
+              setLoading(false);
+              return;
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Could not load tournament data from the cloud.";
+            console.error("Could not load shared tournament data:", error);
+            if (isSharedView) {
+              setCloudLoadError(`Could not load this tournament from the cloud: ${message}`);
+              setTournament(null);
+              setRounds([]);
+              setActiveRound(null);
+              setTeams([]);
+              setAdjudicators([]);
+              setVenues([]);
+              setMotions([]);
+              setBreakCategories([]);
+              setDebates([]);
+              setBallots([]);
+              setFeedback([]);
+              setInstitutions([]);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+
+        if (!localTournament && isSharedView) {
+          setCloudLoadError(
+            db
+              ? "This tournament has no cloud copy yet. Ask the tabroom to upload the latest tournament data."
+              : "Cloud access is not configured, and this tournament is not saved on this device."
+          );
+          setTournament(null);
+          setRounds([]);
+          setActiveRound(null);
+          setTeams([]);
+          setAdjudicators([]);
+          setVenues([]);
+          setMotions([]);
+          setBreakCategories([]);
+          setDebates([]);
+          setBallots([]);
+          setFeedback([]);
+          setInstitutions([]);
+          setLoading(false);
+          return;
+        }
+
         if (localTournament) {
           setTournament(localTournament);
         } else {
@@ -273,7 +417,19 @@ export function TournamentProvider({
 
         const localRounds = readLocal<Round[]>("rounds", []);
         setRounds(localRounds);
-        setActiveRound(localRounds.find((round) => !round.cancelled) || null);
+        const publicRound = isSharedView
+          ? [...localRounds]
+              .filter(
+                (round) =>
+                  !round.cancelled &&
+                  (round.drawStatus === "confirmed" ||
+                    round.drawStatus === "released" ||
+                    round.resultsReleased ||
+                    round.adjudicatorsRevealed)
+              )
+              .sort((a, b) => b.seq - a.seq)[0]
+          : undefined;
+        setActiveRound(publicRound || localRounds.find((round) => !round.cancelled) || null);
         setTeams(readLocal<Team[]>("teams", []));
         setAdjudicators(readLocal<Adjudicator[]>("adjudicators", []));
         setVenues(readLocal<Venue[]>("venues", []));
@@ -287,7 +443,11 @@ export function TournamentProvider({
         setAuditEvents(localAuditEvents);
         setInstitutions(readLocal<Institution[]>("institutions", []));
       } catch (e) {
-        console.warn("Error reading local storage cache:", e);
+        const message = e instanceof Error ? e.message : "Could not read tournament data.";
+        console.error("Error reading tournament data:", e);
+        if (pathname?.includes("/public") || pathname?.includes("/private/")) {
+          setCloudLoadError(`Could not load tournament data: ${message}`);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -297,7 +457,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal]);
+  }, [tournamentSlug, storagePrefix, persistLocal, pathname]);
 
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
@@ -1251,6 +1411,7 @@ export function TournamentProvider({
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
       privateUrlKey: data.privateUrlKey || generatePrivateKey("adj"),
+      privatePasscode: data.privatePasscode || generatePrivateKey(),
     }));
     const updated = [...adjudicators, ...newAdjudicators];
     setAdjudicators(updated);
@@ -1281,7 +1442,11 @@ export function TournamentProvider({
     const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
     setAdjudicators(updated);
     persistLocal("adjudicators", updated);
-    const safeAdj = ({ privateUrlKey: _privateUrlKey, ...safe }: Adjudicator) => safe;
+    const safeAdj = ({
+      privateUrlKey: _privateUrlKey,
+      privatePasscode: _privatePasscode,
+      ...safe
+    }: Adjudicator) => safe;
     await recordAuditEvent({
       action: "adjudicator.updated",
       category: "tournament",
@@ -1687,9 +1852,14 @@ export function TournamentProvider({
 
     let adjsChanged = false;
     const updatedAdjs = adjudicators.map((a) => {
-      if (forceRegenerate || !a.privateUrlKey) {
+      if (forceRegenerate || !a.privateUrlKey || !a.privatePasscode) {
         adjsChanged = true;
-        return { ...a, privateUrlKey: generatePrivateKey("adj") };
+        return {
+          ...a,
+          privateUrlKey:
+            forceRegenerate || !a.privateUrlKey ? generatePrivateKey("adj") : a.privateUrlKey,
+          privatePasscode: generatePrivateKey(),
+        };
       }
       return a;
     });
@@ -1723,11 +1893,14 @@ export function TournamentProvider({
       await recordAuditEvent({
         action: "private_urls.regenerated",
         category: "tournament",
-        summary: "Private access URLs generated",
+        summary: "Private access credentials generated",
         details: {
           forceRegenerate,
           teamsUpdated: updatedTeams.filter((team) => forceRegenerate || !teams.find((old) => old.id === team.id)?.privateUrlKey).length,
-          adjudicatorsUpdated: updatedAdjs.filter((adj) => forceRegenerate || !adjudicators.find((old) => old.id === adj.id)?.privateUrlKey).length,
+          adjudicatorsUpdated: updatedAdjs.filter((adj) => {
+            const previous = adjudicators.find((old) => old.id === adj.id);
+            return forceRegenerate || !previous?.privateUrlKey || !previous.privatePasscode;
+          }).length,
         },
       });
     }
@@ -1827,6 +2000,7 @@ export function TournamentProvider({
       value={{
         tournament,
         loading,
+        cloudLoadError,
         rounds: rounds.filter((round) => !round.cancelled),
         activeRound,
         setActiveRound,

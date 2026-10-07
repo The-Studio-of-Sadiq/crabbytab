@@ -16,7 +16,10 @@ export default function DisplayPage() {
 
   // S1: Staff pages always show everything.
   // For non-staff (general display viewers), require publicDraw to be enabled AND round draw to be released.
-  const showDraw = isOwnerOrAdmin || (prefs?.publicDraw !== false && activeRound?.drawStatus === "confirmed");
+  const showDraw =
+    isOwnerOrAdmin ||
+    (prefs?.publicDraw !== false &&
+      (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released"));
   const showAdjudicators = isOwnerOrAdmin || activeRound?.adjudicatorsRevealed === true;
   const showMotion = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
