@@ -71,6 +71,7 @@ export default function EmailSettingsPage() {
   } = useTournament();
   const { user } = useAuth();
   const [testSending, setTestSending] = useState(false);
+  const [testRecipient, setTestRecipient] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [testError, setTestError] = useState("");
   const [recipientGroup, setRecipientGroup] = useState<EmailRecipientGroup>("all_adjudicators");
@@ -140,7 +141,7 @@ export default function EmailSettingsPage() {
   }
 
   const sendTestEmail = async () => {
-    if (!tournament || !user) return;
+    if (!tournament || !user || !testRecipient.trim()) return;
 
     setTestSending(true);
     setTestMessage("");
@@ -153,7 +154,7 @@ export default function EmailSettingsPage() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ tournamentId: tournament.id }),
+        body: JSON.stringify({ tournamentId: tournament.id, recipientEmail: testRecipient.trim() }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to test SMTP.");
@@ -277,18 +278,26 @@ export default function EmailSettingsPage() {
           required STARTTLS; port 465 uses implicit TLS. The Firebase service-account JSON must
           have access to read tournament administrator records.
         </p>
+        <label className="block max-w-md text-xs font-semibold text-gray-700">
+          Test recipient email
+          <input
+            type="email"
+            required
+            value={testRecipient}
+            onChange={(event) => setTestRecipient(event.target.value)}
+            placeholder={user?.email || "name@example.com"}
+            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+          />
+        </label>
         <button
           type="button"
           onClick={sendTestEmail}
-          disabled={testSending || !user?.email}
+          disabled={testSending || !testRecipient.trim()}
           className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send className="h-4 w-4" />
-          {testSending ? "Sending test..." : `Send test to ${user?.email || "your account"}`}
+          {testSending ? "Sending test..." : "Send test email"}
         </button>
-        {!user?.email && (
-          <p className="text-xs text-amber-700">Your signed-in account does not have an email address.</p>
-        )}
         {testMessage && <p role="status" className="text-sm text-emerald-700">{testMessage}</p>}
         {testError && <p role="alert" className="text-sm text-red-700">{testError}</p>}
       </section>

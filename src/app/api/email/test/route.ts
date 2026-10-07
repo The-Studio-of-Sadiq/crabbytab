@@ -10,36 +10,44 @@ import {
 
 export const runtime = "nodejs";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export async function POST(request: NextRequest) {
-  let body: { tournamentId?: unknown };
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsed: unknown = await request.json();
+    if (!isRecord(parsed)) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    body = parsed;
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  if (typeof body.tournamentId !== "string" || !body.tournamentId.trim()) {
+  const { tournamentId, recipientEmail } = body;
+  if (typeof tournamentId !== "string" || !tournamentId.trim()) {
     return NextResponse.json({ error: "A tournament ID is required." }, { status: 400 });
   }
+  if (
+    typeof recipientEmail !== "string" ||
+    recipientEmail.trim().length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail.trim())
+  ) {
+    return NextResponse.json({ error: "Enter a valid test recipient email address." }, { status: 400 });
+  }
+  const testRecipient = recipientEmail.trim();
 
   try {
-    const user = await authorizeTournamentEmailRequest(request, body.tournamentId);
-    if (!user.email) {
-      return NextResponse.json(
-        { error: "Add an email address to your account before testing SMTP." },
-        { status: 400 }
-      );
-    }
-
+    await authorizeTournamentEmailRequest(request, tournamentId);
     const provider = createSmtpEmailProvider();
     await provider.verifyConnection();
     await provider.send({
-      to: user.email,
+      to: testRecipient,
       subject: "CrabbyTab SMTP test",
       text: "Your tournament's SMTP email provider is configured and working.",
     });
 
-    return NextResponse.json({ message: `Test email sent to ${user.email}.` });
+    return NextResponse.json({ message: `Test email sent to ${testRecipient}.` });
   } catch (error) {
     if (error instanceof EmailAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
