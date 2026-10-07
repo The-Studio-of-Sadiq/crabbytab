@@ -3,6 +3,7 @@ import { Adjudicator, Debate, Round, Team } from "@/types";
 import {
   EmailCampaignInputError,
   EmailRecipient,
+  prepareEmailMessages,
   renderEmailTemplate,
   resolveEmailRecipients,
   sendEmailCampaign,
@@ -126,6 +127,63 @@ describe("email recipient resolution", () => {
     });
     expect(chairRecipients.map((recipient) => recipient.email)).toEqual(["judge@example.com"]);
     expect(resolveEmailRecipients("chairs", [], [adjudicator], []).length).toBe(0);
+  });
+
+  it("resolves each adjudicator's private portal credentials into their own message", () => {
+    const adjudicators: Adjudicator[] = [
+      {
+        ...adjudicator,
+        privateUrlKey: "adj_one",
+        privatePasscode: "pass-one",
+      },
+      {
+        ...adjudicator,
+        id: "adj-2",
+        name: "Judge Two",
+        email: "judge2@example.com",
+        privateUrlKey: "adj_two",
+        privatePasscode: "pass-two",
+      },
+    ];
+    const recipients = resolveEmailRecipients(
+      "all_adjudicators",
+      [],
+      adjudicators,
+      [],
+      undefined,
+      {
+        includeAdjudicatorCredentials: true,
+        privateUrlOrigin: "https://crabbytab.example",
+        tournamentSlug: "cup-2026",
+        preserveDuplicateEmails: true,
+      }
+    );
+
+    expect(recipients.map((recipient) => [recipient.adjudicatorId, recipient.privateUrl, recipient.passcode]))
+      .toEqual([
+        ["adj-1", "https://crabbytab.example/cup-2026/private/adjudicator/adj_one", "pass-one"],
+        ["adj-2", "https://crabbytab.example/cup-2026/private/adjudicator/adj_two", "pass-two"],
+      ]);
+    expect(prepareEmailMessages(
+      recipients,
+      "Cup",
+      undefined,
+      "Your portal",
+      "{{private_url}}\n{{passcode}}"
+    ).map((message) => message.text)).toEqual([
+      "https://crabbytab.example/cup-2026/private/adjudicator/adj_one\npass-one",
+      "https://crabbytab.example/cup-2026/private/adjudicator/adj_two\npass-two",
+    ]);
+  });
+
+  it("rejects private portal messages when an adjudicator credential is missing", () => {
+    expect(() => prepareEmailMessages(
+      [{ email: "judge@example.com", name: "Judge One", passcode: "pass-one" }],
+      "Cup",
+      undefined,
+      "Your portal",
+      "{{private_url}}\n{{passcode}}"
+    )).toThrow("A private URL is missing for Judge One.");
   });
 
   it("renders supported variables and rejects unknown variables", () => {

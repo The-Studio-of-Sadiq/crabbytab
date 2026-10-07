@@ -1,5 +1,6 @@
 import { Adjudicator, Debate, Round, Team } from "@/types";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
+import { getAdjudicatorPrivatePath } from "@/lib/privateUrls";
 
 export const MAX_CAMPAIGN_RECIPIENTS = 100;
 
@@ -19,9 +20,19 @@ export const EMAIL_RECIPIENT_GROUPS = [
 
 export type EmailRecipientGroup = (typeof EMAIL_RECIPIENT_GROUPS)[number];
 
+export const ADJUDICATOR_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
+  "all_adjudicators",
+  "checked_in_adjudicators",
+  "trainees",
+  "round_adjudicators",
+  "chairs",
+  "panellists",
+];
+
 export interface EmailRecipient {
   email: string;
   name: string;
+  adjudicatorId?: string;
   team?: string;
   institution?: string;
   round?: string;
@@ -29,6 +40,8 @@ export interface EmailRecipient {
   venue?: string;
   chair?: string;
   panellists?: string;
+  privateUrl?: string;
+  passcode?: string;
 }
 
 export interface EmailCampaignResult {
@@ -94,7 +107,13 @@ export function resolveEmailRecipients(
   teams: Team[],
   adjudicators: Adjudicator[],
   debates: Debate[],
-  round?: Round
+  round?: Round,
+  options: {
+    includeAdjudicatorCredentials?: boolean;
+    privateUrlOrigin?: string;
+    tournamentSlug?: string;
+    preserveDuplicateEmails?: boolean;
+  } = {}
 ): EmailRecipient[] {
   const roundDebates = round ? debates.filter((debate) => debate.roundId === round.id) : [];
   const roundTeamIds = new Set(
@@ -193,12 +212,31 @@ export function resolveEmailRecipients(
       addRecipient({
         email: adjudicator.email,
         name: adjudicator.name,
+        adjudicatorId: adjudicator.id,
         institution: adjudicator.institutionName,
         round: round?.name,
         ...debateVariables(assignedDebate, adjudicators),
+        ...(options.includeAdjudicatorCredentials
+          ? {
+              privateUrl: adjudicator.privateUrlKey &&
+                options.privateUrlOrigin &&
+                options.tournamentSlug
+                ? new URL(
+                    getAdjudicatorPrivatePath(
+                      options.tournamentSlug,
+                      adjudicator.privateUrlKey
+                    ),
+                    options.privateUrlOrigin
+                  ).toString()
+                : "",
+              passcode: adjudicator.privatePasscode || "",
+            }
+          : {}),
       });
     }
   }
+
+  if (options.preserveDuplicateEmails) return recipients;
 
   const unique = new Map<string, EmailRecipient>();
   for (const recipient of recipients) {
@@ -206,6 +244,15 @@ export function resolveEmailRecipients(
     if (!unique.has(key)) unique.set(key, recipient);
   }
   return [...unique.values()];
+}
+
+export function usesAdjudicatorCredentials(subject: string, body: string): boolean {
+  return templateUsesVariable(`${subject}\n${body}`, "private_url") ||
+    templateUsesVariable(`${subject}\n${body}`, "passcode");
+}
+
+function templateUsesVariable(template: string, variable: string): boolean {
+  return new RegExp(`\\{\\{\\s*${variable}\\s*\\}\\}`).test(template);
 }
 
 export function renderEmailTemplate(
@@ -225,6 +272,8 @@ export function renderEmailTemplate(
     venue: recipient.venue || "",
     chair: recipient.chair || "",
     panellists: recipient.panellists || "",
+    private_url: recipient.privateUrl || "",
+    passcode: recipient.passcode || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {
@@ -261,6 +310,31 @@ export function prepareEmailMessages(
       throw new EmailCampaignInputError(
         `The recipient address "${recipient.email}" is not a valid email address.`
       );
+    }
+  }
+
+  const needsPrivateUrl =
+    templateUsesVariable(subjectTemplate, "private_url") ||
+    templateUsesVariable(bodyTemplate, "private_url");
+  const needsPasscode =
+    templateUsesVariable(subjectTemplate, "passcode") ||
+    templateUsesVariable(bodyTemplate, "passcode");
+  if (needsPrivateUrl || needsPasscode) {
+    for (const recipient of recipients) {
+      if (
+        needsPrivateUrl && !recipient.privateUrl
+      ) {
+        throw new EmailCampaignInputError(
+          `A private URL is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+        );
+      }
+      if (
+        needsPasscode && !recipient.passcode
+      ) {
+        throw new EmailCampaignInputError(
+          `A passcode is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+        );
+      }
     }
   }
 

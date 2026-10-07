@@ -20,6 +20,13 @@ export interface NewEmailCampaign {
   retryOf?: string;
 }
 
+function withoutPrivateCredentials(recipient: EmailRecipient): EmailRecipient {
+  const safeRecipient = { ...recipient };
+  delete safeRecipient.privateUrl;
+  delete safeRecipient.passcode;
+  return safeRecipient;
+}
+
 export async function createEmailCampaign(
   firestore: Firestore,
   campaign: NewEmailCampaign
@@ -45,7 +52,7 @@ export async function createEmailCampaign(
     sent: 0,
     failed: campaign.recipients.length,
     results: [],
-    failedRecipients: campaign.recipients,
+    failedRecipients: campaign.recipients.map(withoutPrivateCredentials),
     retryOf: campaign.retryOf,
   };
 
@@ -57,9 +64,9 @@ export async function createEmailCampaign(
       const failedEmails = new Set(
         result.results.filter((item) => !item.sent).map((item) => item.email.toLowerCase())
       );
-      const failedRecipients = campaign.recipients.filter((recipient) =>
-        failedEmails.has(recipient.email.toLowerCase())
-      );
+      const failedRecipients = campaign.recipients
+        .filter((recipient) => failedEmails.has(recipient.email.toLowerCase()))
+        .map(withoutPrivateCredentials);
       await reference.update({
         status: result.sent === 0 ? "failed" : "completed",
         sent: result.sent,

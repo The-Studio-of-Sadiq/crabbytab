@@ -5,6 +5,7 @@ import {
   EmailAuthorizationError,
 } from "@/lib/email/authorize";
 import {
+  ADJUDICATOR_RECIPIENT_GROUPS,
   EmailCampaignInputError,
   EMAIL_RECIPIENT_GROUPS,
   EmailRecipientGroup,
@@ -12,6 +13,7 @@ import {
   prepareEmailMessages,
   resolveEmailRecipients,
   sendEmailCampaign,
+  usesAdjudicatorCredentials,
 } from "@/lib/email/messaging";
 import {
   createSmtpEmailProvider,
@@ -55,6 +57,13 @@ export async function POST(request: NextRequest) {
   }
 
   const group = recipientGroup as EmailRecipientGroup;
+  const includesPrivateCredentials = usesAdjudicatorCredentials(subject, messageBody);
+  if (includesPrivateCredentials && !ADJUDICATOR_RECIPIENT_GROUPS.includes(group)) {
+    return NextResponse.json(
+      { error: "Private URLs and passcodes can only be sent to adjudicator recipient groups." },
+      { status: 400 }
+    );
+  }
   const requiresRound =
     group === "round_participants" ||
     group === "round_adjudicators" ||
@@ -80,8 +89,12 @@ export async function POST(request: NextRequest) {
       firestore.collection("tournaments").doc(tournamentId).collection("teams").get(),
       firestore.collection("tournaments").doc(tournamentId).collection("adjudicators").get(),
     ]);
-    const teams = teamSnapshot.docs.map((document) => document.data() as Team);
-    const adjudicators = adjudicatorSnapshot.docs.map((document) => document.data() as Adjudicator);
+    const teams = teamSnapshot.docs.map(
+      (document) => ({ ...document.data(), id: document.id }) as Team
+    );
+    const adjudicators = adjudicatorSnapshot.docs.map(
+      (document) => ({ ...document.data(), id: document.id }) as Adjudicator
+    );
 
     let round: Round | undefined;
     let debates: Debate[] = [];
@@ -105,7 +118,24 @@ export async function POST(request: NextRequest) {
       debates = debateSnapshot.docs.map((document) => document.data() as Debate);
     }
 
-    const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round);
+    const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round, {
+      includeAdjudicatorCredentials: includesPrivateCredentials,
+      privateUrlOrigin: request.nextUrl.origin,
+      tournamentSlug: tournament.slug,
+      preserveDuplicateEmails: includesPrivateCredentials,
+    });
+    if (includesPrivateCredentials) {
+      const recipientEmails = new Set<string>();
+      for (const recipient of recipients) {
+        const normalizedEmail = recipient.email.toLowerCase();
+        if (recipientEmails.has(normalizedEmail)) {
+          throw new EmailCampaignInputError(
+            "Each adjudicator must have a unique email address to receive a separate private URL and passcode."
+          );
+        }
+        recipientEmails.add(normalizedEmail);
+      }
+    }
     prepareEmailMessages(recipients, tournament.name, round?.name, subject, messageBody);
     const provider = createSmtpEmailProvider();
     const campaign = await createEmailCampaign(getAdminFirestore(), {
