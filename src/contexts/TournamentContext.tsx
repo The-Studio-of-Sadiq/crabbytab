@@ -498,12 +498,26 @@ export function TournamentProvider({
           pending,
         }),
       });
-      const result = (await response.json()) as {
+      const responseBody = await response.text();
+      let result: {
         error?: string;
         ballots?: BallotSubmission[];
         feedback?: FeedbackSubmission[];
         uploadedCount?: number;
       };
+      try {
+        result = JSON.parse(responseBody) as typeof result;
+      } catch {
+        const contentType = response.headers.get("content-type") || "unknown content type";
+        if (contentType.includes("text/html") || /^\s*<!doctype html/i.test(responseBody)) {
+          throw new Error(
+            `The deployed site returned an HTML page for /api/private/sync (HTTP ${response.status}). Redeploy the latest app version; your pending submissions are still saved on this device.`
+          );
+        }
+        throw new Error(
+          `The sync service returned an invalid response (HTTP ${response.status}, ${contentType}). Your pending submissions are still saved on this device.`
+        );
+      }
       if (!response.ok) throw new Error(result.error || "Could not sync private portal data.");
 
       const uploadedIds = new Set(pending.map((item) => item.record.id));
