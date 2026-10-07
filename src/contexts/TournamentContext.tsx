@@ -836,6 +836,7 @@ export function TournamentProvider({
       completedRounds: completedPrelimRounds,
       isBP: tournament.format === "bp",
       feedbackScores: calculateAdjudicatorFeedbackScores(feedback),
+      venuePriorities: new Map(venues.map((venue) => [venue.id, venue.priority])),
     };
 
     const allocations = autoAllocateAdjudicators(roundDebates, teamsMap, adjudicators, pastAdjTeams, {

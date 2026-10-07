@@ -41,6 +41,30 @@ export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Te
   return teams.filter((team) => team.breakStatus === "breaking");
 }
 
+export function getRequiredVenueCount(
+  tournament: Tournament,
+  round: Round,
+  teams: Team[]
+): number {
+  const teamsPerDebate = tournament.format === "bp" ? 4 : 2;
+  const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) => team.checkedIn !== false);
+  const categories = round.stage === "elimination" && (round.breakCategoryIds?.length ?? 0) > 1
+    ? round.breakCategoryIds!.map((categoryId) =>
+        eligibleTeams.filter((team) => team.breakCategoryIds?.includes(categoryId))
+      )
+    : [eligibleTeams];
+  const usesByes =
+    round.stage === "preliminary" &&
+    round.drawType !== "manual" &&
+    Boolean(tournament.preferences?.byeTeamSelectionMethod) &&
+    tournament.preferences?.byeTeamSelectionMethod !== "none";
+
+  return categories.reduce((required, categoryTeams) => {
+    const byeCount = usesByes ? categoryTeams.length % teamsPerDebate : 0;
+    return required + Math.ceil((categoryTeams.length - byeCount) / teamsPerDebate);
+  }, 0);
+}
+
 /**
  * Builds historical matchup graph and side histories from all completed debates.
  */
@@ -76,6 +100,13 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const { tournament, round, teams, venues, pastDebates, standings } = params;
   const isBP = tournament.format === "bp";
   const teamsPerDebate = isBP ? 4 : 2;
+  const availableVenues = venues.filter((venue) => venue.available !== false);
+  const requiredVenues = getRequiredVenueCount(tournament, round, teams);
+  if (availableVenues.length < requiredVenues) {
+    throw new Error(
+      `Not enough available venues: ${requiredVenues} required, but only ${availableVenues.length} available.`
+    );
+  }
 
   if (round.stage === "elimination" && (round.breakCategoryIds?.length || 0) > 1) {
     const generated: Debate[] = [];
@@ -87,7 +118,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         ...params,
         round: { ...round, breakCategoryIds: [categoryId] },
         teams: categoryTeams,
-        venues: venues.slice(generated.length),
+        venues: availableVenues.slice(generated.length),
       });
       categoryDebates.forEach((debate, index) => {
         const roomRank = generated.length + index + 1;
@@ -138,9 +169,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     );
   }
   const history = buildMatchupHistory(pastDebates);
-  const sortedVenues = venues
-    .filter((venue) => venue.available !== false)
-    .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  const sortedVenues = availableVenues.sort((a, b) => (b.priority || 0) - (a.priority || 0));
   const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
 
   // Handle Manual draw: create empty debates with room ranks and venues

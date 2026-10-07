@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
 import { DebateSide, Debate, Team, Venue } from "@/types";
-import { getEligibleTeamsForRound } from "@/lib/draw/generator";
+import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 interface DragPayload {
@@ -129,6 +129,18 @@ export default function DrawPage() {
   // Generate draw
   const handleGenerate = async () => {
     if (!activeRound) return;
+    if (!tournament) {
+      window.alert("Tournament details are not available yet. Please try again.");
+      return;
+    }
+    const requiredVenues = getRequiredVenueCount(tournament, activeRound, teams);
+    const availableVenueCount = venues.filter((venue) => venue.available !== false).length;
+    if (availableVenueCount < requiredVenues) {
+      window.alert(
+        `Not enough available venues for this draw. ${requiredVenues} venues are required for the checked-in teams, but only ${availableVenueCount} are available. Add or enable venues before generating the draw.`
+      );
+      return;
+    }
     if (roundDebates.length > 0) {
       if (!confirm("A draw already exists for this round. Regenerating will overwrite all current matchups. Proceed?")) {
         return;
@@ -137,6 +149,8 @@ export default function DrawPage() {
     setIsGenerating(true);
     try {
       await generateDraw(activeRound.id);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not generate the draw.");
     } finally {
       setIsGenerating(false);
     }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Round, Team, Tournament } from "@/types";
-import { buildMatchupHistory, generateRoundDraw, getEligibleTeamsForRound } from "./generator";
+import {
+  buildMatchupHistory,
+  generateRoundDraw,
+  getEligibleTeamsForRound,
+  getRequiredVenueCount,
+} from "./generator";
 
 const teams: Team[] = [
   {
@@ -102,6 +107,47 @@ describe("Round draw eligibility", () => {
     expect(draw[0].venueName).toBe("Available Room");
   });
 
+  it("requires one available venue for every debate room", () => {
+    const twoTeamTournament = {
+      id: "t1",
+      format: "uadc",
+      preferences: { teamsInDebate: 2 },
+    } as Tournament;
+    const drawTeams = Array.from({ length: 132 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index}`,
+      name: `Team ${index}`,
+    }));
+    const round = makeRound("preliminary");
+    const availableVenues = Array.from({ length: 70 }, (_, index) => ({
+      id: `venue-${index}`,
+      tournamentId: "t1",
+      name: `Venue ${index}`,
+      priority: 100 - index,
+      available: true,
+    }));
+
+    expect(getRequiredVenueCount(twoTeamTournament, round, drawTeams)).toBe(66);
+    const drawWithEnoughVenues = generateRoundDraw({
+      tournament: twoTeamTournament,
+      round,
+      teams: drawTeams,
+      venues: availableVenues,
+      pastDebates: [],
+      standings: [],
+    });
+    expect(drawWithEnoughVenues).toHaveLength(66);
+    expect(drawWithEnoughVenues.every((debate, index) => debate.venueId === `venue-${index}`)).toBe(true);
+    expect(() => generateRoundDraw({
+      tournament: twoTeamTournament,
+      round,
+      teams: drawTeams,
+      venues: availableVenues.slice(0, 65),
+      pastDebates: [],
+      standings: [],
+    })).toThrow("Not enough available venues: 66 required, but only 65 available.");
+  });
+
   it("persists the selected lowest-ranked team as a confirmed bye", () => {
     const drawTeams = Array.from({ length: 3 }, (_, index) => ({
       ...teams[0],
@@ -121,7 +167,7 @@ describe("Round draw eligibility", () => {
       tournament,
       round: makeRound("preliminary"),
       teams: drawTeams,
-      venues: [],
+      venues: [{ id: "v1", tournamentId: "t1", name: "Room 1", priority: 10 }],
       pastDebates: [],
       standings: drawTeams.map((team, index) => ({ teamId: team.id, rank: index + 1 } as any)),
     });
@@ -157,7 +203,7 @@ describe("Round draw eligibility", () => {
       tournament,
       round: makeRound("preliminary"),
       teams: drawTeams,
-      venues: [],
+      venues: [{ id: "v1", tournamentId: "t1", name: "Room 1", priority: 10 }],
       pastDebates: [],
       standings: [],
     });
@@ -179,7 +225,10 @@ describe("Round draw eligibility", () => {
       tournament,
       round: makeRound("preliminary"),
       teams: teams,
-      venues: [],
+      venues: [
+        { id: "v1", tournamentId: "t1", name: "Room 1", priority: 10 },
+        { id: "v2", tournamentId: "t1", name: "Room 2", priority: 9 },
+      ],
       pastDebates: [],
       standings: [],
     })).toThrow("At least 4 teams are required");
@@ -206,7 +255,10 @@ describe("Round draw eligibility", () => {
       tournament,
       round,
       teams: categoryTeams,
-      venues: [],
+      venues: [
+        { id: "v1", tournamentId: "t1", name: "Room 1", priority: 10 },
+        { id: "v2", tournamentId: "t1", name: "Room 2", priority: 9 },
+      ],
       pastDebates: [],
       standings,
     });

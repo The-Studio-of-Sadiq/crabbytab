@@ -148,6 +148,58 @@ describe("Adjudicator Allocator Preferences", () => {
       .toBe(feedbackLow.id);
   });
 
+  it("assigns the highest-scored adjudicator as chair in the highest-priority room", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`t${index}`, `T${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const highPriorityDebate = {
+      ...createDebate("high-room", teams.slice(0, 2)),
+      venueId: "high-priority",
+      bracket: 0,
+    };
+    const lowPriorityDebate = {
+      ...createDebate("low-room", teams.slice(2)),
+      venueId: "low-priority",
+      bracket: 10,
+    };
+    const highScoredAdj = createAdj("high-score", "High Score", 10);
+    const otherHighScoredAdj = createAdj("other-high-score", "Other High Score", 9);
+    const lowerScoredAdj = createAdj("lower-score", "Lower Score", 6);
+    const lowestScoredAdj = createAdj("lowest-score", "Lowest Score", 4);
+
+    const results = autoAllocateAdjudicators(
+      [lowPriorityDebate, highPriorityDebate],
+      teamsMap,
+      [lowestScoredAdj, lowerScoredAdj, otherHighScoredAdj, highScoredAdj],
+      new Map(),
+      {
+        panelSize: 3,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+        venuePriorities: new Map([
+          ["high-priority", 100],
+          ["low-priority", 10],
+        ]),
+      }
+    );
+
+    expect(results.find((result) => result.debateId === highPriorityDebate.id)?.chairId)
+      .toBe(highScoredAdj.id);
+    expect(results.find((result) => result.debateId === lowPriorityDebate.id)?.chairId)
+      .toBe(otherHighScoredAdj.id);
+    const panelistIds = results.flatMap((result) => result.panellistIds);
+    expect(panelistIds).toEqual(expect.arrayContaining([lowerScoredAdj.id, lowestScoredAdj.id]));
+  });
+
   it("selects the strongest eligible adjudicator as chair after the full panel is chosen", () => {
     const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const teamsMap = new Map(teams.map((team) => [team.id, team]));
@@ -470,7 +522,32 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(result[0].chairId).toBe("adj-high");
     // lowJudge has score 1.2 < 2.0, so cannot be voting chair or panellist
     expect(result[0].panellistIds).not.toContain("adj-low");
-    expect(result[0].traineeIds).toContain("adj-low");
+    expect(result[0].traineeIds).not.toContain("adj-low");
+  });
+
+  it("assigns only adjudicators explicitly marked as trainees to trainee slots", () => {
+    const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
+    const debate = createDebate("d1", teams);
+    const chair = createAdj("chair", "Chair", 8);
+    const nonTrainee = createAdj("non-trainee", "Non-trainee", 6);
+    const trainee = { ...createAdj("trainee", "Trainee", 6), trainee: true };
+
+    const result = autoAllocateAdjudicators(
+      [debate],
+      new Map(teams.map((team) => [team.id, team])),
+      [chair, nonTrainee, trainee],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+
+    expect(result[0].traineeIds).toEqual([trainee.id]);
+    expect(result[0].traineeIds).not.toContain(nonTrainee.id);
   });
 
   it("respects skipAdjCheckins to allocate unchecked-in judges when true", () => {

@@ -64,6 +64,7 @@ export default function AllocationPage() {
   const [panelSize, setPanelSize] = useState<number>(1);
   const [isAllocating, setIsAllocating] = useState(false);
   const [revealError, setRevealError] = useState("");
+  const [manualAssignmentError, setManualAssignmentError] = useState("");
   const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
   const [showPriorityPanel, setShowPriorityPanel] = useState(true);
 
@@ -196,6 +197,10 @@ export default function AllocationPage() {
 
   // Assign Chair to Debate
   const assignChair = async (debateId: string, adj: Adjudicator) => {
+    if (adj.trainee) {
+      setManualAssignmentError("Trainees cannot be assigned as chairs.");
+      return;
+    }
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
 
@@ -253,6 +258,10 @@ export default function AllocationPage() {
   };
 
   const addPanellist = async (debateId: string, adj: Adjudicator) => {
+    if (adj.trainee) {
+      setManualAssignmentError("Trainees cannot be assigned as panellists.");
+      return;
+    }
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
     if (debate.adjudicators?.panellistIds?.includes(adj.id)) return;
@@ -317,6 +326,10 @@ export default function AllocationPage() {
   };
 
   const addTrainee = async (debateId: string, adj: Adjudicator) => {
+    if (!adj.trainee) {
+      setManualAssignmentError("Only adjudicators marked as trainees can be assigned to trainee slots.");
+      return;
+    }
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
     if (debate.adjudicators?.traineeIds?.includes(adj.id)) return;
@@ -465,6 +478,7 @@ export default function AllocationPage() {
 
     const adj = adjsMap.get(payload.adjId);
     if (!adj) return;
+    setManualAssignmentError("");
 
     if (targetRole === "chair") {
       await assignChair(targetDebateId, adj);
@@ -514,17 +528,22 @@ export default function AllocationPage() {
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center space-x-1.5 bg-gray-100 p-1 rounded-md border border-gray-300 text-xs">
-            <span className="font-semibold text-gray-700 px-1">Panel Size:</span>
-            <select
-              value={panelSize}
-              onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
-              className="bg-white border border-gray-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
-            >
-              <option value={1}>1 (Solo Chair)</option>
-              <option value={3}>3 (Chair + 2 Panellists)</option>
-              <option value={5}>5 (Chair + 4 Panellists)</option>
-            </select>
+          <div className="rounded-md border border-indigo-200 bg-indigo-50 p-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">Allocation Engine</div>
+            <div className="mt-1 flex items-center gap-2 text-xs">
+              <span className="font-semibold text-indigo-800">Automatic panel size</span>
+              <select
+                value={panelSize}
+                onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
+                className="bg-white border border-indigo-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
+                aria-label="Automatic allocation engine panel size"
+              >
+                <option value={1}>1 (Solo Chair)</option>
+                <option value={3}>3 (Chair + 2 Panellists)</option>
+                <option value={5}>5 (Chair + 4 Panellists)</option>
+              </select>
+            </div>
+            <p className="mt-1 text-[10px] text-indigo-700">The computer assigns chairs to the highest-priority rooms first.</p>
           </div>
 
           <button
@@ -579,6 +598,7 @@ export default function AllocationPage() {
       </div>
 
       {revealError && <p role="alert" className="text-xs text-red-700">{revealError}</p>}
+      {manualAssignmentError && <p role="alert" className="text-xs text-red-700">{manualAssignmentError}</p>}
 
       {/* Round Selector Bar */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1">
@@ -1018,9 +1038,10 @@ export default function AllocationPage() {
                         {selectedAdjForManual && (
                           <button
                             onClick={() => addTrainee(debate.id, selectedAdjForManual)}
+                            disabled={!selectedAdjForManual.trainee}
                             className="text-[10px] text-amber-800 font-semibold hover:underline"
                           >
-                            + Add as Trainee
+                            {selectedAdjForManual.trainee ? "+ Add as Trainee" : "Only marked trainees can be assigned here"}
                           </button>
                         )}
                       </div>
