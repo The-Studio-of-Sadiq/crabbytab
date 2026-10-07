@@ -753,15 +753,10 @@ export default function AdjudicatorPrivatePortalPage() {
                   </div>
 
                   <div className="p-5 space-y-4">
-                    {/* Motion if released */}
-                    {debate.motionText ? (
+                    {debate.motionText && (
                       <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
                         <span className="font-bold text-amber-900 block mb-0.5">Motion:</span>
                         <p className="text-gray-800 italic">&ldquo;{debate.motionText}&rdquo;</p>
-                      </div>
-                    ) : (
-                      <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-gray-500 italic">
-                        Motion will be announced by the Adjudication Core.
                       </div>
                     )}
 
@@ -828,13 +823,6 @@ export default function AdjudicatorPrivatePortalPage() {
                           <FileCheck2 className="w-3.5 h-3.5" />
                           <span>{existingBallot?.confirmed ? "Edit / Re-enter Ballot" : "Enter Ballot"}</span>
                         </button>
-                        <Link
-                          href={`/${tournamentSlug}/results/${debate.roundSeq}/${debate.id}`}
-                          className="px-2.5 py-1.5 border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 rounded-md text-xs font-medium transition"
-                          title="Open in full tabroom ballot form"
-                        >
-                          Full Form
-                        </Link>
                       </div>
                     </div>
 
