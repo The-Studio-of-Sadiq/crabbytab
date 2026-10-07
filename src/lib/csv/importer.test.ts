@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseTeamsCsv, parseAdjudicatorsCsv, parseVenuesCsv } from "./importer";
+import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv, parseVenuesCsv } from "./importer";
 
 describe("CSV Importer (csv/importer)", () => {
   it("parses teams with standard and alias headers", () => {
@@ -58,5 +58,37 @@ Room 102,10,Tutorial`;
     expect(venues[0].category).toBe("Main Hall");
     expect(venues[1].name).toBe("Room 102");
     expect(venues[1].priority).toBe(10);
+  });
+
+  it("parses Google Sheets institution CSV with BOM, CRLF, aliases, and quoted commas", () => {
+    const csv = "\uFEFFInstitution Name,Institution Code,Region\r\n" +
+      '"Independent University, Bangladesh",IUB,Dhaka\r\n' +
+      '"Begum Rokeya University, Rangpur",BRUR,Rangpur';
+
+    const institutions = parseInstitutionsCsv(csv, "t1");
+    expect(institutions).toHaveLength(2);
+    expect(institutions[0]).toMatchObject({
+      name: "Independent University, Bangladesh",
+      code: "IUB",
+      region: "Dhaka",
+      tournamentId: "t1",
+    });
+    expect(institutions[1]).toMatchObject({
+      name: "Begum Rokeya University, Rangpur",
+      code: "BRUR",
+      region: "Rangpur",
+    });
+  });
+
+  it("recovers unquoted commas in institution names when importing legacy CSV rows", () => {
+    const csv = `name,code,region
+Begum Rokeya University, Rangpur,BRUR,Rangpur
+Independent University, Bangladesh,IUB,Dhaka`;
+
+    const institutions = parseInstitutionsCsv(csv, "t1");
+    expect(institutions.map(({ name, code, region }) => ({ name, code, region }))).toEqual([
+      { name: "Begum Rokeya University, Rangpur", code: "BRUR", region: "Rangpur" },
+      { name: "Independent University, Bangladesh", code: "IUB", region: "Dhaka" },
+    ]);
   });
 });

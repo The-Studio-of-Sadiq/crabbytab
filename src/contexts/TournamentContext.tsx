@@ -88,6 +88,7 @@ export interface TournamentContextType {
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
   confirmBallot: (ballotId: string, debateId: string, submittedBallot?: BallotSubmission) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
+  addInstitutions: (institutions: Omit<Institution, "id" | "tournamentId">[]) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
@@ -1155,21 +1156,36 @@ export function TournamentProvider({
     });
   };
 
-  const addInstitution = async (instData: Omit<Institution, "id" | "tournamentId">) => {
-    const newInst: Institution = {
-      ...instData,
-      id: `inst-${Date.now()}-${institutions.length + 1}`,
+  const addInstitutions = async (instData: Omit<Institution, "id" | "tournamentId">[]) => {
+    if (instData.length === 0) return;
+
+    const newInstitutions: Institution[] = instData.map((data) => ({
+      ...data,
+      id: `inst-${typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
-    };
-    const updated = [...institutions, newInst];
+    }));
+    const updated = [...institutions, ...newInstitutions];
     setInstitutions(updated);
     persistLocal("institutions", updated);
-    await recordAuditEvent({
-      action: "institution.created",
-      category: "tournament",
-      summary: `Institution ${newInst.name} added`,
-      details: { institutionId: newInst.id, name: newInst.name, code: newInst.code, region: newInst.region },
-    });
+    for (const newInstitution of newInstitutions) {
+      await recordAuditEvent({
+        action: "institution.created",
+        category: "tournament",
+        summary: `Institution ${newInstitution.name} added`,
+        details: {
+          institutionId: newInstitution.id,
+          name: newInstitution.name,
+          code: newInstitution.code,
+          region: newInstitution.region,
+        },
+      });
+    }
+  };
+
+  const addInstitution = async (instData: Omit<Institution, "id" | "tournamentId">) => {
+    await addInstitutions([instData]);
   };
 
   const updateInstitution = async (inst: Institution) => {
@@ -1868,6 +1884,7 @@ export function TournamentProvider({
         submitBallot,
         confirmBallot,
         addInstitution,
+        addInstitutions,
         updateInstitution,
         deleteInstitution,
         addTeam,

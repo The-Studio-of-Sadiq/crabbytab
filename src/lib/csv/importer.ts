@@ -157,16 +157,27 @@ export function parseInstitutionsCsv(csvContent: string, tournamentId: string): 
   const insts: Institution[] = [];
 
   parsed.data.forEach((row, idx) => {
-    const name = getField(row, "name", "Name", "institution", "Institution") || `Institution ${idx + 1}`;
-    const code = getField(row, "code", "Code", "abbr", "Abbr") || name.substring(0, 4).toUpperCase();
-    const region = getField(row, "region", "Region") || undefined;
+    const extraFields = (row as Record<string, string> & { __parsed_extra?: string[] }).__parsed_extra ?? [];
+    const values = [
+      getField(row, "name", "Name", "institution", "Institution", "institution name", "Institution Name"),
+      getField(row, "code", "Code", "abbr", "Abbr", "institution code", "Institution Code"),
+      getField(row, "region", "Region"),
+      ...extraFields,
+    ];
+    const name = extraFields.length > 0
+      ? values.slice(0, -2).map((value) => value.trim()).join(", ")
+      : values[0].trim();
+    const code = extraFields.length > 0 ? values[values.length - 2] : values[1];
+    const region = extraFields.length > 0 ? values[values.length - 1] : values[2];
+    const institutionName = name || `Institution ${idx + 1}`;
+    const institutionCode = code?.trim() || institutionName.substring(0, 4).toUpperCase();
 
     insts.push({
       id: `inst-${Date.now()}-${idx}`,
       tournamentId,
-      name: name.trim(),
-      code: code.trim(),
-      region: region ? region.trim() : undefined,
+      name: institutionName,
+      code: institutionCode,
+      region: region?.trim() || undefined,
     });
   });
 

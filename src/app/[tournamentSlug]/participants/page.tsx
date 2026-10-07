@@ -39,6 +39,7 @@ export default function ParticipantsPage() {
     updateAdjudicator,
     deleteAdjudicator,
     addInstitution,
+    addInstitutions,
     updateInstitution,
     deleteInstitution,
   } = useTournament();
@@ -58,6 +59,8 @@ export default function ParticipantsPage() {
 
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState("");
+  const [csvImportError, setCsvImportError] = useState("");
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
 
   // New Institution Form State
   const [instName, setInstName] = useState("");
@@ -262,48 +265,68 @@ export default function ParticipantsPage() {
   // CSV Import Handler
   const handleCsvImport = async () => {
     if (!csvText.trim()) return;
-    if (activeTab === "institutions") {
-      const parsed = parseInstitutionsCsv(csvText, tournament?.id || "");
-      for (const i of parsed) {
-        await addInstitution(i);
-      }
-    } else if (activeTab === "teams") {
-      const parsed = parseTeamsCsv(csvText, tournament?.id || "");
-      for (const t of parsed) {
-        // Match institution from existing list if possible
-        if (t.institutionName) {
-          const matchedInst = institutions.find(
-            (inst) =>
-              inst.name.toLowerCase() === t.institutionName?.toLowerCase() ||
-              inst.code.toLowerCase() === t.institutionName?.toLowerCase()
-          );
-          if (matchedInst) {
-            t.institutionId = matchedInst.id;
-            t.institutionName = matchedInst.name;
+    setIsImportingCsv(true);
+    setCsvImportError("");
+    try {
+      if (activeTab === "institutions") {
+        const parsed = parseInstitutionsCsv(csvText, tournament?.id || "");
+        await addInstitutions(parsed.map(({ name, code, region }) => ({ name, code, region })));
+      } else if (activeTab === "teams") {
+        const parsed = parseTeamsCsv(csvText, tournament?.id || "");
+        for (const t of parsed) {
+          // Match institution from existing list if possible
+          if (t.institutionName) {
+            const matchedInst = institutions.find(
+              (inst) =>
+                inst.name.toLowerCase() === t.institutionName?.toLowerCase() ||
+                inst.code.toLowerCase() === t.institutionName?.toLowerCase()
+            );
+            if (matchedInst) {
+              t.institutionId = matchedInst.id;
+              t.institutionName = matchedInst.name;
+            }
           }
+          await addTeam(t);
         }
-        await addTeam(t);
-      }
-    } else {
-      const parsed = parseAdjudicatorsCsv(csvText, tournament?.id || "");
-      for (const a of parsed) {
-        if (a.institutionName && !a.independent) {
-          const matchedInst = institutions.find(
-            (inst) =>
-              inst.name.toLowerCase() === a.institutionName?.toLowerCase() ||
-              inst.code.toLowerCase() === a.institutionName?.toLowerCase()
-          );
-          if (matchedInst) {
-            a.institutionId = matchedInst.id;
-            a.institutionName = matchedInst.name;
-            a.conflicts = [{ institutionId: matchedInst.id, type: "institution" }];
+      } else {
+        const parsed = parseAdjudicatorsCsv(csvText, tournament?.id || "");
+        for (const a of parsed) {
+          if (a.institutionName && !a.independent) {
+            const matchedInst = institutions.find(
+              (inst) =>
+                inst.name.toLowerCase() === a.institutionName?.toLowerCase() ||
+                inst.code.toLowerCase() === a.institutionName?.toLowerCase()
+            );
+            if (matchedInst) {
+              a.institutionId = matchedInst.id;
+              a.institutionName = matchedInst.name;
+              a.conflicts = [{ institutionId: matchedInst.id, type: "institution" }];
+            }
           }
+          await addAdjudicator(a);
         }
-        await addAdjudicator(a);
       }
+      setCsvText("");
+      setShowCsvModal(false);
+    } catch (error) {
+      setCsvImportError(error instanceof Error ? error.message : "Could not import CSV data.");
+    } finally {
+      setIsImportingCsv(false);
     }
-    setCsvText("");
-    setShowCsvModal(false);
+  };
+
+  const handleCsvFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setCsvText(await file.text());
+      setCsvImportError("");
+    } catch (error) {
+      setCsvImportError(error instanceof Error ? error.message : "Could not read the selected CSV file.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   return (
@@ -1341,11 +1364,20 @@ export default function ParticipantsPage() {
             </h3>
             <p className="text-xs text-gray-500 mb-3">
               {activeTab === "institutions"
-                ? "Paste CSV text formatted with columns: name, code, region"
+                ? "Upload a Google Sheets .csv file or paste CSV text with columns: name, code, region. Commas in institution names are supported."
                 : activeTab === "teams"
                 ? "Paste CSV text formatted with columns: name, institution, speaker1, speaker2"
                 : "Paste CSV text formatted with columns: name, institution, score, trainee"}
             </p>
+
+            <div className="mb-3">
+              <label className="inline-flex cursor-pointer items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 rounded text-xs font-semibold text-gray-800 shadow-2xs">
+                <Upload className="w-3.5 h-3.5 text-blue-600" />
+                <span>Choose CSV File</span>
+                <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} className="sr-only" />
+              </label>
+              {csvText && <span className="ml-2 text-xs text-gray-500">CSV loaded</span>}
+            </div>
 
             <textarea
               rows={8}
@@ -1357,14 +1389,22 @@ export default function ParticipantsPage() {
                   : "name,institution,score,trainee\nEleanor Vance,Oxford,8.5,false\nDavid Kim,Independent,6.0,true"
               }
               value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
+              onChange={(e) => {
+                setCsvText(e.target.value);
+                setCsvImportError("");
+              }}
               className="w-full border border-gray-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
             />
+
+            {csvImportError && <p role="alert" className="text-xs text-red-700 mb-3">{csvImportError}</p>}
 
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
-                onClick={() => setShowCsvModal(false)}
+                onClick={() => {
+                  setShowCsvModal(false);
+                  setCsvImportError("");
+                }}
                 className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
               >
                 Cancel
@@ -1372,9 +1412,10 @@ export default function ParticipantsPage() {
               <button
                 type="button"
                 onClick={handleCsvImport}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
+                disabled={!csvText.trim() || isImportingCsv}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
               >
-                Import CSV Data
+                {isImportingCsv ? "Importing..." : "Import CSV Data"}
               </button>
             </div>
           </div>
