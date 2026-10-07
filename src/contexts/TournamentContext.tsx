@@ -241,7 +241,7 @@ export function TournamentProvider({
         let localTournament = readLocal<Tournament | null>("meta", null);
         const isSharedView = pathname?.includes("/public") || pathname?.includes("/private/");
 
-        if (!localTournament && db) {
+        if ((!localTournament || isSharedView) && db) {
           try {
             const tournamentQuery = query(
               collection(db, "tournaments"),
