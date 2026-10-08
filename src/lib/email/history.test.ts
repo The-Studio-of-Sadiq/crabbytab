@@ -38,7 +38,7 @@ describe("email campaign history", () => {
       recipients: [recipient],
     });
 
-    const record = create.mock.calls[0][0] as Record<string, unknown>;
+    const record = (create.mock.calls[0]?.[0] ?? {}) as Record<string, unknown>;
     expect(record).not.toHaveProperty("roundId");
     expect(record).not.toHaveProperty("roundName");
     expect(record).not.toHaveProperty("retryOf");

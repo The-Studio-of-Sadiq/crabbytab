@@ -30,7 +30,6 @@ import {
   getDocs,
   query,
   where,
-  writeBatch,
   WriteBatch,
 } from "firebase/firestore";
 import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
@@ -46,6 +45,13 @@ import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
+import { createRoundRecord, getRoundChangeSummary } from "@/features/tournament/application/rounds";
+import { regeneratePrivateAccess } from "@/features/tournament/application/privateAccess";
+import {
+  cleanUndefined,
+  commitChunkedBatches,
+  CLOUD_COLLECTIONS,
+} from "@/features/tournament/infrastructure/firestore";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -137,55 +143,7 @@ export interface TournamentContextType {
 }
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
-const BATCH_CHUNK_SIZE = 400;
 const AUTOMATIC_CLOUD_WRITES = false;
-const CLOUD_COLLECTIONS = [
-  "rounds",
-  "teams",
-  "adjudicators",
-  "venues",
-  "motions",
-  "breakCategories",
-  "debates",
-  "ballots",
-  "feedback",
-  "institutions",
-  "auditEvents",
-] as const;
-
-/**
- * Recursively removes any object keys whose value is undefined, which Firestore rejects.
- */
-function cleanUndefined<T>(obj: T): T {
-  if (obj === null || obj === undefined || typeof obj !== "object") {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(cleanUndefined) as unknown as T;
-  }
-  const cleaned: Record<string, any> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) {
-      cleaned[k] = cleanUndefined(v);
-    }
-  }
-  return cleaned as T;
-}
-
-/**
- * Execute batch operations in chunks of at most 400 operations to respect Firestore's limit (500 max).
- */
-async function commitChunkedBatches(
-  operations: Array<(batch: WriteBatch) => void>
-): Promise<void> {
-  if (!db || operations.length === 0) return;
-  for (let i = 0; i < operations.length; i += BATCH_CHUNK_SIZE) {
-    const chunk = operations.slice(i, i + BATCH_CHUNK_SIZE);
-    const batch = writeBatch(db);
-    chunk.forEach((op) => op(batch));
-    await batch.commit();
-  }
-}
 
 export function TournamentProvider({
   tournamentSlug,
@@ -920,30 +878,15 @@ export function TournamentProvider({
     customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
   ) => {
     const nextSeq = rounds.length + 1;
-    const defaultDrawRule = tournament?.preferences?.drawRule || "power_paired";
-    const mappedDrawType =
-      customDrawType ||
-      (nextSeq === 1 && defaultDrawRule === "power_paired"
-        ? "random"
-        : (defaultDrawRule as any));
-
-    const newRound: Round = {
-      id: `round-${tournament?.id || tournamentSlug}-${nextSeq}`,
+    const newRound = createRoundRecord({
       tournamentId: tournament?.id || tournamentSlug,
-      seq: nextSeq,
+      roundSeq: nextSeq,
       name,
-      abbreviation: abbr,
+      abbr,
       stage,
-      drawType: mappedDrawType,
-      drawStatus: "none",
-      feedbackWeight: 1.0,
-      silent: false,
-      motionsReleased: false,
-      resultsReleased: false,
-      teamSpeaksReleased: false,
-      completed: false,
-      createdAt: new Date().toISOString(),
-    };
+      customDrawType,
+      defaultDrawRule: tournament?.preferences?.drawRule || "power_paired",
+    });
 
     const updated = [...rounds, newRound];
     setRounds(updated);
@@ -977,21 +920,7 @@ export function TournamentProvider({
     if (activeRound?.id === round.id) setActiveRound(round);
     persistLocal("rounds", updated);
     if (previous) {
-      const trackedFields = [
-        "drawStatus",
-        "adjudicatorsRevealed",
-        "completed",
-        "resultsReleased",
-        "teamSpeaksReleased",
-        "motionsReleased",
-        "silent",
-        "cancelled",
-      ] as const;
-      const changes = Object.fromEntries(
-        trackedFields
-          .filter((field) => previous[field] !== round[field])
-          .map((field) => [field, { from: previous[field], to: round[field] }])
-      );
+      const changes = getRoundChangeSummary(previous, round);
       if (Object.keys(changes).length > 0) {
         const drawStatusChanged = previous.drawStatus !== round.drawStatus;
         await recordAuditEvent({
@@ -2232,32 +2161,13 @@ export function TournamentProvider({
   };
 
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
-    let teamsChanged = false;
-    const updatedTeams = teams.map((t) => {
-      if (forceRegenerate || !t.privateUrlKey || !t.privatePasscode) {
-        teamsChanged = true;
-        return {
-          ...t,
-          privateUrlKey: forceRegenerate || !t.privateUrlKey ? generatePrivateKey("team") : t.privateUrlKey,
-          privatePasscode: generatePrivateKey(),
-        };
-      }
-      return t;
-    });
+    const teamsResult = regeneratePrivateAccess(teams, forceRegenerate, "team");
+    const adjsResult = regeneratePrivateAccess(adjudicators, forceRegenerate, "adj");
 
-    let adjsChanged = false;
-    const updatedAdjs = adjudicators.map((a) => {
-      if (forceRegenerate || !a.privateUrlKey || !a.privatePasscode) {
-        adjsChanged = true;
-        return {
-          ...a,
-          privateUrlKey:
-            forceRegenerate || !a.privateUrlKey ? generatePrivateKey("adj") : a.privateUrlKey,
-          privatePasscode: generatePrivateKey(),
-        };
-      }
-      return a;
-    });
+    const updatedTeams = teamsResult.items;
+    const updatedAdjs = adjsResult.items;
+    const teamsChanged = teamsResult.changed;
+    const adjsChanged = adjsResult.changed;
 
     if (teamsChanged) {
       setTeams(updatedTeams);
@@ -2291,11 +2201,8 @@ export function TournamentProvider({
         summary: "Private access credentials generated",
         details: {
           forceRegenerate,
-          teamsUpdated: updatedTeams.filter((team) => forceRegenerate || !teams.find((old) => old.id === team.id)?.privateUrlKey).length,
-          adjudicatorsUpdated: updatedAdjs.filter((adj) => {
-            const previous = adjudicators.find((old) => old.id === adj.id);
-            return forceRegenerate || !previous?.privateUrlKey || !previous.privatePasscode;
-          }).length,
+          teamsUpdated: teamsResult.updatedIds.length,
+          adjudicatorsUpdated: adjsResult.updatedIds.length,
         },
       });
     }
