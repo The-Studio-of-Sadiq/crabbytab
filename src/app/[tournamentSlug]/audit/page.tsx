@@ -99,7 +99,7 @@ export default function AuditPage() {
           <div>
             <h2 className="text-sm font-semibold text-gray-900">Public audit log</h2>
             <p className="mt-1 text-xs text-gray-600">
-              A release publishes a snapshot of timestamps, actions, summaries, and hashes. Releasing again updates the public snapshot.
+              A release publishes a snapshot of timestamps, actions, summaries, and hashes from Firestore. Upload local tournament changes before releasing; releasing again updates the public snapshot.
             </p>
             {release && (
               <p className="mt-1 text-xs text-gray-600">

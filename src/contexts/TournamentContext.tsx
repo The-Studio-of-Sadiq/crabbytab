@@ -46,7 +46,6 @@ import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
-import { buildAuditChain } from "@/lib/auditLog";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -152,6 +151,7 @@ const CLOUD_COLLECTIONS = [
   "ballots",
   "feedback",
   "institutions",
+  "auditEvents",
 ] as const;
 
 /**
@@ -346,6 +346,7 @@ export function TournamentProvider({
                 ballots: "ballots",
                 feedback: "feedback",
                 institutions: "institutions",
+                auditEvents: "auditEvents",
               };
               const storeCloudCollection = <T,>(
                 name: (typeof CLOUD_COLLECTIONS)[number],
@@ -384,6 +385,10 @@ export function TournamentProvider({
               storeCloudCollection<BallotSubmission>("ballots", setBallots);
               storeCloudCollection<FeedbackSubmission>("feedback", setFeedback);
               storeCloudCollection<Institution>("institutions", setInstitutions);
+              storeCloudCollection<AuditEvent>("auditEvents", (events) => {
+                auditEventsRef.current = events;
+                setAuditEvents(events);
+              });
               setLoading(false);
               return;
             }
@@ -761,7 +766,6 @@ export function TournamentProvider({
       throw new Error("You are offline. Connect to the internet before releasing the audit log.");
     }
 
-    const chain = await buildAuditChain(auditEventsRef.current);
     const token = await user.getIdToken();
     const response = await fetch(
       `/api/tournaments/${encodeURIComponent(tournament.id)}/audit/release`,
@@ -771,15 +775,6 @@ export function TournamentProvider({
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          events: chain.map(({ id, timestamp, category, action, summary }) => ({
-            id,
-            timestamp,
-            category,
-            action,
-            summary,
-          })),
-        }),
       }
     );
     const responseText = await response.text();
@@ -805,8 +800,16 @@ export function TournamentProvider({
     if (
       typeof result.releasedAt !== "string" ||
       typeof result.eventCount !== "number" ||
+      !Number.isSafeInteger(result.eventCount) ||
+      result.eventCount < 0 ||
       !Array.isArray(result.events) ||
-      result.events.length !== chain.length
+      result.events.length !== result.eventCount ||
+      !result.events.every((event, index) =>
+        typeof event.id === "string" &&
+        event.sequence === index + 1 &&
+        typeof event.previousHash === "string" &&
+        typeof event.hash === "string"
+      )
     ) {
       throw new Error("The audit release service returned incomplete release details.");
     }
@@ -2344,6 +2347,7 @@ export function TournamentProvider({
         ballots,
         feedback,
         institutions,
+        auditEvents: auditEventsRef.current,
       };
       const operations: Array<(batch: WriteBatch) => void> = [];
       for (const collectionName of CLOUD_COLLECTIONS) {
@@ -2351,6 +2355,19 @@ export function TournamentProvider({
         const remoteSnapshot = await getDocs(collectionRef);
         const localItems = localCollections[collectionName];
         const localIds = new Set(localItems.map((item) => item.id));
+        if (collectionName === "auditEvents") {
+          const remoteIds = new Set(remoteSnapshot.docs.map((remoteDoc) => remoteDoc.id));
+          for (const item of localItems) {
+            if (remoteIds.has(item.id)) continue;
+            operations.push((batch) => {
+              batch.set(
+                doc(db!, "tournaments", tournament.id, collectionName, item.id),
+                cleanUndefined(item)
+              );
+            });
+          }
+          continue;
+        }
         for (const remoteDoc of remoteSnapshot.docs) {
           if (!localIds.has(remoteDoc.id)) {
             operations.push((batch) => batch.delete(remoteDoc.ref));
@@ -2441,6 +2458,10 @@ export function TournamentProvider({
       applyDownloadedCollection<BallotSubmission>("ballots", "ballots", setBallots);
       applyDownloadedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
       applyDownloadedCollection<Institution>("institutions", "institutions", setInstitutions);
+      applyDownloadedCollection<AuditEvent>("auditEvents", "auditEvents", (events) => {
+        auditEventsRef.current = events;
+        setAuditEvents(events);
+      });
       setCloudSyncState("success");
       setCloudSyncMessage("Downloaded the latest tournament data, including adjudicator ballots and feedback.");
     } catch (error) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AuditEvent, PublicAuditEvent } from "@/types";
-import { buildAuditChain, verifyAuditChain } from "@/lib/auditLog";
+import { buildAuditChain, orderAuditEvents, verifyAuditChain } from "@/lib/auditLog";
 
 const sampleEvents: AuditEvent[] = [
   {
@@ -24,6 +24,18 @@ const sampleEvents: AuditEvent[] = [
 ];
 
 describe("audit log hash chain", () => {
+  it("orders same-time events by locale-independent ID order", () => {
+    const tiedEvents = sampleEvents.map((event) => ({
+      ...event,
+      timestamp: "2026-01-01T00:00:00.000Z",
+    }));
+
+    expect(orderAuditEvents(tiedEvents).map((event) => event.id)).toEqual([
+      "event-1",
+      "event-2",
+    ]);
+  });
+
   it("hashes events in chronological order and verifies the chain", async () => {
     const chain = await buildAuditChain(sampleEvents);
     const publicEvents: PublicAuditEvent[] = chain.map((event) => ({

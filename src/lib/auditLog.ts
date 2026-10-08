@@ -5,7 +5,7 @@ export const AUDIT_HASH_GENESIS = "0".repeat(64);
 export function orderAuditEvents(events: AuditEvent[]): AuditEvent[] {
   return [...events].sort((left, right) => {
     const timeDifference = Date.parse(left.timestamp) - Date.parse(right.timestamp);
-    return timeDifference || left.id.localeCompare(right.id);
+    return timeDifference || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
   });
 }
 

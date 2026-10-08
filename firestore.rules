@@ -29,10 +29,13 @@ service cloud.firestore {
       match /auditEvents/{eventId} {
         allow read: if isTournamentAdmin();
         allow create: if isTournamentAdmin() &&
-          request.resource.data.actorId == request.auth.uid &&
-          request.resource.data.actorType == "user" &&
           request.resource.data.id == eventId &&
-          request.resource.data.tournamentId == tournamentId;
+          request.resource.data.tournamentId == tournamentId &&
+          (
+            (request.resource.data.actorType == "user" &&
+              request.resource.data.actorId == request.auth.uid) ||
+            request.resource.data.actorType == "system"
+          );
         allow update, delete: if false;
       }
 

@@ -17,19 +17,26 @@ const categories = new Set<AuditCategory>([
   "venue",
 ]);
 const MAX_EVENTS = 5000;
-const MAX_BODY_BYTES = 12 * 1024 * 1024;
 
-type ReleaseInput = Pick<AuditEvent, "id" | "timestamp" | "category" | "action" | "summary">;
+type ReleaseEvent = Pick<
+  AuditEvent,
+  "id" | "tournamentId" | "timestamp" | "category" | "action" | "summary"
+>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isValidEvent(value: unknown): value is ReleaseInput {
+function isValidEvent(
+  value: unknown,
+  documentId: string,
+  tournamentId: string
+): value is ReleaseEvent {
   if (!isRecord(value)) return false;
   return (
-    typeof value.id === "string" &&
-    /^[A-Za-z0-9_-]{1,128}$/.test(value.id) &&
+    value.id === documentId &&
+    /^[A-Za-z0-9_-]{1,128}$/.test(documentId) &&
+    value.tournamentId === tournamentId &&
     typeof value.timestamp === "string" &&
     value.timestamp.length <= 100 &&
     Number.isFinite(Date.parse(value.timestamp)) &&
@@ -52,10 +59,6 @@ export async function POST(
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(tournamentId)) {
     return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
   }
-  const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: "Audit log is too large to release in one snapshot." }, { status: 413 });
-  }
 
   const authorization = request.headers.get("authorization");
   const token = authorization?.match(/^Bearer ([^\s]+)$/)?.[1];
@@ -76,27 +79,6 @@ export async function POST(
     return NextResponse.json({ error: "Your sign-in has expired. Please sign in again." }, { status: 401 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
-  if (!isRecord(body) || !Array.isArray(body.events) || body.events.length > MAX_EVENTS) {
-    return NextResponse.json(
-      { error: `Provide an audit log containing no more than ${MAX_EVENTS} events.` },
-      { status: 400 }
-    );
-  }
-  if (!body.events.every(isValidEvent)) {
-    return NextResponse.json({ error: "The audit log contains an invalid event." }, { status: 400 });
-  }
-
-  const events = body.events as ReleaseInput[];
-  if (new Set(events.map((event) => event.id)).size !== events.length) {
-    return NextResponse.json({ error: "The audit log contains duplicate event IDs." }, { status: 400 });
-  }
-
   try {
     const firestore = getAdminFirestore();
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
@@ -112,10 +94,27 @@ export async function POST(
       return NextResponse.json({ error: "Only tournament administrators can release the audit log." }, { status: 403 });
     }
 
-    const orderedEvents = [...events].sort(
+    const auditSnapshot = await tournamentRef.collection("auditEvents").get();
+    if (auditSnapshot.size > MAX_EVENTS) {
+      return NextResponse.json(
+        { error: `The audit log contains more than ${MAX_EVENTS} events and cannot be released in one snapshot.` },
+        { status: 413 }
+      );
+    }
+    const events = auditSnapshot.docs.map((document) => document.data());
+    if (!auditSnapshot.docs.every((document, index) =>
+      isValidEvent(events[index], document.id, tournamentId)
+    )) {
+      return NextResponse.json(
+        { error: "The stored audit log contains an invalid event and cannot be released." },
+        { status: 409 }
+      );
+    }
+    const sourceEvents = events as ReleaseEvent[];
+    const orderedEvents = [...sourceEvents].sort(
       (left, right) =>
         Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
-        left.id.localeCompare(right.id)
+        (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
     );
     const releaseId = randomUUID();
     const releasedAt = new Date().toISOString();
