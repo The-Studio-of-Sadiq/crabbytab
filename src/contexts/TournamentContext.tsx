@@ -608,11 +608,21 @@ export function TournamentProvider({
           result.adjudicator!,
         ]);
       }
-      if (result.teams) {
-        setTeams((current) => [
-          ...current.filter((item) => !result.teams!.some((remote) => remote.id === item.id)),
-          ...result.teams!,
-        ]);
+      if (result.teams || result.team) {
+        const remoteTeams = result.teams || [];
+        setTeams((current) => {
+          const currentPortalTeam = result.team
+            ? current.find((item) => item.id === result.team!.id)
+            : undefined;
+          const debateTeams = remoteTeams.filter((remote) => remote.id !== result.team?.id);
+          return [
+            ...current.filter(
+              (item) => item.id !== result.team?.id && !debateTeams.some((remote) => remote.id === item.id)
+            ),
+            ...debateTeams,
+            ...(result.team ? [{ ...currentPortalTeam, ...result.team }] : []),
+          ];
+        });
       }
       if (result.rounds) {
         const privateRounds = result.rounds;

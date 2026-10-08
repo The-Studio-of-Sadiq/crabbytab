@@ -1,67 +1,107 @@
-name,priority,category
-Senate Hall,100,Main
-Auditorium A,98,Main
-Auditorium B,95,Main
-Conference Hall,92,Main
-Grand Hall,90,Main
-Lecture Hall 1,88,Main
-Lecture Hall 2,86,Main
-Lecture Hall 3,84,Main
-Lecture Hall 4,82,Main
-Lecture Hall 5,80,Main
-Seminar Room 1,78,Main
-Seminar Room 2,76,Main
-Seminar Room 3,74,Main
-Seminar Room 4,72,Main
-Seminar Room 5,70,Main
-Debate Hall 1,68,Main
-Debate Hall 2,66,Main
-Debate Hall 3,64,Main
-Debate Hall 4,62,Main
-Debate Hall 5,60,Main
-Classroom A101,58,Standard
-Classroom A102,57,Standard
-Classroom A103,56,Standard
-Classroom A104,55,Standard
-Classroom A105,54,Standard
-Classroom B101,53,Standard
-Classroom B102,52,Standard
-Classroom B103,51,Standard
-Classroom B104,50,Standard
-Classroom B105,49,Standard
-Classroom C101,48,Standard
-Classroom C102,47,Standard
-Classroom C103,46,Standard
-Classroom C104,45,Standard
-Classroom C105,44,Standard
-Tutorial Room 1,43,Standard
-Tutorial Room 2,42,Standard
-Tutorial Room 3,41,Standard
-Tutorial Room 4,40,Standard
-Tutorial Room 5,39,Standard
-Accessible Room 1,38,Accessible
-Accessible Room 2,37,Accessible
-Accessible Room 3,36,Accessible
-Quiet Room 1,35,Quiet
-Quiet Room 2,34,Quiet
-Quiet Room 3,33,Quiet
-Online Room 1,32,Online
-Online Room 2,31,Online
-Online Room 3,30,Online
-Online Room 4,29,Online
-Online Room 5,28,Online
-Overflow Room 1,27,Overflow
-Overflow Room 2,26,Overflow
-Overflow Room 3,25,Overflow
-Faculty Room 1,24,Standard
-Faculty Room 2,23,Standard
-Faculty Room 3,22,Standard
-Meeting Room 1,21,Standard
-Meeting Room 2,20,Standard
-Meeting Room 3,19,Standard
-Exam Room 1,18,Standard
-Exam Room 2,17,Standard
-Exam Room 3,16,Standard
-Garden Room 1,15,Standard
-Garden Room 2,14,Standard
-Garden Room 3,13,Standard
+name,priority,category,capacity,accessible,online
+Grand Debate Hall,100,Main,500,yes,yes
+Parliament Chamber,98,Main,350,yes,yes
+International Conference Hall,97,Main,450,yes,yes
+Central Auditorium,95,Main,800,yes,yes
+University Debate Hall,94,Academic,300,yes,yes
+Senate Hall,92,Academic,250,yes,yes
+Presidential Conference Room,90,Executive,120,yes,yes
+National Assembly Room,89,Main,400,yes,yes
+Grand Ballroom,88,Main,600,yes,yes
+International Forum Hall,87,Main,350,yes,yes
+Executive Debate Room,85,Executive,80,yes,yes
+Academic Senate Room,84,Academic,150,yes,yes
+Central Lecture Theatre,83,Academic,300,yes,yes
+Graduate Seminar Hall,82,Academic,180,yes,yes
+Faculty Conference Room,80,Academic,100,yes,yes
+Student Union Hall,79,Student,250,yes,yes
+Student Parliament Room,78,Student,180,yes,yes
+Oxford Chamber,77,Academic,120,yes,yes
+Cambridge Hall,76,Academic,150,yes,yes
+Lincoln Debate Room,75,Academic,100,yes,yes
+Jefferson Hall,74,Academic,200,yes,yes
+Hamilton Conference Room,73,Academic,80,yes,yes
+Madison Debate Chamber,72,Academic,120,yes,yes
+Roosevelt Hall,71,Main,300,yes,yes
+Kennedy Forum,70,Main,350,yes,yes
+Churchill Hall,69,Main,250,yes,yes
+Mandela Conference Hall,68,Main,400,yes,yes
+Gandhi Debate Hall,67,Main,300,yes,yes
+Lincoln Auditorium,66,Main,500,yes,yes
+Franklin Hall,65,Academic,180,yes,yes
+Heritage Debate Hall,64,Main,220,yes,yes
+Liberty Hall,63,Main,300,yes,yes
+Civic Forum,62,Civic,250,yes,yes
+City Council Chamber,61,Civic,150,yes,yes
+Municipal Debate Room,60,Civic,100,yes,yes
+Public Policy Hall,59,Civic,220,yes,yes
+Democracy Forum,58,Civic,300,yes,yes
+Constitution Hall,57,Civic,350,yes,yes
+Justice Chamber,56,Civic,120,yes,yes
+Diplomatic Conference Room,55,Diplomatic,100,yes,yes
+Ambassador Hall,54,Diplomatic,180,yes,yes
+United Nations Style Hall,53,Diplomatic,400,yes,yes
+Global Affairs Room,52,Diplomatic,150,yes,yes
+International Relations Hall,51,Diplomatic,250,yes,yes
+World Forum Room,50,Diplomatic,200,yes,yes
+Innovation Hall,49,Technology,300,yes,yes
+Future Technology Room,48,Technology,120,yes,yes
+Digital Debate Lab,47,Technology,80,yes,yes
+Virtual Conference Hall,46,Online,200,yes,yes
+Hybrid Debate Studio,45,Online,100,yes,yes
+Online Debate Room A,44,Online,60,yes,yes
+Online Debate Room B,43,Online,60,yes,yes
+Online Debate Room C,42,Online,50,yes,yes
+Virtual Parliament,41,Online,150,yes,yes
+Remote Debate Chamber,40,Online,80,yes,yes
+Digital Forum,39,Online,100,yes,yes
+Web Debate Studio,38,Online,70,yes,yes
+Hybrid Conference Room,37,Online,120,yes,yes
+Streaming Debate Hall,36,Online,150,yes,yes
+Accessible Debate Hall,35,Accessible,200,yes,yes
+Inclusive Conference Room,34,Accessible,100,yes,yes
+Universal Access Hall,33,Accessible,250,yes,yes
+Barrier-Free Forum,32,Accessible,180,yes,yes
+Community Debate Center,31,Community,200,yes,yes
+Community Forum Hall,30,Community,300,yes,yes
+Public Discussion Hall,29,Community,150,yes,yes
+Cultural Center Auditorium,28,Community,400,yes,yes
+Youth Debate Hall,27,Community,180,yes,yes
+Youth Parliament Room,26,Student,120,yes,yes
+School Debate Auditorium,25,Education,500,yes,yes
+College Debate Hall,24,Education,300,yes,yes
+High School Forum,23,Education,200,yes,yes
+Academic Colloquium Hall,22,Academic,250,yes,yes
+Research Conference Room,21,Academic,120,yes,yes
+Doctoral Seminar Room,20,Academic,80,yes,yes
+Research Debate Hall,19,Academic,150,yes,yes
+Science Forum,18,Academic,220,yes,yes
+Engineering Conference Hall,17,Academic,300,yes,yes
+Technology Debate Room,16,Technology,100,yes,yes
+Business Forum Hall,15,Corporate,250,yes,yes
+Corporate Boardroom,14,Corporate,40,yes,yes
+Executive Conference Hall,13,Corporate,100,yes,yes
+Leadership Debate Room,12,Corporate,60,yes,yes
+Strategy Forum,11,Corporate,80,yes,yes
+Press Conference Hall,10,Media,200,yes,yes
+Media Debate Studio,9,Media,100,yes,yes
+Broadcast Debate Room,8,Media,80,yes,yes
+News Forum Hall,7,Media,150,yes,yes
+Podcast Debate Studio,6,Media,40,yes,yes
+Town Hall A,5,Community,250,yes,yes
+Town Hall B,5,Community,200,yes,yes
+Town Hall C,5,Community,150,yes,yes
+Roundtable Room A,5,Small,30,yes,yes
+Roundtable Room B,5,Small,30,yes,yes
+Roundtable Room C,5,Small,40,yes,yes
+Seminar Room A,5,Small,50,yes,yes
+Seminar Room B,5,Small,60,yes,yes
+Seminar Room C,5,Small,50,yes,yes
+Debate Practice Room A,5,Practice,40,yes,yes
+Debate Practice Room B,5,Practice,40,yes,yes
+Debate Practice Room C,5,Practice,50,yes,yes
+Mock Parliament Room,5,Practice,100,yes,yes
+Mock Trial Chamber,5,Practice,80,yes,yes
+Youth Forum Room,5,Student,80,yes,yes
+Open Debate Hall,5,General,200,yes,yes
+Community Parliament Room,5,Community,120,yes,yes
