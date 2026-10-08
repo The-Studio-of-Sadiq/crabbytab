@@ -4,9 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   User,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  updateProfile,
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
@@ -17,7 +15,6 @@ export interface AuthContextType {
   loading: boolean;
   configured: boolean;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
-  signUpWithEmail: (email: string, pass: string, displayName?: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -47,14 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signInWithEmailAndPassword(auth, email, pass);
   };
 
-  const signUpWithEmail = async (email: string, pass: string, displayName?: string) => {
-    if (!auth) throw new Error("Firebase Auth is not configured.");
-    const credential = await createUserWithEmailAndPassword(auth, email, pass);
-    if (displayName?.trim()) {
-      await updateProfile(credential.user, { displayName: displayName.trim() });
-    }
-  };
-
   const resetPassword = async (email: string) => {
     if (!auth) throw new Error("Firebase Auth is not configured.");
     await sendPasswordResetEmail(auth, email);
@@ -74,7 +63,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         configured: isFirebaseConfigured,
         signInWithEmail,
-        signUpWithEmail,
         resetPassword,
         logout,
       }}

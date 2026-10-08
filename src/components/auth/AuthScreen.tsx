@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { firebaseAuthMessage } from "@/lib/authErrors";
 
-type Mode = "login" | "register" | "reset";
+type Mode = "login" | "reset";
 
 export function AuthScreen({ mode }: { mode: Mode }) {
   const router = useRouter();
@@ -15,9 +15,8 @@ export function AuthScreen({ mode }: { mode: Mode }) {
   // Only allow same-site paths, so a crafted ?next=//evil.com can't redirect off-site.
   const rawNext = searchParams.get("next") || "";
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/tournaments";
-  const { configured, signInWithEmail, signUpWithEmail, resetPassword } = useAuth();
+  const { configured, signInWithEmail, resetPassword } = useAuth();
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -27,11 +26,7 @@ export function AuthScreen({ mode }: { mode: Mode }) {
   const titles: Record<Mode, { heading: string; sub: string }> = {
     login: {
       heading: "Sign in",
-      sub: "Use your email and password to open the tab room.",
-    },
-    register: {
-      heading: "Create an account",
-      sub: "Tab directors sign up with email and password. No Google required.",
+      sub: "Use your email and password to open the tab room. Accounts are added by the site administrator in Firebase Authentication.",
     },
     reset: {
       heading: "Reset password",
@@ -47,9 +42,6 @@ export function AuthScreen({ mode }: { mode: Mode }) {
     try {
       if (mode === "login") {
         await signInWithEmail(email.trim(), password);
-        router.replace(next);
-      } else if (mode === "register") {
-        await signUpWithEmail(email.trim(), password, name);
         router.replace(next);
       } else {
         await resetPassword(email.trim());
@@ -85,18 +77,6 @@ export function AuthScreen({ mode }: { mode: Mode }) {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3">
-            {mode === "register" && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Tab director"
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Email</label>
               <input
@@ -115,7 +95,7 @@ export function AuthScreen({ mode }: { mode: Mode }) {
                   type="password"
                   required
                   minLength={6}
-                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -137,30 +117,16 @@ export function AuthScreen({ mode }: { mode: Mode }) {
               disabled={busy || !configured}
               className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded"
             >
-              {busy
-                ? "Please wait…"
-                : mode === "login"
-                ? "Sign in"
-                : mode === "register"
-                ? "Create account"
-                : "Send reset link"}
+              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Send reset link"}
             </button>
           </form>
 
           <div className="mt-4 text-xs text-gray-600 space-y-1">
-            {mode !== "login" && (
+            {mode === "reset" && (
               <p>
                 Already have an account?{" "}
                 <Link href={`/login?next=${encodeURIComponent(next)}`} className="text-blue-700 font-semibold">
                   Sign in
-                </Link>
-              </p>
-            )}
-            {mode !== "register" && (
-              <p>
-                New tab director?{" "}
-                <Link href={`/register?next=${encodeURIComponent(next)}`} className="text-blue-700 font-semibold">
-                  Create an account
                 </Link>
               </p>
             )}
