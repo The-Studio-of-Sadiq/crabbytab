@@ -60,6 +60,26 @@ Room 102,10,Tutorial`;
     expect(venues[1].priority).toBe(10);
   });
 
+  it("parses venue capacity and capabilities from CSV", () => {
+    const venues = parseVenuesCsv(
+      "name,capacity,accessible,online\nRoom A,120,yes,no\nRoom B,20,false,true",
+      "t1"
+    );
+
+    expect(venues.map(({ capacity, accessible, online }) => ({ capacity, accessible, online })))
+      .toEqual([
+        { capacity: 120, accessible: true, online: false },
+        { capacity: 20, accessible: false, online: true },
+      ]);
+  });
+
+  it("rejects invalid venue capacities and capability flags", () => {
+    expect(() => parseVenuesCsv("name,capacity\nRoom A,-1", "t1"))
+      .toThrow("Invalid venue capacity on CSV row 2");
+    expect(() => parseVenuesCsv("name,accessible\nRoom A,sometimes", "t1"))
+      .toThrow("Invalid accessible value on CSV row 2");
+  });
+
   it("parses Google Sheets institution CSV with BOM, CRLF, aliases, and quoted commas", () => {
     const csv = "\uFEFFInstitution Name,Institution Code,Region\r\n" +
       '"Independent University, Bangladesh",IUB,Dhaka\r\n' +

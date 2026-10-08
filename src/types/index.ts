@@ -258,6 +258,9 @@ export interface Venue {
   name: string;
   priority: number; // higher = better room
   category?: string;
+  capacity?: number;
+  accessible?: boolean;
+  online?: boolean;
   available?: boolean;
 }
 
@@ -298,6 +301,10 @@ export interface Debate {
   breakCategoryId?: string;
   venueId?: string;
   venueName?: string;
+  requiredVenueCategory?: string;
+  requiredVenueCapacity?: number;
+  requiresAccessibleVenue?: boolean;
+  requiresOnlineVenue?: boolean;
   bracket: number; // e.g., 6 points bracket in round 3
   roomRank: number;
   importance: number;

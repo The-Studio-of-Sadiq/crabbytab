@@ -135,6 +135,23 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
     const priorityRaw = getField(row, "priority", "Priority") || "10";
     const priority = parseInt(priorityRaw, 10) || 10;
     const category = getField(row, "category", "Category") || undefined;
+    const capacityRaw = getField(row, "capacity", "Capacity", "seats", "Seats");
+    const capacity = capacityRaw?.trim() ? Number(capacityRaw) : undefined;
+    const accessibleRaw = getField(row, "accessible", "Accessible");
+    const onlineRaw = getField(row, "online", "Online");
+    const parseVenueFlag = (raw: string | undefined, field: string): boolean | undefined => {
+      if (!raw?.trim()) return undefined;
+      if (/^(yes|true|1)$/i.test(raw.trim())) return true;
+      if (/^(no|false|0)$/i.test(raw.trim())) return false;
+      throw new Error(`Invalid ${field} value on CSV row ${idx + 2}: ${raw}`);
+    };
+
+    if (
+      capacity !== undefined &&
+      (!Number.isFinite(capacity) || capacity < 0)
+    ) {
+      throw new Error(`Invalid venue capacity on CSV row ${idx + 2}: ${capacityRaw}`);
+    }
 
     venues.push({
       id: `venue-${Date.now()}-${idx}`,
@@ -142,6 +159,9 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
       name: name.trim(),
       priority,
       category,
+      capacity,
+      accessible: parseVenueFlag(accessibleRaw, "accessible"),
+      online: parseVenueFlag(onlineRaw, "online"),
       available: true,
     });
   });

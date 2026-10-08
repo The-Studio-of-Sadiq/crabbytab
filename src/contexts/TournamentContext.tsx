@@ -1620,7 +1620,15 @@ export function TournamentProvider({
         action: "venue.created",
         category: "venue",
         summary: `Venue ${newVenue.name} added`,
-        details: { venueId: newVenue.id, name: newVenue.name, priority: newVenue.priority, category: newVenue.category },
+        details: {
+          venueId: newVenue.id,
+          name: newVenue.name,
+          priority: newVenue.priority,
+          category: newVenue.category,
+          capacity: newVenue.capacity,
+          accessible: newVenue.accessible,
+          online: newVenue.online,
+        },
       });
     }
   };
@@ -1640,8 +1648,24 @@ export function TournamentProvider({
       summary: `Venue ${venue.name} updated`,
       details: {
         venueId: venue.id,
-        previous: previous ? { name: previous.name, priority: previous.priority, category: previous.category, available: previous.available } : undefined,
-        current: { name: venue.name, priority: venue.priority, category: venue.category, available: venue.available },
+        previous: previous ? {
+          name: previous.name,
+          priority: previous.priority,
+          category: previous.category,
+          capacity: previous.capacity,
+          accessible: previous.accessible,
+          online: previous.online,
+          available: previous.available,
+        } : undefined,
+        current: {
+          name: venue.name,
+          priority: venue.priority,
+          category: venue.category,
+          capacity: venue.capacity,
+          accessible: venue.accessible,
+          online: venue.online,
+          available: venue.available,
+        },
       },
     });
   };

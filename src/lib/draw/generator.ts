@@ -17,6 +17,7 @@ import { generateTwoTeamDraw } from "./twoTeamDraw";
 import { generateEliminationDraw } from "./elimination";
 import { shuffle } from "./pairing";
 import { SideAllocationOptions } from "./sideAllocator";
+import { allocateVenuesToDebates } from "./venueAllocator";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -228,7 +229,6 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     );
   }
   const history = buildMatchupHistory(pastDebates);
-  const sortedVenues = availableVenues.sort((a, b) => (b.priority || 0) - (a.priority || 0));
   const sideRule = tournament.preferences?.sideAllocationRule || "balanced";
   const sideAllocationOptions: SideAllocationOptions = {
     bpPositionCost: tournament.preferences?.bpPositionCost,
@@ -247,7 +247,6 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     const sidesList: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
     for (let idx = 0; idx < numDebates; idx++) {
-      const venue = sortedVenues[idx];
       const emptyTeamsSlot: Record<string, any> = {};
       sidesList.forEach((s) => {
         emptyTeamsSlot[s] = {
@@ -263,7 +262,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         roundId: round.id,
         roundSeq: round.seq,
         breakCategoryId: round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined,
-        venueName: venue?.name || `Room ${idx + 1}`,
+        venueName: `Room ${idx + 1}`,
         bracket: 0,
         roomRank: idx + 1,
         importance: 0,
@@ -279,13 +278,13 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         },
       };
 
-      if (venue?.id) {
-        debateObj.venueId = venue.id;
-      }
       debates.push(debateObj);
     }
 
-    return [...debates, ...createByeDebates(byeTeams, debates.length, tournament, round, isBP)];
+    return [
+      ...assignVenues(debates, availableVenues),
+      ...createByeDebates(byeTeams, debates.length, tournament, round, isBP),
+    ];
   }
 
   let debateDrafts: {
@@ -431,7 +430,6 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
   // Map drafts to complete Debate objects with venues and adjudicator slots
   const generatedDebates = debateDrafts.map((draft, idx) => {
-    const venue = sortedVenues[idx];
     const teamsSlotRecord: Record<string, any> = {};
 
     Object.entries(draft.teamsWithSides).forEach(([side, team]) => {
@@ -448,7 +446,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       roundId: round.id,
       roundSeq: round.seq,
       breakCategoryId: draft.breakCategoryId ?? (round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined),
-      venueName: venue?.name || `Room ${idx + 1}`,
+      venueName: `Room ${idx + 1}`,
       bracket: draft.bracket,
       roomRank: idx + 1,
       importance: 0,
@@ -464,16 +462,22 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       },
     };
 
-    if (venue?.id) {
-      debateObj.venueId = venue.id;
-    }
-
     return debateObj;
   });
   return [
-    ...generatedDebates,
+    ...assignVenues(generatedDebates, availableVenues),
     ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
   ];
+}
+
+function assignVenues(debates: Debate[], venues: Venue[]): Debate[] {
+  const allocation = allocateVenuesToDebates(debates, venues);
+  return debates.map((debate) => {
+    const venue = allocation.get(debate.id);
+    return venue
+      ? { ...debate, venueId: venue.id, venueName: venue.name }
+      : debate;
+  });
 }
 
 function createByeDebates(

@@ -18,10 +18,12 @@ import {
   X,
   UserX,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
+import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 
 interface DragPayload {
@@ -56,6 +58,7 @@ export default function DrawPage() {
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
   const [isSavingDrawRelease, setIsSavingDrawRelease] = useState(false);
   const [drawReleaseError, setDrawReleaseError] = useState("");
+  const [venueAssignmentError, setVenueAssignmentError] = useState("");
 
   // Drag & Drop state
   const [draggingItem, setDraggingItem] = useState<DragPayload | null>(null);
@@ -226,12 +229,66 @@ export default function DrawPage() {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
     const venue = venues.find((v) => v.id === venueId);
+    setVenueAssignmentError("");
+    if (venue) {
+      if (venue.available === false) {
+        setVenueAssignmentError(`${venue.name} is unavailable.`);
+        return;
+      }
+      const occupiedBy = roundDebates.find(
+        (other) => other.id !== debate.id && other.venueId === venue.id
+      );
+      if (occupiedBy) {
+        setVenueAssignmentError(`${venue.name} is already assigned to ${occupiedBy.venueName || occupiedBy.id}.`);
+        return;
+      }
+      const incompatibilities = getVenueIncompatibilities(debate, venue);
+      if (incompatibilities.length > 0) {
+        setVenueAssignmentError(`${venue.name} is incompatible: ${incompatibilities.join("; ")}.`);
+        return;
+      }
+    }
     const updated: Debate = {
       ...debate,
       venueId: venue?.id,
       venueName: venue?.name || debate.venueName,
     };
     await updateDebate(updated);
+  };
+
+  const handleUpdateVenueRequirements = async (
+    debate: Debate,
+    requirements: Partial<Pick<
+      Debate,
+      "requiredVenueCategory" | "requiredVenueCapacity" | "requiresAccessibleVenue" | "requiresOnlineVenue"
+    >>
+  ) => {
+    setVenueAssignmentError("");
+    try {
+      await updateDebate({ ...debate, ...requirements });
+    } catch (error) {
+      setVenueAssignmentError(
+        error instanceof Error ? error.message : "Could not save debate venue requirements."
+      );
+    }
+  };
+
+  const handleAutoAllocateVenues = async () => {
+    setVenueAssignmentError("");
+    try {
+      const assignedVenues = allocateVenuesToDebates(roundDebates, venues);
+      const assignmentsByDebateId = new Map(
+        [...assignedVenues].map(([debateId, venue]) => [debateId, venue])
+      );
+      await updateDebates(debates.map((debate) => {
+        const venue = assignmentsByDebateId.get(debate.id);
+        return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
+      }));
+    } catch (error) {
+      setVenueAssignmentError(
+        error instanceof Error ? error.message : "Could not allocate venues for this round."
+      );
+    }
   };
 
   // Remove team from debate slot
@@ -426,6 +483,16 @@ export default function DrawPage() {
           </button>
 
           <button
+            onClick={handleAutoAllocateVenues}
+            disabled={roundDebates.length === 0}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs font-bold shadow-2xs transition disabled:opacity-50"
+            title="Assign compatible available venues by debate priority"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Allocate Venues</span>
+          </button>
+
+          <button
             onClick={() => setPendingDrawRelease(activeRound?.drawStatus !== "confirmed")}
             disabled={roundDebates.length === 0}
             className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-bold border transition disabled:opacity-50 ${
@@ -457,6 +524,12 @@ export default function DrawPage() {
           </button>
         </div>
       </div>
+
+      {venueAssignmentError && (
+        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {venueAssignmentError}
+        </p>
+      )}
 
       {/* Round Selector Bar */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1">
@@ -594,6 +667,10 @@ export default function DrawPage() {
         <div className="space-y-4">
           {filteredDebates.map((debate, dIdx) => {
             const clashes = getDebateClashes(debate);
+            const assignedVenue = venues.find((venue) => venue.id === debate.venueId);
+            const assignedVenueIssues = assignedVenue
+              ? getVenueIncompatibilities(debate, assignedVenue)
+              : [];
 
             if (debate.byeTeamId) {
               const byeTeam = Object.values(debate.teams || {}).find((slot) => slot?.teamId === debate.byeTeamId);
@@ -628,10 +705,18 @@ export default function DrawPage() {
                         onChange={(e) => handleChangeVenue(debate.id, e.target.value)}
                         className="bg-transparent font-bold text-xs text-gray-900 border border-transparent hover:border-gray-300 rounded px-1 py-0.5 cursor-pointer"
                       >
-                        <option value="">{debate.venueName || `Room ${dIdx + 1}`}</option>
+                        <option value="">{debate.venueName || `Room ${dIdx + 1}`} (unassigned)</option>
                         {venues.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.name}
+                          <option
+                            key={v.id}
+                            value={v.id}
+                            disabled={
+                              v.available === false ||
+                              getVenueIncompatibilities(debate, v).length > 0 ||
+                              roundDebates.some((other) => other.id !== debate.id && other.venueId === v.id)
+                            }
+                          >
+                            {v.name}{v.category ? ` · ${v.category}` : ""}{v.capacity !== undefined ? ` · ${v.capacity} seats` : ""}{v.available === false ? " · unavailable" : ""}
                           </option>
                         ))}
                       </select>
@@ -665,6 +750,77 @@ export default function DrawPage() {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 border-b border-gray-100 bg-white">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="flex flex-col gap-1 text-[10px] font-semibold text-gray-600">
+                      Required category
+                      <select
+                        aria-label={`${debate.venueName || `Room ${dIdx + 1}`} required venue category`}
+                        value={debate.requiredVenueCategory || ""}
+                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                          requiredVenueCategory: e.target.value || undefined,
+                        })}
+                        className="min-w-32 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
+                      >
+                        <option value="">Any category</option>
+                        {[...new Set([
+                          ...venues.map((venue) => venue.category?.trim()).filter((category): category is string => Boolean(category)),
+                          ...(debate.requiredVenueCategory ? [debate.requiredVenueCategory] : []),
+                        ])].sort((a, b) => a.localeCompare(b)).map((category) => (
+                          <option key={category} value={category}>{category}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-[10px] font-semibold text-gray-600">
+                      Minimum seats
+                      <input
+                        aria-label={`${debate.venueName || `Room ${dIdx + 1}`} minimum venue capacity`}
+                        type="number"
+                        min="0"
+                        defaultValue={debate.requiredVenueCapacity ?? ""}
+                        onBlur={(e) => {
+                          if (!e.currentTarget.checkValidity()) {
+                            e.currentTarget.reportValidity();
+                            return;
+                          }
+                          const value = e.currentTarget.value;
+                          const requiredVenueCapacity = value ? Number(value) : undefined;
+                          if (requiredVenueCapacity === debate.requiredVenueCapacity) return;
+                          void handleUpdateVenueRequirements(debate, {
+                            requiredVenueCapacity,
+                          });
+                        }}
+                        className="w-24 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
+                      />
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={debate.requiresAccessibleVenue === true}
+                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                          requiresAccessibleVenue: e.target.checked,
+                        })}
+                      />
+                      Accessible
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={debate.requiresOnlineVenue === true}
+                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                          requiresOnlineVenue: e.target.checked,
+                        })}
+                      />
+                      Online-capable
+                    </label>
+                    {assignedVenueIssues.length > 0 && (
+                      <span className="basis-full text-[11px] font-semibold text-red-700" role="status">
+                        Assigned venue does not meet requirements: {assignedVenueIssues.join("; ")}.
+                      </span>
+                    )}
                   </div>
                 </div>
 

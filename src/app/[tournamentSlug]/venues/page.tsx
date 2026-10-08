@@ -23,6 +23,9 @@ export default function VenuesPage() {
   const [newName, setNewName] = useState("");
   const [newPriority, setNewPriority] = useState(10);
   const [newCategory, setNewCategory] = useState("");
+  const [newCapacity, setNewCapacity] = useState("");
+  const [newAccessible, setNewAccessible] = useState(false);
+  const [newOnline, setNewOnline] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [csvText, setCsvText] = useState("");
   const [csvPreview, setCsvPreview] = useState<Venue[]>([]);
@@ -42,12 +45,18 @@ export default function VenuesPage() {
       name: newName.trim(),
       priority: newPriority,
       category: newCategory.trim() || undefined,
+      capacity: newCapacity ? Number(newCapacity) : undefined,
+      accessible: newAccessible,
+      online: newOnline,
       available: true,
     });
 
     setNewName("");
     setNewPriority(10);
     setNewCategory("");
+    setNewCapacity("");
+    setNewAccessible(false);
+    setNewOnline(false);
     setShowAddModal(false);
   };
 
@@ -96,10 +105,8 @@ export default function VenuesPage() {
     if (csvPreview.length === 0) return;
     setIsImporting(true);
     try {
-      await addVenues(csvPreview.map(({ name, priority, category }) => ({
-        name,
-        priority,
-        category,
+      await addVenues(csvPreview.map(({ available: _available, ...venue }) => ({
+        ...venue,
         available: true,
       })));
       setCsvText("");
@@ -167,6 +174,8 @@ export default function VenuesPage() {
                 <th className="w-12 text-center">#</th>
                 <th>Venue / Room Name</th>
                 <th>Category</th>
+                <th className="w-24 text-center">Capacity</th>
+                <th className="w-24 text-center">Capabilities</th>
                 <th className="w-24 text-center">Priority</th>
                 <th className="w-28 text-center">Availability</th>
                 <th className="w-20 text-right">Actions</th>
@@ -177,7 +186,57 @@ export default function VenuesPage() {
                 <tr key={venue.id} className="hover:bg-gray-50">
                   <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
                   <td className="font-bold text-gray-900 text-xs">{venue.name}</td>
-                  <td className="text-xs text-gray-500">{venue.category || "General"}</td>
+                  <td className="text-xs text-gray-500">
+                    <input
+                      aria-label={`${venue.name} category`}
+                      defaultValue={venue.category || ""}
+                      placeholder="General"
+                      onBlur={(e) => {
+                        const category = e.currentTarget.value.trim() || undefined;
+                        if (category !== venue.category) void updateVenue({ ...venue, category });
+                      }}
+                      className="w-full min-w-24 border border-transparent hover:border-gray-300 focus:border-blue-400 rounded px-1 py-0.5 text-xs"
+                    />
+                  </td>
+                  <td className="text-center">
+                    <input
+                      aria-label={`${venue.name} capacity`}
+                      type="number"
+                      min="0"
+                      defaultValue={venue.capacity ?? ""}
+                      placeholder="—"
+                      onBlur={(e) => {
+                        const value = e.currentTarget.value.trim();
+                        const capacity = value ? Number(value) : undefined;
+                        if (capacity !== undefined && (!Number.isFinite(capacity) || capacity < 0)) {
+                          e.currentTarget.reportValidity();
+                          return;
+                        }
+                        if (capacity !== venue.capacity) void updateVenue({ ...venue, capacity });
+                      }}
+                      className="w-16 border border-gray-200 rounded px-1 py-0.5 text-center text-xs"
+                    />
+                  </td>
+                  <td className="text-center text-[10px]">
+                    <div className="flex flex-col items-start gap-1">
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={venue.accessible === true}
+                          onChange={(e) => void updateVenue({ ...venue, accessible: e.target.checked })}
+                        />
+                        Accessible
+                      </label>
+                      <label className="inline-flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={venue.online === true}
+                          onChange={(e) => void updateVenue({ ...venue, online: e.target.checked })}
+                        />
+                        Online
+                      </label>
+                    </div>
+                  </td>
                   <td className="text-center font-mono font-bold text-xs text-blue-600">
                     {venue.priority || 10}
                   </td>
@@ -259,6 +318,29 @@ export default function VenuesPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Capacity (seats)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="No capacity limit"
+                  value={newCapacity}
+                  onChange={(e) => setNewCapacity(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                />
+              </div>
+
+              <div className="flex gap-4 text-xs">
+                <label className="inline-flex items-center gap-1.5">
+                  <input type="checkbox" checked={newAccessible} onChange={(e) => setNewAccessible(e.target.checked)} />
+                  Accessible
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input type="checkbox" checked={newOnline} onChange={(e) => setNewOnline(e.target.checked)} />
+                  Online-capable
+                </label>
+              </div>
+
               <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
                 <button
                   type="button"
@@ -325,7 +407,7 @@ export default function VenuesPage() {
                 </label>
                 <textarea
                   rows={6}
-                  placeholder={`name,priority,category\nLecture Theatre 1,20,Main\nSeminar Room A,10,General\nOnline Room 1,5,Online`}
+                  placeholder={`name,priority,category,capacity,accessible,online\nLecture Theatre 1,20,Main,200,yes,no\nSeminar Room A,10,General,30,no,no\nOnline Room 1,5,Online,50,yes,yes`}
                   value={csvText}
                   onChange={(e) => handleCsvTextChange(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
@@ -339,6 +421,9 @@ export default function VenuesPage() {
                   <li><strong>name</strong> (required) — Venue/room name. Aliases: Name, room, Room, venue, Venue</li>
                   <li><strong>priority</strong> — Priority weight (1-100, default 10). Higher = more important room</li>
                   <li><strong>category</strong> — Category label (e.g. Main, Online, Accessible)</li>
+                  <li><strong>capacity</strong> — Maximum seating capacity</li>
+                  <li><strong>accessible</strong> — Whether the venue is accessible (yes/no)</li>
+                  <li><strong>online</strong> — Whether the venue supports online debates (yes/no)</li>
                 </ul>
               </div>
 
