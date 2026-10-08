@@ -20,6 +20,7 @@ service cloud.firestore {
       // Tournament records and private participant data are administrator-only.
       match /{collection}/{document} {
         allow read, write: if collection != "auditEvents" &&
+          collection != "auditReleases" &&
           collection != "data" &&
           isTournamentAdmin();
       }
@@ -33,6 +34,11 @@ service cloud.firestore {
           request.resource.data.id == eventId &&
           request.resource.data.tournamentId == tournamentId;
         allow update, delete: if false;
+      }
+
+      // Released audit snapshots are written only by the authorized server route.
+      match /auditReleases/{releaseId} {
+        allow read, write: if false;
       }
 
       // Legacy bundled tournament data is administrator-only.

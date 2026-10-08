@@ -156,6 +156,9 @@ export interface AuditEvent {
   id: string;
   tournamentId: string;
   timestamp: string;
+  sequence?: number;
+  previousHash?: string;
+  hash?: string;
   actorId?: string;
   actorName?: string;
   actorType: "user" | "system" | "public";
@@ -165,6 +168,16 @@ export interface AuditEvent {
   debateId?: string;
   summary: string;
   details?: Record<string, unknown>;
+}
+
+export interface PublicAuditEvent {
+  sequence: number;
+  timestamp: string;
+  category: AuditCategory;
+  action: string;
+  summary: string;
+  previousHash: string;
+  hash: string;
 }
 
 export type RoundStage = "preliminary" | "elimination";

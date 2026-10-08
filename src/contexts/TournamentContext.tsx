@@ -46,6 +46,7 @@ import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
+import { buildAuditChain } from "@/lib/auditLog";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -132,6 +133,7 @@ export interface TournamentContextType {
     debateId?: string;
     details?: Record<string, unknown>;
   }) => Promise<void>;
+  releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
 }
 
@@ -749,6 +751,81 @@ export function TournamentProvider({
         cleanUndefined(event)
       );
     }
+  };
+
+  const releaseAuditLog: TournamentContextType["releaseAuditLog"] = async () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin) {
+      throw new Error("Sign in as a tournament administrator to release the audit log.");
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("You are offline. Connect to the internet before releasing the audit log.");
+    }
+
+    const chain = await buildAuditChain(auditEventsRef.current);
+    const token = await user.getIdToken();
+    const response = await fetch(
+      `/api/tournaments/${encodeURIComponent(tournament.id)}/audit/release`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          events: chain.map(({ id, timestamp, category, action, summary }) => ({
+            id,
+            timestamp,
+            category,
+            action,
+            summary,
+          })),
+        }),
+      }
+    );
+    const responseText = await response.text();
+    let result: {
+      error?: string;
+      releasedAt?: string;
+      eventCount?: number;
+      events?: Array<{
+        id: string;
+        sequence: number;
+        previousHash: string;
+        hash: string;
+      }>;
+    };
+    try {
+      result = JSON.parse(responseText) as typeof result;
+    } catch {
+      throw new Error(`The audit release service returned an invalid response (HTTP ${response.status}).`);
+    }
+    if (!response.ok) {
+      throw new Error(result.error || "Could not release the audit log.");
+    }
+    if (
+      typeof result.releasedAt !== "string" ||
+      typeof result.eventCount !== "number" ||
+      !Array.isArray(result.events) ||
+      result.events.length !== chain.length
+    ) {
+      throw new Error("The audit release service returned incomplete release details.");
+    }
+
+    const releasedHashes = new Map(result.events.map((event) => [event.id, event]));
+    const updated = auditEventsRef.current.map((event) => {
+      const released = releasedHashes.get(event.id);
+      if (!released) return event;
+      return {
+        ...event,
+        sequence: released.sequence,
+        previousHash: released.previousHash,
+        hash: released.hash,
+      };
+    });
+    auditEventsRef.current = updated;
+    setAuditEvents(updated);
+    persistLocal("auditEvents", updated);
+    return { releasedAt: result.releasedAt, eventCount: result.eventCount };
   };
 
   const hideRevealedAdjudicators = async (roundIds: Set<string>) => {
@@ -2443,6 +2520,7 @@ export function TournamentProvider({
         proceedToNextEliminationRound,
         addFeedback,
         recordAuditEvent,
+        releaseAuditLog,
         generatePrivateUrlKeys,
       }}
     >
