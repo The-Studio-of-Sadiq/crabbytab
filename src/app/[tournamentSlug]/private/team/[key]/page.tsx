@@ -27,7 +27,7 @@ export default function TeamPrivatePortalPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
   const privateKey = params.key as string;
-  const [teamPortalLoading, setTeamPortalLoading] = useState(true);
+  const [teamPortalLoading, setTeamPortalLoading] = useState(false);
 
   const {
     tournament,
@@ -40,21 +40,88 @@ export default function TeamPrivatePortalPage() {
     feedback,
     addFeedback,
     updateTeam,
+    syncPrivatePortal,
     loadPrivateTeamPortal,
   } = useTournament();
   const loadPrivateTeamPortalRef = useRef(loadPrivateTeamPortal);
   loadPrivateTeamPortalRef.current = loadPrivateTeamPortal;
-  const loadedPortalFor = useRef("");
+  const syncPrivatePortalRef = useRef(syncPrivatePortal);
+  syncPrivatePortalRef.current = syncPrivatePortal;
+  const rememberedPasscodeAttemptedFor = useRef("");
+  const rememberedPasscodeKey = `crabbytab_team_passcode_${tournamentSlug}_${privateKey}`;
+  const [enteredPasscode, setEnteredPasscode] = useState("");
+  const [activePasscode, setActivePasscode] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
+  const [passcodeError, setPasscodeError] = useState("");
+  const [verifiedPasscodeFor, setVerifiedPasscodeFor] = useState("");
 
   useEffect(() => {
-    if (loading || !tournament || loadedPortalFor.current === privateKey) return;
-    loadedPortalFor.current = privateKey;
-    void loadPrivateTeamPortalRef.current(privateKey).catch((error) => {
-      console.error("Could not load private team portal:", error);
-    }).finally(() => setTeamPortalLoading(false));
-  }, [loading, tournament, privateKey]);
+    if (
+      loading ||
+      !tournament ||
+      typeof window === "undefined" ||
+      rememberedPasscodeAttemptedFor.current === privateKey
+    ) return;
+    const remembered = localStorage.getItem(rememberedPasscodeKey);
+    if (!remembered) return;
+    rememberedPasscodeAttemptedFor.current = privateKey;
+    setTeamPortalLoading(true);
+    void loadPrivateTeamPortalRef.current(privateKey, remembered)
+      .then(() => {
+        setEnteredPasscode(remembered);
+        setActivePasscode(remembered);
+        setVerifiedPasscodeFor(privateKey);
+        setRememberMe(true);
+      })
+      .catch((error) => {
+        if (error instanceof Error && error.message === "Invalid team link or passcode.") {
+          localStorage.removeItem(rememberedPasscodeKey);
+        }
+      })
+      .finally(() => setTeamPortalLoading(false));
+  }, [loading, tournament, privateKey, rememberedPasscodeKey]);
 
-  // The unique private URL key is the team's passcode.
+  useEffect(() => {
+    if (verifiedPasscodeFor !== privateKey || !activePasscode) return;
+    const sync = () => {
+      if (navigator.onLine) {
+        void syncPrivatePortalRef.current(privateKey, activePasscode).catch((error) => {
+          console.error("Could not sync team portal:", error);
+        });
+      }
+    };
+    sync();
+    window.addEventListener("online", sync);
+    return () => window.removeEventListener("online", sync);
+  }, [activePasscode, privateKey, verifiedPasscodeFor]);
+
+  const handlePasscodeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const passcode = enteredPasscode.trim();
+    if (!passcode) {
+      setPasscodeError("Enter the personal passcode provided by the tournament tabroom.");
+      return;
+    }
+    setPasscodeError("");
+    rememberedPasscodeAttemptedFor.current = privateKey;
+    setTeamPortalLoading(true);
+    try {
+      await loadPrivateTeamPortal(privateKey, passcode);
+      setActivePasscode(passcode);
+      setVerifiedPasscodeFor(privateKey);
+      if (rememberMe) {
+        localStorage.setItem(rememberedPasscodeKey, passcode);
+      } else {
+        localStorage.removeItem(rememberedPasscodeKey);
+      }
+    } catch (error) {
+      setPasscodeError(error instanceof Error ? error.message : "Could not verify this passcode.");
+    } finally {
+      setTeamPortalLoading(false);
+    }
+  };
+
+  // The private URL key identifies the team; the passcode is verified separately.
   const team = useMemo(() => {
     return teams.find((t) => t.privateUrlKey === privateKey);
   }, [teams, privateKey]);
@@ -69,9 +136,12 @@ export default function TeamPrivatePortalPage() {
 
   // Feedback Modal State
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackTargetType, setFeedbackTargetType] = useState<"adjudicator" | "team">("adjudicator");
   const [feedbackTargetAdjId, setFeedbackTargetAdjId] = useState("");
   const [feedbackTargetAdjName, setFeedbackTargetAdjName] = useState("");
   const [feedbackTargetAdjRole, setFeedbackTargetAdjRole] = useState("");
+  const [feedbackTargetTeamId, setFeedbackTargetTeamId] = useState("");
+  const [feedbackTargetTeamName, setFeedbackTargetTeamName] = useState("");
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
@@ -94,7 +164,7 @@ export default function TeamPrivatePortalPage() {
       await updateTeam({
         ...team,
         checkedIn: !team.checkedIn,
-      }, privateKey);
+      }, activePasscode);
     } catch (error) {
       setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
     } finally {
@@ -150,14 +220,50 @@ export default function TeamPrivatePortalPage() {
     );
   };
 
+  const hasSubmittedTeamFeedback = (targetId: string, debateId: string) => {
+    if (!team) return false;
+    return feedback.some(
+      (item) =>
+        item.sourceId === team.id &&
+        item.targetType === "team" &&
+        item.targetTeamId === targetId &&
+        item.debateId === debateId
+    );
+  };
+
+  const getSubmittedTeamFeedback = (targetId: string, debateId: string) => {
+    if (!team) return null;
+    return feedback.find(
+      (item) =>
+        item.sourceId === team.id &&
+        item.targetType === "team" &&
+        item.targetTeamId === targetId &&
+        item.debateId === debateId
+    );
+  };
+
   // Open feedback modal pre-filled
   const handleOpenFeedbackModal = (
     targetAdj: { id: string; name: string; role: string },
     debate: Debate
   ) => {
+    setFeedbackTargetType("adjudicator");
     setFeedbackTargetAdjId(targetAdj.id);
     setFeedbackTargetAdjName(targetAdj.name);
     setFeedbackTargetAdjRole(targetAdj.role);
+    setFeedbackDebateId(debate.id);
+    setFeedbackRoundId(debate.roundId);
+    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackAgree(true);
+    setFeedbackComments("");
+    setFeedbackError("");
+    setShowFeedbackModal(true);
+  };
+
+  const handleOpenTeamFeedbackModal = (targetTeam: { id: string; name: string }, debate: Debate) => {
+    setFeedbackTargetType("team");
+    setFeedbackTargetTeamId(targetTeam.id);
+    setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
     setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
@@ -183,20 +289,26 @@ export default function TeamPrivatePortalPage() {
       await addFeedback({
         debateId: feedbackDebateId,
         roundId: feedbackRoundId,
-        targetAdjudicatorId: feedbackTargetAdjId,
-        targetAdjudicatorName: feedbackTargetAdjName,
+        targetType: feedbackTargetType,
+        ...(feedbackTargetType === "adjudicator" ? {
+          targetAdjudicatorId: feedbackTargetAdjId,
+          targetAdjudicatorName: feedbackTargetAdjName,
+        } : {
+          targetTeamId: feedbackTargetTeamId,
+          targetTeamName: feedbackTargetTeamName,
+        }),
         sourceType: "team",
         sourceId: team.id,
         sourceName: team.name,
         score: feedbackScore,
-        agreeWithDecision: feedbackAgree,
+        ...(feedbackTargetType === "adjudicator" ? { agreeWithDecision: feedbackAgree } : {}),
         comments: feedbackComments.trim(),
         confirmed: true,
-      }, privateKey);
+      }, activePasscode, privateKey);
       setShowFeedbackModal(false);
-      setFeedbackSuccessNotice(
-        `Feedback for ${feedbackTargetAdjName} (${feedbackTargetAdjRole}) was recorded successfully.`
-      );
+      const targetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
+      const targetRole = feedbackTargetType === "adjudicator" ? ` (${feedbackTargetAdjRole})` : "";
+      setFeedbackSuccessNotice(`Feedback for ${targetName}${targetRole} was recorded successfully.`);
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
     } catch (error) {
       setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
@@ -205,7 +317,7 @@ export default function TeamPrivatePortalPage() {
     }
   };
 
-  if (loading || teamPortalLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="text-center space-y-2">
@@ -232,6 +344,62 @@ export default function TeamPrivatePortalPage() {
             Visit Public Tournament Page
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  if (verifiedPasscodeFor !== privateKey) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <form
+          onSubmit={handlePasscodeSubmit}
+          className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 shadow-sm space-y-5"
+        >
+          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <div className="text-center space-y-2">
+            <h1 className="text-lg font-bold text-gray-900">Team passcode required</h1>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Enter the personal passcode provided by the tournament tabroom to open your private portal.
+            </p>
+          </div>
+          <label className="block text-xs font-semibold text-gray-700">
+            Personal passcode
+            <input
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={enteredPasscode}
+              onChange={(event) => {
+                setEnteredPasscode(event.target.value);
+                setPasscodeError("");
+              }}
+              className="mt-1.5 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              required
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+              className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Remember me on this device
+          </label>
+          {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
+          <button
+            type="submit"
+            disabled={teamPortalLoading}
+            className="w-full px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-700 transition disabled:opacity-50"
+          >
+            {teamPortalLoading ? "Verifying…" : "Open private portal"}
+          </button>
+          <p className="text-center text-[11px] text-gray-500">
+            {tournament?.shortName || tournament?.name || "Tournament"}
+          </p>
+        </form>
       </div>
     );
   }
@@ -461,6 +629,14 @@ export default function TeamPrivatePortalPage() {
                 });
               });
 
+              const opposingTeams = Array.from(
+                new Map(
+                  Object.values(debate.teams || {})
+                    .filter((slot) => slot?.teamId && slot.teamId !== team.id)
+                    .map((slot) => [slot!.teamId, slot!] as const)
+                ).values()
+              );
+
               return (
                 <div
                   key={debate.id}
@@ -641,6 +817,54 @@ export default function TeamPrivatePortalPage() {
                         )}
                       </div>
                     )}
+
+                    {feedbackEnabled && (
+                      <div className="pt-3 border-t border-gray-100 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                            <Users className="w-4 h-4 text-emerald-600" />
+                            <span>Feedback on Opponent Teams</span>
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-mono">
+                            Rating Scale: {minFeedbackScore}–{maxFeedbackScore}
+                          </span>
+                        </div>
+                        {opposingTeams.length === 0 ? (
+                          <p className="text-[11px] text-gray-500 italic">No opponent teams are assigned to this debate.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                            {opposingTeams.map((opponent) => {
+                              const submitted = hasSubmittedTeamFeedback(opponent.teamId, debate.id);
+                              const pastFeedback = getSubmittedTeamFeedback(opponent.teamId, debate.id);
+                              return (
+                                <div
+                                  key={opponent.teamId}
+                                  className="p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between gap-2"
+                                >
+                                  <span className="font-bold text-gray-900 text-xs">{opponent.teamName || "Opponent team"}</span>
+                                  {submitted ? (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded">
+                                      Done ({pastFeedback?.score})
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenTeamFeedbackModal({
+                                        id: opponent.teamId,
+                                        name: opponent.teamName || "Opponent team",
+                                      }, debate)}
+                                      className="px-3 py-1 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold transition"
+                                    >
+                                      Submit Feedback
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -656,7 +880,9 @@ export default function TeamPrivatePortalPage() {
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2">
                 <MessageSquareHeart className="w-5 h-5 text-pink-600" />
-                <h3 className="font-bold text-gray-900 text-sm">Adjudicator Feedback</h3>
+                <h3 className="font-bold text-gray-900 text-sm">
+                  {feedbackTargetType === "adjudicator" ? "Adjudicator Feedback" : "Opponent Team Feedback"}
+                </h3>
               </div>
               <button
                 type="button"
@@ -677,12 +903,18 @@ export default function TeamPrivatePortalPage() {
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200 flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] text-gray-500 font-bold uppercase block">Target Adjudicator</span>
-                  <span className="text-sm font-bold text-gray-900">{feedbackTargetAdjName}</span>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase block">
+                    Target {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Opponent Team"}
+                  </span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName}
+                  </span>
                 </div>
-                <span className="text-[11px] font-semibold text-gray-600 px-2 py-0.5 rounded bg-white border border-gray-200">
-                  {feedbackTargetAdjRole}
-                </span>
+                {feedbackTargetType === "adjudicator" && (
+                  <span className="text-[11px] font-semibold text-gray-600 px-2 py-0.5 rounded bg-white border border-gray-200">
+                    {feedbackTargetAdjRole}
+                  </span>
+                )}
               </div>
 
               <div>
@@ -703,7 +935,7 @@ export default function TeamPrivatePortalPage() {
                 />
               </div>
 
-              <div>
+              {feedbackTargetType === "adjudicator" && <div>
                 <label className="font-semibold text-gray-700 block mb-1.5">
                   Did you agree with this adjudicator&apos;s decision/call?
                 </label>
@@ -733,17 +965,19 @@ export default function TeamPrivatePortalPage() {
                     <span>No, Disagreed</span>
                   </button>
                 </div>
-              </div>
+              </div>}
 
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">
-                  Constructive Feedback & Justification (Confidential to Adjudication Core)
+                  {feedbackTargetType === "adjudicator" ? "Constructive Feedback & Justification" : "Constructive Feedback on Team Performance"} (Confidential to Adjudication Core)
                 </label>
                 <textarea
                   rows={3}
                   value={feedbackComments}
                   onChange={(e) => setFeedbackComments(e.target.value)}
-                  placeholder="Explain constructive points: quality of oral adjudication, tracking of clash, fairness..."
+                  placeholder={feedbackTargetType === "adjudicator"
+                    ? "Explain constructive points: quality of oral adjudication, tracking of clash, fairness..."
+                    : "Comment on the team’s engagement, argumentation, and conduct..."}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 />
               </div>

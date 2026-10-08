@@ -135,13 +135,6 @@ export interface TournamentContextType {
   releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
 }
-if (result.team) {
-  setTeams((current) => [
-    ...current.filter((item) => item.id !== result.team!.id),
-    result.team!,
-  ]);
-}
-
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
 const BATCH_CHUNK_SIZE = 400;

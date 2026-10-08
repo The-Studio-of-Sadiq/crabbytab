@@ -38,6 +38,7 @@ export default function PrivateUrlsManagementPage() {
     institutions,
     generatePrivateUrlKeys,
     updateAdjudicator,
+    updateTeam,
   } = useTournament();
 
   const [activeTab, setActiveTab] = useState<"adjudicators" | "teams">("adjudicators");
@@ -52,7 +53,7 @@ export default function PrivateUrlsManagementPage() {
   React.useEffect(() => {
     if (loading) return;
     const missingAdjCredentials = adjudicators.some((a) => !a.privateUrlKey || !a.privatePasscode);
-    const missingTeamKeys = teams.some((t) => !t.privateUrlKey);
+    const missingTeamKeys = teams.some((t) => !t.privateUrlKey || !t.privatePasscode);
     if (missingAdjCredentials || missingTeamKeys) {
       generatePrivateUrlKeys(false);
     }
@@ -82,6 +83,17 @@ export default function PrivateUrlsManagementPage() {
     setActionError("");
     try {
       await updateAdjudicator({ ...adjudicator, privatePasscode: generatePrivateKey() });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not generate the passcode.");
+    }
+  };
+
+  const handleGenerateTeamPasscode = async (teamId: string) => {
+    const team = teams.find((item) => item.id === teamId);
+    if (!team) return;
+    setActionError("");
+    try {
+      await updateTeam({ ...team, privatePasscode: generatePrivateKey() });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not generate the passcode.");
     }
@@ -123,13 +135,13 @@ export default function PrivateUrlsManagementPage() {
         lines.push(`${a.name}\t${a.institutionName || "Unaffiliated"}\t${a.trainee ? "Trainee" : "Judge"}\t${url}\t${a.privatePasscode || ""}`);
       });
     } else {
-      lines.push("Team Name\tInstitution\tSpeakers\tPrivate URL");
+      lines.push("Team Name\tInstitution\tSpeakers\tPrivate URL\tPersonal Passcode");
       filteredTeams.forEach((t) => {
         const key = t.privateUrlKey;
         if (!key) return;
         const url = getAbsolutePrivateUrl(tournamentSlug, "team", key);
         const spks = (t.speakers || []).map((s) => s.name).join(", ");
-        lines.push(`${t.name}\t${t.institutionName || "Unaffiliated"}\t${spks}\t${url}`);
+        lines.push(`${t.name}\t${t.institutionName || "Unaffiliated"}\t${spks}\t${url}\t${t.privatePasscode || ""}`);
       });
     }
 
@@ -205,7 +217,7 @@ export default function PrivateUrlsManagementPage() {
             <span>Team Private URLs (Feedback Only)</span>
           </div>
           <p className="text-emerald-900 leading-relaxed text-[11px]">
-            Teams receive a private link to check their debate room, side, and assigned panel, and{" "}
+            Teams receive a private link and separate passcode to check their debate room, side, and assigned panel, and{" "}
             <strong>submit feedback on the adjudicators who judged them</strong>. Ballots and scores cannot be modified by teams.
           </p>
         </div>
@@ -395,13 +407,14 @@ export default function PrivateUrlsManagementPage() {
                   <th className="py-2.5 px-4">Institution</th>
                   <th className="py-2.5 px-4">Speakers</th>
                   <th className="py-2.5 px-4">Private URL Link (Feedback Only)</th>
+                  <th className="py-2.5 px-4">Personal Passcode</th>
                   <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredTeams.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-gray-500">
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
                       No teams found.
                     </td>
                   </tr>
@@ -427,6 +440,30 @@ export default function PrivateUrlsManagementPage() {
                               {path || "Generating private link…"}
                             </span>
                           </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
+                          {t.privatePasscode ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1">
+                                {t.privatePasscode}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(t.privatePasscode!, `${t.id}:passcode`)}
+                                className="rounded border border-gray-300 bg-white px-2 py-1 font-sans text-[10px] hover:bg-gray-50"
+                              >
+                                {copiedKey === `${t.id}:passcode` ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateTeamPasscode(t.id)}
+                              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-sans text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                            >
+                              Generate passcode
+                            </button>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1.5">
@@ -478,7 +515,7 @@ export default function PrivateUrlsManagementPage() {
         <div className="flex items-center space-x-2 text-gray-600">
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
           <span>
-          Adjudicators must use their separate personal passcode after opening the link. Share each link and passcode privately.
+          Adjudicators and teams must use a separate personal passcode after opening the link. Share each link and passcode privately.
           </span>
         </div>
 

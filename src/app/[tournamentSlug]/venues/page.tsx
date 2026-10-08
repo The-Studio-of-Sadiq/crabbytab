@@ -13,12 +13,14 @@ import {
   Search,
   FileSpreadsheet,
   X,
+  Pencil,
 } from "lucide-react";
 import { Venue } from "@/types";
 
 export default function VenuesPage() {
   const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue } = useTournament();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingVenue, setEditingVenue] = useState<Venue | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPriority, setNewPriority] = useState(10);
@@ -41,15 +43,19 @@ export default function VenuesPage() {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    await addVenue({
+    const venueFields = {
       name: newName.trim(),
       priority: newPriority,
       category: newCategory.trim() || undefined,
       capacity: newCapacity ? Number(newCapacity) : undefined,
       accessible: newAccessible,
       online: newOnline,
-      available: true,
-    });
+    };
+    if (editingVenue) {
+      await updateVenue({ ...editingVenue, ...venueFields });
+    } else {
+      await addVenue({ ...venueFields, available: true });
+    }
 
     setNewName("");
     setNewPriority(10);
@@ -57,7 +63,30 @@ export default function VenuesPage() {
     setNewCapacity("");
     setNewAccessible(false);
     setNewOnline(false);
+    setEditingVenue(null);
     setShowAddModal(false);
+  };
+
+  const openEditVenue = (venue: Venue) => {
+    setEditingVenue(venue);
+    setNewName(venue.name);
+    setNewPriority(venue.priority || 10);
+    setNewCategory(venue.category || "");
+    setNewCapacity(venue.capacity === undefined ? "" : String(venue.capacity));
+    setNewAccessible(venue.accessible === true);
+    setNewOnline(venue.online === true);
+    setShowAddModal(true);
+  };
+
+  const openAddVenue = () => {
+    setEditingVenue(null);
+    setNewName("");
+    setNewPriority(10);
+    setNewCategory("");
+    setNewCapacity("");
+    setNewAccessible(false);
+    setNewOnline(false);
+    setShowAddModal(true);
   };
 
   const toggleAvailability = async (venue: Venue) => {
@@ -140,7 +169,7 @@ export default function VenuesPage() {
             <span>Import CSV</span>
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={openAddVenue}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -254,6 +283,15 @@ export default function VenuesPage() {
                   </td>
                   <td className="text-right">
                     <button
+                      type="button"
+                      onClick={() => openEditVenue(venue)}
+                      className="p-1 text-gray-400 hover:text-blue-600 rounded transition"
+                      title={`Edit ${venue.name}`}
+                      aria-label={`Edit ${venue.name}`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={() => {
                         if (confirm(`Delete venue ${venue.name}?`)) deleteVenue(venue.id);
                       }}
@@ -276,7 +314,7 @@ export default function VenuesPage() {
           <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
             <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
               <MapPin className="w-5 h-5 text-emerald-600" />
-              <span>Add New Venue</span>
+              <span>{editingVenue ? "Edit Venue" : "Add New Venue"}</span>
             </h3>
             <form onSubmit={handleCreateVenue} className="space-y-3 text-sm">
               <div>
@@ -353,7 +391,7 @@ export default function VenuesPage() {
                   type="submit"
                   className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
                 >
-                  Add Room
+                  {editingVenue ? "Save Changes" : "Add Room"}
                 </button>
               </div>
             </form>

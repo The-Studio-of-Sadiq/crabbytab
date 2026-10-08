@@ -182,9 +182,20 @@ export async function POST(request: NextRequest) {
       } else {
         const debate = assignedDebates.get(debateId)!;
         const panel = debate.adjudicators;
-        const targetType = record.targetType === undefined ? "adjudicator" : record.targetType;
-        const targetAdjudicatorId = record.targetAdjudicatorId;
-        const targetTeamId = record.targetTeamId;
+        const targetType = record.targetType === undefined
+          ? "adjudicator"
+          : record.targetType === "adjudicator" || record.targetType === "team"
+            ? record.targetType
+            : undefined;
+        if (!targetType) {
+          return NextResponse.json({ error: "Feedback target type is invalid." }, { status: 400 });
+        }
+        const targetAdjudicatorId = typeof record.targetAdjudicatorId === "string"
+          ? record.targetAdjudicatorId
+          : undefined;
+        const targetTeamId = typeof record.targetTeamId === "string"
+          ? record.targetTeamId
+          : undefined;
         const score = record.score;
         const targetAdjudicatorIsAssigned =
           typeof targetAdjudicatorId === "string" &&
@@ -224,7 +235,7 @@ export async function POST(request: NextRequest) {
           debateId: debate.id,
           targetType,
           ...(targetType === "adjudicator" ? {
-            targetAdjudicatorId,
+            targetAdjudicatorId: targetAdjudicatorId!,
             targetAdjudicatorName:
               panel.chairId === targetAdjudicatorId
                 ? panel.chairName || ""
@@ -232,8 +243,8 @@ export async function POST(request: NextRequest) {
                   ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId as string)] || ""
                   : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId as string) ?? -1] || "",
           } : {
-            targetTeamId,
-            targetTeamName: teams.get(targetTeamId as string)?.data().name || targetTeamSlot?.teamName || "",
+            targetTeamId: targetTeamId!,
+            targetTeamName: teams.get(targetTeamId as string)?.name || targetTeamSlot?.teamName || "",
           }),
           sourceType: actorType,
           sourceId: actorDocument.id,

@@ -97,6 +97,7 @@ export default function AdjudicatorPrivatePortalPage() {
           localStorage.removeItem(rememberedPasscodeKey);
         }
       });
+
   }, [loading, tournament, privateKey, rememberedPasscodeKey]);
 
   useEffect(() => {
@@ -138,8 +139,11 @@ export default function AdjudicatorPrivatePortalPage() {
 
   // Feedback Modal State
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackTargetType, setFeedbackTargetType] = useState<"adjudicator" | "team">("adjudicator");
   const [feedbackTargetAdjId, setFeedbackTargetAdjId] = useState("");
   const [feedbackTargetAdjName, setFeedbackTargetAdjName] = useState("");
+  const [feedbackTargetTeamId, setFeedbackTargetTeamId] = useState("");
+  const [feedbackTargetTeamName, setFeedbackTargetTeamName] = useState("");
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
@@ -248,10 +252,46 @@ export default function AdjudicatorPrivatePortalPage() {
     );
   };
 
+  const hasSubmittedTeamFeedback = (targetId: string, debateId: string) => {
+    if (!adjudicator) return false;
+    return feedback.some(
+      (item) =>
+        item.sourceId === adjudicator.id &&
+        item.targetType === "team" &&
+        item.targetTeamId === targetId &&
+        item.debateId === debateId
+    );
+  };
+
+  const getSubmittedTeamFeedback = (targetId: string, debateId: string) => {
+    if (!adjudicator) return null;
+    return feedback.find(
+      (item) =>
+        item.sourceId === adjudicator.id &&
+        item.targetType === "team" &&
+        item.targetTeamId === targetId &&
+        item.debateId === debateId
+    );
+  };
+
   // Open feedback modal pre-filled
   const handleOpenFeedbackModal = (targetAdj: { id: string; name: string }, debate: Debate) => {
+    setFeedbackTargetType("adjudicator");
     setFeedbackTargetAdjId(targetAdj.id);
     setFeedbackTargetAdjName(targetAdj.name);
+    setFeedbackDebateId(debate.id);
+    setFeedbackRoundId(debate.roundId);
+    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackAgree(true);
+    setFeedbackComments("");
+    setFeedbackError("");
+    setShowFeedbackModal(true);
+  };
+
+  const handleOpenTeamFeedbackModal = (targetTeam: { id: string; name: string }, debate: Debate) => {
+    setFeedbackTargetType("team");
+    setFeedbackTargetTeamId(targetTeam.id);
+    setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
     setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
@@ -277,8 +317,14 @@ export default function AdjudicatorPrivatePortalPage() {
       await addFeedback({
         debateId: feedbackDebateId,
         roundId: feedbackRoundId,
-        targetAdjudicatorId: feedbackTargetAdjId,
-        targetAdjudicatorName: feedbackTargetAdjName,
+        targetType: feedbackTargetType,
+        ...(feedbackTargetType === "adjudicator" ? {
+          targetAdjudicatorId: feedbackTargetAdjId,
+          targetAdjudicatorName: feedbackTargetAdjName,
+        } : {
+          targetTeamId: feedbackTargetTeamId,
+          targetTeamName: feedbackTargetTeamName,
+        }),
         sourceType: "adjudicator",
         sourceId: adjudicator.id,
         sourceName: adjudicator.name,
@@ -288,7 +334,8 @@ export default function AdjudicatorPrivatePortalPage() {
         confirmed: true,
       }, activePasscode, privateKey);
       setShowFeedbackModal(false);
-      setFeedbackSuccessNotice(`Feedback for ${feedbackTargetAdjName} was recorded successfully.`);
+      const targetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
+      setFeedbackSuccessNotice(`Feedback for ${targetName} was recorded successfully.`);
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
     } catch (error) {
       setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
@@ -973,6 +1020,47 @@ export default function AdjudicatorPrivatePortalPage() {
                             })}
                           </div>
                         )}
+
+                        <div className="pt-3 border-t border-gray-100 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                              <Users className="w-4 h-4 text-emerald-600" />
+                              <span>Submit Feedback on Teams</span>
+                            </span>
+                            <span className="text-[10px] text-gray-500 font-mono">
+                              Scale: {minFeedbackScore}–{maxFeedbackScore}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                            {Object.values(debate.teams || {}).filter((slot) => slot?.teamId).map((slot) => {
+                              const targetId = slot!.teamId;
+                              const targetName = teamsMap.get(targetId)?.name || slot!.teamName || "Team";
+                              const submitted = hasSubmittedTeamFeedback(targetId, debate.id);
+                              const pastFeedback = getSubmittedTeamFeedback(targetId, debate.id);
+                              return (
+                                <div
+                                  key={targetId}
+                                  className="p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between gap-2"
+                                >
+                                  <span className="font-bold text-gray-900 text-xs">{targetName}</span>
+                                  {submitted ? (
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded">
+                                      Done ({pastFeedback?.score})
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenTeamFeedbackModal({ id: targetId, name: targetName }, debate)}
+                                      className="px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold transition"
+                                    >
+                                      Rate
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -990,7 +1078,9 @@ export default function AdjudicatorPrivatePortalPage() {
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2">
                 <MessageSquareHeart className="w-5 h-5 text-pink-600" />
-                <h3 className="font-bold text-gray-900 text-sm">Submit Adjudicator Feedback</h3>
+                <h3 className="font-bold text-gray-900 text-sm">
+                  Submit {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"} Feedback
+                </h3>
               </div>
               <button
                 type="button"
@@ -1010,8 +1100,12 @@ export default function AdjudicatorPrivatePortalPage() {
 
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200">
-                <span className="text-[10px] text-gray-500 font-bold uppercase block">Target Adjudicator</span>
-                <span className="text-sm font-bold text-gray-900">{feedbackTargetAdjName}</span>
+                <span className="text-[10px] text-gray-500 font-bold uppercase block">
+                  Target {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"}
+                </span>
+                <span className="text-sm font-bold text-gray-900">
+                  {feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName}
+                </span>
               </div>
 
               <div>
@@ -1032,7 +1126,7 @@ export default function AdjudicatorPrivatePortalPage() {
                 />
               </div>
 
-              <div>
+              {feedbackTargetType === "adjudicator" && <div>
                 <label className="font-semibold text-gray-700 block mb-1.5">
                   Did you agree with this adjudicator&apos;s decision/contribution?
                 </label>
@@ -1062,17 +1156,19 @@ export default function AdjudicatorPrivatePortalPage() {
                     <span>No, Disagreed</span>
                   </button>
                 </div>
-              </div>
+              </div>}
 
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">
-                  Constructive Feedback & Notes (Confidential to Adjudication Core)
+                  {feedbackTargetType === "adjudicator" ? "Constructive Feedback & Notes" : "Constructive Feedback on Team Performance"} (Confidential to Adjudication Core)
                 </label>
                 <textarea
                   rows={3}
                   value={feedbackComments}
                   onChange={(e) => setFeedbackComments(e.target.value)}
-                  placeholder="Detail tracking of arguments, clarity of oral adjudication, engagement..."
+                  placeholder={feedbackTargetType === "adjudicator"
+                    ? "Detail tracking of arguments, clarity of oral adjudication, engagement..."
+                    : "Comment on the team’s engagement, argumentation, and conduct..."}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

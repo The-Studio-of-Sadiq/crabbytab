@@ -76,6 +76,7 @@ export default function FeedbackPage() {
   const ratingFeedback = feedback.filter(isFeedbackEligibleForRating);
   const adjFeedbackMap = new Map<string, { totalScore: number; count: number; agrees: number }>();
   ratingFeedback.forEach((f) => {
+    if (f.targetType === "team" || !f.targetAdjudicatorId) return;
     if (!adjFeedbackMap.has(f.targetAdjudicatorId)) {
       adjFeedbackMap.set(f.targetAdjudicatorId, { totalScore: 0, count: 0, agrees: 0 });
     }
