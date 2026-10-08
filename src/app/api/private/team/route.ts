@@ -1,14 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Debate } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
 
 export const runtime = "nodejs";
+
+function getClientIp(request: NextRequest): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  const forwardedIp = forwardedFor?.split(",")[0]?.trim();
+  return forwardedIp || request.headers.get("x-real-ip")?.trim() || "unknown";
+}
 
 function validDocumentId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
 export async function POST(request: NextRequest) {
+  let rateLimit: Awaited<ReturnType<typeof checkPrivateTeamRateLimit>>;
+  try {
+    rateLimit = await checkPrivateTeamRateLimit(getAdminFirestore(), getClientIp(request));
+  } catch (error) {
+    console.error("Could not enforce private team rate limit:", error);
+    return NextResponse.json(
+      { error: "Could not process private team request. Try again later." },
+      { status: 503 }
+    );
+  }
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many private team requests. Try again later." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await request.json();
