@@ -7,6 +7,7 @@ import {
   calculateAdjDebateConflict,
   calculateAdjudicatorFeedbackScores,
   calculateDebatePriorities,
+  buildPastAdjTeams,
   computeBreakLiveness,
   effectiveAdjScore,
   DebatePriorityInfo,
@@ -76,6 +77,16 @@ export default function AllocationPage() {
     () => (activeRound ? debates.filter((d) => d.roundId === activeRound.id && !d.byeTeamId) : []),
     [debates, activeRound]
   );
+
+  const pastAdjudicatorTeams = useMemo(() => {
+    if (!activeRound) return new Map<string, Set<string>>();
+    const priorRoundIds = new Set(
+      rounds
+        .filter((round) => !round.cancelled && round.seq < activeRound.seq)
+        .map((round) => round.id)
+    );
+    return buildPastAdjTeams(debates.filter((debate) => priorRoundIds.has(debate.roundId)));
+  }, [activeRound, rounds, debates]);
 
   const teamsMap = useMemo(() => {
     const map = new Map<string, Team>();
@@ -680,6 +691,7 @@ export default function AllocationPage() {
                   <div
                     key={adj.id}
                     draggable
+                    onDragEnd={() => setDraggingJudge(null)}
                     onDragStart={(e) =>
                       handleDragStartJudge(e, {
                         type: "judge",
@@ -755,24 +767,22 @@ export default function AllocationPage() {
               const priority = debatePriorities.get(debate.id);
               const panelStrength = debatePanelStrengths.get(debate.id) ?? 0;
 
-              // Check clashes for dragging judge if hovered over this room
-              let dragJudgeClashPreview: string[] = [];
-              if (draggingJudge) {
-                const draggedAdj = adjsMap.get(draggingJudge.adjId);
-                if (draggedAdj) {
-                  const check = calculateAdjDebateConflict(draggedAdj, debateTeams);
-                  if (check.hasClash) {
-                    dragJudgeClashPreview = check.reasons;
-                  }
-                }
-              }
+              const previewJudge = adjsMap.get(draggingJudge?.adjId ?? selectedAdjForManual?.id ?? "");
+              const judgeClashPreview = previewJudge
+                ? calculateAdjDebateConflict(previewJudge, debateTeams, pastAdjudicatorTeams)
+                : null;
+              const dragJudgeClashPreview = judgeClashPreview?.reasons ?? [];
 
               // Check clashes for currently assigned chair
               let chairConflicts: string[] = [];
               if (debate.adjudicators?.chairId) {
                 const chairAdj = adjsMap.get(debate.adjudicators.chairId);
                 if (chairAdj) {
-                  chairConflicts = calculateAdjDebateConflict(chairAdj, debateTeams).reasons;
+                  chairConflicts = calculateAdjDebateConflict(
+                    chairAdj,
+                    debateTeams,
+                    pastAdjudicatorTeams
+                  ).reasons;
                 }
               }
 
@@ -787,7 +797,11 @@ export default function AllocationPage() {
               return (
                 <div
                   key={debate.id}
-                  className="bg-white border border-[#d0d7de] rounded-lg shadow-2xs overflow-hidden"
+                  className={`bg-white border rounded-lg shadow-2xs overflow-hidden ${
+                    judgeClashPreview?.hasClash
+                      ? "border-red-400 ring-1 ring-red-200"
+                      : "border-[#d0d7de]"
+                  }`}
                 >
                   {/* Room & Teams Bar with Priority Info */}
                   <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -840,6 +854,33 @@ export default function AllocationPage() {
                     </div>
                   </div>
 
+                  {judgeClashPreview?.hasClash && previewJudge && (
+                    <div className="px-3 py-2 bg-red-50 border-b border-red-200">
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                        <span className="font-bold text-red-800">
+                          {previewJudge.name} clashes in this debate:
+                        </span>
+                        {judgeClashPreview.hasInstitutionalClash && (
+                          <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 font-semibold">
+                            Institutional
+                          </span>
+                        )}
+                        {judgeClashPreview.hasHistoryClash && (
+                          <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
+                            History
+                          </span>
+                        )}
+                        {judgeClashPreview.hasPersonalClash && (
+                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-semibold">
+                            Personal
+                          </span>
+                        )}
+                        <span className="text-red-700">{judgeClashPreview.reasons.join("; ")}</span>
+                      </div>
+                    </div>
+                  )}
+
                   {chairConflicts.length > 0 && (
                     <div className="px-3 py-1.5 bg-red-50 border-b border-red-200">
                       <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-red-700">
@@ -872,6 +913,7 @@ export default function AllocationPage() {
                           {debate.adjudicators?.chairName ? (
                             <div
                               draggable
+                              onDragEnd={() => setDraggingJudge(null)}
                               onDragStart={(e) =>
                                 handleDragStartJudge(e, {
                                   type: "judge",
@@ -962,12 +1004,19 @@ export default function AllocationPage() {
                         {(debate.adjudicators?.panellistIds || []).map((pId, pIdx) => {
                           const pName = debate.adjudicators.panellistNames[pIdx];
                           const pAdj = adjsMap.get(pId);
-                          const pClashes = pAdj ? calculateAdjDebateConflict(pAdj, debateTeams).reasons : [];
+                          const pClashes = pAdj
+                            ? calculateAdjDebateConflict(
+                                pAdj,
+                                debateTeams,
+                                pastAdjudicatorTeams
+                              ).reasons
+                            : [];
 
                           return (
                             <div
                               key={pId}
                               draggable
+                              onDragEnd={() => setDraggingJudge(null)}
                               onDragStart={(e) =>
                                 handleDragStartJudge(e, {
                                   type: "judge",
@@ -1053,6 +1102,7 @@ export default function AllocationPage() {
                             <div
                               key={tId}
                               draggable
+                              onDragEnd={() => setDraggingJudge(null)}
                               onDragStart={(e) =>
                                 handleDragStartJudge(e, {
                                   type: "judge",
