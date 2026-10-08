@@ -2,8 +2,9 @@
 name: Bug report
 about: Report a reproducible problem with CrabbyTab
 title: "[Bug]: "
-labels: bug
-assignees: ""
+labels: bug, enhancement
+assignees: ''
+
 ---
 
 ## Describe the bug
