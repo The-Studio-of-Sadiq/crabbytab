@@ -82,7 +82,7 @@ export default function TournamentDashboardPage() {
           { n: "2", t: "Generate draw", h: `/${tournament?.slug}/draw` },
           { n: "3", t: "Allocate", h: `/${tournament?.slug}/allocation` },
           { n: "4", t: "Display", h: `/${tournament?.slug}/display` },
-          { n: "5", t: "Motions", h: `/${tournament?.slug}/motions` },
+          { n: "5", t: "Motions", h: `/${tournament?.slug}/imports/motions` },
           { n: "6", t: "Results", h: `/${tournament?.slug}/results` },
           { n: "7", t: "Standings", h: `/${tournament?.slug}/standings` },
         ].map((step) => (
@@ -207,7 +207,7 @@ export default function TournamentDashboardPage() {
       {/* Overview Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <Link
-          href={`/${tournament?.slug}/participants`}
+          href={`/${tournament?.slug}/imports/teams`}
           className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
         >
           <div className="flex items-center justify-between text-gray-500 mb-1">
@@ -221,7 +221,7 @@ export default function TournamentDashboardPage() {
         </Link>
 
         <Link
-          href={`/${tournament?.slug}/participants?tab=adjs`}
+          href={`/${tournament?.slug}/imports/adjudicators`}
           className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
         >
           <div className="flex items-center justify-between text-gray-500 mb-1">
@@ -235,7 +235,7 @@ export default function TournamentDashboardPage() {
         </Link>
 
         <Link
-          href={`/${tournament?.slug}/venues`}
+          href={`/${tournament?.slug}/imports/venues`}
           className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
         >
           <div className="flex items-center justify-between text-gray-500 mb-1">

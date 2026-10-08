@@ -153,7 +153,7 @@ export default function VenuesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
             <MapPin className="w-6 h-6 text-emerald-600" />
-            <span>Debate Venues &amp; Rooms</span>
+            <span>Venues</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
             Manage physical and online debate rooms, priority weights, and availability status.

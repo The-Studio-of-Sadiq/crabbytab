@@ -160,7 +160,7 @@ export default function MotionsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
             <Lightbulb className="w-6 h-6 text-amber-500" />
-            <span>Tournament Motions</span>
+            <span>Motions</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
             Manage debate motions, information slides, CSV batch imports, and per-round public release.

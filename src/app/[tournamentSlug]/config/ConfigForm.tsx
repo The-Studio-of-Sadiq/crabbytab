@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, Suspense } from "react";
-import { useSearchParams, useRouter, useParams } from "next/navigation";
+import React, { useEffect, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Sliders,
@@ -43,24 +42,18 @@ import {
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
 
-type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility" | "all";
+type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
-const SETTINGS_CATEGORIES: { id: SettingsCategory; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "draw", label: "Draw rules", icon: Shuffle },
-  { id: "rounds", label: "Round settings", icon: Clock },
-  { id: "format", label: "Format & Teams", icon: Shield },
-  { id: "scoring", label: "Scoring & Ballots", icon: FileCheck2 },
-  { id: "standings", label: "Standings rules", icon: Trophy },
-  { id: "visibility", label: "Public visibility", icon: Eye },
-  { id: "all", label: "All Settings", icon: Sliders },
-];
+const SETTINGS_CATEGORIES: Record<SettingsCategory, string> = {
+  draw: "Draw Rules",
+  rounds: "Round Settings",
+  format: "Format & Teams",
+  scoring: "Scoring & Ballots",
+  standings: "Standings Rules",
+  visibility: "Public Visibility",
+};
 
-function ConfigFormContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const params = useParams();
-  const tournamentSlug = params.tournamentSlug as string;
-
+function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const {
     tournament,
     saveTournament,
@@ -70,25 +63,6 @@ function ConfigFormContent() {
     setPreliminaryRoundCount,
     deleteRound,
   } = useTournament();
-
-  const categoryParam = searchParams.get("category") as SettingsCategory | null;
-  const initialCategory: SettingsCategory =
-    categoryParam && ["draw", "rounds", "format", "scoring", "standings", "visibility", "all"].includes(categoryParam)
-      ? categoryParam
-      : "all";
-
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(initialCategory);
-
-  useEffect(() => {
-    if (categoryParam && ["draw", "rounds", "format", "scoring", "standings", "visibility", "all"].includes(categoryParam)) {
-      setActiveCategory(categoryParam);
-    }
-  }, [categoryParam]);
-
-  const handleSelectCategory = (cat: SettingsCategory) => {
-    setActiveCategory(cat);
-    router.replace(`/${tournamentSlug}/config?category=${cat}`, { scroll: false });
-  };
 
   const defaultPrefs: TournamentPreferences = {
     teamsInDebate: 4,
@@ -227,8 +201,6 @@ function ConfigFormContent() {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  const showAll = activeCategory === "all";
-
   return (
     <div className="max-w-4xl space-y-6 pb-12">
       {/* Header */}
@@ -236,11 +208,8 @@ function ConfigFormContent() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
             <Sliders className="w-6 h-6 text-blue-600" />
-            <span>Tournament Configuration</span>
+            <span>{SETTINGS_CATEGORIES[category]}</span>
           </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Configure debate format rules, draw algorithms, scoring parameters, and public visibility.
-          </p>
         </div>
 
         {savedSuccess && (
@@ -251,34 +220,11 @@ function ConfigFormContent() {
         )}
       </div>
 
-      {/* Category Tabs Bar */}
-      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-[#d0d7de] pb-2 text-xs">
-        {SETTINGS_CATEGORIES.map((cat) => {
-          const Icon = cat.icon;
-          const isActive = activeCategory === cat.id;
-          return (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => handleSelectCategory(cat.id)}
-              className={`px-3 py-1.5 font-semibold rounded-md flex items-center gap-1.5 transition whitespace-nowrap ${
-                isActive
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{cat.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
       <form onSubmit={handleSave} className="space-y-6">
         {/* ============================================================ */}
         {/* 1. DRAW RULES (Tabbycat Draw Rules) */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "draw") && (
+        {category === "draw" && (
           <div className="space-y-5">
             {/* Header intro */}
             <div className="border-b border-gray-200 pb-2">
@@ -916,7 +862,7 @@ function ConfigFormContent() {
         {/* ============================================================ */}
         {/* 2. ROUND SETTINGS */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "rounds") && (
+        {category === "rounds" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
               <Clock className="w-4 h-4 text-blue-600" />
@@ -994,7 +940,7 @@ function ConfigFormContent() {
         {/* ============================================================ */}
         {/* 3. FORMAT & TEAMS */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "format") && (
+        {category === "format" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
               <Shield className="w-4 h-4 text-blue-600" />
@@ -1081,7 +1027,7 @@ function ConfigFormContent() {
         {/* ============================================================ */}
         {/* 4. SCORING & BALLOTS */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "scoring") && (
+        {category === "scoring" && (
           <div className="space-y-4">
             <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
               <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
@@ -1309,7 +1255,7 @@ function ConfigFormContent() {
         {/* ============================================================ */}
         {/* 5. STANDINGS RULES */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "standings") && (
+        {category === "standings" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-5">
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
               <Trophy className="w-4 h-4 text-amber-600" />
@@ -1384,7 +1330,7 @@ function ConfigFormContent() {
         {/* ============================================================ */}
         {/* 6. PUBLIC VISIBILITY */}
         {/* ============================================================ */}
-        {(showAll || activeCategory === "visibility") && (
+        {category === "visibility" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
               <Eye className="w-4 h-4 text-purple-600" />
@@ -1481,16 +1427,6 @@ function ConfigFormContent() {
   );
 }
 
-export default function ConfigPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="max-w-4xl p-6 text-sm text-gray-500">
-          Loading tournament configuration...
-        </div>
-      }
-    >
-      <ConfigFormContent />
-    </Suspense>
-  );
+export default function ConfigForm({ category }: { category: SettingsCategory }) {
+  return <ConfigFormContent category={category} />;
 }

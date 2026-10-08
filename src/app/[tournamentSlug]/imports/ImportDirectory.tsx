@@ -23,7 +23,11 @@ import {
 } from "lucide-react";
 import { Team, Adjudicator, Institution } from "@/types";
 
-export default function ParticipantsPage() {
+export default function ImportDirectory({
+  category,
+}: {
+  category: "institutions" | "teams" | "adjudicators";
+}) {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
 
@@ -46,7 +50,8 @@ export default function ParticipantsPage() {
     deleteInstitution,
   } = useTournament();
 
-  const [activeTab, setActiveTab] = useState<"teams" | "adjs" | "institutions">("teams");
+  const activeTab: "teams" | "adjs" | "institutions" =
+    category === "adjudicators" ? "adjs" : category;
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals state
@@ -341,11 +346,27 @@ export default function ParticipantsPage() {
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Users className="w-6 h-6 text-blue-600" />
-            <span>Participants Directory</span>
+            {activeTab === "institutions" ? (
+              <Building2 className="w-6 h-6 text-emerald-600" />
+            ) : activeTab === "teams" ? (
+              <Users className="w-6 h-6 text-blue-600" />
+            ) : (
+              <Users2 className="w-6 h-6 text-indigo-600" />
+            )}
+            <span>
+              {activeTab === "institutions"
+                ? "Institutions"
+                : activeTab === "teams"
+                ? "Teams"
+                : "Adjudicators"}
+            </span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Manage institutions, debating teams, speakers, and adjudicators with institutional clash validation.
+            {activeTab === "institutions"
+              ? "Manage institutions and affiliations used by teams and adjudicators."
+              : activeTab === "teams"
+              ? "Manage debating teams, speakers, affiliations, and team imports."
+              : "Manage adjudicators, affiliations, scores, and adjudicator imports."}
           </p>
         </div>
 
@@ -396,44 +417,6 @@ export default function ParticipantsPage() {
 
       {/* Tabs & Search */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setActiveTab("teams")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "teams"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Teams ({teams.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("adjs")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "adjs"
-                ? "bg-indigo-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <Users2 className="w-3.5 h-3.5" />
-            <span>Adjudicators ({adjudicators.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("institutions")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "institutions"
-                ? "bg-emerald-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Institutions ({institutions.length})</span>
-          </button>
-        </div>
-
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
           <input

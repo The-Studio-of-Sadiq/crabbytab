@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useMemo, useState, Suspense } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   LayoutDashboard,
@@ -28,6 +28,7 @@ import {
   History,
   Menu,
   X,
+  Building2,
 } from "lucide-react";
 
 function NavLink({
@@ -76,81 +77,45 @@ function NavLink({
   );
 }
 
-function ConfigDropdown({ tournamentSlug }: { tournamentSlug: string }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const isConfigPage =
-    pathname === `/${tournamentSlug}/config` || pathname.startsWith(`/${tournamentSlug}/config/`);
-  const [isOpen, setIsOpen] = useState(isConfigPage);
-  const activeCategory = isConfigPage ? searchParams.get("category") || "all" : "";
-
-  React.useEffect(() => {
-    if (isConfigPage) {
-      setIsOpen(true);
-    }
-  }, [isConfigPage]);
-
-  const categories = [
-    { id: "draw", label: "Draw rules", icon: Shuffle },
-    { id: "rounds", label: "Round settings", icon: Clock },
-    { id: "format", label: "Format & Teams", icon: Shield },
-    { id: "scoring", label: "Scoring & Ballots", icon: FileCheck2 },
-    { id: "standings", label: "Standings rules", icon: Trophy },
-    { id: "visibility", label: "Public visibility", icon: Eye },
-    { id: "all", label: "All Settings", icon: Sliders },
-  ];
-
+function SidebarDropdown({
+  label,
+  icon: Icon,
+  isActive,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isActive: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between rounded-md">
-        <Link
-          href={`/${tournamentSlug}/config`}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
           className={`flex-1 flex items-center justify-between text-xs font-medium rounded-md px-3 py-2 transition ${
-            isConfigPage
+            isActive
               ? "bg-blue-50 text-blue-700 font-semibold"
               : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
           }`}
         >
           <div className="flex items-center space-x-2.5">
-            <Sliders className={`w-4 h-4 ${isConfigPage ? "text-blue-600" : "text-gray-500"}`} />
-            <span>Configuration</span>
+            <Icon className={`w-4 h-4 ${isActive ? "text-blue-600" : "text-gray-500"}`} />
+            <span>{label}</span>
           </div>
-        </Link>
-        <button
-          type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
-          title={isOpen ? "Collapse settings categories" : "Expand settings categories"}
-          aria-label={isOpen ? "Collapse settings categories" : "Expand settings categories"}
-          className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition"
-        >
-          {isOpen ? (
-            <ChevronDown className="w-3.5 h-3.5" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5" />
-          )}
+          {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </button>
       </div>
 
       {isOpen && (
         <div className="ml-3 pl-2.5 border-l border-gray-200 space-y-0.5 pt-0.5">
-          {categories.map((cat) => {
-            const isSelected = isConfigPage && activeCategory === cat.id;
-            const Icon = cat.icon;
-            return (
-              <Link
-                key={cat.id}
-                href={`/${tournamentSlug}/config?category=${cat.id}`}
-                className={`flex items-center space-x-2 text-[11px] font-medium px-2.5 py-1.5 rounded transition ${
-                  isSelected
-                    ? "bg-blue-100/70 text-blue-800 font-bold"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                }`}
-              >
-                <Icon className={`w-3.5 h-3.5 ${isSelected ? "text-blue-600" : "text-gray-400"}`} />
-                <span>{cat.label}</span>
-              </Link>
-            );
-          })}
+          {children}
         </div>
       )}
     </div>
@@ -166,11 +131,12 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
     setActiveRound,
     debates,
     ballots,
-    teams,
     isOwnerOrAdmin,
   } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
-  const [participantsOpen, setParticipantsOpen] = useState(false);
+  const [importsOpen, setImportsOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
@@ -181,16 +147,21 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
   }, [activeRound, rounds]);
 
   const isRoundOpen = (id: string) => openRounds[id] ?? id === expandedRoundId;
-  const isParticipantsPage = pathname?.startsWith(`/${tournamentSlug}/participants`) ?? false;
-  const isVenuesPage = pathname?.startsWith(`/${tournamentSlug}/venues`) ?? false;
-
-  React.useEffect(() => {
-    if (isParticipantsPage || isVenuesPage) setParticipantsOpen(true);
-  }, [isParticipantsPage, isVenuesPage]);
+  const isImportsPage = pathname?.startsWith(`/${tournamentSlug}/imports/`) ?? false;
+  const isConfigPage = pathname?.startsWith(`/${tournamentSlug}/config/`) ?? false;
+  const isInfoPage = ["/standings", "/break", "/analytics", "/audit"].some((path) =>
+    pathname?.startsWith(`/${tournamentSlug}${path}`)
+  );
 
   React.useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  React.useEffect(() => {
+    if (isImportsPage) setImportsOpen(true);
+    if (isConfigPage) setConfigOpen(true);
+    if (isInfoPage) setInfoOpen(true);
+  }, [isImportsPage, isConfigPage, isInfoPage]);
 
   return (
     <aside className="w-64 bg-[#f6f8fa] border-r border-[#d0d7de] flex flex-col shrink-0 min-h-[calc(100vh-3.5rem)] select-none max-md:w-full max-md:min-h-0 max-md:border-r-0 max-md:border-b">
@@ -259,65 +230,61 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           {feedbackEnabled && (
             <NavLink href={`/${tournamentSlug}/feedback`} icon={MessageSquareHeart} label="Feedback" />
           )}
-          <NavLink href={`/${tournamentSlug}/motions`} icon={Lightbulb} label="Motions" />
-          <NavLink href={`/${tournamentSlug}/standings`} icon={Trophy} label="Standings" />
-          <NavLink href={`/${tournamentSlug}/break`} icon={Award} label="Break" />
-          <NavLink href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
-          {isOwnerOrAdmin && (
-            <NavLink href={`/${tournamentSlug}/audit`} icon={History} label="Audit log" />
-          )}
         </div>
 
         <div className="space-y-0.5">
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
             Setup
           </div>
-          <div className="space-y-0.5">
-            <div className="flex items-center justify-between rounded-md">
-              <Link
-                href={`/${tournamentSlug}/participants`}
-                className={`flex-1 flex items-center justify-between text-xs font-medium rounded-md px-3 py-2 transition ${
-                  isParticipantsPage || isVenuesPage
-                    ? "bg-blue-50 text-blue-700 font-semibold"
-                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <UserCheck className={`w-4 h-4 ${isParticipantsPage || isVenuesPage ? "text-blue-600" : "text-gray-500"}`} />
-                  <span>Participants</span>
-                </div>
-                <span className="text-[10px] font-semibold px-1.5 rounded bg-gray-200 text-gray-700">
-                  {teams.length} teams
-                </span>
-              </Link>
-              <button
-                type="button"
-                onClick={() => setParticipantsOpen((open) => !open)}
-                title={participantsOpen ? "Collapse participants menu" : "Expand participants menu"}
-                aria-label={participantsOpen ? "Collapse participants menu" : "Expand participants menu"}
-                aria-expanded={participantsOpen}
-                className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition"
-              >
-                {participantsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-            {participantsOpen && (
-              <div className="ml-3 pl-2.5 border-l border-gray-200 space-y-0.5 pt-0.5">
-                <NavLink nested href={`/${tournamentSlug}/venues`} icon={MapPin} label="Venues" />
-              </div>
-            )}
-          </div>
+          <SidebarDropdown
+            label="Imports"
+            icon={UserCheck}
+            isActive={isImportsPage}
+            isOpen={importsOpen}
+            onToggle={() => setImportsOpen((open) => !open)}
+          >
+            <NavLink nested href={`/${tournamentSlug}/imports/institutions`} icon={Building2} label="Institutions" />
+            <NavLink nested href={`/${tournamentSlug}/imports/teams`} icon={Users2} label="Teams" />
+            <NavLink nested href={`/${tournamentSlug}/imports/adjudicators`} icon={UserCheck} label="Adjudicators" />
+            <NavLink nested href={`/${tournamentSlug}/imports/venues`} icon={MapPin} label="Venues" />
+            <NavLink nested href={`/${tournamentSlug}/imports/motions`} icon={Lightbulb} label="Motions" />
+          </SidebarDropdown>
           <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
           {isOwnerOrAdmin && (
             <NavLink href={`/${tournamentSlug}/email`} icon={Mail} label="Email" />
           )}
-          <Suspense
-            fallback={
-              <NavLink href={`/${tournamentSlug}/config`} icon={Sliders} label="Configuration" />
-            }
+          <SidebarDropdown
+            label="Configuration"
+            icon={Sliders}
+            isActive={isConfigPage}
+            isOpen={configOpen}
+            onToggle={() => setConfigOpen((open) => !open)}
           >
-            <ConfigDropdown tournamentSlug={tournamentSlug} />
-          </Suspense>
+            <NavLink nested href={`/${tournamentSlug}/config/draw`} icon={Shuffle} label="Draw rules" />
+            <NavLink nested href={`/${tournamentSlug}/config/rounds`} icon={Clock} label="Round settings" />
+            <NavLink nested href={`/${tournamentSlug}/config/format`} icon={Shield} label="Format & Teams" />
+            <NavLink nested href={`/${tournamentSlug}/config/scoring`} icon={FileCheck2} label="Scoring & Ballots" />
+            <NavLink nested href={`/${tournamentSlug}/config/standings`} icon={Trophy} label="Standings rules" />
+            <NavLink nested href={`/${tournamentSlug}/config/visibility`} icon={Eye} label="Public visibility" />
+          </SidebarDropdown>
+        </div>
+
+        <div className="space-y-0.5">
+          <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            Information
+          </div>
+          <SidebarDropdown
+            label="Info"
+            icon={FileCheck2}
+            isActive={isInfoPage}
+            isOpen={infoOpen}
+            onToggle={() => setInfoOpen((open) => !open)}
+          >
+            <NavLink nested href={`/${tournamentSlug}/standings`} icon={Trophy} label="Standings" />
+            <NavLink nested href={`/${tournamentSlug}/break`} icon={Award} label="Break" />
+            <NavLink nested href={`/${tournamentSlug}/analytics`} icon={BarChart3} label="Analytics" />
+            {isOwnerOrAdmin && <NavLink nested href={`/${tournamentSlug}/audit`} icon={History} label="Audit log" />}
+          </SidebarDropdown>
         </div>
 
         <div className="space-y-1">
