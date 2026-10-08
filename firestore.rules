@@ -7,23 +7,21 @@ service cloud.firestore {
         let tournament = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data;
         return request.auth != null && (
           tournament.ownerId == request.auth.uid ||
-          tournament.ownerId == "director" ||
           (tournament.admins != null && tournament.admins[request.auth.uid] == true)
         );
       }
 
-      allow read: if true; // Public can view tournament metadata (draws, results, standings)
-      allow create: if request.auth != null; // Authenticated user can create tournament
-      allow update, delete: if request.auth != null && (
-        resource.data.ownerId == request.auth.uid ||
-        (resource.data.admins != null && resource.data.admins[request.auth.uid] == true) ||
-        resource.data.ownerId == "director"
-      );
+      allow read: if true; // Public discovery reads root metadata; child data uses the sanitized API.
+      allow create: if request.auth != null &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.admins[request.auth.uid] == true;
+      allow update, delete: if isTournamentAdmin();
 
-      // Direct subcollections under a tournament
+      // Tournament records and private participant data are administrator-only.
       match /{collection}/{document} {
-        allow read: if collection != "auditEvents";
-        allow write: if collection != "auditEvents" && request.auth != null;
+        allow read, write: if collection != "auditEvents" &&
+          collection != "data" &&
+          isTournamentAdmin();
       }
 
       // Audit events are append-only; only tournament administrators may read them.
@@ -37,10 +35,9 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      // Legacy bundled tournament data remains publicly readable.
+      // Legacy bundled tournament data is administrator-only.
       match /data/{document} {
-        allow read: if true;
-        allow write: if request.auth != null;
+        allow read, write: if isTournamentAdmin();
       }
     }
 

@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { BallotSubmission, FeedbackSubmission } from "@/types";
+import {
+  Adjudicator,
+  BallotSubmission,
+  Debate,
+  FeedbackSubmission,
+  Team,
+  Tournament,
+} from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { buildPrivateBallot } from "@/lib/privateBallot";
+import { validateFeedbackScore } from "@/lib/scoring/validator";
 
 export const runtime = "nodejs";
-
-interface PendingItem {
-  collection: "ballots" | "feedback";
-  record: BallotSubmission | FeedbackSubmission;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -44,8 +48,12 @@ export async function POST(request: NextRequest) {
   try {
     const firestore = getAdminFirestore();
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
-    const tournament = await tournamentRef.get();
-    if (!tournament.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
+    const tournamentSnapshot = await tournamentRef.get();
+    if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
+    const tournament = {
+      ...tournamentSnapshot.data(),
+      id: tournamentSnapshot.id,
+    } as Tournament;
 
     const adjudicatorSnapshot = await tournamentRef
       .collection("adjudicators")
@@ -58,10 +66,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid adjudicator link or passcode." }, { status: 403 });
     }
 
-    const debatesSnapshot = await tournamentRef.collection("debates").get();
+    const [debatesSnapshot, teamsSnapshot] = await Promise.all([
+      tournamentRef.collection("debates").get(),
+      tournamentRef.collection("teams").get(),
+    ]);
+    const allDebates = new Map(
+      debatesSnapshot.docs.map((document) => [
+        document.id,
+        { ...document.data(), id: document.id } as Debate,
+      ])
+    );
+    const teams = new Map(
+      teamsSnapshot.docs.map((document) => [
+        document.id,
+        { ...document.data(), id: document.id } as Team,
+      ])
+    );
     const assignedDebates = new Map(
       debatesSnapshot.docs
-        .map((document) => [document.id, document.data()] as const)
+        .map((document) => [document.id, allDebates.get(document.id)!] as const)
         .filter(([, debate]) => {
           const panel = debate.adjudicators || {};
           return (
@@ -80,24 +103,46 @@ export async function POST(request: NextRequest) {
       if (!isRecord(item) || !isRecord(item.record)) {
         return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
       }
-      const { collection: collectionName, record } = item as unknown as PendingItem;
+      const collectionName = item.collection;
+      const record = item.record;
+      const debateId = record.debateId;
       if (
         (collectionName !== "ballots" && collectionName !== "feedback") ||
         !validDocumentId(record.id) ||
-        !assignedDebates.has(record.debateId)
+        typeof debateId !== "string" ||
+        !assignedDebates.has(debateId)
       ) {
         return NextResponse.json({ error: "An offline submission is not valid for this adjudicator." }, { status: 403 });
       }
 
       if (collectionName === "ballots") {
-        const ballot = record as BallotSubmission;
-        if (
-          ballot.submitterType !== "judge" ||
-          ballot.submitterId !== adjudicatorDocument.id ||
-          ballot.debateId !== record.debateId
-        ) {
-          return NextResponse.json({ error: "A ballot does not match this adjudicator." }, { status: 403 });
+        const debate = assignedDebates.get(debateId)!;
+        const canVote =
+          !adjudicator.trainee &&
+          (debate.adjudicators?.chairId === adjudicatorDocument.id ||
+            debate.adjudicators?.panellistIds?.includes(adjudicatorDocument.id));
+        if (!canVote) {
+          return NextResponse.json({ error: "Only the chair or a voting panellist may submit a ballot." }, { status: 403 });
         }
+        let ballot: BallotSubmission;
+        try {
+          ballot = buildPrivateBallot(record, {
+            tournament,
+            adjudicator: { ...adjudicator, id: adjudicatorDocument.id } as Adjudicator,
+            debate,
+            teams,
+            tournamentId,
+          });
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "The ballot is invalid." },
+            { status: 400 }
+          );
+        }
+        const previousVersion = existingBallotsSnapshot.docs
+          .filter((document) => document.data().debateId === ballot.debateId)
+          .reduce((version, document) => Math.max(version, Number(document.data().version) || 0), 0);
+        ballot.version = previousVersion + 1;
         for (const existing of existingBallotsSnapshot.docs) {
           if (existing.data().debateId === ballot.debateId && existing.id !== ballot.id) {
             batch.set(existing.ref, {
@@ -118,27 +163,69 @@ export async function POST(request: NextRequest) {
         pendingBallotByDebate.set(ballot.debateId, ballot);
         batch.set(tournamentRef.collection("ballots").doc(ballot.id), {
           ...ballot,
-          tournamentId,
         });
       } else {
-        const feedback = record as FeedbackSubmission;
-        const debate = assignedDebates.get(feedback.debateId);
-        const panel = debate?.adjudicators || {};
+        const debate = assignedDebates.get(debateId)!;
+        const panel = debate.adjudicators;
+        const targetAdjudicatorId = record.targetAdjudicatorId;
+        const score = record.score;
         const targetIsAssigned =
-          panel.chairId === feedback.targetAdjudicatorId ||
-          panel.panellistIds?.includes(feedback.targetAdjudicatorId) ||
-          panel.traineeIds?.includes(feedback.targetAdjudicatorId);
+          typeof targetAdjudicatorId === "string" &&
+          (panel.chairId === targetAdjudicatorId ||
+            panel.panellistIds?.includes(targetAdjudicatorId) ||
+            panel.traineeIds?.includes(targetAdjudicatorId));
         if (
-          feedback.sourceType !== "adjudicator" ||
-          feedback.sourceId !== adjudicatorDocument.id ||
+          record.sourceType !== "adjudicator" ||
+          record.sourceId !== adjudicatorDocument.id ||
           !targetIsAssigned
         ) {
           return NextResponse.json({ error: "Feedback does not match this adjudicator or debate." }, { status: 403 });
         }
-        batch.set(tournamentRef.collection("feedback").doc(feedback.id), {
-          ...feedback,
+        if (
+          typeof score !== "number" ||
+          !validateFeedbackScore(score, tournament.preferences).valid ||
+          (record.comments !== undefined &&
+            (typeof record.comments !== "string" || record.comments.length > 5000)) ||
+          (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean")
+        ) {
+          return NextResponse.json({ error: "Feedback contains invalid details." }, { status: 400 });
+        }
+        const feedback: FeedbackSubmission = {
+          id: record.id,
           tournamentId,
-        });
+          roundId: debate.roundId,
+          debateId: debate.id,
+          targetAdjudicatorId,
+          targetAdjudicatorName:
+            panel.chairId === targetAdjudicatorId
+              ? panel.chairName || ""
+              : panel.panellistIds?.includes(targetAdjudicatorId)
+                ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId)] || ""
+                : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId) ?? -1] || "",
+          sourceType: "adjudicator",
+          sourceId: adjudicatorDocument.id,
+          sourceName: adjudicator.name,
+          score,
+          ...(typeof record.agreeWithDecision === "boolean"
+            ? { agreeWithDecision: record.agreeWithDecision }
+            : {}),
+          ...(typeof record.comments === "string" ? { comments: record.comments } : {}),
+          ...(isRecord(record.answers) ? { answers: record.answers } : {}),
+          confirmed: true,
+          timestamp: new Date().toISOString(),
+        };
+        const feedbackRef = tournamentRef.collection("feedback").doc(feedback.id);
+        const existingFeedback = await feedbackRef.get();
+        if (
+          existingFeedback.exists &&
+          existingFeedback.data()?.sourceId !== adjudicatorDocument.id
+        ) {
+          return NextResponse.json(
+            { error: "The feedback identifier is already in use." },
+            { status: 403 }
+          );
+        }
+        batch.set(feedbackRef, feedback);
       }
       uploadedCount += 1;
     }
@@ -157,7 +244,66 @@ export async function POST(request: NextRequest) {
       id: document.id,
     }));
 
-    return NextResponse.json({ uploadedCount, ballots, feedback });
+    const assignedTeamIds = new Set(
+      [...assignedDebates.values()].flatMap((debate) =>
+        Object.values(debate.teams || {}).map((slot) => slot?.teamId).filter(Boolean)
+      )
+    );
+    const assignedRoundIds = new Set(
+      [...assignedDebates.values()].map((debate) => debate.roundId)
+    );
+    const privateTeams = teamsSnapshot.docs
+      .filter((document) => assignedTeamIds.has(document.id))
+      .map((document) => {
+        const team = document.data();
+        return {
+          id: document.id,
+          tournamentId,
+          name: team.name,
+          institutionName: team.institutionName,
+          speakers: Array.isArray(team.speakers)
+            ? team.speakers.map((speaker: Record<string, unknown>) => ({
+                id: speaker.id,
+                name: speaker.name,
+                categories: speaker.categories,
+              }))
+            : [],
+          breakCategories: team.breakCategories || [],
+          speakerCategories: team.speakerCategories || [],
+        };
+      });
+    const privateRounds = (await tournamentRef.collection("rounds").get()).docs
+      .filter((document) => assignedRoundIds.has(document.id))
+      .map((document) => ({ ...document.data(), id: document.id }));
+    const safeAdjudicator = {
+      tournamentId,
+      name: adjudicator.name,
+      institutionId: adjudicator.institutionId,
+      institutionName: adjudicator.institutionName,
+      baseScore: adjudicator.baseScore,
+      trainee: adjudicator.trainee,
+      independent: adjudicator.independent,
+      checkedIn: adjudicator.checkedIn,
+      conflicts: [],
+    };
+
+    return NextResponse.json({
+      uploadedCount,
+      ballots,
+      feedback,
+      tournament: {
+        id: tournament.id,
+        name: tournament.name,
+        shortName: tournament.shortName,
+        slug: tournament.slug,
+        format: tournament.format,
+        preferences: tournament.preferences,
+      },
+      adjudicator: { ...safeAdjudicator, id: adjudicatorDocument.id, privateUrlKey },
+      teams: privateTeams,
+      rounds: privateRounds,
+      debates: [...assignedDebates.values()],
+    });
   } catch (error) {
     console.error("Private portal sync failed:", error);
     return NextResponse.json({ error: "Could not sync private portal data. Try again later." }, { status: 503 });

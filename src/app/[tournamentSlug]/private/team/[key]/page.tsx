@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -27,6 +27,7 @@ export default function TeamPrivatePortalPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
   const privateKey = params.key as string;
+  const [teamPortalLoading, setTeamPortalLoading] = useState(true);
 
   const {
     tournament,
@@ -39,7 +40,19 @@ export default function TeamPrivatePortalPage() {
     feedback,
     addFeedback,
     updateTeam,
+    loadPrivateTeamPortal,
   } = useTournament();
+  const loadPrivateTeamPortalRef = useRef(loadPrivateTeamPortal);
+  loadPrivateTeamPortalRef.current = loadPrivateTeamPortal;
+  const loadedPortalFor = useRef("");
+
+  useEffect(() => {
+    if (loading || !tournament || loadedPortalFor.current === privateKey) return;
+    loadedPortalFor.current = privateKey;
+    void loadPrivateTeamPortalRef.current(privateKey).catch((error) => {
+      console.error("Could not load private team portal:", error);
+    }).finally(() => setTeamPortalLoading(false));
+  }, [loading, tournament, privateKey]);
 
   // The unique private URL key is the team's passcode.
   const team = useMemo(() => {
@@ -192,7 +205,7 @@ export default function TeamPrivatePortalPage() {
     }
   };
 
-  if (loading) {
+  if (loading || teamPortalLoading) {
     return (
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="text-center space-y-2">

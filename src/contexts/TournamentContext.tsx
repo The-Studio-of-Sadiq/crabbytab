@@ -77,6 +77,7 @@ export interface TournamentContextType {
   uploadToCloud: () => Promise<void>;
   downloadFromCloud: () => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
+  loadPrivateTeamPortal: (privateUrlKey: string) => Promise<void>;
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
@@ -250,10 +251,53 @@ export function TournamentProvider({
         const readLocal = <T,>(key: string, fallback: T): T =>
           safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
-        const isSharedView = pathname?.includes("/public") || pathname?.includes("/private/");
+        const isSharedView =
+          pathname?.includes("/public") ||
+          pathname?.includes("/private/") ||
+          (!localTournament && !user);
+        const loadPublicProjection = async () => {
+          const response = await fetch(`/api/public/tournaments/${encodeURIComponent(tournamentSlug)}`);
+          const result = await response.json() as {
+            error?: string;
+            tournament: Tournament;
+            collections: Record<string, unknown[]>;
+          };
+          if (!response.ok) {
+            throw new Error(
+              typeof result.error === "string"
+                ? result.error
+                : "Could not load public tournament data."
+            );
+          }
+          if (!isMounted) return;
+          const publicRounds = (result.collections.rounds || []) as Round[];
+          setTournament(result.tournament);
+          setRounds(publicRounds);
+          setActiveRound(
+            [...publicRounds]
+              .filter((round) => !round.cancelled)
+              .sort((a, b) => b.seq - a.seq)[0] || null
+          );
+          setTeams((result.collections.teams || []) as Team[]);
+          setAdjudicators((result.collections.adjudicators || []) as Adjudicator[]);
+          setVenues((result.collections.venues || []) as Venue[]);
+          setMotions((result.collections.motions || []) as Motion[]);
+          setBreakCategories((result.collections.breakCategories || []) as BreakCategory[]);
+          setDebates((result.collections.debates || []) as Debate[]);
+          setBallots((result.collections.ballots || []) as BallotSubmission[]);
+          setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
+          setInstitutions((result.collections.institutions || []) as Institution[]);
+          auditEventsRef.current = [];
+          setAuditEvents([]);
+          setLoading(false);
+        };
 
         if ((!localTournament || isSharedView) && db) {
           try {
+            if (isSharedView) {
+              await loadPublicProjection();
+              return;
+            }
             const tournamentQuery = query(
               collection(db, "tournaments"),
               where("slug", "==", tournamentSlug)
@@ -342,6 +386,14 @@ export function TournamentProvider({
               return;
             }
           } catch (error) {
+            if (!isSharedView) {
+              try {
+                await loadPublicProjection();
+                return;
+              } catch (projectionError) {
+                console.error("Could not load the public tournament projection:", projectionError);
+              }
+            }
             const message =
               error instanceof Error ? error.message : "Could not load tournament data from the cloud.";
             console.error("Could not load shared tournament data:", error);
@@ -397,8 +449,8 @@ export function TournamentProvider({
             slug: tournamentSlug,
             format: "bp",
             active: true,
-            ownerId: "director",
-            admins: { director: true },
+            ownerId: "local",
+            admins: {},
             preferences: {
               teamsInDebate: 4,
               substantiveSpeakers: 2,
@@ -468,7 +520,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, pathname]);
+  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
@@ -504,7 +556,13 @@ export function TournamentProvider({
         ballots?: BallotSubmission[];
         feedback?: FeedbackSubmission[];
         uploadedCount?: number;
+        tournament?: Omit<Tournament, "ownerId" | "admins">;
+        adjudicator?: Adjudicator;
+        teams?: Team[];
+        rounds?: Round[];
+        debates?: Debate[];
       };
+
       try {
         result = JSON.parse(responseBody) as typeof result;
       } catch {
@@ -534,6 +592,39 @@ export function TournamentProvider({
         ...feedback.filter((item) => !downloadedFeedback.some((remote) => remote.id === item.id)),
         ...downloadedFeedback,
       ];
+      if (result.tournament) {
+        setTournament({ ...result.tournament, ownerId: "", admins: {} });
+      }
+      if (result.adjudicator) {
+        setAdjudicators((current) => [
+          ...current.filter((item) => item.id !== result.adjudicator!.id),
+          result.adjudicator!,
+        ]);
+      }
+      if (result.teams) {
+        setTeams((current) => [
+          ...current.filter((item) => !result.teams!.some((remote) => remote.id === item.id)),
+          ...result.teams!,
+        ]);
+      }
+      if (result.rounds) {
+        const privateRounds = result.rounds;
+        setRounds((current) => [
+          ...current.filter((item) => !result.rounds!.some((remote) => remote.id === item.id)),
+          ...privateRounds,
+        ]);
+        setActiveRound(
+          [...privateRounds]
+            .filter((round) => !round.cancelled)
+            .sort((left, right) => right.seq - left.seq)[0] || null
+        );
+      }
+      if (result.debates) {
+        setDebates((current) => [
+          ...current.filter((item) => !result.debates!.some((remote) => remote.id === item.id)),
+          ...result.debates!,
+        ]);
+      }
       setBallots(mergedBallots);
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
@@ -548,6 +639,47 @@ export function TournamentProvider({
       setPrivateSyncMessage(message);
       throw error;
     }
+  };
+
+  const loadPrivateTeamPortal: TournamentContextType["loadPrivateTeamPortal"] = async (privateUrlKey) => {
+    if (!tournament || !db) {
+      throw new Error("Private team data is unavailable for this tournament.");
+    }
+    const response = await fetch("/api/private/team", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tournamentId: tournament.id, privateUrlKey }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      const message = typeof result.error === "string" ? result.error : "Could not load private team data.";
+      setCloudLoadError(message);
+      throw new Error(message);
+    }
+
+    setTournament({ ...result.tournament, ownerId: "", admins: {} });
+    setTeams((current) => [
+      ...current.filter((item) => item.id !== result.team.id),
+      result.team as Team,
+    ]);
+    const privateRounds = result.rounds as Round[];
+    setRounds((current) => [
+      ...current.filter((item) => !result.rounds.some((remote: Round) => remote.id === item.id)),
+      ...privateRounds,
+    ]);
+    setActiveRound(
+      [...privateRounds]
+        .filter((round) => !round.cancelled)
+        .sort((left, right) => right.seq - left.seq)[0] || null
+    );
+    setDebates((current) => [
+      ...current.filter((item) => !result.debates.some((remote: Debate) => remote.id === item.id)),
+      ...(result.debates as Debate[]),
+    ]);
+    setFeedback((current) => [
+      ...current.filter((item) => !result.feedback.some((remote: FeedbackSubmission) => remote.id === item.id)),
+      ...(result.feedback as FeedbackSubmission[]),
+    ]);
   };
 
   const queuePrivateRecord = async (
@@ -585,9 +717,10 @@ export function TournamentProvider({
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
     if (!tournament) return false;
-    if (!user) return tournament.ownerId === "director";
+    if (!user) return tournament.ownerId === "local" || tournament.ownerId === "director";
     return (
       tournament.ownerId === user.uid ||
+      tournament.ownerId === "local" ||
       tournament.ownerId === "director" ||
       Boolean(tournament.admins && tournament.admins[user.uid])
     );
@@ -2101,7 +2234,6 @@ export function TournamentProvider({
       const cloudTournament = await getDoc(tournamentRef);
       if (
         cloudTournament.exists() &&
-        cloudTournament.data().ownerId !== "director" &&
         cloudTournament.data().ownerId !== user.uid &&
         cloudTournament.data().admins?.[user.uid] !== true
       ) {
@@ -2110,6 +2242,16 @@ export function TournamentProvider({
 
       const metadata = {
         ...tournament,
+        ownerId:
+          tournament.ownerId === "local" || tournament.ownerId === "director"
+            ? user.uid
+            : tournament.ownerId,
+        admins: {
+          ...(cloudTournament.exists()
+            ? cloudTournament.data().admins || {}
+            : tournament.admins),
+          [user.uid]: true,
+        },
         updatedAt: new Date().toISOString(),
       };
       await setDoc(tournamentRef, cleanUndefined(metadata), { merge: true });
@@ -2177,7 +2319,6 @@ export function TournamentProvider({
         slug: tournament.slug,
       } as Tournament;
       if (
-        cloudTournament.ownerId !== "director" &&
         cloudTournament.ownerId !== user.uid &&
         cloudTournament.admins?.[user.uid] !== true
       ) {
@@ -2265,6 +2406,7 @@ export function TournamentProvider({
         uploadToCloud,
         downloadFromCloud,
         syncPrivatePortal,
+        loadPrivateTeamPortal,
         saveTournament,
         createRound,
         setPreliminaryRoundCount,

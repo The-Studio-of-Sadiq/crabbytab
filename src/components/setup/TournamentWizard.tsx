@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ArrowLeft,
   ArrowRight,
@@ -181,6 +182,7 @@ function Toggle({
 
 export function TournamentWizard() {
   const router = useRouter();
+  const { user } = useAuth();
 
   const [s, setS] = useState<WizardState>(initialState);
   const [step, setStep] = useState(0);
@@ -359,7 +361,7 @@ export function TournamentWizard() {
     const id = `tourn-${s.slug}`;
     const now = new Date().toISOString();
 
-    const ownerId = "director";
+    const ownerId = user?.uid || "local";
 
     const tournament: Tournament = {
       id,

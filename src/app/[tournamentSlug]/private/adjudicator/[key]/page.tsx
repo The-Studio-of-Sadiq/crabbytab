@@ -70,22 +70,34 @@ export default function AdjudicatorPrivatePortalPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [passcodeError, setPasscodeError] = useState("");
   const [verifiedPasscodeFor, setVerifiedPasscodeFor] = useState("");
+  const rememberedPasscodeAttemptedFor = useRef("");
   const syncPrivatePortalRef = useRef(syncPrivatePortal);
   syncPrivatePortalRef.current = syncPrivatePortal;
   const rememberedPasscodeKey = `crabbytab_adjudicator_passcode_${tournamentSlug}_${privateKey}`;
 
   useEffect(() => {
-    if (!adjudicator?.privatePasscode || typeof window === "undefined") return;
+    if (
+      loading ||
+      !tournament ||
+      typeof window === "undefined" ||
+      rememberedPasscodeAttemptedFor.current === privateKey
+    ) return;
     const remembered = localStorage.getItem(rememberedPasscodeKey);
-    if (remembered && remembered === adjudicator.privatePasscode) {
-      setEnteredPasscode(remembered);
-      setActivePasscode(remembered);
-      setVerifiedPasscodeFor(privateKey);
-      setRememberMe(true);
-    } else if (remembered) {
-      localStorage.removeItem(rememberedPasscodeKey);
-    }
-  }, [adjudicator, privateKey, rememberedPasscodeKey]);
+    if (!remembered) return;
+    rememberedPasscodeAttemptedFor.current = privateKey;
+    void syncPrivatePortalRef.current(privateKey, remembered)
+      .then(() => {
+        setEnteredPasscode(remembered);
+        setActivePasscode(remembered);
+        setVerifiedPasscodeFor(privateKey);
+        setRememberMe(true);
+      })
+      .catch((error) => {
+        if (error instanceof Error && error.message === "Invalid adjudicator link or passcode.") {
+          localStorage.removeItem(rememberedPasscodeKey);
+        }
+      });
+  }, [loading, tournament, privateKey, rememberedPasscodeKey]);
 
   useEffect(() => {
     if (verifiedPasscodeFor !== privateKey || !activePasscode) return;
@@ -101,23 +113,26 @@ export default function AdjudicatorPrivatePortalPage() {
     return () => window.removeEventListener("online", sync);
   }, [activePasscode, privateKey, verifiedPasscodeFor]);
 
-  const handlePasscodeSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handlePasscodeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!adjudicator?.privatePasscode) {
-      setPasscodeError("A personal passcode has not been set up for this adjudicator. Contact the tournament tabroom.");
-      return;
-    }
-    if (enteredPasscode.trim() !== adjudicator.privatePasscode) {
-      setPasscodeError("That passcode does not match. Please try again.");
+    const passcode = enteredPasscode.trim();
+    if (!passcode) {
+      setPasscodeError("Enter the personal passcode provided by the tournament tabroom.");
       return;
     }
     setPasscodeError("");
-    setActivePasscode(enteredPasscode.trim());
-    setVerifiedPasscodeFor(privateKey);
-    if (rememberMe) {
-      localStorage.setItem(rememberedPasscodeKey, enteredPasscode.trim());
-    } else {
-      localStorage.removeItem(rememberedPasscodeKey);
+    rememberedPasscodeAttemptedFor.current = privateKey;
+    try {
+      await syncPrivatePortal(privateKey, passcode);
+      setActivePasscode(passcode);
+      setVerifiedPasscodeFor(privateKey);
+      if (rememberMe) {
+        localStorage.setItem(rememberedPasscodeKey, passcode);
+      } else {
+        localStorage.removeItem(rememberedPasscodeKey);
+      }
+    } catch (error) {
+      setPasscodeError(error instanceof Error ? error.message : "Could not verify this passcode.");
     }
   };
 
@@ -476,29 +491,6 @@ export default function AdjudicatorPrivatePortalPage() {
     );
   }
 
-  if (!adjudicator) {
-    return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 text-center shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
-            <Lock className="w-6 h-6" />
-          </div>
-          <h1 className="text-lg font-bold text-gray-900">Private Adjudicator Link Invalid</h1>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The private URL you visited is not associated with an adjudicator in this tournament. Please
-            contact the tournament tabroom / adjudication core to obtain your valid personal link.
-          </p>
-          <Link
-            href={`/${tournamentSlug}/public`}
-            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
-          >
-            Visit Public Tournament Page
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   if (verifiedPasscodeFor !== privateKey) {
     return (
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
@@ -550,6 +542,29 @@ export default function AdjudicatorPrivatePortalPage() {
             {tournament?.shortName || tournament?.name || "Tournament"}
           </p>
         </form>
+      </div>
+    );
+  }
+
+  if (!adjudicator) {
+    return (
+      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 text-center shadow-sm space-y-4">
+          <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-900">Private Adjudicator Link Invalid</h1>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            The private URL you visited is not associated with an adjudicator in this tournament. Please
+            contact the tournament tabroom / adjudication core to obtain your valid personal link.
+          </p>
+          <Link
+            href={`/${tournamentSlug}/public`}
+            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
+          >
+            Visit Public Tournament Page
+          </Link>
+        </div>
       </div>
     );
   }
@@ -744,6 +759,8 @@ export default function AdjudicatorPrivatePortalPage() {
               const isChair = debate.adjudicators?.chairId === adjudicator.id;
               const isPanellist = debate.adjudicators?.panellistIds?.includes(adjudicator.id);
               const isTrainee = debate.adjudicators?.traineeIds?.includes(adjudicator.id);
+              const canSubmitBallot =
+                !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
 
               const roleLabel = isChair ? "Chair" : isPanellist ? "Panellist" : isTrainee ? "Trainee" : "Judge";
               const debateBallots = ballots.filter((b) => b.debateId === debate.id && !b.discarded);
@@ -889,14 +906,18 @@ export default function AdjudicatorPrivatePortalPage() {
                       </div>
 
                       <div className="flex items-center space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenBallotModal(debate)}
-                          className="px-3.5 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition flex items-center space-x-1.5 shadow-2xs"
-                        >
-                          <FileCheck2 className="w-3.5 h-3.5" />
-                          <span>{existingBallot?.confirmed ? "Edit / Re-enter Ballot" : "Enter Ballot"}</span>
-                        </button>
+                        {canSubmitBallot ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBallotModal(debate)}
+                            className="px-3.5 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition flex items-center space-x-1.5 shadow-2xs"
+                          >
+                            <FileCheck2 className="w-3.5 h-3.5" />
+                            <span>{existingBallot?.confirmed ? "Edit / Re-enter Ballot" : "Enter Ballot"}</span>
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-500">Trainees may observe but cannot submit ballots.</span>
+                        )}
                       </div>
                     </div>
 

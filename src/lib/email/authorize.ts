@@ -58,7 +58,6 @@ export async function authorizeTournamentEmailRequest(
 
   const tournament = tournamentSnapshot.data();
   const isOwnerOrAdmin =
-    tournament?.ownerId === "director" ||
     tournament?.ownerId === user.uid ||
     Boolean(tournament?.admins?.[user.uid]);
 
