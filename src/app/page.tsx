@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -231,19 +232,17 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
       {/* Top Banner */}
-      <header className="bg-[#24292e] text-white border-b border-[#1b1f23] py-4 px-6 shadow-xs sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-base shadow-sm">
-              CT
-            </div>
+      <header className="bg-[#24292e] text-white border-b border-[#1b1f23] py-4 px-6 shadow-xs sticky top-0 z-30 max-sm:px-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3 max-md:flex-wrap">
+          <div className="flex min-w-0 items-center space-x-3">
+            <Image src="/crabbytab.svg" alt="" width={36} height={36} className="h-9 w-9 shrink-0" />
             <div>
               <h1 className="text-lg font-bold tracking-tight">CrabbyTab</h1>
-              <p className="text-xs text-gray-400">Serverless Parliamentary Debate Tabulation System</p>
+              <p className="text-xs text-gray-400 max-sm:hidden">Serverless Parliamentary Debate Tabulation System</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 max-sm:space-x-1">
             {authLoading ? null : user ? (
               <>
                 <div className="hidden sm:flex items-center space-x-1.5 text-xs text-gray-300 bg-gray-800/80 px-2.5 py-1 rounded border border-gray-700">
@@ -264,19 +263,20 @@ export default function HomePage() {
             )}
             <button
               onClick={goCreate}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition"
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition max-sm:px-2"
             >
               <Plus className="w-4 h-4" />
-              <span>Create Tournament</span>
+            <span className="max-sm:hidden">Create Tournament</span>
+            <span className="hidden max-sm:inline">Create</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6">
+      <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6 max-sm:px-4 max-sm:py-5">
         {/* Welcome Card */}
-        <div className="bg-white rounded-lg border border-[#d0d7de] p-6 shadow-xs">
+        <div className="bg-white rounded-lg border border-[#d0d7de] p-6 shadow-xs max-sm:p-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2 mb-1">

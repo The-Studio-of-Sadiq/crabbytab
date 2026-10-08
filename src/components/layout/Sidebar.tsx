@@ -26,6 +26,8 @@ import {
   Key,
   Mail,
   History,
+  Menu,
+  X,
 } from "lucide-react";
 
 function NavLink({
@@ -169,6 +171,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
   } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
   const [participantsOpen, setParticipantsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
 
@@ -185,9 +188,31 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
     if (isParticipantsPage || isVenuesPage) setParticipantsOpen(true);
   }, [isParticipantsPage, isVenuesPage]);
 
+  React.useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
   return (
-    <aside className="w-64 bg-[#f6f8fa] border-r border-[#d0d7de] flex flex-col shrink-0 min-h-[calc(100vh-3.5rem)] select-none">
-      <div className="p-3 border-b border-[#d0d7de] bg-white">
+    <aside className="w-64 bg-[#f6f8fa] border-r border-[#d0d7de] flex flex-col shrink-0 min-h-[calc(100vh-3.5rem)] select-none max-md:w-full max-md:min-h-0 max-md:border-r-0 max-md:border-b">
+      <div className="hidden max-md:flex items-center justify-between gap-3 px-4 py-2 bg-white">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Current round</p>
+          <p className="text-xs font-bold text-gray-900 truncate">
+            {activeRound ? activeRound.name : "No round active"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMobileNavOpen((open) => !open)}
+          aria-expanded={mobileNavOpen}
+          aria-controls="tournament-navigation"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          {mobileNavOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          {mobileNavOpen ? "Close menu" : "Menu"}
+        </button>
+      </div>
+      <div className="p-3 border-b border-[#d0d7de] bg-white max-md:hidden">
         <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
           Current round
         </div>
@@ -215,7 +240,12 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
         </div>
       </div>
 
-      <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
+      <nav
+        id="tournament-navigation"
+        className={`flex-1 px-2 py-3 space-y-4 overflow-y-auto max-md:flex-none max-md:max-h-[65vh] ${
+          mobileNavOpen ? "max-md:block" : "max-md:hidden"
+        }`}
+      >
         <div className="space-y-0.5">
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
             Tournament
@@ -360,7 +390,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
         </div>
       </nav>
 
-      <div className="p-3 border-t border-[#d0d7de] bg-white text-[11px] text-gray-500 flex items-center justify-between">
+      <div className="p-3 border-t border-[#d0d7de] bg-white text-[11px] text-gray-500 flex items-center justify-between max-md:hidden">
         <span>Host-side pairing</span>
         <span className="flex items-center space-x-1 text-emerald-600 font-medium">
           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>

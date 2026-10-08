@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -63,17 +64,15 @@ export function AuthScreen({ mode }: { mode: Mode }) {
 
   return (
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
-      <header className="bg-[#24292e] text-white py-4 px-6">
+      <header className="bg-[#24292e] text-white py-4 px-6 max-sm:px-4">
         <Link href="/" className="inline-flex items-center space-x-2">
-          <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-sm">
-            CT
-          </div>
+          <Image src="/crabbytab.svg" alt="" width={32} height={32} className="h-8 w-8" />
           <span className="font-bold">CrabbyTab</span>
         </Link>
       </header>
 
-      <main className="flex-1 flex items-start justify-center px-4 py-16">
-        <div className="w-full max-w-md bg-white border border-[#d0d7de] rounded-lg shadow-xs p-6">
+      <main className="flex-1 flex items-start justify-center px-4 py-16 max-sm:py-8">
+        <div className="w-full max-w-md bg-white border border-[#d0d7de] rounded-lg shadow-xs p-6 max-sm:p-4">
           <h1 className="text-xl font-bold text-gray-900">{titles[mode].heading}</h1>
           <p className="text-sm text-gray-600 mt-1 mb-5">{titles[mode].sub}</p>
 

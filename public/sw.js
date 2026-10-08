@@ -1,9 +1,17 @@
-const CACHE_NAME = "crabbytab-offline-v1";
+const CACHE_NAME = "crabbytab-offline-v2";
 const APP_SHELL = "/";
+const CORE_ASSETS = [
+  APP_SHELL,
+  "/manifest.webmanifest",
+  "/crabbytab.svg",
+  "/crabbytab-192.png",
+  "/crabbytab.png",
+  "/og-image.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.add(APP_SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS)).then(() => self.skipWaiting())
   );
 });
 

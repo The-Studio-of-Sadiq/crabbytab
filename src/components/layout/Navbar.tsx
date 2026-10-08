@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -99,22 +100,20 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   return (
     <header className="bg-[#24292e] text-white border-b border-[#1b1f23] sticky top-0 z-50 select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14">
+        <div className="flex items-center justify-between h-14 max-md:h-auto max-md:min-h-14 max-md:flex-wrap max-md:gap-y-2 max-md:py-2">
           {/* Brand & Tournament Name */}
-          <div className="flex items-center space-x-4">
+          <div className="flex min-w-0 items-center space-x-2 sm:space-x-4">
             <Link
               href="/"
-              className="flex items-center space-x-2 text-white font-bold tracking-tight text-lg hover:text-gray-200 transition"
+              className="flex shrink-0 items-center space-x-2 text-white font-bold tracking-tight text-lg hover:text-gray-200 transition"
             >
-              <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono text-sm font-bold shadow-sm">
-                CT
-              </div>
+              <Image src="/crabbytab.svg" alt="" width={32} height={32} className="h-8 w-8" />
               <span className="hidden sm:inline">CrabbyTab</span>
             </Link>
 
             <span className="text-gray-600 hidden sm:inline">/</span>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex min-w-0 items-center space-x-2">
               <span className="font-semibold text-gray-100 text-sm md:text-base truncate max-w-[200px] md:max-w-[320px]">
                 {tournament?.shortName || tournament?.name || tournamentSlug}
               </span>
@@ -165,7 +164,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
           </div>
 
           {/* Right Actions */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 max-md:w-full max-md:justify-between max-md:gap-2 max-md:space-x-0">
             <span
               className={`hidden sm:inline-flex items-center space-x-1 text-[10px] ${
                 isOnline ? "text-emerald-300" : "text-amber-300"
@@ -185,7 +184,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                   className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
                 >
                   <CloudDownload className="w-3 h-3" />
-                  <span>{cloudSyncState === "syncing" ? "Syncing…" : "Download"}</span>
+                  <span className="max-sm:hidden">{cloudSyncState === "syncing" ? "Syncing…" : "Download"}</span>
                 </button>
                 <button
                   type="button"
@@ -195,7 +194,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                   className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
                 >
                   <Upload className="w-3 h-3" />
-                  <span>{cloudSyncState === "syncing" ? "Syncing…" : "Upload"}</span>
+                  <span className="max-sm:hidden">{cloudSyncState === "syncing" ? "Syncing…" : "Upload"}</span>
                 </button>
               </>
             ) : (
@@ -226,9 +225,9 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
             <Link
               href={`/${tournamentSlug}/public`}
               target="_blank"
-              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded bg-gray-700/80 hover:bg-gray-600 text-gray-200 border border-gray-600 transition"
+              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded bg-gray-700/80 hover:bg-gray-600 text-gray-200 border border-gray-600 transition max-sm:px-2"
             >
-              <span>Public Tab</span>
+              <span className="max-sm:hidden">Public Tab</span>
               <ExternalLink className="w-3 h-3" />
             </Link>
 

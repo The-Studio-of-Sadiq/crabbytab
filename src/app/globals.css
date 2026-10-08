@@ -15,6 +15,23 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -51,6 +68,20 @@ body {
 
 .tabby-table tr:hover td {
   background-color: #f3f6f9;
+}
+
+@media (max-width: 640px) {
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabby-table th,
+  .tabby-table td {
+    padding: 0.5rem 0.625rem;
+  }
 }
 
 /* Side Badges */
