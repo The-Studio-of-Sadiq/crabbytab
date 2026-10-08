@@ -1,4 +1,4 @@
-const CACHE_NAME = "crabbytab-offline-v2";
+const CACHE_NAME = "crabbytab-offline-v3";
 const APP_SHELL = "/";
 const CORE_ASSETS = [
   APP_SHELL,
@@ -37,11 +37,15 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(request);
-        if (cached) return cached;
-        const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
-        return response;
+        try {
+          const response = await fetch(request);
+          if (response.ok) await cache.put(request, response.clone());
+          return response;
+        } catch (error) {
+          const cached = await cache.match(request);
+          if (cached) return cached;
+          throw error;
+        }
       })
     );
     return;
