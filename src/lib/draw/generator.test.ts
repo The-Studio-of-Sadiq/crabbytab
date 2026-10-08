@@ -107,6 +107,50 @@ describe("Round draw eligibility", () => {
     expect(draw[0].venueName).toBe("Available Room");
   });
 
+  it("keeps Round 1 randomized while avoiding possible same-institution matchups", () => {
+    const drawTeams = Array.from({ length: 8 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index}`,
+      name: `Team ${index}`,
+      institutionId: index < 4 ? "institution-a" : "institution-b",
+      institutionName: index < 4 ? "Institution A" : "Institution B",
+    }));
+    const tournament = {
+      id: "t1",
+      format: "uadc",
+      preferences: {
+        teamsInDebate: 2,
+        sideAllocationRule: "random",
+        avoidSameInstitution: true,
+      },
+    } as Tournament;
+    const round = {
+      ...makeRound("preliminary"),
+      drawType: "power_paired" as const,
+    };
+    const draw = generateRoundDraw({
+      tournament,
+      round,
+      teams: drawTeams,
+      venues: Array.from({ length: 4 }, (_, index) => ({
+        id: `venue-${index}`,
+        tournamentId: "t1",
+        name: `Room ${index}`,
+        priority: 0,
+      })),
+      pastDebates: [],
+      standings: [],
+    });
+
+    expect(draw).toHaveLength(4);
+    for (const debate of draw) {
+      const institutionIds = Object.values(debate.teams).map((slot) =>
+        drawTeams.find((team) => team.id === slot.teamId)?.institutionId
+      );
+      expect(new Set(institutionIds).size).toBe(2);
+    }
+  });
+
   it("requires one available venue for every debate room", () => {
     const twoTeamTournament = {
       id: "t1",

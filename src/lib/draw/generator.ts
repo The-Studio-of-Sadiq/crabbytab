@@ -67,6 +67,63 @@ export function getRequiredVenueCount(
   }, 0);
 }
 
+function groupRandomTeams(
+  teams: Team[],
+  teamsPerDebate: number,
+  avoidSameInstitution: boolean
+): Team[][] {
+  const debateCount = teams.length / teamsPerDebate;
+  if (!avoidSameInstitution) {
+    const shuffledTeams = shuffle(teams);
+    return Array.from({ length: debateCount }, (_, index) =>
+      shuffledTeams.slice(index * teamsPerDebate, (index + 1) * teamsPerDebate)
+    );
+  }
+
+  const roots = teams.map((_, index) => index);
+  const find = (index: number): number => {
+    if (roots[index] !== index) roots[index] = find(roots[index]);
+    return roots[index];
+  };
+  const union = (a: number, b: number) => {
+    roots[find(a)] = find(b);
+  };
+  const shareInstitution = (a: Team, b: Team) => {
+    const sameId = Boolean(a.institutionId && b.institutionId && a.institutionId === b.institutionId);
+    const aName = a.institutionName?.trim().toLowerCase();
+    const bName = b.institutionName?.trim().toLowerCase();
+    return sameId || Boolean(aName && bName && aName === bName);
+  };
+
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      if (shareInstitution(teams[i], teams[j])) union(i, j);
+    }
+  }
+
+  const institutionGroups = new Map<number, Team[]>();
+  teams.forEach((team, index) => {
+    const root = find(index);
+    const group = institutionGroups.get(root) ?? [];
+    group.push(team);
+    institutionGroups.set(root, group);
+  });
+
+  const orderedGroups = shuffle(
+    [...institutionGroups.values()].map((group) => shuffle(group))
+  );
+  const debates = Array.from({ length: debateCount }, () => [] as Team[]);
+  let nextDebate = Math.floor(Math.random() * debateCount);
+  for (const institutionGroup of orderedGroups) {
+    for (const team of institutionGroup) {
+      debates[nextDebate].push(team);
+      nextDebate = (nextDebate + 1) % debateCount;
+    }
+  }
+
+  return debates;
+}
+
 /**
  * Builds historical matchup graph and side histories from all completed debates.
  */
@@ -292,11 +349,13 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     standings.every((s) => s.points === 0 && s.totalSpeakerScore === 0)
   ) {
     // Round 1, random drawType, or no standings yet: Shuffle teams randomly
-    const shuffled = shuffle(activeTeams);
-    const numDebates = shuffled.length / teamsPerDebate;
+    const groups = groupRandomTeams(
+      activeTeams,
+      teamsPerDebate,
+      tournament.preferences?.avoidSameInstitution !== false
+    );
 
-    for (let i = 0; i < numDebates; i++) {
-      const group = shuffled.slice(i * teamsPerDebate, (i + 1) * teamsPerDebate);
+    for (const group of groups) {
       const teamsWithSides = allocateSidesForDebate(
         group,
         history.sides,

@@ -488,7 +488,7 @@ describe("Adjudicator Allocator Preferences", () => {
     }
   });
 
-  it("balances full-panel average strength against debate priority when enabled", () => {
+  it("does not trade higher-priority panel strength for average matching", () => {
     const teams = Array.from({ length: 4 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
     const teamsMap = new Map(teams.map((team) => [team.id, team]));
     const highPriorityDebate = {
@@ -506,29 +506,28 @@ describe("Adjudicator Allocator Preferences", () => {
       createAdj("low-1", "Low 1", 2),
       createAdj("low-2", "Low 2", 2),
     ];
-    const makeAllocations = (balancePanels: boolean) =>
-      autoAllocateAdjudicators(
-        [highPriorityDebate, lowPriorityDebate],
-        teamsMap,
-        adjudicators,
-        new Map(),
-        {
-          panelSize: 2,
-          balancePanels,
-          respectInstitutionConflicts: true,
-          respectPersonalConflicts: true,
-          respectHistoryConflicts: true,
-        },
-        {
-          allPastDebates: [],
-          standings: [],
-          breakCategories: [],
-          totalPrelimRounds: 1,
-          completedRounds: 0,
-          isBP: false,
-        }
-      );
-    const averageFor = (allocation: ReturnType<typeof makeAllocations>[number]) => {
+    const allocations = autoAllocateAdjudicators(
+      [highPriorityDebate, lowPriorityDebate],
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+    const averageFor = (allocation: typeof allocations[number]) => {
       const ids = [allocation.chairId, ...allocation.panellistIds].filter(
         (id): id is string => id !== undefined
       );
@@ -538,16 +537,80 @@ describe("Adjudicator Allocator Preferences", () => {
       ) / ids.length;
     };
 
-    const balanced = makeAllocations(true);
-    const unbalanced = makeAllocations(false);
-    const balancedHigh = averageFor(balanced.find((allocation) => allocation.debateId === "high")!);
-    const balancedLow = averageFor(balanced.find((allocation) => allocation.debateId === "low")!);
-    const unbalancedHigh = averageFor(unbalanced.find((allocation) => allocation.debateId === "high")!);
-    const unbalancedLow = averageFor(unbalanced.find((allocation) => allocation.debateId === "low")!);
+    const balancedHigh = averageFor(allocations.find((allocation) => allocation.debateId === "high")!);
+    const balancedLow = averageFor(allocations.find((allocation) => allocation.debateId === "low")!);
+    expect(balancedHigh).toBeGreaterThanOrEqual(balancedLow);
+  });
 
-    expect(balancedHigh).toBeGreaterThan(balancedLow);
-    expect(Math.abs(balancedHigh - 8) + Math.abs(balancedLow - 2))
-      .toBeLessThan(Math.abs(unbalancedHigh - 8) + Math.abs(unbalancedLow - 2));
+  it("distributes the strongest judges to the highest-ranked panel slots before balancing averages", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debates = [
+      { ...createDebate("top-room", teams.slice(0, 2)), roomRank: 1 },
+      { ...createDebate("next-room", teams.slice(2)), roomRank: 2 },
+    ];
+    const adjudicators = [10, 9, 8, 7, 6, 5].map((score, index) =>
+      createAdj(`rank-${index}`, `Rank ${index}`, score)
+    );
+    const allocations = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 3,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+    const topPanel = allocations.find((allocation) => allocation.debateId === "top-room")!;
+    const nextPanel = allocations.find((allocation) => allocation.debateId === "next-room")!;
+
+    expect([topPanel.chairId, ...topPanel.panellistIds]).toEqual(["rank-0", "rank-2", "rank-4"]);
+    expect([nextPanel.chairId, ...nextPanel.panellistIds]).toEqual(["rank-1", "rank-3", "rank-5"]);
+  });
+
+  it("keeps adjudicator conflict constraints ahead of strength ranking", () => {
+    const topTeam = createTeam("top-team", "Top Team", "institution-x");
+    const nextTeam = createTeam("next-team", "Next Team", "institution-y");
+    const topDebate = { ...createDebate("top-room", [topTeam]), roomRank: 1, importance: 10 };
+    const nextDebate = { ...createDebate("next-room", [nextTeam]), roomRank: 2 };
+    const strongest = createAdj("strongest", "Strongest", 10, true, "institution-x");
+    const clean = createAdj("clean", "Clean", 4);
+    const allocations = autoAllocateAdjudicators(
+      [topDebate, nextDebate],
+      new Map([[topTeam.id, topTeam], [nextTeam.id, nextTeam]]),
+      [strongest, clean],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: false,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+      }
+    );
+
+    expect(allocations.find((allocation) => allocation.debateId === "top-room")?.chairId).toBe(clean.id);
+    expect(allocations.find((allocation) => allocation.debateId === "next-room")?.chairId).toBe(strongest.id);
   });
 
   it("blends venue priority without allowing it to override debate priority", () => {

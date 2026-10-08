@@ -735,27 +735,45 @@ export function autoAllocateAdjudicators(
   // ─── Step 5: Assign complete voting panels via global minimum-cost matching ───
   const votingPanelSize = noPanellists ? 1 : Math.max(1, options.panelSize);
   if (nonTrainees.length > 0) {
-    const panelSlots = [
-      ...sortedDebateIndices.map((debateIdx) => ({
+    const panelSlots = Array.from({ length: votingPanelSize }, (_, panelPosition) =>
+      sortedDebateIndices.map((debateIdx) => ({
         debate: debates[debateIdx],
-        isChairSlot: true,
-      })),
-      ...sortedDebateIndices.flatMap((debateIdx) =>
-        Array.from({ length: votingPanelSize - 1 }, () => ({
-          debate: debates[debateIdx],
-          isChairSlot: false,
-        }))
-      ),
-    ];
-    const adjudicatorRank = new Map(
-      [...nonTrainees]
-        .sort((a, b) =>
-          b.baseScore - a.baseScore ||
-          (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5) ||
-          a.id.localeCompare(b.id)
-        )
-        .map((adj, rank) => [adj.id, rank])
+      }))
+    ).flat();
+    const rankedAdjudicators = [...nonTrainees].sort((a, b) =>
+      (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5) ||
+      b.baseScore - a.baseScore ||
+      a.id.localeCompare(b.id)
     );
+    const adjudicatorRank = new Map<string, number>();
+    for (let start = 0; start < rankedAdjudicators.length;) {
+      const score = adjScores.get(rankedAdjudicators[start].id) ?? 5;
+      let end = start + 1;
+      while (
+        end < rankedAdjudicators.length &&
+        (adjScores.get(rankedAdjudicators[end].id) ?? 5) === score
+      ) {
+        end++;
+      }
+      const rank = (start + end - 1) / 2;
+      for (let index = start; index < end; index++) {
+        adjudicatorRank.set(rankedAdjudicators[index].id, rank);
+      }
+      start = end;
+    }
+    const maxPanelRepeatCount = Math.max(0, ...pastPanelHistory.values());
+    const repeatPanelCostBound =
+      maxPanelRepeatCount *
+      allocationWeights.REPEAT_PANEL *
+      panelSlots.length *
+      panelSlots.length;
+    const strengthRankWeight = repeatPanelCostBound + 1;
+    const maxRankDistance = Math.max(nonTrainees.length, panelSlots.length);
+    const strengthCostBound =
+      panelSlots.length * maxRankDistance * maxRankDistance * strengthRankWeight;
+    const balanceCostBound = numDebates * 0.01;
+    const hardConflictCost =
+      strengthCostBound + repeatPanelCostBound + balanceCostBound + 1;
     const basePanelCostMatrix = panelSlots.map(({ debate }, slotIdx) => {
       const debateTeams: Team[] = Object.values(debate.teams)
         .map((t) => teamsMap.get(t.teamId))
@@ -777,8 +795,15 @@ export function autoAllocateAdjudicators(
           debatePriority,
           allocationWeights
         );
-        return cost.total - cost.priorityStrengthMismatch +
-          Math.abs(slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)) * 0.001;
+        const hasRespectedConflict =
+          (options.respectInstitutionConflicts && cost.institutionConflict > 0) ||
+          (options.respectPersonalConflicts && cost.personalConflict > 0) ||
+          (options.respectHistoryConflicts && cost.repeatTeamConflict > 0          );
+          const rankDistance = Math.abs(
+        slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)
+          );
+          return (hasRespectedConflict ? hardConflictCost : 0) +
+        rankDistance * rankDistance * strengthRankWeight;
       });
     });
     const panelCostMatrix = basePanelCostMatrix;
@@ -806,7 +831,7 @@ export function autoAllocateAdjudicators(
             const debateId = panelSlots[slotIndices[0]].debate.id;
             const priority = priorityMap.get(debateId)?.priorityScore ?? 5;
             const averageStrength = panelScores.reduce((sum, score) => sum + score, 0) / panelScores.length;
-            total += Math.abs(averageStrength - priority) * allocationWeights.PRIORITY_STRENGTH_MISMATCH;
+            total += Math.abs(averageStrength - priority) * 0.001;
           }
         }
         for (let i = 0; i < slotIndices.length; i++) {
