@@ -86,7 +86,10 @@ export default function PublicTournamentPage() {
   // S1: Public toggles
   const showPublicDraw = prefs?.publicDraw !== false;
   const showPublicResults = prefs?.publicResults !== false;
-  const showPublicStandings = prefs?.publicStandings !== false;
+  const hasPublicTeamSpeaks = rounds.some(
+    (round) => round.resultsReleased && round.teamSpeaksReleased && !round.silent
+  );
+  const showPublicStandings = prefs?.publicStandings !== false && hasPublicTeamSpeaks;
   const showPublicMotions = prefs?.publicMotions !== false;
   const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
 
@@ -140,6 +143,29 @@ export default function PublicTournamentPage() {
   useEffect(() => {
     setMotionSlideIndex((index) => Math.min(index, Math.max(0, releasedMotions.length - 1)));
   }, [releasedMotions.length]);
+
+  useEffect(() => {
+    if (activeTab === "standings" && !showPublicStandings) {
+      setActiveTab(
+        showPublicDraw
+          ? "draw"
+          : showPublicResults
+            ? "results"
+            : showPublicMotions
+              ? "motions"
+              : breakHasBeenGenerated
+                ? "break"
+                : "draw"
+      );
+    }
+  }, [
+    activeTab,
+    breakHasBeenGenerated,
+    showPublicDraw,
+    showPublicMotions,
+    showPublicResults,
+    showPublicStandings,
+  ]);
 
   useEffect(() => {
     if (!isMotionPresentation) return;
