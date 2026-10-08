@@ -178,7 +178,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         ...params,
         round: { ...round, breakCategoryIds: [categoryId] },
         teams: categoryTeams,
-        venues: availableVenues.slice(generated.length),
+        venues: availableVenues,
       });
       categoryDebates.forEach((debate, index) => {
         const roomRank = generated.length + index + 1;
@@ -188,7 +188,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         generated.push(debate);
       });
     }
-    return generated;
+    return assignVenues(generated, availableVenues);
   }
 
   // Filter checked-in teams (or all active if checkins aren't used)

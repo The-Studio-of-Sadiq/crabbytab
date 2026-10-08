@@ -314,4 +314,39 @@ describe("Round draw eligibility", () => {
       return ids.every((id) => id.startsWith(debate.breakCategoryId!));
     })).toBe(true);
   });
+
+  it("allocates venues globally across categories rather than reusing a priority-sorted venue", () => {
+    const categoryTeams = [
+      ...Array.from({ length: 4 }, (_, index) => ({
+        ...teams[0], id: `open-${index}`, name: `Open ${index}`, breakCategoryIds: ["open"],
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        ...teams[1], id: `esl-${index}`, name: `ESL ${index}`, breakCategoryIds: ["esl"],
+      })),
+    ];
+    const round = { ...makeRound("elimination", ["open", "esl"]), drawType: "elimination" as const };
+    const tournament = {
+      id: "t1",
+      format: "bp",
+      preferences: { teamsInDebate: 4, sideAllocationRule: "balanced" },
+    } as Tournament;
+
+    const draw = generateRoundDraw({
+      tournament,
+      round,
+      teams: categoryTeams,
+      venues: [
+        { id: "lower-priority", tournamentId: "t1", name: "Room A", priority: 1 },
+        { id: "higher-priority", tournamentId: "t1", name: "Room B", priority: 10 },
+      ],
+      pastDebates: [],
+      standings: [],
+    });
+
+    expect(draw).toHaveLength(2);
+    expect(draw.map((debate) => debate.venueId).sort()).toEqual([
+      "higher-priority",
+      "lower-priority",
+    ]);
+  });
 });
