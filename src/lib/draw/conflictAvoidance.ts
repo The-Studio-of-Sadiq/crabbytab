@@ -1,6 +1,5 @@
 import type { ConflictAvoidance, Team } from "@/types";
 import type { MatchupHistory } from "./powerPaired";
-import { solveHungarian } from "./hungarian";
 
 function haveMet(a: Team, b: Team, history: MatchupHistory): boolean {
   return history.opponents.get(a.id)?.has(b.id) ?? false;
@@ -70,22 +69,6 @@ function oneUpOneDown(rooms: Team[][], history: MatchupHistory, penalties: Clash
   return r;
 }
 
-/**
- * Reframes the bracket as a bipartite matching between its top half and
- * bottom half (the same partition `pairTeams("slide")` would use) and finds
- * the minimum-clash perfect matching between them with the Hungarian
- * algorithm. Always finds the true minimum, unlike `oneUpOneDown`.
- */
-function minCost(rooms: Team[][], history: MatchupHistory, penalties: ClashPenalties): Team[][] {
-  const top = rooms.map((r) => r[0]);
-  const bottom = rooms.map((r) => r[1]);
-  const costMatrix = top.map((a) =>
-    bottom.map((b) => roomCost(a, b, history, penalties.repeatMatchupPenalty, penalties.institutionClashPenalty))
-  );
-  const assignment = solveHungarian(costMatrix);
-  return top.map((a, i) => [a, bottom[assignment[i]]]);
-}
-
 /** Applies the configured conflict-avoidance strategy to a set of 2-team rooms. */
 export function avoidConflicts(
   rooms: Team[][],
@@ -99,6 +82,8 @@ export function avoidConflicts(
     case "one_up_one_down":
       return oneUpOneDown(rooms, history, penalties);
     case "min_cost":
-      return minCost(rooms, history, penalties);
+      // Opponent reassignment would silently replace the configured pairing method.
+      // Keep this legacy strategy value compatible without changing its matchups.
+      return rooms;
   }
 }

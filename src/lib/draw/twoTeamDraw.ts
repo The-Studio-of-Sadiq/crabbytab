@@ -35,8 +35,8 @@ export const DEFAULT_TWO_TEAM_DRAW_CONFIG: TwoTeamDrawConfig = {
 /**
  * Two-team power-paired draw generator (C2): groups teams by wins, resolves
  * odd brackets per `oddBracketMethod` (narrowed first by `pullupRestriction`),
- * pairs each resulting group per `pairingMethod`, then applies
- * `conflictAvoidance` to swap out rematches/institution clashes.
+ * pairs each resulting group per `pairingMethod`, then applies the selected
+ * conflict strategy. One-up-one-down may change opponents; min_cost preserves them.
  *
  * Order of operations matches the spec exactly: raw brackets -> resolve odd
  * brackets -> pair within brackets -> avoid conflicts -> allocate sides.
@@ -60,6 +60,14 @@ export function generateTwoTeamDraw(
     pullupRestriction: config.pullupRestriction ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.pullupRestriction,
     penalties: config.penalties ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.penalties,
     sideRule: config.sideRule ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.sideRule,
+    sideBalancePenalty: config.sideBalancePenalty,
+    pairingDeviationPenalty: config.pairingDeviationPenalty,
+    maxTimesPerSide: config.maxTimesPerSide,
+    maxAllowedSideImbalance: config.maxAllowedSideImbalance,
+    pullupPenalty: config.pullupPenalty,
+    previouslySawPullupPenalty: config.previouslySawPullupPenalty,
+    avoidSameInstitution: config.avoidSameInstitution,
+    avoidTeamHistory: config.avoidTeamHistory,
   };
 
   const teamMap = new Map(teams.map((t) => [t.id, t]));

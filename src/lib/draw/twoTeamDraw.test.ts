@@ -144,6 +144,21 @@ describe("generateTwoTeamDraw: config actually changes the result", () => {
     expect(abTogetherAvoided).toBe(false);
   });
 
+  it("min_cost preserves exact pairings produced by the configured pairing method", () => {
+    const teams = [team("a"), team("b"), team("c"), team("d")];
+    const standings = teams.map((t) => standing(t.id, 0, 0));
+    const history: MatchupHistory = {
+      opponents: new Map([["a", new Set(["b"])], ["b", new Set(["a"])]]),
+      sides: new Map(),
+    };
+    const draw = generateTwoTeamDraw(teams, standings, history, "uadc", {
+      pairingMethod: "adjacent",
+      conflictAvoidance: "min_cost",
+    });
+    expect(draw.map((debate) => debate.teams.map((t) => t.id).sort().join("v")).sort())
+      .toEqual(["avb", "cvd"]);
+  });
+
   it("pullupRestriction narrows who can be pulled up", () => {
     // Bracket of 1 win has 3 teams (odd); bracket of 0 wins has 4, one of which
     // (t5) has already been pulled up once before (higher `pullups`).

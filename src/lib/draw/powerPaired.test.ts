@@ -136,6 +136,31 @@ describe("Power-Paired Draw (powerPaired)", () => {
       expect(new Set(insts).size).toBe(2); // Both rooms should have 1 instA and 1 instB
     });
   });
+
+  it("detects institution clashes by normalized institution name when IDs are absent", () => {
+    const teams = [
+      createTeam("t1", "Team 1"),
+      createTeam("t2", "Team 2"),
+      createTeam("t3", "Team 3"),
+      createTeam("t4", "Team 4"),
+    ];
+    teams[0].institutionName = " North University ";
+    teams[1].institutionName = "north university";
+    teams[2].institutionName = "South University";
+    teams[3].institutionName = "south university";
+    const standings = teams.map((team, index) =>
+      createStanding(team.id, team.name, 3, 150 - index)
+    );
+    const draw = generatePowerPairedDraw(
+      teams,
+      standings,
+      { opponents: new Map(), sides: new Map() },
+      "uadc"
+    );
+    for (const debate of draw) {
+      expect(new Set(debate.teams.map((team) => team.institutionName?.trim().toLowerCase())).size).toBe(2);
+    }
+  });
 });
 
 describe("Power-Paired Draw: configurable clash penalties", () => {

@@ -1,5 +1,6 @@
 import { Team, TeamStandingRow, DebateSide, TournamentFormat, BPPullupDistribution, BPPositionCost, BPAssignmentMethod } from "@/types";
 import { allocateSidesForDebate, SideAllocationOptions } from "./sideAllocator";
+import { shuffle } from "./pairing";
 
 export interface MatchupHistory {
   // Key: teamId, Value: set of teamIds they have debated before
@@ -72,9 +73,17 @@ function calculateDebateClashPenalty(
         }
       }
 
-      // Institutional clash penalty
+      // Institutional clash penalty; names cover legacy records without IDs.
       if (institutionClashPenalty > 0) {
-        if (t1.institutionId && t2.institutionId && t1.institutionId === t2.institutionId) {
+        const sameInstitutionById =
+          Boolean(t1.institutionId && t2.institutionId && t1.institutionId === t2.institutionId);
+        const sameInstitutionByName =
+          Boolean(
+            t1.institutionName?.trim() &&
+            t2.institutionName?.trim() &&
+            t1.institutionName.trim().toLowerCase() === t2.institutionName.trim().toLowerCase()
+          );
+        if (sameInstitutionById || sameInstitutionByName) {
           penalty += institutionClashPenalty;
         }
       }
@@ -128,7 +137,7 @@ export function generatePowerPairedDraw(
   // Sort teams according to standings (points desc, total speaker score desc)
   const sortedTeamIds: string[] = standings.length > 0
     ? standings.map((s) => s.teamId).filter((id) => teamMap.has(id))
-    : [...teams].sort(() => Math.random() - 0.5).map((t) => t.id);
+    : shuffle(teams).map((t) => t.id);
 
   // Add any unranked teams to the bottom
   teams.forEach((t) => {
@@ -226,10 +235,13 @@ export function generatePowerPairedDraw(
       if (pass === 0) {
         candidate = [...orderedBracketTeams];
       } else if (pullupDistribution === "top" || pullupDistribution === "bottom") {
-        // Shuffle within chunks
-        candidate = [...orderedBracketTeams].sort(() => Math.random() - 0.5);
+        const pullups = shuffle(orderedBracketTeams.filter((team) => pulledUpTeamIds.has(team.id)));
+        const regulars = shuffle(orderedBracketTeams.filter((team) => !pulledUpTeamIds.has(team.id)));
+        candidate = pullupDistribution === "top"
+          ? [...pullups, ...regulars]
+          : [...regulars, ...pullups];
       } else {
-        candidate = [...orderedBracketTeams].sort(() => Math.random() - 0.5);
+        candidate = shuffle(orderedBracketTeams);
       }
 
       const candidateGroups: Team[][] = [];

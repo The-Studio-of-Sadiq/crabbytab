@@ -107,4 +107,41 @@ describe("Side Allocator (sideAllocator)", () => {
       "Expected 4 teams for side allocation, got 1"
     );
   });
+
+  it("enforces maxTimesPerSide as a hard limit for BP assignments", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => makeTeam(`t${index}`, `Team ${index}`));
+    const history = new Map<string, DebateSide[]>([["t0", ["OG"]]]);
+    const allocation = allocateSidesForDebate(teams, history, "bp", "balanced", { maxTimesPerSide: 1 });
+    expect(Object.entries(allocation).find(([, team]) => team.id === "t0")?.[0]).not.toBe("OG");
+  });
+
+  it("enforces maxAllowedSideImbalance as a hard limit for BP assignments", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => makeTeam(`t${index}`, `Team ${index}`));
+    const history = new Map<string, DebateSide[]>([["t0", ["OG", "OG", "OG"]]]);
+    const allocation = allocateSidesForDebate(teams, history, "bp", "balanced", {
+      maxAllowedSideImbalance: 3,
+    });
+    expect(Object.entries(allocation).find(([, team]) => team.id === "t0")?.[0]).not.toBe("OG");
+  });
+
+  it("enforces side-imbalance limits for two-team assignments", () => {
+    const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
+    const history = new Map<string, DebateSide[]>([["t1", ["AFF", "AFF", "AFF"]]]);
+    const allocation = allocateSidesForDebate(teams, history, "uadc", "balanced", {
+      maxAllowedSideImbalance: 2,
+    });
+    expect(allocation.NEG.id).toBe("t1");
+  });
+
+  it("throws explicitly when no assignment can satisfy the configured hard limits", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => makeTeam(`t${index}`, `Team ${index}`));
+    const history = new Map<string, DebateSide[]>(
+      teams.map((team) => [
+        team.id,
+        ["OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO"],
+      ])
+    );
+    expect(() => allocateSidesForDebate(teams, history, "bp", "random", { maxTimesPerSide: 5 }))
+      .toThrow("No side assignment satisfies the configured side limits.");
+  });
 });

@@ -1,5 +1,5 @@
 import { Team, DebateSide, BPSide, TwoTeamSide, BPPositionCost } from "@/types";
-import { solveHungarian } from "./hungarian";
+import { shuffle } from "./pairing";
 
 export interface TeamSideHistory {
   teamId: string;
@@ -45,24 +45,7 @@ export function computeBPSideCost(
 
   const counts = [og, oo, cg, co];
   const total = og + oo + cg + co;
-  const maxTimes = options?.maxTimesPerSide ?? 5;
-  const maxAllowedImbalance = options?.maxAllowedSideImbalance ?? 0;
   const balancePenaltyWeight = options?.sideBalancePenalty ?? 0;
-
-  // Hard preference: disallow exceeding maxTimesPerSide
-  const candidateCount = candidateSide === "OG" ? og : candidateSide === "OO" ? oo : candidateSide === "CG" ? cg : co;
-  let hardPenalty = 0;
-  if (candidateCount > maxTimes) {
-    hardPenalty += 1_000_000;
-  }
-
-  // Side imbalance limit (if enabled, > 0)
-  const maxCount = Math.max(...counts);
-  const minCount = Math.min(...counts);
-  const imbalance = maxCount - minCount;
-  if (maxAllowedImbalance > 0 && imbalance > maxAllowedImbalance) {
-    hardPenalty += 1_000_000;
-  }
 
   // Base cost calculation
   let baseCost = 0;
@@ -100,7 +83,7 @@ export function computeBPSideCost(
 
   const exponent = options?.bpPositionCostExponent ?? 4.0;
   // Exponent and scale control optimization weight; this is not a reported statistic.
-  let cost = Math.pow(baseCost, exponent) * 1000 + hardPenalty;
+  let cost = Math.pow(baseCost, exponent) * 1000;
 
   if (balancePenaltyWeight > 0) {
     const gov = og + cg;
@@ -202,50 +185,29 @@ export function allocateSidesForDebate(
     throw new Error(`Expected ${sides.length} teams for side allocation, got ${teams.length}`);
   }
 
-  if (rule === "random" || (isBP && options?.bpAssignmentMethod === "random")) {
-    const shuffledSides = [...sides].sort(() => Math.random() - 0.5);
-    const result: Partial<Record<DebateSide, Team>> = {};
-    for (let i = 0; i < teams.length; i++) {
-      result[shuffledSides[i]] = teams[i];
-    }
-    return result as Record<DebateSide, Team>;
+  const permutations = getPermutations(sides).filter((assignment) =>
+    isSideAssignmentValid(teams, assignment, teamHistories, options)
+  );
+  if (permutations.length === 0) {
+    throw new Error("No side assignment satisfies the configured side limits.");
   }
 
-  if (isBP) {
-    // WUDC-compliant Hungarian algorithm with preshuffling
-    const shuffledSides = [...BP_SIDES].sort(() => Math.random() - 0.5);
-    const costMatrix: number[][] = [];
-    for (let i = 0; i < teams.length; i++) {
-      const history = teamHistories.get(teams[i].id) || [];
-      const row: number[] = [];
-      for (let j = 0; j < shuffledSides.length; j++) {
-        row.push(computeBPSideCost(history, shuffledSides[j], options));
-      }
-      costMatrix.push(row);
-    }
-    const matching = solveHungarian(costMatrix);
-    const result: Partial<Record<DebateSide, Team>> = {};
-    for (let i = 0; i < teams.length; i++) {
-      const assignedSide = shuffledSides[matching[i]];
-      result[assignedSide] = teams[i];
-    }
-    return result as Record<DebateSide, Team>;
+  const randomAssignment = rule === "random" || (isBP && options?.bpAssignmentMethod === "random");
+  const candidates = shuffle(permutations);
+  if (randomAssignment) {
+    return makeSideAssignment(teams, candidates[0]);
   }
 
-  // Generate all permutations of sides
-  const permutations: DebateSide[][] = getPermutations(sides);
-  let bestPermutation = permutations[0];
+  let bestPermutation = candidates[0];
   let minPenalty = Infinity;
 
-  for (const perm of permutations) {
+  for (const perm of candidates) {
     let penalty = 0;
     for (let i = 0; i < teams.length; i++) {
       const history = teamHistories.get(teams[i].id) || [];
-      penalty += calculateSidePenalty(history, perm[i], format);
-      const sideCount = history.filter((s) => s === perm[i]).length + 1;
-      if (options?.maxTimesPerSide && sideCount > options.maxTimesPerSide) {
-        penalty += 1_000_000;
-      }
+      penalty += isBP
+        ? computeBPSideCost(history, perm[i] as BPSide, options)
+        : calculateSidePenalty(history, perm[i], format);
     }
     if (penalty < minPenalty) {
       minPenalty = penalty;
@@ -253,11 +215,45 @@ export function allocateSidesForDebate(
     }
   }
 
+  return makeSideAssignment(teams, bestPermutation);
+}
+
+function isSideAssignmentValid(
+  teams: Team[],
+  assignment: DebateSide[],
+  teamHistories: Map<string, DebateSide[]>,
+  options?: SideAllocationOptions
+): boolean {
+  const maxTimes = options?.maxTimesPerSide ?? 5;
+  const maxAllowedImbalance = options?.maxAllowedSideImbalance ?? 0;
+
+  return teams.every((team, index) => {
+    const history = teamHistories.get(team.id) ?? [];
+    const side = assignment[index];
+    if (history.filter((pastSide) => pastSide === side).length + 1 > maxTimes) return false;
+    if (maxAllowedImbalance <= 0) return true;
+
+    const sideCounts = assignment.length === BP_SIDES.length
+      ? BP_SIDES.map((candidateSide) =>
+          history.filter((pastSide) => pastSide === candidateSide).length +
+          Number(candidateSide === side)
+        )
+      : TWO_TEAM_SIDES.map((candidateSide) =>
+          history.filter((pastSide) => pastSide === candidateSide).length +
+          Number(candidateSide === side)
+        );
+    return Math.max(...sideCounts) - Math.min(...sideCounts) <= maxAllowedImbalance;
+  });
+}
+
+function makeSideAssignment(
+  teams: Team[],
+  assignment: DebateSide[]
+): Record<DebateSide, Team> {
   const result: Partial<Record<DebateSide, Team>> = {};
   for (let i = 0; i < teams.length; i++) {
-    result[bestPermutation[i]] = teams[i];
+    result[assignment[i]] = teams[i];
   }
-
   return result as Record<DebateSide, Team>;
 }
 

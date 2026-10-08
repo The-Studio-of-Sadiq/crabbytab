@@ -10,7 +10,7 @@ export interface AllocationOptions {
   respectInstitutionConflicts: boolean;
   respectPersonalConflicts: boolean;
   respectHistoryConflicts: boolean;
-  preferences?: TournamentPreferences;
+  preferences?: Partial<TournamentPreferences>;
 }
 
 export interface AdjudicatorAllocationResult {
@@ -59,7 +59,7 @@ export interface AllocationCostBreakdown {
 // ─── Cost function weights ───────────────────────────────────────────
 // Tunable by tournament preferences; higher = more penalty = more avoided in the matching.
 
-export function getAllocationWeights(prefs?: TournamentPreferences) {
+export function getAllocationWeights(prefs?: Partial<TournamentPreferences>) {
   const conflictPenalty = prefs?.adjConflictPenalty ?? 1_000_000;
   const historyPenalty = prefs?.adjHistoryPenalty ?? 10_000;
   const mismatchPenalty = prefs?.importanceMismatchPenalty ?? 10_000_000;
@@ -567,8 +567,8 @@ export interface IntelligentAllocationContext {
  * 1. Compute debate priority scores (bracket + break liveness + manual priority)
  * 2. Compute effective adjudicator scores (base + feedback blend)
  * 3. Build past history maps (teams judged, panel co-occurrences)
- * 4. Match the highest-scored adjudicators to chairs in room-priority order
- * 5. Fill remaining voting panel slots with remaining adjudicators
+ * 4. Match complete voting panels while balancing average panel strength to debate priority
+ * 5. Promote each panel's strongest conflict-free member to chair
  * 6. Distribute trainees to lower-priority debates
  */
 export function autoAllocateAdjudicators(
@@ -656,27 +656,30 @@ export function autoAllocateAdjudicators(
         return priority === undefined ? [] : [priority];
       })
     )].sort((a, b) => b - a);
-    if (venuePriorityLevels.length > 1) {
-      const venuePriorityScores = new Map(
-        venuePriorityLevels.map((priority, index) => [
-          priority,
-          ((venuePriorityLevels.length - index - 1) / (venuePriorityLevels.length - 1)) * 10,
-        ])
-      );
-      debates.forEach((debate) => {
-        const venuePriority = debate.venueId
-          ? context.venuePriorities!.get(debate.venueId)
-          : undefined;
-        const venueScore = venuePriority === undefined ? undefined : venuePriorityScores.get(venuePriority);
-        const existing = priorityMap.get(debate.id);
-        if (venueScore !== undefined && existing) {
-          priorityMap.set(debate.id, { ...existing, priorityScore: venueScore });
-        }
-      });
-    }
+    const venuePriorityScores = new Map(
+      venuePriorityLevels.map((priority, index) => [
+        priority,
+        venuePriorityLevels.length === 1
+          ? 5
+          : ((venuePriorityLevels.length - index - 1) / (venuePriorityLevels.length - 1)) * 10,
+      ])
+    );
+    debates.forEach((debate) => {
+      const venuePriority = debate.venueId
+        ? context.venuePriorities!.get(debate.venueId)
+        : undefined;
+      const venueScore = venuePriority === undefined ? undefined : venuePriorityScores.get(venuePriority);
+      const existing = priorityMap.get(debate.id);
+      if (venueScore !== undefined && existing) {
+        priorityMap.set(debate.id, {
+          ...existing,
+          priorityScore: existing.priorityScore * 0.75 + venueScore * 0.25,
+        });
+      }
+    });
   }
 
-  // Sort debates by venue priority, then tournament debate priority.
+  // Venue priority contributes to, but never replaces, debate importance.
   const sortedDebateIndices = Array.from({ length: numDebates }, (_, i) => i).sort((a, b) => {
     const pa = priorityMap.get(debates[a].id)?.priorityScore ?? 0;
     const pb = priorityMap.get(debates[b].id)?.priorityScore ?? 0;
@@ -775,7 +778,7 @@ export function autoAllocateAdjudicators(
           allocationWeights
         );
         return cost.total - cost.priorityStrengthMismatch +
-          Math.abs(slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)) * 1_000;
+          Math.abs(slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)) * 0.001;
       });
     });
     const panelCostMatrix = basePanelCostMatrix;
@@ -794,6 +797,18 @@ export function autoAllocateAdjudicators(
       });
 
       for (const slotIndices of panelSlotsByDebate.values()) {
+        if (options.balancePanels && slotIndices.length > 0) {
+          const panelScores = slotIndices
+            .map((slotIdx) => assignment[slotIdx])
+            .filter((adjIdx) => adjIdx >= 0)
+            .map((adjIdx) => adjScores.get(nonTrainees[adjIdx].id) ?? 5);
+          if (panelScores.length > 0) {
+            const debateId = panelSlots[slotIndices[0]].debate.id;
+            const priority = priorityMap.get(debateId)?.priorityScore ?? 5;
+            const averageStrength = panelScores.reduce((sum, score) => sum + score, 0) / panelScores.length;
+            total += Math.abs(averageStrength - priority) * allocationWeights.PRIORITY_STRENGTH_MISMATCH;
+          }
+        }
         for (let i = 0; i < slotIndices.length; i++) {
           const firstAdjIdx = assignment[slotIndices[i]];
           if (firstAdjIdx < 0) continue;

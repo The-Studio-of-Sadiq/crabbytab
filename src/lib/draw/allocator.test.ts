@@ -159,7 +159,7 @@ describe("Adjudicator Allocator Preferences", () => {
     const lowPriorityDebate = {
       ...createDebate("low-room", teams.slice(2)),
       venueId: "low-priority",
-      bracket: 10,
+      bracket: 0,
     };
     const highScoredAdj = createAdj("high-score", "High Score", 10);
     const otherHighScoredAdj = createAdj("other-high-score", "Other High Score", 9);
@@ -173,7 +173,7 @@ describe("Adjudicator Allocator Preferences", () => {
       new Map(),
       {
         panelSize: 3,
-        balancePanels: true,
+        balancePanels: false,
         respectInstitutionConflicts: true,
         respectPersonalConflicts: true,
         respectHistoryConflicts: true,
@@ -224,7 +224,7 @@ describe("Adjudicator Allocator Preferences", () => {
       new Map(),
       {
         panelSize: 1,
-        balancePanels: true,
+        balancePanels: false,
         respectInstitutionConflicts: true,
         respectPersonalConflicts: true,
         respectHistoryConflicts: true,
@@ -488,6 +488,113 @@ describe("Adjudicator Allocator Preferences", () => {
     }
   });
 
+  it("balances full-panel average strength against debate priority when enabled", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const highPriorityDebate = {
+      ...createDebate("high", teams.slice(0, 2)),
+      bracket: 10,
+      importance: 10,
+    };
+    const lowPriorityDebate = {
+      ...createDebate("low", teams.slice(2)),
+      bracket: 0,
+    };
+    const adjudicators = [
+      createAdj("high-1", "High 1", 9),
+      createAdj("high-2", "High 2", 9),
+      createAdj("low-1", "Low 1", 2),
+      createAdj("low-2", "Low 2", 2),
+    ];
+    const makeAllocations = (balancePanels: boolean) =>
+      autoAllocateAdjudicators(
+        [highPriorityDebate, lowPriorityDebate],
+        teamsMap,
+        adjudicators,
+        new Map(),
+        {
+          panelSize: 2,
+          balancePanels,
+          respectInstitutionConflicts: true,
+          respectPersonalConflicts: true,
+          respectHistoryConflicts: true,
+        },
+        {
+          allPastDebates: [],
+          standings: [],
+          breakCategories: [],
+          totalPrelimRounds: 1,
+          completedRounds: 0,
+          isBP: false,
+        }
+      );
+    const averageFor = (allocation: ReturnType<typeof makeAllocations>[number]) => {
+      const ids = [allocation.chairId, ...allocation.panellistIds].filter(
+        (id): id is string => id !== undefined
+      );
+      return ids.reduce(
+        (sum, id) => sum + adjudicators.find((adjudicator) => adjudicator.id === id)!.baseScore,
+        0
+      ) / ids.length;
+    };
+
+    const balanced = makeAllocations(true);
+    const unbalanced = makeAllocations(false);
+    const balancedHigh = averageFor(balanced.find((allocation) => allocation.debateId === "high")!);
+    const balancedLow = averageFor(balanced.find((allocation) => allocation.debateId === "low")!);
+    const unbalancedHigh = averageFor(unbalanced.find((allocation) => allocation.debateId === "high")!);
+    const unbalancedLow = averageFor(unbalanced.find((allocation) => allocation.debateId === "low")!);
+
+    expect(balancedHigh).toBeGreaterThan(balancedLow);
+    expect(Math.abs(balancedHigh - 8) + Math.abs(balancedLow - 2))
+      .toBeLessThan(Math.abs(unbalancedHigh - 8) + Math.abs(unbalancedLow - 2));
+  });
+
+  it("blends venue priority without allowing it to override debate priority", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const higherDebatePriority = {
+      ...createDebate("higher-debate-priority", teams.slice(0, 2)),
+      venueId: "low-priority-venue",
+      bracket: 10,
+    };
+    const lowerDebatePriority = {
+      ...createDebate("lower-debate-priority", teams.slice(2)),
+      venueId: "high-priority-venue",
+      bracket: 0,
+    };
+    const highAdj = createAdj("high-adj", "High", 9);
+    const lowAdj = createAdj("low-adj", "Low", 1);
+    const allocations = autoAllocateAdjudicators(
+      [higherDebatePriority, lowerDebatePriority],
+      teamsMap,
+      [lowAdj, highAdj],
+      new Map(),
+      {
+        panelSize: 1,
+        balancePanels: false,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      },
+      {
+        allPastDebates: [],
+        standings: [],
+        breakCategories: [],
+        totalPrelimRounds: 1,
+        completedRounds: 0,
+        isBP: false,
+        venuePriorities: new Map([
+          ["high-priority-venue", 10],
+          ["low-priority-venue", 0],
+        ]),
+      }
+    );
+
+    expect(allocations.find((allocation) => allocation.debateId === "higher-debate-priority")?.chairId)
+      .toBe(highAdj.id);
+  });
+
   it("avoids historical repeats between panellists on the same panel", () => {
     const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const teamsMap = new Map(teams.map((team) => [team.id, team]));
@@ -534,7 +641,7 @@ describe("Adjudicator Allocator Preferences", () => {
   });
 
   it("getAllocationWeights reflects configured penalties", () => {
-    const customPrefs: TournamentPreferences = {
+    const customPrefs: Partial<TournamentPreferences> = {
       adjConflictPenalty: 500_000,
       adjHistoryPenalty: 25_000,
       importanceMismatchPenalty: 2_000_000,

@@ -548,7 +548,7 @@ function ConfigFormContent() {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Hard preference applied by minimum cost matching to disallow pairings where a team would debate more than this many times on the same side. WARNING: if you set this to a low value, the draw algorithm may be unable to find a valid draw.
+                    Absolute limit: a side assignment that would exceed this count is rejected. Draw generation reports an error if no valid assignment exists.
                   </p>
                 </div>
 
@@ -566,7 +566,7 @@ function ConfigFormContent() {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    A limit for the side imbalance, where a pairing will not be made if that requires a team to debate more times on one side than the selected number. For use with the graph generator, with 0 as disabled.
+                    Absolute limit on the difference between a team&apos;s most- and least-used sides after assignment. An assignment that exceeds it is rejected; 0 disables this limit.
                   </p>
                 </div>
 
@@ -602,7 +602,7 @@ function ConfigFormContent() {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by minimum cost matching to prefer pairings that follow the draw pairing method.
+                    Retained for saved preferences; current draw generation does not apply this setting.
                   </p>
                 </div>
               </div>
@@ -641,12 +641,12 @@ function ConfigFormContent() {
                     value={prefs.conflictAvoidance ?? "one_up_one_down"}
                     onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
                   >
-                    <option value="one_up_one_down">One-up-one-down (fast, local swaps)</option>
-                    <option value="min_cost">Minimum cost (graph matching, finds true global best)</option>
+                    <option value="one_up_one_down">One-up-one-down (local swaps may change matchups)</option>
+                    <option value="min_cost">Minimum cost (legacy; preserves configured matchups)</option>
                     <option value="off">Off</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Method used to try to avoid teams facing each other multiple times or their own institution
+                    One-up-one-down can change the selected pairing method&apos;s matchups to avoid clashes. Minimum cost is retained for saved preferences but preserves the selected method&apos;s exact matchups.
                   </p>
                 </div>
 
