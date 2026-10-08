@@ -11,8 +11,6 @@ import {
   Lightbulb,
   Award,
   ArrowLeft,
-  MapPin,
-  Search,
   Sparkles,
   ExternalLink,
   FileCheck2,
@@ -21,11 +19,14 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { DebateSide } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks } from "@/lib/breakqual/calculator";
 import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
+import { getPanelistNamesByScore } from "@/lib/adjudicators";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -53,21 +54,6 @@ export default function PublicTournamentPage() {
       (item) => (venueId && item.id === venueId) || (venueName && item.name === venueName)
     );
     return v?.category?.trim() || undefined;
-  };
-
-  const getPanellistNames = (adjudicatorsSlot?: {
-    panellistNames?: string[];
-    panellistIds?: string[];
-  }): string[] => {
-    if (adjudicatorsSlot?.panellistNames && adjudicatorsSlot.panellistNames.length > 0) {
-      return adjudicatorsSlot.panellistNames;
-    }
-    if (adjudicatorsSlot?.panellistIds && adjudicatorsSlot.panellistIds.length > 0) {
-      return adjudicatorsSlot.panellistIds
-        .map((id) => adjudicators.find((a) => a.id === id)?.name || id)
-        .filter(Boolean);
-    }
-    return [];
   };
 
   const getTraineeNames = (adjudicatorsSlot?: {
@@ -102,6 +88,7 @@ export default function PublicTournamentPage() {
   const showPublicResults = prefs?.publicResults !== false;
   const showPublicStandings = prefs?.publicStandings !== false;
   const showPublicMotions = prefs?.publicMotions !== false;
+  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
 
   // Available tabs based on preferences
   const availableTabs: ("draw" | "results" | "standings" | "motions" | "break")[] = [];
@@ -109,7 +96,7 @@ export default function PublicTournamentPage() {
   if (showPublicResults) availableTabs.push("results");
   if (showPublicStandings) availableTabs.push("standings");
   if (showPublicMotions) availableTabs.push("motions");
-  availableTabs.push("break"); // Break is always an available public tab
+  if (breakHasBeenGenerated) availableTabs.push("break");
 
   const [activeTab, setActiveTab] = useState<"draw" | "results" | "standings" | "motions" | "break">(
     availableTabs[0] || "draw"
@@ -280,17 +267,19 @@ export default function PublicTournamentPage() {
             </button>
           )}
 
-          <button
-            onClick={() => setActiveTab("break")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "break"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Award className="w-3.5 h-3.5" />
-            <span>Break</span>
-          </button>
+          {breakHasBeenGenerated && (
+            <button
+              onClick={() => setActiveTab("break")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "break"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Award className="w-3.5 h-3.5" />
+              <span>Break</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -321,87 +310,73 @@ export default function PublicTournamentPage() {
                 The draw for {activeRound?.name || "this round"} has not been released to the public yet.
               </div>
             ) : (
-              <div className="space-y-3">
-                {releasedDebates.map((d, idx) => {
-                  const venueCategory = getVenueCategory(d.venueId, d.venueName);
-                  const panellistNames = getPanellistNames(d.adjudicators);
-                  const traineeNames = getTraineeNames(d.adjudicators);
-
-                  return (
-                    <div key={d.id} className="bg-white border border-[#d0d7de] rounded-lg p-4 shadow-2xs">
-                      <div className="flex items-center justify-between border-b border-gray-100 pb-2 mb-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-xs text-gray-900 flex items-center space-x-1">
-                            <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                            <span>{d.venueName || `Room ${idx + 1}`}</span>
-                          </span>
-                          {venueCategory && (
-                            <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                              {venueCategory}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-600 font-medium">
-                          Chair: <strong className="text-gray-900">
-                            {showPublicAdjudicators ? d.adjudicators?.chairName || "TBD" : "TBA"}
-                          </strong>
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+              <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left tabby-table">
+                    <thead>
+                      <tr>
+                        <th>Venue</th>
                         {isBP ? (
                           <>
-                            <div className="p-2 bg-rose-50/60 rounded border border-rose-200 font-bold text-gray-900">
-                              <span className="text-[10px] text-rose-700 block uppercase">OG</span>
-                              {d.teams?.OG?.teamName || "—"}
-                            </div>
-                            <div className="p-2 bg-sky-50/60 rounded border border-sky-200 font-bold text-gray-900">
-                              <span className="text-[10px] text-sky-700 block uppercase">OO</span>
-                              {d.teams?.OO?.teamName || "—"}
-                            </div>
-                            <div className="p-2 bg-amber-50/60 rounded border border-amber-200 font-bold text-gray-900">
-                              <span className="text-[10px] text-amber-700 block uppercase">CG</span>
-                              {d.teams?.CG?.teamName || "—"}
-                            </div>
-                            <div className="p-2 bg-purple-50/60 rounded border border-purple-200 font-bold text-gray-900">
-                              <span className="text-[10px] text-purple-700 block uppercase">CO</span>
-                              {d.teams?.CO?.teamName || "—"}
-                            </div>
+                            <th>OG</th>
+                            <th>OO</th>
+                            <th>CG</th>
+                            <th>CO</th>
                           </>
                         ) : (
                           <>
-                            <div className="p-2.5 bg-emerald-50/60 rounded border border-emerald-200 font-bold text-gray-900 sm:col-span-2">
-                              <span className="text-[10px] text-emerald-700 block uppercase">Affirmative</span>
-                              {d.teams?.AFF?.teamName || "—"}
-                            </div>
-                            <div className="p-2.5 bg-slate-50 rounded border border-slate-200 font-bold text-gray-900 sm:col-span-2">
-                              <span className="text-[10px] text-slate-700 block uppercase">Negative</span>
-                              {d.teams?.NEG?.teamName || "—"}
-                            </div>
+                            <th>Affirmative</th>
+                            <th>Negative</th>
                           </>
                         )}
-                      </div>
-
-                      {/* Panellists and Trainees footer */}
-                      {showPublicAdjudicators && (panellistNames.length > 0 || traineeNames.length > 0) && (
-                        <div className="mt-3 px-3 py-1.5 bg-gray-50 rounded border border-gray-100 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
-                          {panellistNames.length > 0 && (
-                            <div>
-                              <span className="font-semibold text-gray-700 mr-1">Panellists:</span>
-                              <span className="text-gray-800">{panellistNames.join(", ")}</span>
-                            </div>
-                          )}
-                          {traineeNames.length > 0 && (
-                            <div>
-                              <span className="font-semibold text-gray-700 mr-1">Trainees:</span>
-                              <span className="italic text-gray-600">{traineeNames.join(", ")}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        <th>Chair</th>
+                        <th>Panellists</th>
+                        <th>Trainees</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {releasedDebates.map((d, idx) => {
+                        const venueCategory = getVenueCategory(d.venueId, d.venueName);
+                        const panellistNames = getPanelistNamesByScore(d.adjudicators, adjudicators);
+                        const traineeNames = getTraineeNames(d.adjudicators);
+                        return (
+                          <tr key={d.id} className="hover:bg-gray-50">
+                            <td className="text-xs">
+                              <span className="font-bold text-gray-900">{d.venueName || `Room ${idx + 1}`}</span>
+                              {venueCategory && (
+                                <span className="block text-[10px] text-blue-700">{venueCategory}</span>
+                              )}
+                            </td>
+                            {isBP ? (
+                              (["OG", "OO", "CG", "CO"] as DebateSide[]).map((side) => (
+                                <td key={side} className="text-xs font-semibold text-gray-900">
+                                  {d.teams?.[side]?.teamName || "—"}
+                                </td>
+                              ))
+                            ) : (
+                              (["AFF", "NEG"] as DebateSide[]).map((side) => (
+                                <td key={side} className="text-xs font-semibold text-gray-900">
+                                  {d.teams?.[side]?.teamName || "—"}
+                                </td>
+                              ))
+                            )}
+                            <td className="text-xs font-medium text-gray-900">
+                              {showPublicAdjudicators
+                                ? d.adjudicators?.chairName || "—"
+                                : "TBA"}
+                            </td>
+                            <td className="text-xs text-gray-700">
+                              {showPublicAdjudicators ? panellistNames.join(", ") || "—" : "TBA"}
+                            </td>
+                            <td className="text-xs text-gray-600">
+                              {showPublicAdjudicators ? traineeNames.join(", ") || "—" : "TBA"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -466,7 +441,7 @@ export default function PublicTournamentPage() {
                       {releasedDebates.map((d) => {
                         const ballot = ballotMap.get(d.id);
                         const venueCategory = getVenueCategory(d.venueId, d.venueName);
-                        const panellistNames = getPanellistNames(d.adjudicators);
+                        const panellistNames = getPanelistNamesByScore(d.adjudicators, adjudicators);
                         const traineeNames = getTraineeNames(d.adjudicators);
 
                         return (
@@ -486,6 +461,11 @@ export default function PublicTournamentPage() {
                                 return (
                                   <td key={side} className="text-xs">
                                     <div className="font-semibold text-gray-900">
+                                      {tScore && (
+                                        tScore.rank === 1
+                                          ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                          : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                                      )}
                                       {tSlot?.teamName || "—"}
                                     </div>
                                     {tScore && (
@@ -506,6 +486,11 @@ export default function PublicTournamentPage() {
                                 return (
                                   <td key={side} className="text-xs">
                                     <div className="font-semibold text-gray-900">
+                                      {tScore && (
+                                        tScore.win
+                                          ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                          : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                                      )}
                                       {tSlot?.teamName || "—"}
                                     </div>
                                     {tScore && (
@@ -518,25 +503,23 @@ export default function PublicTournamentPage() {
                                 );
                               })
                             )}
-                            <td className="text-xs">
-                              <div>
-                                <span className="font-semibold text-gray-700">Chair:</span>{" "}
-                                <span className="text-gray-900 font-medium">
-                                  {showPublicAdjudicators ? d.adjudicators?.chairName || "—" : "TBA"}
-                                </span>
-                              </div>
-                              {showPublicAdjudicators && panellistNames.length > 0 && (
-                                <div className="text-[11px] text-gray-600 mt-0.5">
-                                  <span className="font-medium text-gray-700">Panellists:</span>{" "}
-                                  <span>{panellistNames.join(", ")}</span>
-                                </div>
-                              )}
-                              {showPublicAdjudicators && traineeNames.length > 0 && (
-                                <div className="text-[11px] text-gray-500 italic mt-0.5">
-                                  <span className="font-medium not-italic text-gray-600">Trainees:</span>{" "}
-                                  <span>{traineeNames.join(", ")}</span>
-                                </div>
-                              )}
+                            <td className="text-xs text-gray-700">
+                              <span className="font-semibold text-gray-700">Chair:</span>{" "}
+                              <span className="text-gray-900 font-medium">
+                                {showPublicAdjudicators
+                                  ? d.adjudicators?.chairName
+                                    ? `© ${d.adjudicators.chairName}`
+                                    : "—"
+                                  : "TBA"}
+                              </span>
+                              <span className="mx-1.5 text-gray-300">|</span>
+                              <span className="font-medium text-gray-700">Panellists:</span>{" "}
+                              <span>{showPublicAdjudicators ? panellistNames.join(", ") || "—" : "TBA"}</span>
+                              <span className="mx-1.5 text-gray-300">|</span>
+                              <span className="font-medium text-gray-700">Trainees:</span>{" "}
+                              <span className="italic">
+                                {showPublicAdjudicators ? traineeNames.join(", ") || "—" : "TBA"}
+                              </span>
                             </td>
                             <td className="text-center">
                               <span
@@ -667,7 +650,7 @@ export default function PublicTournamentPage() {
         )}
 
         {/* 5. Break View */}
-        {activeTab === "break" && (
+        {breakHasBeenGenerated && activeTab === "break" && (
           <div className="space-y-6">
             {publicBreakResults.map((res) => (
               <div

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   MessageSquareHeart,
@@ -120,17 +121,26 @@ export default function FeedbackPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setScore(Math.round((minScore + maxScore) / 2));
-            setFormError("");
-            setShowModal(true);
-          }}
-          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded text-xs shadow-xs transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Submit Feedback</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/${tournament?.slug}/feedback/submissions`}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+          >
+            <Users2 className="w-3.5 h-3.5" />
+            <span>View Submitted Forms</span>
+          </Link>
+          <button
+            onClick={() => {
+              setScore(Math.round((minScore + maxScore) / 2));
+              setFormError("");
+              setShowModal(true);
+            }}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded text-xs shadow-xs transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Submit Feedback</span>
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}

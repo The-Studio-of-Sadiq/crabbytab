@@ -15,9 +15,12 @@ import {
   FileText,
   Search,
   Lock,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { DebateSide } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { getPanelistNamesByScore } from "@/lib/adjudicators";
 
 export default function ResultsOverviewPage() {
   const {
@@ -27,6 +30,7 @@ export default function ResultsOverviewPage() {
     setActiveRound,
     debates,
     ballots,
+    adjudicators,
     confirmBallot,
     updateRound,
     proceedToNextEliminationRound,
@@ -189,7 +193,7 @@ export default function ResultsOverviewPage() {
                       <th>Negative</th>
                     </>
                   )}
-                  <th>Chair</th>
+                  <th>Adjudicators</th>
                   <th className="w-28 text-center">Status</th>
                   <th className="w-32 text-right">Actions</th>
                 </tr>
@@ -199,6 +203,7 @@ export default function ResultsOverviewPage() {
                   const ballot = ballotMap.get(debate.id);
                   const isConfirmed = ballot?.confirmed;
                   const isDraft = ballot && !ballot.confirmed;
+                  const panelistNames = getPanelistNamesByScore(debate.adjudicators, adjudicators);
 
                   if (debate.byeTeamId) {
                     const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
@@ -229,6 +234,11 @@ export default function ResultsOverviewPage() {
                         <>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.OG && (
+                                ballot.teamScores.OG.rank === 1
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.OG?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.OG && (
@@ -240,6 +250,11 @@ export default function ResultsOverviewPage() {
                           </td>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.OO && (
+                                ballot.teamScores.OO.rank === 1
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.OO?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.OO && (
@@ -251,6 +266,11 @@ export default function ResultsOverviewPage() {
                           </td>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.CG && (
+                                ballot.teamScores.CG.rank === 1
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.CG?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.CG && (
@@ -262,6 +282,11 @@ export default function ResultsOverviewPage() {
                           </td>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.CO && (
+                                ballot.teamScores.CO.rank === 1
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.CO?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.CO && (
@@ -276,6 +301,11 @@ export default function ResultsOverviewPage() {
                         <>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.AFF && (
+                                ballot.teamScores.AFF.win
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.AFF?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.AFF && (
@@ -287,6 +317,11 @@ export default function ResultsOverviewPage() {
                           </td>
                           <td className="text-xs">
                             <div className="font-semibold text-gray-900">
+                              {ballot?.teamScores?.NEG && (
+                                ballot.teamScores.NEG.win
+                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
+                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                              )}
                               {debate.teams?.NEG?.teamName || "—"}
                             </div>
                             {ballot?.teamScores?.NEG && (
@@ -300,9 +335,11 @@ export default function ResultsOverviewPage() {
                       )}
 
                       <td className="text-xs text-gray-700">
-                        {debate.adjudicators?.chairName || (
-                          <span className="text-red-500 italic text-[11px]">None</span>
-                        )}
+                        <span className="font-medium text-gray-900">
+                          Chair: {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
+                        </span>
+                        <span className="mx-1.5 text-gray-300">|</span>
+                        <span>Panellists: {panelistNames.join(", ") || "—"}</span>
                       </td>
 
                       <td className="text-center">
