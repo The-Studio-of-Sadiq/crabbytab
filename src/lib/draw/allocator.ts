@@ -342,7 +342,11 @@ export function calculateAdjudicatorFeedbackScores(
 ): Map<string, number> {
   const totals = new Map<string, { total: number; count: number }>();
   for (const submission of submissions) {
-    if (!isFeedbackEligibleForRating(submission)) continue;
+    if (
+      !isFeedbackEligibleForRating(submission) ||
+      (submission.targetType && submission.targetType !== "adjudicator") ||
+      !submission.targetAdjudicatorId
+    ) continue;
 
     const current = totals.get(submission.targetAdjudicatorId) ?? { total: 0, count: 0 };
     current.total += submission.score;

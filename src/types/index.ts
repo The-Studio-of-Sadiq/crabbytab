@@ -238,6 +238,7 @@ export interface Team {
   emoji?: string;
   checkedIn?: boolean;
   privateUrlKey?: string; // Secret key for team's private URL
+  privatePasscode?: string; // Separate passcode required to access the private portal
 }
 
 export interface AdjudicatorConflict {
@@ -384,8 +385,11 @@ export interface FeedbackSubmission {
   tournamentId: string;
   roundId: string;
   debateId: string;
-  targetAdjudicatorId: string;
-  targetAdjudicatorName: string;
+  targetType?: "adjudicator" | "team";
+  targetAdjudicatorId?: string;
+  targetAdjudicatorName?: string;
+  targetTeamId?: string;
+  targetTeamName?: string;
   sourceType: "team" | "adjudicator";
   sourceId: string;
   sourceName: string;

@@ -45,14 +45,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const { tournamentId, privateUrlKey } = body;
+  const { tournamentId, privateUrlKey, passcode } = body;
   if (
     !validDocumentId(tournamentId) ||
     typeof privateUrlKey !== "string" ||
     privateUrlKey.length === 0 ||
-    privateUrlKey.length > 128
+    privateUrlKey.length > 128 ||
+    typeof passcode !== "string" ||
+    passcode.length === 0 ||
+    passcode.length > 128
   ) {
-    return NextResponse.json({ error: "Invalid private team link." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid private team link or passcode." }, { status: 400 });
   }
 
   try {
@@ -65,6 +68,9 @@ export async function POST(request: NextRequest) {
     const teamDocument = teamSnapshot.docs[0];
     if (!tournamentSnapshot.exists || !teamDocument) {
       return NextResponse.json({ error: "This private team link is invalid." }, { status: 404 });
+    }
+    if (teamDocument.data().privatePasscode !== passcode) {
+      return NextResponse.json({ error: "Invalid team link or passcode." }, { status: 403 });
     }
 
     const teamData = teamDocument.data();

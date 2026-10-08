@@ -77,7 +77,7 @@ export interface TournamentContextType {
   uploadToCloud: () => Promise<void>;
   downloadFromCloud: () => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
-  loadPrivateTeamPortal: (privateUrlKey: string) => Promise<void>;
+  loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
   // Mutations
   saveTournament: (t: Tournament) => Promise<void>;
@@ -134,6 +134,12 @@ export interface TournamentContextType {
   }) => Promise<void>;
   releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
+}
+if (result.team) {
+  setTeams((current) => [
+    ...current.filter((item) => item.id !== result.team!.id),
+    result.team!,
+  ]);
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -565,6 +571,7 @@ export function TournamentProvider({
         uploadedCount?: number;
         tournament?: Omit<Tournament, "ownerId" | "admins">;
         adjudicator?: Adjudicator;
+        team?: Team;
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
@@ -648,19 +655,18 @@ export function TournamentProvider({
     }
   };
 
-  const loadPrivateTeamPortal: TournamentContextType["loadPrivateTeamPortal"] = async (privateUrlKey) => {
+  const loadPrivateTeamPortal: TournamentContextType["loadPrivateTeamPortal"] = async (privateUrlKey, passcode) => {
     if (!tournament || !db) {
       throw new Error("Private team data is unavailable for this tournament.");
     }
     const response = await fetch("/api/private/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tournamentId: tournament.id, privateUrlKey }),
+      body: JSON.stringify({ tournamentId: tournament.id, privateUrlKey, passcode }),
     });
     const result = await response.json();
     if (!response.ok) {
       const message = typeof result.error === "string" ? result.error : "Could not load private team data.";
-      setCloudLoadError(message);
       throw new Error(message);
     }
 
@@ -1678,6 +1684,7 @@ export function TournamentProvider({
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
       tournamentId: tournament?.id || tournamentSlug,
       privateUrlKey: data.privateUrlKey || generatePrivateKey("team"),
+      privatePasscode: data.privatePasscode || generatePrivateKey(),
     }));
     const updated = [...teams, ...newTeams];
     setTeams(updated);
@@ -2191,23 +2198,29 @@ export function TournamentProvider({
     const updated = [...feedback, newFb];
     setFeedback(updated);
     persistLocal("feedback", updated);
-    if (newFb.sourceType === "adjudicator" && privatePasscode) {
+    if (privatePasscode) {
       await queuePrivateRecord(
         { collection: "feedback", record: newFb },
-        privateUrlKey || adjudicators.find((adj) => adj.id === newFb.sourceId)?.privateUrlKey,
+        privateUrlKey ||
+          (newFb.sourceType === "adjudicator"
+            ? adjudicators.find((adj) => adj.id === newFb.sourceId)?.privateUrlKey
+            : teams.find((team) => team.id === newFb.sourceId)?.privateUrlKey),
         privatePasscode
       );
     }
     await recordAuditEvent({
       action: "feedback.submitted",
       category: "feedback",
-      summary: `Feedback submitted for ${newFb.targetAdjudicatorName}`,
+      summary: `Feedback submitted for ${newFb.targetAdjudicatorName || newFb.targetTeamName || "participant"}`,
       roundId: newFb.roundId,
       debateId: newFb.debateId,
       details: {
         feedbackId: newFb.id,
+        targetType: newFb.targetType || "adjudicator",
         targetAdjudicatorId: newFb.targetAdjudicatorId,
         targetAdjudicatorName: newFb.targetAdjudicatorName,
+        targetTeamId: newFb.targetTeamId,
+        targetTeamName: newFb.targetTeamName,
         sourceType: newFb.sourceType,
         score: newFb.score,
         confirmed: newFb.confirmed,
@@ -2218,9 +2231,13 @@ export function TournamentProvider({
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
     let teamsChanged = false;
     const updatedTeams = teams.map((t) => {
-      if (forceRegenerate || !t.privateUrlKey) {
+      if (forceRegenerate || !t.privateUrlKey || !t.privatePasscode) {
         teamsChanged = true;
-        return { ...t, privateUrlKey: generatePrivateKey("team") };
+        return {
+          ...t,
+          privateUrlKey: forceRegenerate || !t.privateUrlKey ? generatePrivateKey("team") : t.privateUrlKey,
+          privatePasscode: generatePrivateKey(),
+        };
       }
       return t;
     });

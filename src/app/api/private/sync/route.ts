@@ -36,8 +36,10 @@ export async function POST(request: NextRequest) {
   if (
     !validDocumentId(tournamentId) ||
     typeof privateUrlKey !== "string" ||
+    privateUrlKey.length === 0 ||
     privateUrlKey.length > 128 ||
     typeof passcode !== "string" ||
+    passcode.length === 0 ||
     passcode.length > 128 ||
     !Array.isArray(pending) ||
     pending.length > 100
@@ -55,21 +57,34 @@ export async function POST(request: NextRequest) {
       id: tournamentSnapshot.id,
     } as Tournament;
 
-    const adjudicatorSnapshot = await tournamentRef
-      .collection("adjudicators")
-      .where("privateUrlKey", "==", privateUrlKey)
-      .limit(1)
-      .get();
+    const [adjudicatorSnapshot, teamsSnapshot, debatesSnapshot] = await Promise.all([
+      tournamentRef.collection("adjudicators").where("privateUrlKey", "==", privateUrlKey).limit(1).get(),
+      tournamentRef.collection("teams").get(),
+      tournamentRef.collection("debates").get(),
+    ]);
     const adjudicatorDocument = adjudicatorSnapshot.docs[0];
     const adjudicator = adjudicatorDocument?.data();
-    if (!adjudicator || adjudicator.privatePasscode !== passcode) {
-      return NextResponse.json({ error: "Invalid adjudicator link or passcode." }, { status: 403 });
+    const teamDocument = teamsSnapshot.docs.find((document) => document.data().privateUrlKey === privateUrlKey);
+    const team = teamDocument?.data();
+    const actorType = adjudicator?.privatePasscode === passcode
+      ? "adjudicator"
+      : team?.privatePasscode === passcode
+        ? "team"
+        : null;
+    const actorDocument = actorType === "adjudicator" ? adjudicatorDocument : teamDocument;
+    const actor = actorType === "adjudicator" ? adjudicator : team;
+    if (!actorType || !actorDocument || !actor) {
+      return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
-    const [debatesSnapshot, teamsSnapshot] = await Promise.all([
+    const [
+      /* snapshots already fetched above */
+    ] = [];
+    /*
       tournamentRef.collection("debates").get(),
       tournamentRef.collection("teams").get(),
     ]);
+    */
     const allDebates = new Map(
       debatesSnapshot.docs.map((document) => [
         document.id,
@@ -85,14 +100,11 @@ export async function POST(request: NextRequest) {
     const assignedDebates = new Map(
       debatesSnapshot.docs
         .map((document) => [document.id, allDebates.get(document.id)!] as const)
-        .filter(([, debate]) => {
-          const panel = debate.adjudicators || {};
-          return (
-            panel.chairId === adjudicatorDocument.id ||
-            panel.panellistIds?.includes(adjudicatorDocument.id) ||
-            panel.traineeIds?.includes(adjudicatorDocument.id)
-          );
-        })
+        .filter(([, debate]) => actorType === "adjudicator"
+          ? debate.adjudicators?.chairId === actorDocument.id ||
+            debate.adjudicators?.panellistIds?.includes(actorDocument.id) ||
+            debate.adjudicators?.traineeIds?.includes(actorDocument.id)
+          : Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id))
     );
 
     const batch = firestore.batch();
@@ -116,11 +128,14 @@ export async function POST(request: NextRequest) {
       }
 
       if (collectionName === "ballots") {
+        if (actorType !== "adjudicator") {
+          return NextResponse.json({ error: "Teams cannot submit ballots." }, { status: 403 });
+        }
         const debate = assignedDebates.get(debateId)!;
         const canVote =
-          !adjudicator.trainee &&
-          (debate.adjudicators?.chairId === adjudicatorDocument.id ||
-            debate.adjudicators?.panellistIds?.includes(adjudicatorDocument.id));
+          !actor.trainee &&
+          (debate.adjudicators?.chairId === actorDocument.id ||
+            debate.adjudicators?.panellistIds?.includes(actorDocument.id));
         if (!canVote) {
           return NextResponse.json({ error: "Only the chair or a voting panellist may submit a ballot." }, { status: 403 });
         }
@@ -128,7 +143,7 @@ export async function POST(request: NextRequest) {
         try {
           ballot = buildPrivateBallot(record, {
             tournament,
-            adjudicator: { ...adjudicator, id: adjudicatorDocument.id } as Adjudicator,
+            adjudicator: { ...actor, id: actorDocument.id } as Adjudicator,
             debate,
             teams,
             tournamentId,
@@ -167,19 +182,31 @@ export async function POST(request: NextRequest) {
       } else {
         const debate = assignedDebates.get(debateId)!;
         const panel = debate.adjudicators;
+        const targetType = record.targetType === undefined ? "adjudicator" : record.targetType;
         const targetAdjudicatorId = record.targetAdjudicatorId;
+        const targetTeamId = record.targetTeamId;
         const score = record.score;
-        const targetIsAssigned =
+        const targetAdjudicatorIsAssigned =
           typeof targetAdjudicatorId === "string" &&
           (panel.chairId === targetAdjudicatorId ||
             panel.panellistIds?.includes(targetAdjudicatorId) ||
             panel.traineeIds?.includes(targetAdjudicatorId));
+        const targetTeamSlot = typeof targetTeamId === "string"
+          ? Object.values(debate.teams || {}).find((slot) => slot?.teamId === targetTeamId)
+          : undefined;
+        const sourceIsAuthorized =
+          record.sourceType === actorType &&
+          record.sourceId === actorDocument.id &&
+          (actorType === "adjudicator" || Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id));
+        const targetIsAuthorized = targetType === "adjudicator"
+          ? targetAdjudicatorIsAssigned && targetAdjudicatorId !== actorDocument.id
+          : targetType === "team" && Boolean(targetTeamSlot) &&
+            (actorType !== "team" || targetTeamId !== actorDocument.id);
         if (
-          record.sourceType !== "adjudicator" ||
-          record.sourceId !== adjudicatorDocument.id ||
-          !targetIsAssigned
+          !sourceIsAuthorized ||
+          !targetIsAuthorized
         ) {
-          return NextResponse.json({ error: "Feedback does not match this adjudicator or debate." }, { status: 403 });
+          return NextResponse.json({ error: "Feedback does not match this participant or debate." }, { status: 403 });
         }
         if (
           typeof score !== "number" ||
@@ -195,16 +222,22 @@ export async function POST(request: NextRequest) {
           tournamentId,
           roundId: debate.roundId,
           debateId: debate.id,
-          targetAdjudicatorId,
-          targetAdjudicatorName:
-            panel.chairId === targetAdjudicatorId
-              ? panel.chairName || ""
-              : panel.panellistIds?.includes(targetAdjudicatorId)
-                ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId)] || ""
-                : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId) ?? -1] || "",
-          sourceType: "adjudicator",
-          sourceId: adjudicatorDocument.id,
-          sourceName: adjudicator.name,
+          targetType,
+          ...(targetType === "adjudicator" ? {
+            targetAdjudicatorId,
+            targetAdjudicatorName:
+              panel.chairId === targetAdjudicatorId
+                ? panel.chairName || ""
+                : panel.panellistIds?.includes(targetAdjudicatorId as string)
+                  ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId as string)] || ""
+                  : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId as string) ?? -1] || "",
+          } : {
+            targetTeamId,
+            targetTeamName: teams.get(targetTeamId as string)?.data().name || targetTeamSlot?.teamName || "",
+          }),
+          sourceType: actorType,
+          sourceId: actorDocument.id,
+          sourceName: actor.name,
           score,
           ...(typeof record.agreeWithDecision === "boolean"
             ? { agreeWithDecision: record.agreeWithDecision }
@@ -218,7 +251,7 @@ export async function POST(request: NextRequest) {
         const existingFeedback = await feedbackRef.get();
         if (
           existingFeedback.exists &&
-          existingFeedback.data()?.sourceId !== adjudicatorDocument.id
+          existingFeedback.data()?.sourceId !== actorDocument.id
         ) {
           return NextResponse.json(
             { error: "The feedback identifier is already in use." },
@@ -234,7 +267,7 @@ export async function POST(request: NextRequest) {
 
     const [ballotsSnapshot, feedbackSnapshot] = await Promise.all([
       tournamentRef.collection("ballots").get(),
-      tournamentRef.collection("feedback").where("sourceId", "==", adjudicatorDocument.id).get(),
+      tournamentRef.collection("feedback").where("sourceId", "==", actorDocument.id).get(),
     ]);
     const ballots = ballotsSnapshot.docs
       .filter((document) => assignedDebates.has(document.data().debateId))
@@ -275,7 +308,7 @@ export async function POST(request: NextRequest) {
     const privateRounds = (await tournamentRef.collection("rounds").get()).docs
       .filter((document) => assignedRoundIds.has(document.id))
       .map((document) => ({ ...document.data(), id: document.id }));
-    const safeAdjudicator = {
+    const safeAdjudicator = actorType === "adjudicator" ? {
       tournamentId,
       name: adjudicator.name,
       institutionId: adjudicator.institutionId,
@@ -285,7 +318,24 @@ export async function POST(request: NextRequest) {
       independent: adjudicator.independent,
       checkedIn: adjudicator.checkedIn,
       conflicts: [],
-    };
+    } : undefined;
+    const safeTeam = actorType === "team" ? {
+      tournamentId,
+      name: actor.name,
+      institutionId: actor.institutionId,
+      institutionName: actor.institutionName,
+      speakers: Array.isArray(actor.speakers)
+        ? actor.speakers.map((speaker: Record<string, unknown>) => ({
+            id: speaker.id,
+            name: speaker.name,
+            categories: speaker.categories,
+          }))
+        : [],
+      breakCategories: actor.breakCategories || [],
+      speakerCategories: actor.speakerCategories || [],
+      privateUrlKey,
+      checkedIn: actor.checkedIn,
+    } : undefined;
 
     return NextResponse.json({
       uploadedCount,
@@ -299,7 +349,8 @@ export async function POST(request: NextRequest) {
         format: tournament.format,
         preferences: tournament.preferences,
       },
-      adjudicator: { ...safeAdjudicator, id: adjudicatorDocument.id, privateUrlKey },
+      ...(safeAdjudicator ? { adjudicator: { ...safeAdjudicator, id: actorDocument.id, privateUrlKey } } : {}),
+      ...(safeTeam ? { team: { ...safeTeam, id: actorDocument.id } } : {}),
       teams: privateTeams,
       rounds: privateRounds,
       debates: [...assignedDebates.values()],
