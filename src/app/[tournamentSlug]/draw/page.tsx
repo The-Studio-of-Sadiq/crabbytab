@@ -17,7 +17,6 @@ import {
   ArrowRightLeft,
   X,
   UserX,
-  Layers,
   RefreshCw,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
@@ -25,17 +24,7 @@ import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
-
-interface DragPayload {
-  type: "team";
-  sourceType: "debate" | "unassigned";
-  debateId?: string;
-  side?: DebateSide;
-  teamId: string;
-  teamName: string;
-  institutionId?: string;
-  institutionName?: string;
-}
+import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 
 export default function DrawPage() {
   const {
@@ -61,7 +50,7 @@ export default function DrawPage() {
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
 
   // Drag & Drop state
-  const [draggingItem, setDraggingItem] = useState<DragPayload | null>(null);
+  const [draggingItem, setDraggingItem] = useState<TeamDragPayload | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   const isBP = tournament?.format === "bp";
@@ -309,7 +298,7 @@ export default function DrawPage() {
   // --- Drag and Drop Handlers ---
   const handleDragStartTeam = (
     e: React.DragEvent,
-    payload: DragPayload
+    payload: TeamDragPayload
   ) => {
     setDraggingItem(payload);
     e.dataTransfer.effectAllowed = "move";
@@ -340,7 +329,7 @@ export default function DrawPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload = safeJsonParse<DragPayload | null>(raw, null);
+    const payload = safeJsonParse<TeamDragPayload | null>(raw, null);
     if (!payload) return;
 
     const targetDebate = roundDebates.find((d) => d.id === targetDebateId);
@@ -439,7 +428,7 @@ export default function DrawPage() {
 
     const raw = e.dataTransfer.getData("application/json");
     if (!raw) return;
-    const payload = safeJsonParse<DragPayload | null>(raw, null);
+    const payload = safeJsonParse<TeamDragPayload | null>(raw, null);
     if (!payload) return;
 
     if (payload.sourceType === "debate" && payload.debateId && payload.side) {
@@ -554,68 +543,16 @@ export default function DrawPage() {
       {/* Unassigned Teams Bar & Search */}
       <div className="space-y-3">
         {/* Unassigned Teams Pool (Collapsible & Drop Zone) */}
-        <div
-          onDragOver={(e) => handleDragOverSlot(e, "unassigned-pool")}
-          onDragLeave={(e) => handleDragLeaveSlot(e, "unassigned-pool")}
+        <UnassignedTeamsPool
+          teams={unassignedTeams}
+          expanded={showUnassigned}
+          dragOverTarget={dragOverTarget}
+          onToggle={() => setShowUnassigned(!showUnassigned)}
+          onDragOver={handleDragOverSlot}
+          onDragLeave={handleDragLeaveSlot}
           onDrop={handleDropOnUnassigned}
-          className={`p-3 rounded-lg border transition ${
-            dragOverTarget === "unassigned-pool"
-              ? "bg-amber-50 border-amber-500 border-dashed ring-2 ring-amber-300"
-              : "bg-slate-50 border-slate-200"
-          }`}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-gray-800 uppercase tracking-wide flex items-center space-x-1.5">
-                <Layers className="w-3.5 h-3.5 text-blue-600" />
-                <span>Unassigned Teams Pool ({unassignedTeams.length})</span>
-              </span>
-              <span className="text-[11px] text-gray-500">
-                (Drag teams to/from rooms below to re-pair manually)
-              </span>
-            </div>
-            <button
-              onClick={() => setShowUnassigned(!showUnassigned)}
-              className="text-xs text-blue-600 hover:underline font-semibold"
-            >
-              {showUnassigned ? "Hide" : "Show"}
-            </button>
-          </div>
-
-          {showUnassigned && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {unassignedTeams.map((team) => (
-                <div
-                  key={team.id}
-                  draggable
-                  onDragStart={(e) =>
-                    handleDragStartTeam(e, {
-                      type: "team",
-                      sourceType: "unassigned",
-                      teamId: team.id,
-                      teamName: team.name,
-                      institutionId: team.institutionId,
-                      institutionName: team.institutionName,
-                    })
-                  }
-                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border border-gray-300 rounded shadow-2xs hover:border-blue-500 hover:shadow-xs cursor-grab active:cursor-grabbing text-xs text-gray-900 transition"
-                >
-                  <GripVertical className="w-3 h-3 text-gray-400" />
-                  <span className="font-bold">{team.name}</span>
-                  {team.institutionName && (
-                    <span className="text-[10px] text-gray-500">({team.institutionName})</span>
-                  )}
-                </div>
-              ))}
-
-              {unassignedTeams.length === 0 && (
-                <span className="text-xs text-gray-400 italic">
-                  All eligible teams are currently allocated to debate rooms.
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+          onDragStart={handleDragStartTeam}
+        />
 
         {/* Search & Counter Filter */}
         {roundDebates.length > 0 && (

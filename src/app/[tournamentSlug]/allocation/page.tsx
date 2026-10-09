@@ -20,10 +20,8 @@ import {
   X,
   UserPlus,
   ShieldAlert,
-  Search,
   ArrowRightLeft,
   GripVertical,
-  Building2,
   Trash2,
   RotateCcw,
   Eye,
@@ -34,14 +32,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
-
-interface JudgeDragPayload {
-  type: "judge";
-  sourceType: "available" | "chair" | "panellist" | "trainee";
-  adjId: string;
-  adjName: string;
-  sourceDebateId?: string;
-}
+import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
 
 export default function AllocationPage() {
   const {
@@ -634,118 +625,24 @@ export default function AllocationPage() {
       {/* Main Allocation Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Available Adjudicators Drawer */}
-        <div className="lg:col-span-4 space-y-4">
-          <div
-            onDragOver={(e) => handleDragOverJudgeSlot(e, "available-drawer")}
-            onDragLeave={(e) => handleDragLeaveJudgeSlot(e, "available-drawer")}
-            onDrop={handleDropUnassignJudge}
-            className={`bg-white border rounded-lg p-4 shadow-xs transition ${
-              dragOverTarget === "available-drawer"
-                ? "border-amber-500 bg-amber-50/50 border-dashed ring-2 ring-amber-300"
-                : "border-[#d0d7de]"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-                <span>Available Adjudicators</span>
-                <span className="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.2 rounded-full font-bold">
-                  {availableAdjs.length}
-                </span>
-              </h3>
-              <span className="text-[11px] text-gray-500">(Drag into rooms)</span>
-            </div>
-
-            <div className="relative mb-3">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Filter judges or institution..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {selectedAdjForManual && (
-              <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-900 flex items-center justify-between">
-                <div>
-                  <span className="font-bold">Selected: </span>
-                  <span>{selectedAdjForManual.name}</span>
-                  <span className="text-[10px] text-indigo-700 block">Click on any room to assign as Chair or Panellist</span>
-                </div>
-                <button
-                  onClick={() => setSelectedAdjForManual(null)}
-                  className="p-1 hover:bg-indigo-100 rounded text-indigo-700"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {sortedFilteredAdjs.map((adj) => {
-                const isSelected = selectedAdjForManual?.id === adj.id;
-                const score = effectiveAdjScore(adj, feedbackScores);
-
-                return (
-                  <div
-                    key={adj.id}
-                    draggable
-                    onDragEnd={() => setDraggingJudge(null)}
-                    onDragStart={(e) =>
-                      handleDragStartJudge(e, {
-                        type: "judge",
-                        sourceType: "available",
-                        adjId: adj.id,
-                        adjName: adj.name,
-                      })
-                    }
-                    onClick={() => setSelectedAdjForManual(isSelected ? null : adj)}
-                    className={`p-2.5 rounded-lg border text-xs cursor-grab active:cursor-grabbing transition flex items-center justify-between ${
-                      isSelected
-                        ? "bg-indigo-50 border-indigo-500 shadow-xs ring-1 ring-indigo-400"
-                        : "bg-gray-50/70 border-gray-200 hover:border-indigo-300 hover:bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <div>
-                        <div className="font-bold text-gray-900 flex items-center space-x-1.5">
-                          <span>{adj.name}</span>
-                          {adj.trainee && (
-                            <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-semibold uppercase">
-                              Trainee
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-gray-500 flex items-center space-x-1">
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                          <span>{adj.institutionName || "Independent / Unaffiliated"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                        score >= 7 ? "bg-emerald-100 text-emerald-800" :
-                        score >= 4 ? "bg-blue-100 text-blue-800" :
-                        "bg-gray-200 text-gray-800"
-                      }`}>
-                        {score.toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {filteredAdjs.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-6">
-                  No available adjudicators matching query.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        <AvailableAdjudicatorsPanel
+          adjudicators={sortedFilteredAdjs}
+          availableCount={availableAdjs.length}
+          feedbackScores={feedbackScores}
+          selectedAdjudicator={selectedAdjForManual}
+          searchQuery={searchQuery}
+          dragOverTarget={dragOverTarget}
+          onSearchChange={setSearchQuery}
+          onClearSelection={() => setSelectedAdjForManual(null)}
+          onSelect={(adjudicator) =>
+            setSelectedAdjForManual((current) => current?.id === adjudicator.id ? null : adjudicator)
+          }
+          onDragStart={handleDragStartJudge}
+          onDragEnd={() => setDraggingJudge(null)}
+          onDragOver={handleDragOverJudgeSlot}
+          onDragLeave={handleDragLeaveJudgeSlot}
+          onDrop={handleDropUnassignJudge}
+        />
 
         {/* Right: Debates Allocation Board */}
         <div className="lg:col-span-8 space-y-4">

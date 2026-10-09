@@ -1,20 +1,10 @@
 import { writeBatch, type WriteBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
+
+export { CLOUD_COLLECTIONS };
 
 export const BATCH_CHUNK_SIZE = 400;
-export const CLOUD_COLLECTIONS = [
-  "rounds",
-  "teams",
-  "adjudicators",
-  "venues",
-  "motions",
-  "breakCategories",
-  "debates",
-  "ballots",
-  "feedback",
-  "institutions",
-  "auditEvents",
-] as const;
 
 /**
  * Recursively removes any object keys whose value is undefined, which Firestore rejects.

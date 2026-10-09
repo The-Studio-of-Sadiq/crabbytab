@@ -18,41 +18,39 @@ import {
   TeamStandingRow,
   SpeakerStandingRow,
   Institution,
-  DebateSide,
 } from "@/types";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-  getDocs,
-  query,
-  where,
-  WriteBatch,
-} from "firebase/firestore";
-import { generateRoundDraw, getEligibleTeamsForRound } from "@/lib/draw/generator";
-import { applyEliminationAdvancement, getAdvancingTeamIds } from "@/lib/draw/elimination";
-import {
-  autoAllocateAdjudicators,
-  buildPastAdjTeams,
-  calculateAdjudicatorFeedbackScores,
-  IntelligentAllocationContext,
-} from "@/lib/draw/allocator";
+import { generateRoundDraw } from "@/lib/draw/generator";
 import { calculateStandings } from "@/lib/standings/calculator";
-import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
-import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
+import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
-import { regeneratePrivateAccess } from "@/features/tournament/application/privateAccess";
+import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
+import { confirmBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
+import { generateDrawCommand } from "@/features/tournament/application/draws";
+import { downloadTournamentCommand, uploadTournamentCommand } from "@/features/tournament/application/cloudSync";
+import { saveTournamentCommand } from "@/features/tournament/application/settings";
+import { addFeedbackCommand } from "@/features/tournament/application/feedback";
+import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand } from "@/features/tournament/application/allocation";
 import {
-  cleanUndefined,
-  commitChunkedBatches,
-  CLOUD_COLLECTIONS,
-} from "@/features/tournament/infrastructure/firestore";
+  generateBreakCommand,
+  proceedToNextEliminationRoundCommand,
+  saveBreakCategoriesCommand,
+} from "@/features/tournament/application/breaks";
+import {
+  deleteRoundCommand,
+  setPreliminaryRoundCountCommand,
+} from "@/features/tournament/application/roundAdministration";
+import { regeneratePrivateAccessCommand } from "@/features/tournament/application/privateAccess";
+import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
+import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
+import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
+import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
+import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
+import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -267,39 +265,21 @@ export function TournamentProvider({
               await loadPublicProjection();
               return;
             }
-            const tournamentQuery = query(
-              collection(db, "tournaments"),
-              where("slug", "==", tournamentSlug)
-            );
-            const snapshot = await getDocs(tournamentQuery);
-            if (!isMounted) return;
-
+            const repository = createFirestoreTournamentRepository();
             const cloudTournamentDoc =
-              snapshot.docs[0] ||
-              (await getDoc(doc(db, "tournaments", `tourn-${tournamentSlug}`)));
+              (await repository.findTournamentBySlug(tournamentSlug)) ||
+              (await repository.getTournament(`tourn-${tournamentSlug}`));
             if (!isMounted) return;
 
-            if (cloudTournamentDoc.exists()) {
-              const data = cloudTournamentDoc.data();
+            if (cloudTournamentDoc) {
+              const data = cloudTournamentDoc.data;
               localTournament = {
                 ...data,
                 id: cloudTournamentDoc.id,
                 slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
               } as Tournament;
 
-              const cloudCollections = Object.fromEntries(
-                await Promise.all(
-                  CLOUD_COLLECTIONS.map(async (name) => {
-                    const collectionSnapshot = await getDocs(
-                      collection(db!, "tournaments", cloudTournamentDoc.id, name)
-                    );
-                    return [
-                      name,
-                      collectionSnapshot.docs.map((item) => ({ ...item.data(), id: item.id })),
-                    ];
-                  })
-                )
-              ) as Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>>;
+              const cloudCollections = await repository.getCollections(cloudTournamentDoc.id);
               if (!isMounted) return;
 
               const localCollectionNames: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
@@ -728,12 +708,75 @@ export function TournamentProvider({
     setAuditEvents(updated);
     persistLocal("auditEvents", updated);
     if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      await setDoc(
-        doc(db, "tournaments", tournament.id, "auditEvents", event.id),
-        cleanUndefined(event)
-      );
+      await createFirestoreAuditRepository(tournament.id).append(event);
     }
   };
+
+  const entityCommands = createTournamentEntityCommands({
+    tournamentId: tournament?.id || tournamentSlug,
+    institutions,
+    teams,
+    adjudicators,
+    venues,
+    motions,
+    repositories: {
+      institutions: {
+        save: (items) => {
+          setInstitutions(items);
+          persistLocal("institutions", items);
+        },
+      },
+      teams: {
+        save: (items) => {
+          setTeams(items);
+          persistLocal("teams", items);
+        },
+      },
+      adjudicators: {
+        save: (items) => {
+          setAdjudicators(items);
+          persistLocal("adjudicators", items);
+        },
+      },
+      venues: {
+        save: (items) => {
+          setVenues(items);
+          persistLocal("venues", items);
+        },
+      },
+      motions: {
+        save: (items) => {
+          setMotions(items);
+          persistLocal("motions", items);
+        },
+      },
+    },
+    recordAuditEvent,
+    createId: createEntityId,
+    generatePrivateKey,
+    cloudRepository:
+      AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+        ? createFirestoreEntityRepository(tournament.id)
+        : undefined,
+  });
+
+  const {
+    addInstitutions: addInstitutionsCommand,
+    updateInstitution: updateInstitutionCommand,
+    deleteInstitution: deleteInstitutionCommand,
+    addTeams: addTeamsCommand,
+    updateTeam: updateTeamCommand,
+    deleteTeam: deleteTeamCommand,
+    addAdjudicators: addAdjudicatorsCommand,
+    updateAdjudicator: updateAdjudicatorCommand,
+    deleteAdjudicator: deleteAdjudicatorCommand,
+    addVenues: addVenuesCommand,
+    updateVenue: updateVenueCommand,
+    deleteVenue: deleteVenueCommand,
+    addMotions: addMotionsCommand,
+    updateMotion: updateMotionCommand,
+    deleteMotion: deleteMotionCommand,
+  } = entityCommands;
 
   const releaseAuditLog: TournamentContextType["releaseAuditLog"] = async () => {
     if (!db || !user || !tournament || !isOwnerOrAdmin) {
@@ -842,43 +885,20 @@ export function TournamentProvider({
 
   // Mutations
   const saveTournament = async (t: Tournament) => {
-    const previous = tournament;
-    setTournament(t);
-    persistLocal("meta", t);
-    try {
-      if (AUTOMATIC_CLOUD_WRITES && db) {
-        await setDoc(doc(db, "tournaments", t.id), t, { merge: true });
-      }
-    } catch (e) {
-      console.warn("Firestore sync warning:", e);
-    }
-    if (previous && (
-      previous.name !== t.name ||
-      previous.format !== t.format ||
-      JSON.stringify(previous.preferences) !== JSON.stringify(t.preferences)
-    )) {
-      const changedPreferenceKeys = Object.keys({
-        ...previous.preferences,
-        ...t.preferences,
-      }).filter((key) =>
-        JSON.stringify(previous.preferences[key as keyof typeof previous.preferences]) !==
-        JSON.stringify(t.preferences[key as keyof typeof t.preferences])
-      );
-      await recordAuditEvent({
-        action: "tournament.settings_updated",
-        category: "tournament",
-        summary: "Tournament settings updated",
-        details: {
-          previousName: previous.name,
-          name: t.name,
-          previousFormat: previous.format,
-          format: t.format,
-          changedPreferenceKeys,
-          previousPreferences: previous.preferences,
-          preferences: t.preferences,
+    await saveTournamentCommand(t, tournament, {
+      localRepository: {
+        saveTournament: (value) => {
+          setTournament(value);
+          persistLocal("meta", value);
         },
-      });
-    }
+      },
+      cloudRepository:
+        AUTOMATIC_CLOUD_WRITES && db
+          ? createFirestoreTournamentRepository()
+          : undefined,
+      recordAuditEvent,
+      warn: (message, error) => console.warn(message, error),
+    });
   };
 
   const createRound = async (
@@ -917,532 +937,191 @@ export function TournamentProvider({
     });
   };
 
+  const ballotWorkflowDependencies = {
+    ballots,
+    rounds,
+    debates,
+    adjudicators,
+    repository: {
+      saveBallots: (items: BallotSubmission[]) => {
+        setBallots(items);
+        persistLocal("ballots", items);
+      },
+      saveDebates: (items: Debate[]) => {
+        setDebates(items);
+        persistLocal("debates", items);
+      },
+    },
+    updateRound,
+    recordAuditEvent,
+    queuePrivateRecord,
+  };
+  const allocationDependencies = {
+    tournament,
+    rounds,
+    teams,
+    debates,
+    adjudicators,
+    standings: teamStandings,
+    breakCategories,
+    feedback,
+    venues,
+    repository: {
+      saveDebates: (items: Debate[]) => {
+        setDebates(items);
+        persistLocal("debates", items);
+      },
+    },
+    cloudRepository:
+      AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+        ? createFirestoreDrawRepository(tournament.id)
+        : undefined,
+    hideRevealedAdjudicators,
+    recordAuditEvent,
+  };
+  const breakDependencies = {
+    tournament,
+    rounds,
+    teams,
+    breakCategories,
+    breakResults,
+    debates,
+    ballots,
+    localRepository: {
+      saveBreakCategories: (items: BreakCategory[]) => {
+        setBreakCategories(items);
+        persistLocal("breaks", items);
+      },
+      saveTeams: (items: Team[]) => {
+        setTeams(items);
+        persistLocal("teams", items);
+      },
+      saveRounds: (items: Round[]) => {
+        setRounds(items);
+        persistLocal("rounds", items);
+      },
+      setActiveRound,
+    },
+    cloudRepository:
+      AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+        ? createFirestoreBreakRepository(tournament.id)
+        : undefined,
+    recordAuditEvent,
+  };
+
   const setPreliminaryRoundCount = async (count: number) => {
-    const previousCount = rounds.filter((round) => round.stage === "preliminary" && !round.cancelled).length;
-    const targetCount = Math.max(0, Math.min(20, Math.floor(count)));
-    const updated = [...rounds];
-    const activePrelims = updated
-      .filter((round) => round.stage === "preliminary" && !round.cancelled)
-      .sort((a, b) => a.seq - b.seq);
-
-    if (targetCount < activePrelims.length) {
-      activePrelims.slice(targetCount).forEach((round) => {
-        const index = updated.findIndex((item) => item.id === round.id);
-        updated[index] = { ...round, cancelled: true };
-      });
-    } else if (targetCount > activePrelims.length) {
-      const canceledPrelims = updated
-        .filter((round) => round.stage === "preliminary" && round.cancelled)
-        .sort((a, b) => a.seq - b.seq);
-      const restoreCount = Math.min(targetCount - activePrelims.length, canceledPrelims.length);
-      canceledPrelims.slice(0, restoreCount).forEach((round) => {
-        const index = updated.findIndex((item) => item.id === round.id);
-        updated[index] = { ...round, cancelled: false };
-      });
-
-      let preliminaryCount = activePrelims.length + restoreCount;
-      while (preliminaryCount < targetCount) {
-        const seq = Math.max(0, ...updated.map((round) => round.seq)) + 1;
-        const id = `round-${tournament?.id || tournamentSlug}-${Date.now()}-${preliminaryCount + 1}`;
-        const drawRule = tournament?.preferences?.drawRule || "power_paired";
-        updated.push({
-          id,
-          tournamentId: tournament?.id || tournamentSlug,
-          seq,
-          name: `Round ${preliminaryCount + 1}`,
-          abbreviation: `R${preliminaryCount + 1}`,
-          stage: "preliminary",
-          drawType:
-            preliminaryCount === 0 && drawRule === "power_paired" ? "random" : (drawRule as any),
-          drawStatus: "none",
-          feedbackWeight: 1,
-          silent: false,
-          motionsReleased: false,
-          resultsReleased: false,
-          completed: false,
-          createdAt: new Date().toISOString(),
-        });
-        preliminaryCount += 1;
-      }
-    }
-
-    const prelims = updated
-      .filter((round) => round.stage === "preliminary" && !round.cancelled)
-      .sort((a, b) => a.seq - b.seq);
-    const eliminations = updated
-      .filter((round) => round.stage === "elimination" && !round.cancelled)
-      .sort((a, b) => a.seq - b.seq);
-    const canceled = updated.filter((round) => round.cancelled).sort((a, b) => a.seq - b.seq);
-    const ordered = [...prelims, ...eliminations, ...canceled].map((round, index) => ({
-      ...round,
-      seq: index + 1,
-    }));
-    const seqByRoundId = new Map(ordered.map((round) => [round.id, round.seq]));
-    const updatedDebates = debates.map((debate) => ({
-      ...debate,
-      roundSeq: seqByRoundId.get(debate.roundId) ?? debate.roundSeq,
-    }));
-
-    const changedDebates = updatedDebates.filter(
-      (debate, index) => debate.roundSeq !== debates[index].roundSeq
-    );
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      ordered.forEach((round) => {
-        ops.push((batch) =>
-          batch.set(doc(db!, "tournaments", tournament.id, "rounds", round.id), cleanUndefined(round))
-        );
-      });
-      changedDebates.forEach((debate) => {
-        ops.push((batch) =>
-          batch.set(doc(db!, "tournaments", tournament.id, "debates", debate.id), cleanUndefined(debate))
-        );
-      });
-      await commitChunkedBatches(ops);
-    }
-
-    setRounds(ordered);
-    persistLocal("rounds", ordered);
-    if (changedDebates.length > 0) {
-      setDebates(updatedDebates);
-      persistLocal("debates", updatedDebates);
-    }
-
-    setActiveRound((current) => {
-      const updatedActive = current && ordered.find((round) => round.id === current.id);
-      if (updatedActive && !updatedActive.cancelled) return updatedActive;
-      return [...prelims, ...eliminations].at(-1) || null;
+    await setPreliminaryRoundCountCommand(count, {
+      rounds,
+      debates,
+      tournamentId: tournament?.id || tournamentSlug,
+      drawRule: tournament?.preferences?.drawRule || "power_paired",
+      localRepository: {
+        saveRounds: (items) => {
+          setRounds(items);
+          persistLocal("rounds", items);
+        },
+        saveDebates: (items) => {
+          setDebates(items);
+          persistLocal("debates", items);
+        },
+        setActiveRound,
+      },
+      cloudRepository:
+        AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+          ? createFirestoreRoundRepository(tournament.id)
+          : undefined,
+      recordAuditEvent,
     });
-    if (previousCount !== targetCount) {
-      await recordAuditEvent({
-        action: "rounds.preliminary_count_updated",
-        category: "tournament",
-        summary: `Preliminary round count changed from ${previousCount} to ${targetCount}`,
-        details: { previousCount, count: targetCount },
-      });
-    }
   };
 
   const deleteRound = async (roundId: string) => {
-    const roundToDelete = rounds.find((round) => round.id === roundId);
-    if (!roundToDelete) return;
-
-    let preliminarySeq = 0;
-    const remainingRounds = rounds
-      .filter((round) => round.id !== roundId)
-      .sort((a, b) => a.seq - b.seq)
-      .map((round, index) => {
-        let name = round.name;
-        let abbreviation = round.abbreviation;
-        if (round.stage === "preliminary") {
-          preliminarySeq += 1;
-          if (/^Round \d+$/.test(name)) name = `Round ${preliminarySeq}`;
-          if (/^R\d+$/.test(abbreviation)) abbreviation = `R${preliminarySeq}`;
-        }
-        return { ...round, seq: index + 1, name, abbreviation };
-      });
-    const remainingRoundIds = new Set(remainingRounds.map((round) => round.id));
-    const deletedDebates = debates.filter((debate) => debate.roundId === roundId);
-    const deletedDebateIds = new Set(deletedDebates.map((debate) => debate.id));
-    const deletedBallots = ballots.filter(
-      (ballot) => ballot.roundId === roundId || deletedDebateIds.has(ballot.debateId)
-    );
-    const deletedFeedback = feedback.filter(
-      (submission) => submission.roundId === roundId || deletedDebateIds.has(submission.debateId)
-    );
-    const oldDebateSeqById = new Map(debates.map((debate) => [debate.id, debate.roundSeq]));
-    const updatedDebates = debates
-      .filter((debate) => remainingRoundIds.has(debate.roundId))
-      .map((debate) => ({
-        ...debate,
-        roundSeq: remainingRounds.find((round) => round.id === debate.roundId)?.seq ?? debate.roundSeq,
-      }));
-    const updatedMotions = motions.map((motion) => ({
-      ...motion,
-      rounds: (motion.rounds || []).filter((assignedRoundId) => assignedRoundId !== roundId),
-    }));
-    const changedMotions = updatedMotions.filter((motion, index) =>
-      motions[index].rounds?.includes(roundId)
-    );
-
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      ops.push((batch) =>
-        batch.delete(doc(db!, "tournaments", tournament.id, "rounds", roundId))
-      );
-      deletedDebates.forEach((debate) => {
-        ops.push((batch) =>
-          batch.delete(doc(db!, "tournaments", tournament.id, "debates", debate.id))
-        );
-      });
-      deletedBallots.forEach((ballot) => {
-        ops.push((batch) =>
-          batch.delete(doc(db!, "tournaments", tournament.id, "ballots", ballot.id))
-        );
-      });
-      deletedFeedback.forEach((submission) => {
-        ops.push((batch) =>
-          batch.delete(doc(db!, "tournaments", tournament.id, "feedback", submission.id))
-        );
-      });
-      remainingRounds.forEach((round) => {
-        ops.push((batch) =>
-          batch.set(doc(db!, "tournaments", tournament.id, "rounds", round.id), round)
-        );
-      });
-      updatedDebates.forEach((debate, index) => {
-        if (debate.roundSeq !== oldDebateSeqById.get(debate.id)) {
-          ops.push((batch) =>
-            batch.set(doc(db!, "tournaments", tournament.id, "debates", debate.id), cleanUndefined(debate))
-          );
-        }
-      });
-      changedMotions.forEach((motion) => {
-        ops.push((batch) =>
-          batch.set(doc(db!, "tournaments", tournament.id, "motions", motion.id), cleanUndefined(motion))
-        );
-      });
-      await commitChunkedBatches(ops);
-    }
-
-    setRounds(remainingRounds);
-    setDebates(updatedDebates);
-    setBallots(ballots.filter((ballot) => !deletedBallots.some((removed) => removed.id === ballot.id)));
-    const updatedFeedback = feedback.filter(
-      (submission) => !deletedFeedback.some((removed) => removed.id === submission.id)
-    );
-    setFeedback(updatedFeedback);
-    setMotions(updatedMotions);
-    persistLocal("rounds", remainingRounds);
-    persistLocal("debates", updatedDebates);
-    persistLocal("ballots", ballots.filter((ballot) => !deletedBallots.some((removed) => removed.id === ballot.id)));
-    persistLocal("feedback", updatedFeedback);
-    persistLocal("motions", updatedMotions);
-    if (activeRound?.id === roundId) {
-      setActiveRound(remainingRounds.filter((round) => !round.cancelled).at(-1) || null);
-    }
-    await recordAuditEvent({
-      action: "round.deleted",
-      category: "tournament",
-      summary: `${roundToDelete.name} deleted`,
+    await deleteRoundCommand({
       roundId,
-      details: {
-        deletedDebateCount: deletedDebates.length,
-        deletedBallotCount: deletedBallots.length,
-        deletedFeedbackCount: deletedFeedback.length,
+      rounds,
+      debates,
+      ballots,
+      feedback,
+      motions,
+      activeRound,
+      localRepository: {
+        saveRounds: (items) => {
+          setRounds(items);
+          persistLocal("rounds", items);
+        },
+        saveDebates: (items) => {
+          setDebates(items);
+          persistLocal("debates", items);
+        },
+        saveBallots: (items) => {
+          setBallots(items);
+          persistLocal("ballots", items);
+        },
+        saveFeedback: (items) => {
+          setFeedback(items);
+          persistLocal("feedback", items);
+        },
+        saveMotions: (items) => {
+          setMotions(items);
+          persistLocal("motions", items);
+        },
+        setActiveRound,
       },
+      cloudRepository:
+        AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+          ? createFirestoreRoundRepository(tournament.id)
+          : undefined,
+      recordAuditEvent,
     });
-  };
-
-  const getPastDebatesForRound = (targetRound: Round) => {
-    const priorRoundIds = new Set(
-      rounds
-        .filter((round) => !round.cancelled && round.seq < targetRound.seq)
-        .map((round) => round.id)
-    );
-    return debates.filter((debate) => priorRoundIds.has(debate.roundId));
   };
 
   const generateDraw = async (roundId: string) => {
-    const round = rounds.find((r) => r.id === roundId);
-    if (!round || !tournament) return;
-
-    // Filter past debates before this round
-    const pastDebates = getPastDebatesForRound(round);
-
-    const generated = generateRoundDraw({
+    await generateDrawCommand(roundId, {
       tournament,
-      round,
+      rounds,
       teams,
       venues,
-      pastDebates,
+      debates,
+      motions,
       standings: teamStandings,
-    });
-
-    // Attach round motion if available
-    const roundMotion = motions.find((m) => m.rounds && m.rounds.includes(round.id));
-    if (roundMotion) {
-      generated.forEach((d) => {
-        d.motionId = roundMotion.id;
-        d.motionText = roundMotion.text;
-      });
-    }
-
-    // Debates to delete for this round
-    const debatesToDelete = debates.filter((d) => d.roundId === roundId);
-
-    // Replace debates for this round locally
-    const otherDebates = debates.filter((d) => d.roundId !== roundId);
-    const updatedDebates = [...otherDebates, ...generated];
-    setDebates(updatedDebates);
-    persistLocal("debates", updatedDebates);
-
-    // Update round draw status
-    const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false };
-    const updatedRounds = rounds.map((r) => (r.id === round.id ? updatedRound : r));
-    setRounds(updatedRounds);
-    setActiveRound(updatedRound);
-    persistLocal("rounds", updatedRounds);
-
-    // Multi-document write using chunked writeBatch (at most 400 operations per chunk)
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-
-      // 1. Delete previous debates for this round
-      for (const d of debatesToDelete) {
-        const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
-        ops.push((batch) => batch.delete(ref));
-      }
-
-      // 2. Set newly generated debates
-      for (const d of generated) {
-        const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(d)));
-      }
-
-      // 3. Update round document
-      const roundRef = doc(db, "tournaments", tournament.id, "rounds", updatedRound.id);
-      ops.push((batch) => batch.set(roundRef, cleanUndefined(updatedRound)));
-
-      await commitChunkedBatches(ops);
-    }
-    await recordAuditEvent({
-      action: "draw.generated",
-      category: "draw",
-      summary: `Generated ${round.name} draw`,
-      roundId: round.id,
-      details: {
-        format: tournament.format,
-        drawType: round.drawType,
-        teamCount: new Set(generated.flatMap((debate) =>
-          Object.values(debate.teams).map((slot) => slot.teamId)
-        )).size,
-        debateCount: generated.length,
-        previousDebateCount: debatesToDelete.length,
-        pairingMethod: tournament.preferences?.pairingMethod ?? tournament.preferences?.drawRule,
-        conflictAvoidance: tournament.preferences?.conflictAvoidance,
-        sideAllocationRule: tournament.preferences?.sideAllocationRule,
+      generateRoundDraw,
+      localRepository: {
+        saveDebates: (items) => {
+          setDebates(items);
+          persistLocal("debates", items);
+        },
+        saveRounds: (items, active) => {
+          setRounds(items);
+          setActiveRound(active);
+          persistLocal("rounds", items);
+        },
       },
+      cloudRepository:
+        AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+          ? createFirestoreDrawRepository(tournament.id)
+          : undefined,
+      recordAuditEvent,
     });
   };
 
   const autoAllocate = async (roundId: string, panelSize: number = 1) => {
-    const roundDebates = debates.filter((d) => d.roundId === roundId);
-    if (roundDebates.length === 0 || !tournament) return;
-
-    const round = rounds.find((r) => r.id === roundId);
-    const teamsMap = new Map<string, Team>();
-    teams.forEach((t) => teamsMap.set(t.id, t));
-
-    // Build past history from all debates before this round
-    const pastDebates = round ? getPastDebatesForRound(round) : [];
-    const pastAdjTeams = buildPastAdjTeams(pastDebates);
-
-    const completedPrelimRounds = rounds.filter(
-      (r) => r.stage === "preliminary" && !r.cancelled && r.completed
-    ).length;
-    const totalPrelimRounds = rounds.filter((r) => r.stage === "preliminary" && !r.cancelled).length;
-
-    const intelligentContext: IntelligentAllocationContext = {
-      allPastDebates: pastDebates,
-      standings: teamStandings,
-      breakCategories,
-      totalPrelimRounds,
-      completedRounds: completedPrelimRounds,
-      isBP: tournament.format === "bp",
-      feedbackScores: calculateAdjudicatorFeedbackScores(feedback),
-      venuePriorities: new Map(venues.map((venue) => [venue.id, venue.priority])),
-    };
-
-    const allocations = autoAllocateAdjudicators(roundDebates, teamsMap, adjudicators, pastAdjTeams, {
-      panelSize: tournament.preferences?.noPanellistAdjs ? 1 : panelSize,
-      balancePanels: true,
-      respectInstitutionConflicts: true,
-      respectPersonalConflicts: true,
-      respectHistoryConflicts: true,
-      preferences: tournament.preferences,
-    }, intelligentContext);
-
-    const updatedRoundDebates = roundDebates.map((d, idx) => {
-      const alloc = allocations[idx];
-      return {
-        ...d,
-        adjudicators: {
-          chairId: alloc?.chairId,
-          chairName: alloc?.chairName,
-          panellistIds: alloc?.panellistIds || [],
-          panellistNames: alloc?.panellistNames || [],
-          traineeIds: alloc?.traineeIds || [],
-          traineeNames: alloc?.traineeNames || [],
-        },
-      };
-    });
-
-    const otherDebates = debates.filter((d) => d.roundId !== roundId);
-    const updated = [...otherDebates, ...updatedRoundDebates];
-    setDebates(updated);
-    persistLocal("debates", updated);
-    await hideRevealedAdjudicators(new Set([roundId]));
-
-    // Batch update allocated debates
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      for (const d of updatedRoundDebates) {
-        const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(d)));
-      }
-      await commitChunkedBatches(ops);
-    }
-    await recordAuditEvent({
-      action: "adjudicators.allocated",
-      category: "allocation",
-      summary: `Allocated adjudicators for ${round?.name || "round"}`,
-      roundId,
-      details: {
-        panelSize: tournament.preferences?.noPanellistAdjs ? 1 : panelSize,
-        debateCount: updatedRoundDebates.length,
-        adjudicatorCount: adjudicators.length,
-        assignments: allocations.map((allocation) => ({
-          debateId: allocation.debateId,
-          chairId: allocation.chairId,
-          panellistIds: allocation.panellistIds,
-          traineeIds: allocation.traineeIds,
-          conflicts: allocation.conflicts,
-        })),
-      },
-    });
+    await autoAllocateCommand(roundId, panelSize, allocationDependencies);
   };
 
   const updateDebate = async (debate: Debate) => {
-    const previous = debates.find((item) => item.id === debate.id);
-    const updated = debates.map((d) => (d.id === debate.id ? debate : d));
-    setDebates(updated);
-    persistLocal("debates", updated);
-    if (previous && JSON.stringify(previous.adjudicators) !== JSON.stringify(debate.adjudicators)) {
-      await hideRevealedAdjudicators(new Set([debate.roundId]));
-      await recordAuditEvent({
-        action: "adjudicators.manual_assignment_updated",
-        category: "allocation",
-        summary: `Adjudicator assignment changed for ${debate.id}`,
-        roundId: debate.roundId,
-        debateId: debate.id,
-        details: {
-          previous: previous.adjudicators,
-          current: debate.adjudicators,
-        },
-      });
-    }
-    if (previous && previous.venueId !== debate.venueId) {
-      await recordAuditEvent({
-        action: "venue.assigned",
-        category: "venue",
-        summary: `Venue changed for ${debate.id}`,
-        roundId: debate.roundId,
-        debateId: debate.id,
-        details: {
-          previousVenueId: previous.venueId,
-          venueId: debate.venueId,
-          venueName: debate.venueName,
-        },
-      });
-    }
+    await updateDebateCommand(debate, debates, allocationDependencies);
   };
 
   const updateDebates = async (newDebates: Debate[]) => {
-    const previousById = new Map(debates.map((debate) => [debate.id, debate]));
-    setDebates(newDebates);
-    persistLocal("debates", newDebates);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      for (const d of newDebates) {
-        const ref = doc(db, "tournaments", tournament.id, "debates", d.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(d)));
-      }
-      await commitChunkedBatches(ops);
-    }
-    const changedAssignments = newDebates.flatMap((debate) => {
-      const previous = previousById.get(debate.id);
-      if (!previous || JSON.stringify(previous.adjudicators) === JSON.stringify(debate.adjudicators)) return [];
-      return [{
-        debateId: debate.id,
-        roundId: debate.roundId,
-        previous: previous.adjudicators,
-        current: debate.adjudicators,
-      }];
+    await updateDebatesCommand(newDebates, debates, {
+      repository: allocationDependencies.repository,
+      cloudRepository: allocationDependencies.cloudRepository,
+      hideRevealedAdjudicators,
+      recordAuditEvent,
     });
-    if (changedAssignments.length > 0) {
-      await hideRevealedAdjudicators(new Set(changedAssignments.map((assignment) => assignment.roundId)));
-      await recordAuditEvent({
-        action: "adjudicators.manual_assignments_updated",
-        category: "allocation",
-        summary: `Manual adjudicator assignments changed in ${changedAssignments.length} debate(s)`,
-        roundId: changedAssignments.length === 1 ? changedAssignments[0].roundId : undefined,
-        debateId: changedAssignments.length === 1 ? changedAssignments[0].debateId : undefined,
-        details: { assignments: changedAssignments },
-      });
-    }
   };
 
   const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
-    // If ballot already exists with same id or debateId
-    const existingIdx = ballots.findIndex((b) => b.id === ballot.id || (!ballot.id && b.debateId === ballot.debateId));
-    let updatedBallots: BallotSubmission[];
-
-    const finalBallot = {
-      ...ballot,
-      id: ballot.id || `ballot-${ballot.debateId}-${Date.now()}`,
-    };
-
-    if (existingIdx >= 0) {
-      updatedBallots = ballots.map((b, idx) => (idx === existingIdx ? finalBallot : b));
-    } else {
-      updatedBallots = [...ballots, finalBallot];
-    }
-
-    setBallots(updatedBallots);
-    persistLocal("ballots", updatedBallots);
-
-    const ballotRound = rounds.find((round) => round.id === finalBallot.roundId);
-    if (ballotRound?.resultsReleased || ballotRound?.teamSpeaksReleased) {
-      await updateRound({ ...ballotRound, resultsReleased: false, teamSpeaksReleased: false });
-    }
-
-    // Update debate result status
-    const debate = debates.find((d) => d.id === finalBallot.debateId);
-    let updatedDebates = debates;
-    if (debate) {
-      const updatedDebate: Debate = {
-        ...debate,
-        resultStatus: finalBallot.confirmed ? "confirmed" : "draft",
-      };
-      updatedDebates = debates.map((d) => (d.id === debate.id ? updatedDebate : d));
-      setDebates(updatedDebates);
-      persistLocal("debates", updatedDebates);
-    }
-
-    await recordAuditEvent({
-      action: "ballot.submitted",
-      category: "ballot",
-      summary: `Ballot v${finalBallot.version} submitted for debate`,
-      roundId: finalBallot.roundId,
-      debateId: finalBallot.debateId,
-      details: {
-        ballotId: finalBallot.id,
-        version: finalBallot.version,
-        submitterType: finalBallot.submitterType,
-        confirmed: finalBallot.confirmed,
-      },
-    });
-    if (finalBallot.confirmed) {
-      await confirmBallot(finalBallot.id, finalBallot.debateId, finalBallot);
-      if (privatePasscode) {
-        await queuePrivateRecord(
-          { collection: "ballots", record: finalBallot },
-          adjudicators.find((adj) => adj.id === finalBallot.submitterId)?.privateUrlKey,
-          privatePasscode
-        );
-      }
-    }
+    await submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies);
   };
 
   const confirmBallot = async (
@@ -1450,651 +1129,99 @@ export function TournamentProvider({
     debateId: string,
     submittedBallot?: BallotSubmission
   ) => {
-    const nowIso = new Date().toISOString();
-
-    // Confirm ballots in the local working copy; cloud writes happen on explicit upload.
-    const confirmedBallot = submittedBallot || ballots.find((b) => b.id === ballotId || b.debateId === debateId);
-    const updatedBallots = ballots.map((b) => {
-      if (b.id === ballotId || (b.debateId === debateId && b.id === ballotId)) {
-        return {
-          ...b,
-          confirmed: true,
-          discarded: false,
-          confirmedTimestamp: nowIso,
-        };
-      }
-      if (b.debateId === debateId && b.id !== ballotId) {
-        return {
-          ...b,
-          confirmed: false,
-          discarded: true,
-        };
-      }
-      return b;
-    });
-    if (confirmedBallot && !updatedBallots.some((b) => b.id === ballotId)) {
-      updatedBallots.push({
-        ...confirmedBallot,
-        confirmed: true,
-        discarded: false,
-        confirmedTimestamp: nowIso,
-      });
-    }
-    setBallots(updatedBallots);
-    persistLocal("ballots", updatedBallots);
-
-    const debate = debates.find((d) => d.id === debateId);
-    if (debate) {
-      const updatedTeams = { ...debate.teams };
-      if (confirmedBallot) {
-        for (const [key, slot] of Object.entries(updatedTeams)) {
-          const sideKey = key as DebateSide;
-          if (slot && slot.teamId) {
-            const teamScore = confirmedBallot.teamScores?.[sideKey];
-            const speakerScores = confirmedBallot.speakerScores?.[sideKey] || [];
-            const totalSpeakersScore = speakerScores.reduce((sum, s) => sum + (s.score || 0), 0);
-            updatedTeams[sideKey] = {
-              ...slot,
-              points: teamScore ? teamScore.points : slot.points,
-              speakerScoreTotal: totalSpeakersScore || teamScore?.totalSpeakerScore || slot.speakerScoreTotal,
-            };
-          }
-        }
-      }
-
-      const updatedDebate: Debate = {
-        ...debate,
-        resultStatus: "confirmed",
-        teams: updatedTeams,
-      };
-      const updatedDebates = debates.map((d) => (d.id === debateId ? updatedDebate : d));
-      setDebates(updatedDebates);
-      persistLocal("debates", updatedDebates);
-    }
-    await recordAuditEvent({
-      action: "ballot.confirmed",
-      category: "ballot",
-      summary: "Ballot confirmed and results recorded",
-      roundId: confirmedBallot?.roundId,
-      debateId,
-      details: {
-        ballotId,
-        version: confirmedBallot?.version,
-        submitterType: confirmedBallot?.submitterType,
-      },
-    });
+    await confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies);
   };
 
   const addInstitutions = async (instData: Omit<Institution, "id" | "tournamentId">[]) => {
-    if (instData.length === 0) return;
-
-    const newInstitutions: Institution[] = instData.map((data) => ({
-      ...data,
-      id: `inst-${typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
-      tournamentId: tournament?.id || tournamentSlug,
-    }));
-    const updated = [...institutions, ...newInstitutions];
-    setInstitutions(updated);
-    persistLocal("institutions", updated);
-    for (const newInstitution of newInstitutions) {
-      await recordAuditEvent({
-        action: "institution.created",
-        category: "tournament",
-        summary: `Institution ${newInstitution.name} added`,
-        details: {
-          institutionId: newInstitution.id,
-          name: newInstitution.name,
-          code: newInstitution.code,
-          region: newInstitution.region,
-        },
-      });
-    }
+    await addInstitutionsCommand(instData);
   };
 
   const addInstitution = async (instData: Omit<Institution, "id" | "tournamentId">) => {
-    await addInstitutions([instData]);
+    await addInstitutionsCommand([instData]);
   };
 
   const updateInstitution = async (inst: Institution) => {
-    const previous = institutions.find((item) => item.id === inst.id);
-    const updated = institutions.map((i) => (i.id === inst.id ? inst : i));
-    setInstitutions(updated);
-    persistLocal("institutions", updated);
-    await recordAuditEvent({
-      action: "institution.updated",
-      category: "tournament",
-      summary: `Institution ${inst.name} updated`,
-      details: {
-        institutionId: inst.id,
-        previous: previous ? { name: previous.name, code: previous.code, region: previous.region } : undefined,
-        current: { name: inst.name, code: inst.code, region: inst.region },
-      },
-    });
+    await updateInstitutionCommand(inst);
   };
 
   const deleteInstitution = async (instId: string) => {
-    const deleted = institutions.find((item) => item.id === instId);
-    const updated = institutions.filter((i) => i.id !== instId);
-    setInstitutions(updated);
-    persistLocal("institutions", updated);
-    await recordAuditEvent({
-      action: "institution.deleted",
-      category: "tournament",
-      summary: `Institution ${deleted?.name || instId} deleted`,
-      details: { institutionId: instId, name: deleted?.name },
-    });
+    await deleteInstitutionCommand(instId);
   };
 
   const addTeams = async (teamData: Omit<Team, "id" | "tournamentId">[]) => {
-    if (teamData.length === 0) return;
-
-    const newTeams: Team[] = teamData.map((data) => ({
-      ...data,
-      id: `team-${typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
-      tournamentId: tournament?.id || tournamentSlug,
-      privateUrlKey: data.privateUrlKey || generatePrivateKey("team"),
-      privatePasscode: data.privatePasscode || generatePrivateKey(),
-    }));
-    const updated = [...teams, ...newTeams];
-    setTeams(updated);
-    persistLocal("teams", updated);
-    for (const newTeam of newTeams) {
-      await recordAuditEvent({
-        action: "team.created",
-        category: "tournament",
-        summary: `Team ${newTeam.name} added`,
-        details: {
-          teamId: newTeam.id,
-          name: newTeam.name,
-          institutionId: newTeam.institutionId,
-          breakCategories: newTeam.breakCategories,
-          speakerCount: newTeam.speakers.length,
-        },
-      });
-    }
+    await addTeamsCommand(teamData);
   };
 
   const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
-    await addTeams([teamData]);
+    await addTeamsCommand([teamData]);
   };
 
   const updateTeam = async (team: Team, _privatePasscode?: string) => {
-    const previous = teams.find((item) => item.id === team.id);
-    const updated = teams.map((t) => (t.id === team.id ? team : t));
-    setTeams(updated);
-    persistLocal("teams", updated);
-    await recordAuditEvent({
-      action: "team.updated",
-      category: "tournament",
-      summary: `Team ${team.name} updated`,
-      details: {
-        teamId: team.id,
-        previous: previous ? {
-          name: previous.name,
-          institutionId: previous.institutionId,
-          breakCategories: previous.breakCategories,
-          speakerCount: previous.speakers.length,
-          checkedIn: previous.checkedIn,
-        } : undefined,
-        current: {
-          name: team.name,
-          institutionId: team.institutionId,
-          breakCategories: team.breakCategories,
-          speakerCount: team.speakers.length,
-          checkedIn: team.checkedIn,
-        },
-      },
-    });
+    await updateTeamCommand(team);
   };
 
   const deleteTeam = async (teamId: string) => {
-    const deleted = teams.find((item) => item.id === teamId);
-    const updated = teams.filter((t) => t.id !== teamId);
-    setTeams(updated);
-    persistLocal("teams", updated);
-    await recordAuditEvent({
-      action: "team.deleted",
-      category: "tournament",
-      summary: `Team ${deleted?.name || teamId} deleted`,
-      details: { teamId, name: deleted?.name },
-    });
+    await deleteTeamCommand(teamId);
   };
 
   const addAdjudicators = async (adjData: Omit<Adjudicator, "id" | "tournamentId">[]) => {
-    if (adjData.length === 0) return;
-
-    const newAdjudicators: Adjudicator[] = adjData.map((data) => ({
-      ...data,
-      id: `adj-${typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
-      tournamentId: tournament?.id || tournamentSlug,
-      privateUrlKey: data.privateUrlKey || generatePrivateKey("adj"),
-      privatePasscode: data.privatePasscode || generatePrivateKey(),
-    }));
-    const updated = [...adjudicators, ...newAdjudicators];
-    setAdjudicators(updated);
-    persistLocal("adjudicators", updated);
-    for (const newAdj of newAdjudicators) {
-      await recordAuditEvent({
-        action: "adjudicator.created",
-        category: "tournament",
-        summary: `Adjudicator ${newAdj.name} added`,
-        details: {
-          adjudicatorId: newAdj.id,
-          name: newAdj.name,
-          institutionId: newAdj.institutionId,
-          baseScore: newAdj.baseScore,
-          trainee: newAdj.trainee,
-          independent: newAdj.independent,
-        },
-      });
-    }
+    await addAdjudicatorsCommand(adjData);
   };
 
   const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
-    await addAdjudicators([adjData]);
+    await addAdjudicatorsCommand([adjData]);
   };
 
   const updateAdjudicator = async (adj: Adjudicator, _privatePasscode?: string) => {
-    const previous = adjudicators.find((item) => item.id === adj.id);
-    const updated = adjudicators.map((a) => (a.id === adj.id ? adj : a));
-    setAdjudicators(updated);
-    persistLocal("adjudicators", updated);
-    const safeAdj = ({
-      privateUrlKey: _privateUrlKey,
-      privatePasscode: _privatePasscode,
-      ...safe
-    }: Adjudicator) => safe;
-    await recordAuditEvent({
-      action: "adjudicator.updated",
-      category: "tournament",
-      summary: `Adjudicator ${adj.name} updated`,
-      details: {
-        adjudicatorId: adj.id,
-        previous: previous ? safeAdj(previous) : undefined,
-        current: safeAdj(adj),
-      },
-    });
+    await updateAdjudicatorCommand(adj);
   };
 
   const deleteAdjudicator = async (adjId: string) => {
-    const deleted = adjudicators.find((item) => item.id === adjId);
-    const updated = adjudicators.filter((a) => a.id !== adjId);
-    setAdjudicators(updated);
-    persistLocal("adjudicators", updated);
-    await recordAuditEvent({
-      action: "adjudicator.deleted",
-      category: "tournament",
-      summary: `Adjudicator ${deleted?.name || adjId} deleted`,
-      details: { adjudicatorId: adjId, name: deleted?.name },
-    });
+    await deleteAdjudicatorCommand(adjId);
   };
 
   const addVenues = async (venueData: Omit<Venue, "id" | "tournamentId">[]) => {
-    if (venueData.length === 0) return;
-
-    const newVenues: Venue[] = venueData.map((data) => ({
-      ...data,
-      id: `ven-${typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
-      tournamentId: tournament?.id || tournamentSlug,
-    }));
-    const updated = [...venues, ...newVenues];
-    setVenues(updated);
-    persistLocal("venues", updated);
-    for (const newVenue of newVenues) {
-      await recordAuditEvent({
-        action: "venue.created",
-        category: "venue",
-        summary: `Venue ${newVenue.name} added`,
-        details: {
-          venueId: newVenue.id,
-          name: newVenue.name,
-          priority: newVenue.priority,
-          category: newVenue.category,
-          capacity: newVenue.capacity,
-          accessible: newVenue.accessible,
-          online: newVenue.online,
-        },
-      });
-    }
+    await addVenuesCommand(venueData);
   };
 
   const addVenue = async (venueData: Omit<Venue, "id" | "tournamentId">) => {
-    await addVenues([venueData]);
+    await addVenuesCommand([venueData]);
   };
 
   const updateVenue = async (venue: Venue) => {
-    const previous = venues.find((item) => item.id === venue.id);
-    const updated = venues.map((v) => (v.id === venue.id ? venue : v));
-    setVenues(updated);
-    persistLocal("venues", updated);
-    await recordAuditEvent({
-      action: "venue.updated",
-      category: "venue",
-      summary: `Venue ${venue.name} updated`,
-      details: {
-        venueId: venue.id,
-        previous: previous ? {
-          name: previous.name,
-          priority: previous.priority,
-          category: previous.category,
-          capacity: previous.capacity,
-          accessible: previous.accessible,
-          online: previous.online,
-          available: previous.available,
-        } : undefined,
-        current: {
-          name: venue.name,
-          priority: venue.priority,
-          category: venue.category,
-          capacity: venue.capacity,
-          accessible: venue.accessible,
-          online: venue.online,
-          available: venue.available,
-        },
-      },
-    });
+    await updateVenueCommand(venue);
   };
 
   const deleteVenue = async (venueId: string) => {
-    const deleted = venues.find((item) => item.id === venueId);
-    const updated = venues.filter((v) => v.id !== venueId);
-    setVenues(updated);
-    persistLocal("venues", updated);
-    await recordAuditEvent({
-      action: "venue.deleted",
-      category: "venue",
-      summary: `Venue ${deleted?.name || venueId} deleted`,
-      details: { venueId, name: deleted?.name },
-    });
+    await deleteVenueCommand(venueId);
   };
 
   const addMotions = async (motionData: Omit<Motion, "id" | "tournamentId">[]) => {
-    if (motionData.length === 0) return;
-
-    const newMotions: Motion[] = motionData.map((data) => ({
-      ...data,
-      id: `motion-${typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
-      tournamentId: tournament?.id || tournamentSlug,
-    }));
-    const updated = [...motions, ...newMotions];
-    setMotions(updated);
-    persistLocal("motions", updated);
-    for (const newMotion of newMotions) {
-      await recordAuditEvent({
-        action: "motion.created",
-        category: "tournament",
-        summary: "Motion added",
-        details: {
-          motionId: newMotion.id,
-          reference: newMotion.reference,
-          roundIds: newMotion.rounds,
-          released: newMotion.released,
-        },
-      });
-    }
+    await addMotionsCommand(motionData);
   };
 
   const addMotion = async (motionData: Omit<Motion, "id" | "tournamentId">) => {
-    await addMotions([motionData]);
+    await addMotionsCommand([motionData]);
   };
 
   const updateMotion = async (motion: Motion) => {
-    const previous = motions.find((item) => item.id === motion.id);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      await setDoc(
-        doc(db, "tournaments", tournament.id, "motions", motion.id),
-        cleanUndefined(motion)
-      );
-    }
-    const updated = motions.map((m) => (m.id === motion.id ? motion : m));
-    setMotions(updated);
-    persistLocal("motions", updated);
-    await recordAuditEvent({
-      action: "motion.updated",
-      category: "tournament",
-      summary: "Motion updated",
-      details: {
-        motionId: motion.id,
-        previous: previous ? { reference: previous.reference, rounds: previous.rounds, released: previous.released } : undefined,
-        current: { reference: motion.reference, rounds: motion.rounds, released: motion.released },
-      },
-    });
+    await updateMotionCommand(motion);
   };
 
   const deleteMotion = async (motionId: string) => {
-    const deleted = motions.find((item) => item.id === motionId);
-    const updated = motions.filter((m) => m.id !== motionId);
-    setMotions(updated);
-    persistLocal("motions", updated);
-    await recordAuditEvent({
-      action: "motion.deleted",
-      category: "tournament",
-      summary: "Motion deleted",
-      details: { motionId, reference: deleted?.reference, roundIds: deleted?.rounds },
-    });
+    await deleteMotionCommand(motionId);
   };
 
   const saveBreakCategories = async (cats: BreakCategory[]) => {
-    const previousById = new Map(breakCategories.map((category) => [category.id, category]));
-    setBreakCategories(cats);
-    persistLocal("breaks", cats);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      for (const c of cats) {
-        const ref = doc(db, "tournaments", tournament.id, "breakCategories", c.id);
-        ops.push((batch) => batch.set(ref, c));
-      }
-      await commitChunkedBatches(ops);
-    }
-    const changes: Record<string, unknown>[] = [];
-    cats.forEach((category) => {
-      const previous = previousById.get(category.id);
-      if (!previous) {
-        changes.push({
-          type: "created",
-          category: {
-            categoryId: category.id,
-            name: category.name,
-            breakSize: category.breakSize,
-            reserveSize: category.reserveSize,
-            priority: category.priority,
-            isGeneral: category.isGeneral,
-          },
-        });
-        return;
-      }
-      if (
-        previous.name !== category.name ||
-        previous.breakSize !== category.breakSize ||
-        previous.reserveSize !== category.reserveSize ||
-        previous.priority !== category.priority ||
-        previous.isGeneral !== category.isGeneral
-      ) {
-        changes.push({
-          type: "updated",
-          categoryId: category.id,
-          previous: {
-            name: previous.name,
-            breakSize: previous.breakSize,
-            reserveSize: previous.reserveSize,
-            priority: previous.priority,
-            isGeneral: previous.isGeneral,
-          },
-          current: {
-            name: category.name,
-            breakSize: category.breakSize,
-            reserveSize: category.reserveSize,
-            priority: category.priority,
-            isGeneral: category.isGeneral,
-          },
-        });
-      }
-    });
-    const deleted = breakCategories.filter((category) => !cats.some((next) => next.id === category.id));
-    if (changes.length || deleted.length) {
-      await recordAuditEvent({
-        action: "break.categories_updated",
-        category: "break",
-        summary: "Break categories updated",
-        details: {
-          changes,
-          deleted: deleted.map((category) => ({
-            categoryId: category.id,
-            name: category.name,
-            breakSize: category.breakSize,
-          })),
-        },
-      });
-    }
+    await saveBreakCategoriesCommand(cats, breakDependencies);
   };
 
   const generateBreak = async (categoryId: string) => {
-    if (breakResults.length === 0 || !tournament) return null;
-    const category = breakCategories.find((item) => item.id === categoryId);
-    if (!category) return null;
-
-    const teamsInDebate = tournament.preferences?.teamsInDebate || (tournament.format === "bp" ? 4 : 2);
-    const maxBreakSize = Math.max(0, ...breakCategories.map((item) => item.breakSize));
-    const roundCount = eliminationRoundCount(maxBreakSize, teamsInDebate);
-    if (roundCount === 0) throw new Error("No valid elimination-round sequence is configured for these break sizes.");
-
-    const eliminationRounds = rounds
-      .filter((round) => round.stage === "elimination" && !round.cancelled)
-      .sort((a, b) => a.seq - b.seq);
-    if (eliminationRounds.length < roundCount) {
-      throw new Error("The pre-created elimination rounds do not cover the configured break size.");
-    }
-
-    const schedule = buildBreakCategorySchedule(breakCategories, roundCount, teamsInDebate);
-    const roundIndexById = new Map(eliminationRounds.map((round, index) => [round.id, index]));
-    const updatedRounds = rounds.map((round) => {
-      if (round.stage !== "elimination" || round.cancelled) return round;
-      const index = roundIndexById.get(round.id);
-      if (index === undefined) return round;
-      return {
-        ...round,
-        breakCategoryIds: index < roundCount ? schedule[index] : [],
-        eliminationAdvanced: false,
-      };
-    });
-    const firstCategoryRound = updatedRounds.find(
-      (round) => round.stage === "elimination" && round.breakCategoryIds?.includes(categoryId)
-    );
-    if (!firstCategoryRound) throw new Error(`${category.name} does not fit the configured elimination-round sequence.`);
-
-    const updatedTeams = applyBreakStatuses(teams, breakResults);
-    setTeams(updatedTeams);
-    setRounds(updatedRounds);
-    setActiveRound(firstCategoryRound);
-    persistLocal("teams", updatedTeams);
-    persistLocal("rounds", updatedRounds);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      for (const team of updatedTeams) {
-        const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(team)));
-      }
-      for (const round of updatedRounds.filter((item) => item.stage === "elimination")) {
-        const ref = doc(db, "tournaments", tournament.id, "rounds", round.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(round)));
-      }
-      await commitChunkedBatches(ops);
-    }
-    const categoryResult = breakResults.find((result) => result.category.id === categoryId);
-    await recordAuditEvent({
-      action: "break.generated",
-      category: "break",
-      summary: `Generated ${category.name} break`,
-      roundId: firstCategoryRound.id,
-      details: {
-        categoryId: category.id,
-        categoryName: category.name,
-        breakSize: category.breakSize,
-        reserveSize: category.reserveSize,
-        breakingTeamIds: categoryResult?.breakingTeams.map((entry) => entry.team.id) ?? [],
-        reserveTeamIds: categoryResult?.reserveTeams.map((entry) => entry.team.id) ?? [],
-        eliminationRoundIds: updatedRounds
-          .filter((round) => round.stage === "elimination" && !round.cancelled)
-          .map((round) => round.id),
-      },
-    });
-    return firstCategoryRound;
+    return generateBreakCommand(categoryId, breakDependencies);
   };
 
   const proceedToNextEliminationRound = async (roundId: string) => {
-    if (!tournament) return null;
-    const round = rounds.find((item) => item.id === roundId && item.stage === "elimination");
-    if (!round) throw new Error("Select an elimination round before proceeding.");
-    if (round.eliminationAdvanced) {
-      return rounds
-        .filter((item) => item.stage === "elimination" && item.seq > round.seq && !item.cancelled)
-        .sort((a, b) => a.seq - b.seq)
-        .find((item) => !round.breakCategoryIds?.length || item.breakCategoryIds?.some((id) => round.breakCategoryIds!.includes(id))) || null;
-    }
-
-    const roundDebates = debates.filter((debate) => debate.roundId === round.id);
-    if (roundDebates.length === 0) throw new Error("Generate this elimination round's draw before proceeding.");
-    const expectedTeamIds = new Set(
-      getEligibleTeamsForRound(teams, round)
-        .filter((team) => team.checkedIn !== false)
-        .map((team) => team.id)
-    );
-    const assignedTeamIds = new Set(
-      roundDebates.flatMap((debate) => Object.values(debate.teams).map((slot) => slot?.teamId).filter(Boolean))
-    );
-    const missingTeam = [...expectedTeamIds].find((teamId) => !assignedTeamIds.has(teamId));
-    if (missingTeam) throw new Error("Every eligible team must be assigned to a debate before proceeding.");
-
-    const nextRound = rounds
-      .filter((item) => item.stage === "elimination" && item.seq > round.seq && !item.cancelled)
-      .sort((a, b) => a.seq - b.seq)
-      .find((item) => !round.breakCategoryIds?.length || item.breakCategoryIds?.some((id) => round.breakCategoryIds!.includes(id))) || null;
-    const isFinalRound = nextRound === null;
-    const advancingTeamIds = getAdvancingTeamIds(roundDebates, ballots, tournament.format, isFinalRound);
-    const participatingTeamIds = new Set(assignedTeamIds);
-    const unexpectedTeam = [...participatingTeamIds].find((teamId) => !expectedTeamIds.has(teamId));
-    if (unexpectedTeam) throw new Error("This round contains a team that did not qualify for this elimination stage.");
-    const updatedTeams = applyEliminationAdvancement(teams, roundDebates, advancingTeamIds, round.id);
-    const updatedRound = { ...round, eliminationAdvanced: true, completed: true };
-    const updatedRounds = rounds.map((item) => item.id === round.id ? updatedRound : item);
-    setTeams(updatedTeams);
-    setRounds(updatedRounds);
-    setActiveRound(nextRound || updatedRound);
-    persistLocal("teams", updatedTeams);
-    persistLocal("rounds", updatedRounds);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament.id) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      for (const team of updatedTeams.filter((item) => participatingTeamIds.has(item.id))) {
-        const ref = doc(db, "tournaments", tournament.id, "teams", team.id);
-        ops.push((batch) => batch.set(ref, cleanUndefined(team)));
-      }
-      const ref = doc(db, "tournaments", tournament.id, "rounds", updatedRound.id);
-      ops.push((batch) => batch.set(ref, cleanUndefined(updatedRound)));
-      await commitChunkedBatches(ops);
-    }
-    await recordAuditEvent({
-      action: "elimination.round_advanced",
-      category: "break",
-      summary: `Advanced teams from ${round.name}`,
-      roundId: round.id,
-      details: {
-        nextRoundId: nextRound?.id,
-        isFinalRound,
-        advancingTeamIds: [...advancingTeamIds],
-        participatingTeamIds: [...participatingTeamIds],
-      },
-    });
-    return nextRound;
+    return proceedToNextEliminationRoundCommand(roundId, breakDependencies);
   };
 
   const addFeedback = async (
@@ -2102,91 +1229,43 @@ export function TournamentProvider({
     privatePasscode?: string,
     privateUrlKey?: string
   ) => {
-    const newFb: FeedbackSubmission = {
-      ...fbData,
-      id: `fb-${Date.now()}`,
+    await addFeedbackCommand(fbData, {
       tournamentId: tournament?.id || tournamentSlug,
-      timestamp: new Date().toISOString(),
-    };
-    const updated = [...feedback, newFb];
-    setFeedback(updated);
-    persistLocal("feedback", updated);
-    if (privatePasscode) {
-      await queuePrivateRecord(
-        { collection: "feedback", record: newFb },
-        privateUrlKey ||
-          (newFb.sourceType === "adjudicator"
-            ? adjudicators.find((adj) => adj.id === newFb.sourceId)?.privateUrlKey
-            : teams.find((team) => team.id === newFb.sourceId)?.privateUrlKey),
-        privatePasscode
-      );
-    }
-    await recordAuditEvent({
-      action: "feedback.submitted",
-      category: "feedback",
-      summary: `Feedback submitted for ${newFb.targetAdjudicatorName || newFb.targetTeamName || "participant"}`,
-      roundId: newFb.roundId,
-      debateId: newFb.debateId,
-      details: {
-        feedbackId: newFb.id,
-        targetType: newFb.targetType || "adjudicator",
-        targetAdjudicatorId: newFb.targetAdjudicatorId,
-        targetAdjudicatorName: newFb.targetAdjudicatorName,
-        targetTeamId: newFb.targetTeamId,
-        targetTeamName: newFb.targetTeamName,
-        sourceType: newFb.sourceType,
-        score: newFb.score,
-        confirmed: newFb.confirmed,
+      feedback,
+      privatePasscode,
+      privateUrlKey,
+      teams,
+      adjudicators,
+      repository: {
+        saveFeedback: (items) => {
+          setFeedback(items);
+          persistLocal("feedback", items);
+        },
       },
+      queuePrivateRecord: (record, urlKey, passcode) =>
+        queuePrivateRecord({ collection: "feedback", record }, urlKey, passcode),
+      recordAuditEvent,
     });
   };
 
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
-    const teamsResult = regeneratePrivateAccess(teams, forceRegenerate, "team");
-    const adjsResult = regeneratePrivateAccess(adjudicators, forceRegenerate, "adj");
-
-    const updatedTeams = teamsResult.items;
-    const updatedAdjs = adjsResult.items;
-    const teamsChanged = teamsResult.changed;
-    const adjsChanged = adjsResult.changed;
-
-    if (teamsChanged) {
-      setTeams(updatedTeams);
-      persistLocal("teams", updatedTeams);
-    }
-    if (adjsChanged) {
-      setAdjudicators(updatedAdjs);
-      persistLocal("adjudicators", updatedAdjs);
-    }
-
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id && (teamsChanged || adjsChanged)) {
-      const ops: Array<(batch: WriteBatch) => void> = [];
-      if (teamsChanged) {
-        for (const t of updatedTeams) {
-          const ref = doc(db, "tournaments", tournament.id, "teams", t.id);
-          ops.push((batch) => batch.set(ref, cleanUndefined(t)));
-        }
-      }
-      if (adjsChanged) {
-        for (const a of updatedAdjs) {
-          const ref = doc(db, "tournaments", tournament.id, "adjudicators", a.id);
-          ops.push((batch) => batch.set(ref, cleanUndefined(a)));
-        }
-      }
-      await commitChunkedBatches(ops);
-    }
-    if (teamsChanged || adjsChanged) {
-      await recordAuditEvent({
-        action: "private_urls.regenerated",
-        category: "tournament",
-        summary: "Private access credentials generated",
-        details: {
-          forceRegenerate,
-          teamsUpdated: teamsResult.updatedIds.length,
-          adjudicatorsUpdated: adjsResult.updatedIds.length,
+    await regeneratePrivateAccessCommand(teams, adjudicators, forceRegenerate, {
+      localRepository: {
+        saveTeams: (items) => {
+          setTeams(items);
+          persistLocal("teams", items);
         },
-      });
-    }
+        saveAdjudicators: (items) => {
+          setAdjudicators(items);
+          persistLocal("adjudicators", items);
+        },
+      },
+      cloudRepository:
+        AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+          ? createFirestoreEntityRepository(tournament.id)
+          : undefined,
+      recordAuditEvent,
+    });
   };
 
   const uploadToCloud = async () => {
@@ -2218,32 +1297,6 @@ export function TournamentProvider({
     setCloudSyncState("syncing");
     setCloudSyncMessage("Uploading this device's local tournament to Firestore…");
     try {
-      const tournamentRef = doc(db, "tournaments", tournament.id);
-      const cloudTournament = await getDoc(tournamentRef);
-      if (
-        cloudTournament.exists() &&
-        cloudTournament.data().ownerId !== user.uid &&
-        cloudTournament.data().admins?.[user.uid] !== true
-      ) {
-        throw new Error("This cloud tournament belongs to another account.");
-      }
-
-      const metadata = {
-        ...tournament,
-        ownerId:
-          tournament.ownerId === "local" || tournament.ownerId === "director"
-            ? user.uid
-            : tournament.ownerId,
-        admins: {
-          ...(cloudTournament.exists()
-            ? cloudTournament.data().admins || {}
-            : tournament.admins),
-          [user.uid]: true,
-        },
-        updatedAt: new Date().toISOString(),
-      };
-      await setDoc(tournamentRef, cleanUndefined(metadata), { merge: true });
-
       const localCollections: Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>> = {
         rounds,
         teams,
@@ -2257,40 +1310,12 @@ export function TournamentProvider({
         institutions,
         auditEvents: auditEventsRef.current,
       };
-      const operations: Array<(batch: WriteBatch) => void> = [];
-      for (const collectionName of CLOUD_COLLECTIONS) {
-        const collectionRef = collection(db, "tournaments", tournament.id, collectionName);
-        const remoteSnapshot = await getDocs(collectionRef);
-        const localItems = localCollections[collectionName];
-        const localIds = new Set(localItems.map((item) => item.id));
-        if (collectionName === "auditEvents") {
-          const remoteIds = new Set(remoteSnapshot.docs.map((remoteDoc) => remoteDoc.id));
-          for (const item of localItems) {
-            if (remoteIds.has(item.id)) continue;
-            operations.push((batch) => {
-              batch.set(
-                doc(db!, "tournaments", tournament.id, collectionName, item.id),
-                cleanUndefined(item)
-              );
-            });
-          }
-          continue;
-        }
-        for (const remoteDoc of remoteSnapshot.docs) {
-          if (!localIds.has(remoteDoc.id)) {
-            operations.push((batch) => batch.delete(remoteDoc.ref));
-          }
-        }
-        for (const item of localItems) {
-          operations.push((batch) => {
-            batch.set(
-              doc(db!, "tournaments", tournament.id, collectionName, item.id),
-              cleanUndefined(item)
-            );
-          });
-        }
-      }
-      await commitChunkedBatches(operations);
+      await uploadTournamentCommand({
+        tournament,
+        userId: user.uid,
+        localCollections,
+        repository: createFirestoreTournamentRepository(),
+      });
       setCloudSyncState("success");
       setCloudSyncMessage(`Uploaded local tournament at ${new Date().toLocaleTimeString()}.`);
     } catch (error) {
@@ -2305,7 +1330,6 @@ export function TournamentProvider({
     if (!db || !user || !tournament || !isOwnerOrAdmin) {
       throw new Error("Sign in as a tournament administrator to download cloud data.");
     }
-    const firestore = db;
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       throw new Error("You are offline. Connect to the internet before downloading.");
     }
@@ -2313,34 +1337,12 @@ export function TournamentProvider({
     setCloudSyncState("syncing");
     setCloudSyncMessage("Downloading the latest tournament data from Firestore…");
     try {
-      const tournamentSnapshot = await getDoc(doc(db, "tournaments", tournament.id));
-      if (!tournamentSnapshot.exists()) throw new Error("This tournament is not available in Firestore.");
-      const cloudTournament = {
-        ...tournamentSnapshot.data(),
-        id: tournamentSnapshot.id,
+      const { tournament: cloudTournament, collections } = await downloadTournamentCommand({
+        tournamentId: tournament.id,
         slug: tournament.slug,
-      } as Tournament;
-      if (
-        cloudTournament.ownerId !== user.uid &&
-        cloudTournament.admins?.[user.uid] !== true
-      ) {
-        throw new Error("This cloud tournament belongs to another account.");
-      }
-
-      const snapshots = await Promise.all(
-        CLOUD_COLLECTIONS.map((name) =>
-          getDocs(collection(firestore, "tournaments", tournament.id, name))
-        )
-      );
-      const collections = Object.fromEntries(
-        CLOUD_COLLECTIONS.map((name, index) => [
-          name,
-          snapshots[index].docs.map((document) => ({
-            ...document.data(),
-            id: document.id,
-          })),
-        ])
-      ) as Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>>;
+        userId: user.uid,
+        repository: createFirestoreTournamentRepository(),
+      });
       const downloadedRounds = collections.rounds as Round[];
 
       setTournament(cloudTournament);
