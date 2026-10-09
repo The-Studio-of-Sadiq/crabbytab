@@ -45,13 +45,14 @@ import { applyBreakStatuses, calculateBreaks, BreakCategoryResult } from "@/lib/
 import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
-import { createRoundRecord, getRoundChangeSummary } from "@/features/tournament/application/rounds";
+import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { regeneratePrivateAccess } from "@/features/tournament/application/privateAccess";
 import {
   cleanUndefined,
   commitChunkedBatches,
   CLOUD_COLLECTIONS,
 } from "@/features/tournament/infrastructure/firestore";
+import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -195,6 +196,15 @@ export function TournamentProvider({
       }
     },
     [storagePrefix]
+  );
+
+  const saveRoundsLocally = useCallback(
+    (updatedRounds: Round[], nextActiveRound?: Round) => {
+      setRounds(updatedRounds);
+      if (nextActiveRound) setActiveRound(nextActiveRound);
+      persistLocal("rounds", updatedRounds);
+    },
+    [persistLocal]
   );
 
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
@@ -877,63 +887,34 @@ export function TournamentProvider({
     stage: "preliminary" | "elimination",
     customDrawType?: "random" | "power_paired" | "round_robin" | "elimination" | "manual"
   ) => {
-    const nextSeq = rounds.length + 1;
-    const newRound = createRoundRecord({
-      tournamentId: tournament?.id || tournamentSlug,
-      roundSeq: nextSeq,
-      name,
-      abbr,
-      stage,
-      customDrawType,
-      defaultDrawRule: tournament?.preferences?.drawRule || "power_paired",
-    });
-
-    const updated = [...rounds, newRound];
-    setRounds(updated);
-    setActiveRound(newRound);
-    persistLocal("rounds", updated);
-
-    await recordAuditEvent({
-      action: "round.created",
-      category: "tournament",
-      summary: `${name} created`,
-      roundId: newRound.id,
-      details: {
-        sequence: newRound.seq,
-        stage: newRound.stage,
-        drawType: newRound.drawType,
+    return createRoundCommand(
+      {
+        tournamentId: tournament?.id || tournamentSlug,
+        roundSeq: rounds.length + 1,
+        name,
+        abbr,
+        stage,
+        customDrawType,
+        defaultDrawRule: tournament?.preferences?.drawRule || "power_paired",
       },
-    });
-    return newRound;
+      rounds,
+      {
+        localRepository: { saveRounds: saveRoundsLocally },
+        recordAuditEvent,
+      }
+    );
   };
 
   const updateRound = async (round: Round) => {
-    const previous = rounds.find((item) => item.id === round.id);
-    if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      await setDoc(
-        doc(db, "tournaments", tournament.id, "rounds", round.id),
-        cleanUndefined(round)
-      );
-    }
-    const updated = rounds.map((r) => (r.id === round.id ? round : r));
-    setRounds(updated);
-    if (activeRound?.id === round.id) setActiveRound(round);
-    persistLocal("rounds", updated);
-    if (previous) {
-      const changes = getRoundChangeSummary(previous, round);
-      if (Object.keys(changes).length > 0) {
-        const drawStatusChanged = previous.drawStatus !== round.drawStatus;
-        await recordAuditEvent({
-          action: drawStatusChanged ? "draw.status_changed" : "round.updated",
-          category: drawStatusChanged ? "draw" : "tournament",
-          summary: drawStatusChanged
-            ? `${round.name} draw status changed to ${round.drawStatus}`
-            : `${round.name} settings updated`,
-          roundId: round.id,
-          details: { changes },
-        });
-      }
-    }
+    const cloudRepository =
+      AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+        ? createFirestoreRoundRepository(tournament.id)
+        : undefined;
+    await updateRoundCommand(round, rounds, activeRound, {
+      localRepository: { saveRounds: saveRoundsLocally },
+      recordAuditEvent,
+      cloudRepository,
+    });
   };
 
   const setPreliminaryRoundCount = async (count: number) => {
