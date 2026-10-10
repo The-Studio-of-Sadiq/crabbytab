@@ -13,6 +13,7 @@ import {
   Shield,
 } from "lucide-react";
 import { DebateSide } from "@/types";
+import { analyzeMotionBalance } from "@/lib/motionBalance";
 
 export default function AnalyticsPage() {
   const {
@@ -87,6 +88,9 @@ export default function AnalyticsPage() {
 
       const affWins = mBallots.filter((b) => b.teamScores?.AFF?.win).length;
       const negWins = mBallots.filter((b) => b.teamScores?.NEG?.win).length;
+      const positionWins = isBP
+        ? [ogWins, ooWins, cgWins, coWins]
+        : [affWins, negWins];
 
       return {
         motion: m,
@@ -98,9 +102,10 @@ export default function AnalyticsPage() {
         coWins,
         affWins,
         negWins,
+        balance: analyzeMotionBalance(positionWins),
       };
     });
-  }, [motions, debates, confirmedBallots]);
+  }, [motions, debates, confirmedBallots, isBP]);
 
   return (
     <div className="space-y-8 pb-12">
@@ -237,6 +242,9 @@ export default function AnalyticsPage() {
             <Lightbulb className="w-4 h-4 text-amber-500" />
             <span>Motion Balance Analysis</span>
           </h3>
+          <p className="mt-1 text-xs text-gray-600">
+            Chi-squared compares observed wins with an equal-win expectation across positions; it does not establish cause.
+          </p>
         </div>
 
         <div className="overflow-x-auto">
@@ -258,6 +266,7 @@ export default function AnalyticsPage() {
                     <th className="w-24 text-center text-slate-700 font-bold">NEG Wins</th>
                   </>
                 )}
+                <th className="w-32 text-center">Chi-squared (p)</th>
               </tr>
             </thead>
             <tbody>
@@ -295,6 +304,23 @@ export default function AnalyticsPage() {
                       </td>
                     </>
                   )}
+                  <td className="text-center text-xs">
+                    {ms.balance.chiSquared === null || ms.balance.pValue === null ? (
+                      <span className="text-gray-500">Insufficient data</span>
+                    ) : (
+                      <>
+                        <span className="block font-mono font-semibold text-gray-800">
+                          {ms.balance.chiSquared.toFixed(2)} (p={ms.balance.pValue.toFixed(3)})
+                        </span>
+                        <span className="text-[10px] text-gray-500">
+                          n={ms.balance.observations}, df={ms.balance.degreesOfFreedom}
+                        </span>
+                        {ms.balance.lowExpectedCount && (
+                          <span className="block text-[10px] text-amber-700">Low expected count</span>
+                        )}
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
