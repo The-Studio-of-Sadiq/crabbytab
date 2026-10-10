@@ -46,6 +46,16 @@ administration, configure `FIREBASE_SERVICE_ACCOUNT_JSON` or the hosting
 environment's Application Default Credentials. The email tools also require
 the SMTP settings shown in `.env.example`.
 
+Create all user accounts manually in Firebase Authentication; CrabbyTab does
+not provide public registration. Set `FIREBASE_ADMIN_UIDS` to a comma-separated
+list of Firebase Authentication UIDs for global administrators. Global admins
+can manage every tournament and Firestore collection. On sign-in, the server
+uses its Firebase Admin credentials to assign the matching Firestore custom
+claim; deploy the repository's `firestore.rules` for that claim to grant access.
+Tournament assistants are selected from existing Firebase Authentication
+accounts on each tournament's **Imports → Assistants** page and only receive
+access to tournaments where they are assigned.
+
 When deploying, configure the Firebase Authentication and Firestore services
 for your own project and review [firestore.rules](./firestore.rules) before
 publishing them. Never expose service-account credentials or SMTP passwords in

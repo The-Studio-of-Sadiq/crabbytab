@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { isGlobalAdminUid } from "@/lib/globalAdmin";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,13 @@ export async function GET(
     user = await auth.verifyIdToken(token);
   } catch {
     return NextResponse.json({ error: "Your sign-in has expired. Please sign in again." }, { status: 401 });
+  }
+
+  if (isGlobalAdminUid(user.uid)) {
+    return NextResponse.json(
+      { role: "admin", globalAdmin: true },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   }
 
   try {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { isGlobalAdminUid } from "@/lib/globalAdmin";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function validUid(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
 async function authorizeAdministrator(request: NextRequest, tournamentId: string) {
@@ -35,10 +40,11 @@ async function authorizeAdministrator(request: NextRequest, tournamentId: string
   const tournamentSnapshot = await tournamentRef.get();
   if (!tournamentSnapshot.exists) return { error: "Tournament not found.", status: 404 as const };
   const tournament = tournamentSnapshot.data();
-  if (tournament?.ownerId !== user.uid && tournament?.admins?.[user.uid] !== true) {
+  const globalAdmin = isGlobalAdminUid(user.uid);
+  if (!globalAdmin && tournament?.ownerId !== user.uid && tournament?.admins?.[user.uid] !== true) {
     return { error: "Only tournament administrators can manage staff.", status: 403 as const };
   }
-  return { auth, firestore, tournamentRef, tournament, user };
+  return { auth, firestore, tournamentRef, tournament, user, globalAdmin };
 }
 
 export async function GET(
@@ -52,11 +58,41 @@ export async function GET(
     return NextResponse.json({ error: authorization.error }, { status: authorization.status });
   }
 
-  const staffSnapshot = await authorization.tournamentRef.collection("staff").get();
-  return NextResponse.json(
-    { staff: staffSnapshot.docs.map((document) => ({ ...document.data(), uid: document.id })) },
-    { headers: { "Cache-Control": "no-store" } }
-  );
+  try {
+    const tournament = authorization.tournament || {};
+    const [staffSnapshot, accountPages] = await Promise.all([
+      authorization.tournamentRef.collection("staff").get(),
+      (async () => {
+        const accounts: Array<{ uid: string; email: string; displayName: string }> = [];
+        let pageToken: string | undefined;
+        do {
+          const page = await authorization.auth.listUsers(1000, pageToken);
+          accounts.push(...page.users
+            .filter((account) =>
+              !isGlobalAdminUid(account.uid) &&
+              account.uid !== tournament.ownerId &&
+              tournament.admins?.[account.uid] !== true
+            )
+            .map((account) => ({
+              uid: account.uid,
+              email: account.email || "",
+              displayName: account.displayName || "",
+            })));
+          pageToken = page.pageToken;
+        } while (pageToken);
+        return accounts;
+      })(),
+    ]);
+    return NextResponse.json(
+      {
+        staff: staffSnapshot.docs.map((document) => ({ ...document.data(), uid: document.id })),
+        accounts: accountPages,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    return NextResponse.json({ error: "Could not load tournament assistants or Firebase accounts." }, { status: 503 });
+  }
 }
 
 export async function POST(
@@ -76,40 +112,48 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
-  const email = isRecord(body) && typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return NextResponse.json({ error: "Enter a valid email address for an existing account." }, { status: 400 });
+  const uids = isRecord(body) && Array.isArray(body.uids) ? body.uids : [];
+  if (uids.length === 0 || uids.length > 100 || !uids.every(validUid)) {
+    return NextResponse.json({ error: "Select between one and 100 existing Firebase accounts." }, { status: 400 });
   }
-
-  let invitedUser;
+  const uniqueUids = [...new Set(uids)];
+  let invitedUsers;
   try {
-    invitedUser = await authorization.auth.getUserByEmail(email);
+    invitedUsers = await Promise.all(uniqueUids.map((uid) => authorization.auth.getUser(uid)));
   } catch (error) {
     if (isRecord(error) && error.code === "auth/user-not-found") {
-      return NextResponse.json({ error: "No existing account was found for that email." }, { status: 404 });
+      return NextResponse.json({ error: "A selected Firebase account no longer exists." }, { status: 404 });
     }
-    return NextResponse.json({ error: "Could not look up that account." }, { status: 500 });
+    return NextResponse.json({ error: "Could not look up the selected Firebase accounts." }, { status: 500 });
   }
 
-  const { tournamentRef, tournament, user } = authorization;
-  if (invitedUser.uid === tournament.ownerId || tournament.admins?.[invitedUser.uid] === true) {
-    return NextResponse.json({ error: "That user already has administrator access." }, { status: 409 });
+  const { tournamentRef, user } = authorization;
+  const tournament = authorization.tournament || {};
+  const existingAdmin = (uid: string) => uid === tournament.ownerId || tournament.admins?.[uid] === true;
+  if (invitedUsers.some((invitedUser) => existingAdmin(invitedUser.uid))) {
+    return NextResponse.json({ error: "Administrators do not need to be assigned as assistants." }, { status: 409 });
   }
 
+  const addedAt = new Date().toISOString();
   try {
     await authorization.firestore.runTransaction(async (transaction) => {
       const currentSnapshot = await transaction.get(tournamentRef);
       const current = currentSnapshot.data();
-      if (!currentSnapshot.exists || (current?.ownerId !== user.uid && current?.admins?.[user.uid] !== true)) {
+      if (
+        !currentSnapshot.exists ||
+        (!authorization.globalAdmin && current?.ownerId !== user.uid && current?.admins?.[user.uid] !== true)
+      ) {
         throw new Error("Tournament staff permissions changed. Reload and try again.");
       }
-      transaction.set(tournamentRef.collection("staff").doc(invitedUser.uid), {
-        email: invitedUser.email || email,
-        displayName: invitedUser.displayName || "",
-        role: "dataEntry",
-        addedAt: new Date().toISOString(),
-        addedBy: user.uid,
-      });
+      for (const invitedUser of invitedUsers) {
+        transaction.set(tournamentRef.collection("staff").doc(invitedUser.uid), {
+          email: invitedUser.email || "",
+          displayName: invitedUser.displayName || "",
+          role: "dataEntry",
+          addedAt,
+          addedBy: user.uid,
+        });
+      }
     });
   } catch (error) {
     return NextResponse.json(
@@ -118,7 +162,15 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ uid: invitedUser.uid, email: invitedUser.email || email, role: "dataEntry" });
+  return NextResponse.json({
+    staff: invitedUsers.map((invitedUser) => ({
+      uid: invitedUser.uid,
+      email: invitedUser.email || "",
+      displayName: invitedUser.displayName || "",
+      role: "dataEntry",
+      addedAt,
+    })),
+  });
 }
 
 export async function DELETE(
@@ -139,13 +191,18 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
   const uid = isRecord(body) ? body.uid : undefined;
-  if (!validId(uid)) return NextResponse.json({ error: "Invalid staff account." }, { status: 400 });
+  if (!validUid(uid)) return NextResponse.json({ error: "Invalid staff account." }, { status: 400 });
 
   try {
     await authorization.firestore.runTransaction(async (transaction) => {
       const currentSnapshot = await transaction.get(authorization.tournamentRef);
       const current = currentSnapshot.data();
-      if (!currentSnapshot.exists || (current?.ownerId !== authorization.user.uid && current?.admins?.[authorization.user.uid] !== true)) {
+      if (
+        !currentSnapshot.exists ||
+        (!authorization.globalAdmin &&
+          current?.ownerId !== authorization.user.uid &&
+          current?.admins?.[authorization.user.uid] !== true)
+      ) {
         throw new Error("Tournament staff permissions changed. Reload and try again.");
       }
       const staffRef = authorization.tournamentRef.collection("staff").doc(uid);

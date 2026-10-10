@@ -56,6 +56,7 @@ export function buildDataEntrySyncPayload(input: {
 export async function uploadTournamentCommand(input: {
   tournament: Tournament;
   userId: string;
+  isGlobalAdmin?: boolean;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   repository: TournamentCloudRepository;
 }): Promise<number> {
@@ -63,26 +64,30 @@ export async function uploadTournamentCommand(input: {
   const cloudTournament = await repository.getTournament(tournament.id);
   if (
     cloudTournament &&
+    !input.isGlobalAdmin &&
     cloudTournament.data.ownerId !== userId &&
     (cloudTournament.data.admins as Record<string, boolean> | undefined)?.[userId] !== true
   ) {
     throw new Error("This cloud tournament belongs to another account.");
   }
 
+  const cloudAdmins = cloudTournament
+    ? (cloudTournament.data.admins as Record<string, boolean> | undefined) || {}
+    : tournament.admins;
+  const ownerId = cloudTournament && input.isGlobalAdmin
+    ? typeof cloudTournament.data.ownerId === "string"
+      ? cloudTournament.data.ownerId
+      : tournament.ownerId
+    : tournament.ownerId === "local" || tournament.ownerId === "director"
+      ? userId
+      : tournament.ownerId;
+  const admins = cloudTournament && input.isGlobalAdmin
+    ? cloudAdmins
+    : { ...cloudAdmins, [userId]: true };
   const metadata = {
     ...tournament,
-    ownerId:
-      tournament.ownerId === "local" || tournament.ownerId === "director"
-        ? userId
-        : tournament.ownerId,
-    admins: {
-      ...(
-        cloudTournament
-          ? (cloudTournament.data.admins as Record<string, boolean> | undefined) || {}
-          : tournament.admins
-      ),
-      [userId]: true,
-    },
+    ownerId,
+    admins,
     updatedAt: new Date().toISOString(),
   };
   const metadataConflict = await repository.saveTournament(tournament.id, metadata);
@@ -94,6 +99,7 @@ export async function downloadTournamentCommand(input: {
   tournamentId: string;
   slug: string;
   userId: string;
+  isGlobalAdmin?: boolean;
   localTournament: Tournament;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   repository: TournamentCloudRepository;
@@ -113,7 +119,7 @@ export async function downloadTournamentCommand(input: {
     ownerId: typeof snapshot.data.ownerId === "string" ? snapshot.data.ownerId : localTournament.ownerId,
     admins: { ...cloudAdmins, ...localTournament.admins },
   } as Tournament;
-  if (tournament.ownerId !== userId && tournament.admins?.[userId] !== true) {
+  if (!input.isGlobalAdmin && tournament.ownerId !== userId && tournament.admins?.[userId] !== true) {
     throw new Error("This cloud tournament belongs to another account.");
   }
   const cloudCollections = await repository.getCollections(tournamentId);

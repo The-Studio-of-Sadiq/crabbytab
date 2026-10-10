@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { AuditCategory, AuditEvent } from "@/types";
 
 export const runtime = "nodejs";
@@ -88,6 +89,7 @@ export async function POST(
     }
     const tournament = tournamentSnapshot.data();
     if (
+      !isGlobalAdminUid(user.uid) &&
       tournament?.ownerId !== user.uid &&
       tournament?.admins?.[user.uid] !== true
     ) {

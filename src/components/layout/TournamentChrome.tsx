@@ -23,7 +23,7 @@ export function TournamentChrome({
   const isDisplay = pathname?.includes("/display");
   const isAdminRoute = Boolean(pathname && (
     /\/(draw|allocation|config|staff|private-urls|email|break)(\/|$)/.test(pathname) ||
-    /\/imports\/(venues|motions)(\/|$)/.test(pathname) ||
+    /\/imports\/(venues|motions|assistants)(\/|$)/.test(pathname) ||
     /\/audit(\/|$)/.test(pathname)
   ));
 

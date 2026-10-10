@@ -41,7 +41,7 @@ interface StoredTournamentSummary {
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, isGlobalAdmin } = useAuth();
   const [tournaments, setTournaments] = useState<StoredTournamentSummary[]>([]);
   const [loadingTournaments, setLoadingTournaments] = useState(true);
   const [filterTab, setFilterTab] = useState<"all" | "mine">("all");
@@ -118,7 +118,7 @@ export default function HomePage() {
           createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
           ownerId: typeof data.ownerId === "string" ? data.ownerId : undefined,
           ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : undefined,
-          isOwner: Boolean(user && (data.ownerId === user.uid || data.admins?.[user.uid] === true)),
+          isOwner: isGlobalAdmin || Boolean(user && (data.ownerId === user.uid || data.admins?.[user.uid] === true)),
           isLocal: localSlugs.has(slug),
         } satisfies StoredTournamentSummary;
       });
@@ -211,6 +211,7 @@ export default function HomePage() {
   const filteredTournaments = tournaments.filter((t) => {
     if (filterTab === "mine") {
       if (!user) return false;
+      if (isGlobalAdmin) return true;
       return (
         t.ownerId === user.uid ||
         (user.email && t.ownerEmail === user.email) ||
@@ -221,12 +222,14 @@ export default function HomePage() {
   });
 
   const myTournamentsCount = user
-    ? tournaments.filter(
-        (t) =>
-          t.ownerId === user.uid ||
-          (user.email && t.ownerEmail === user.email) ||
-          t.isOwner === true
-      ).length
+    ? isGlobalAdmin
+      ? tournaments.length
+      : tournaments.filter(
+          (t) =>
+            t.ownerId === user.uid ||
+            (user.email && t.ownerEmail === user.email) ||
+            t.isOwner === true
+        ).length
     : 0;
 
   return (

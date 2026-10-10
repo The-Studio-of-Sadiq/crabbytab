@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Shield, Trash2, UserPlus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -13,11 +13,18 @@ interface StaffMember {
   addedAt: string;
 }
 
+interface FirebaseAccount {
+  uid: string;
+  email: string;
+  displayName: string;
+}
+
 export default function StaffPage() {
   const { tournament, isOwnerOrAdmin } = useTournament();
   const { user, loading: authLoading } = useAuth();
   const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [email, setEmail] = useState("");
+  const [accounts, setAccounts] = useState<FirebaseAccount[]>([]);
+  const [selectedUids, setSelectedUids] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -37,9 +44,16 @@ export default function StaffPage() {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
-        const result = await response.json() as { error?: string; staff?: StaffMember[] };
+        const result = await response.json() as {
+          error?: string;
+          staff?: StaffMember[];
+          accounts?: FirebaseAccount[];
+        };
         if (!response.ok) throw new Error(result.error || "Could not load staff.");
-        if (active) setStaff(result.staff || []);
+        if (active) {
+          setStaff(result.staff || []);
+          setAccounts(result.accounts || []);
+        }
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : "Could not load staff.");
       } finally {
@@ -52,9 +66,14 @@ export default function StaffPage() {
     };
   }, [user, tournament, isOwnerOrAdmin]);
 
+  const availableAccounts = useMemo(
+    () => accounts.filter((account) => !staff.some((member) => member.uid === account.uid)),
+    [accounts, staff]
+  );
+
   const addAssistant = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user || !tournament || !email.trim()) return;
+    if (!user || !tournament || selectedUids.length === 0) return;
     setBusy(true);
     setError("");
     setMessage("");
@@ -66,22 +85,16 @@ export default function StaffPage() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ uids: selectedUids }),
       });
-      const result = await response.json() as { error?: string; uid?: string; email?: string; role?: "dataEntry" };
+      const result = await response.json() as { error?: string; staff?: StaffMember[] };
       if (!response.ok) throw new Error(result.error || "Could not assign staff access.");
       setStaff((current) => [
-        ...current.filter((member) => member.uid !== result.uid),
-        {
-          uid: result.uid!,
-          email: result.email || email.trim(),
-          displayName: "",
-          role: result.role || "dataEntry",
-          addedAt: new Date().toISOString(),
-        },
+        ...current.filter((member) => !result.staff?.some((added) => added.uid === member.uid)),
+        ...(result.staff || []),
       ].sort((left, right) => left.email.localeCompare(right.email)));
-      setEmail("");
-      setMessage("Data-entry access added.");
+      setSelectedUids([]);
+      setMessage(`Assistant access assigned to ${result.staff?.length || 0} account(s).`);
     } catch (addError) {
       setError(addError instanceof Error ? addError.message : "Could not assign staff access.");
     } finally {
@@ -116,8 +129,8 @@ export default function StaffPage() {
   };
 
   if (authLoading || loading) return <p className="p-6 text-sm text-gray-600">Loading staff…</p>;
-  if (!isOwnerOrAdmin) {
-    return <p role="alert" className="p-6 text-sm text-red-700">Only tournament administrators can manage staff.</p>;
+  if (!user || !isOwnerOrAdmin) {
+    return <p role="alert" className="p-6 text-sm text-red-700">Sign in as a tournament administrator to manage assistants.</p>;
   }
 
   return (
@@ -125,31 +138,55 @@ export default function StaffPage() {
       <header className="border-b border-[#d0d7de] pb-4">
         <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900">
           <Shield className="h-5 w-5 text-blue-700" />
-          Staff access
+          Tournament assistants
         </h1>
-        <p className="mt-1 text-sm text-gray-600">Assign existing accounts as data-entry assistants for {tournament?.shortName || tournament?.name}.</p>
+        <p className="mt-1 text-sm text-gray-600">
+          Assign existing Firebase Authentication accounts as assistants for this tournament only.
+        </p>
       </header>
 
-      <form onSubmit={addAssistant} className="flex max-w-2xl flex-col gap-3 border-b border-gray-200 pb-6 sm:flex-row sm:items-end">
-        <div className="min-w-0 flex-1">
-          <label htmlFor="staff-email" className="mb-1 block text-xs font-semibold text-gray-700">Account email</label>
-          <input
-            id="staff-email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+      <form onSubmit={addAssistant} className="max-w-2xl space-y-3 border-b border-gray-200 pb-6">
+        <details className="rounded border border-gray-300 bg-white">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-gray-800">
+            Select Firebase accounts ({selectedUids.length} selected)
+          </summary>
+          <div className="max-h-64 overflow-y-auto border-t border-gray-200 p-2">
+            {availableAccounts.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-gray-500">
+                {accounts.length ? "All Firebase accounts are already assigned." : "No Firebase accounts are available."}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {availableAccounts.map((account) => (
+                  <li key={account.uid}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedUids.includes(account.uid)}
+                        onChange={(event) => setSelectedUids((current) => event.target.checked
+                          ? [...current, account.uid]
+                          : current.filter((uid) => uid !== account.uid))}
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-gray-900">
+                          {account.displayName || account.email || account.uid}
+                        </span>
+                        {account.displayName && <span className="block truncate text-xs text-gray-600">{account.email}</span>}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
         <button
           type="submit"
-          disabled={busy || !email.trim()}
+          disabled={busy || selectedUids.length === 0}
           className="inline-flex items-center justify-center gap-2 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
         >
           <UserPlus className="h-4 w-4" />
-          Add assistant
+          Assign selected assistants
         </button>
       </form>
 
@@ -157,9 +194,9 @@ export default function StaffPage() {
       {message && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>}
 
       <section aria-labelledby="assistant-list-heading">
-        <h2 id="assistant-list-heading" className="mb-3 text-sm font-bold text-gray-900">Data-entry assistants ({staff.length})</h2>
+        <h2 id="assistant-list-heading" className="mb-3 text-sm font-bold text-gray-900">Assigned to this tournament ({staff.length})</h2>
         {staff.length === 0 ? (
-          <p className="text-sm text-gray-500">No assistants assigned.</p>
+          <p className="text-sm text-gray-500">No assistants assigned to this tournament.</p>
         ) : (
           <ul className="divide-y divide-gray-200 border-y border-gray-200">
             {staff.map((member) => (

@@ -169,7 +169,7 @@ export function TournamentProvider({
   tournamentSlug: string;
   children: React.ReactNode;
 }) {
-  const { user } = useAuth();
+  const { user, isGlobalAdmin } = useAuth();
   const pathname = usePathname();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
@@ -761,14 +761,15 @@ export function TournamentProvider({
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
     if (!tournament) return false;
-    if (tournament.ownerId === "local" || tournament.ownerId === "director") return true;
+    if (isGlobalAdmin) return true;
+    if (user && (tournament.ownerId === user.uid || tournament.admins?.[user.uid] === true)) return true;
+    if (
+      (tournament.ownerId === "local" || tournament.ownerId === "director") &&
+      cloudStaffRole !== "dataEntry"
+    ) return true;
     if (user && db) return cloudStaffRole === "admin";
-    if (!user) return tournament.ownerId === "local" || tournament.ownerId === "director";
-    return (
-      tournament.ownerId === user.uid ||
-      Boolean(tournament.admins && tournament.admins[user.uid])
-    );
-  }, [tournament, user, cloudStaffRole]);
+    return false;
+  }, [tournament, user, isGlobalAdmin, cloudStaffRole]);
   useEffect(() => {
     let active = true;
     setCloudStaffRole(null);
@@ -826,7 +827,7 @@ export function TournamentProvider({
     void checkStaffRole();
     return () => { active = false; };
   }, [pathname, persistLocal, storagePrefix, tournament?.id, user]);
-  const isDataEntryAssistant = cloudStaffRole === "dataEntry";
+  const isDataEntryAssistant = !isGlobalAdmin && cloudStaffRole === "dataEntry";
   const staffAccessLoading = Boolean(user && db && cloudStaffRole === null);
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
@@ -1495,6 +1496,7 @@ export function TournamentProvider({
       const archivedConflictCount = await uploadTournamentCommand({
         tournament,
         userId: user.uid,
+        isGlobalAdmin,
         localCollections: getLocalCollections(),
         repository: createFirestoreTournamentRepository(),
       });
@@ -1527,6 +1529,7 @@ export function TournamentProvider({
         tournamentId: tournament.id,
         slug: tournament.slug,
         userId: user.uid,
+        isGlobalAdmin,
         localTournament: tournament,
         localCollections: getLocalCollections(),
         repository: createFirestoreTournamentRepository(),

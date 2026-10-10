@@ -89,6 +89,37 @@ describe("tournament cloud synchronization", () => {
     expect(savedMetadata?.updatedAt).toEqual(expect.any(String));
   });
 
+  it("lets global admins sync another owner's tournament without changing its owner access", async () => {
+    let savedMetadata: Tournament | undefined;
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return {
+          id: tournament.id,
+          data: { ...tournament, ownerId: "owner-1", admins: { "admin-1": true } },
+        };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament(_id, metadata) { savedMetadata = metadata; return false; },
+      async getCollections() { return emptyCollections(); },
+      async syncCollections() { return 0; },
+      async getSyncConflicts() { return []; },
+    };
+
+    await uploadTournamentCommand({
+      tournament,
+      userId: "global-admin",
+      isGlobalAdmin: true,
+      localCollections: emptyCollections(),
+      repository,
+    });
+
+    expect(savedMetadata).toMatchObject({
+      ownerId: "owner-1",
+      admins: { "admin-1": true },
+    });
+    expect(savedMetadata?.admins).not.toHaveProperty("global-admin");
+  });
+
   it("rejects another account's cloud tournament before downloading collections", async () => {
     const calls: string[] = [];
     const repository: TournamentCloudRepository = {

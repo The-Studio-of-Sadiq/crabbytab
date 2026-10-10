@@ -2,6 +2,7 @@ import { Auth, DecodedIdToken } from "firebase-admin/auth";
 import { DocumentSnapshot } from "firebase-admin/firestore";
 import { NextRequest } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { isGlobalAdminUid } from "@/lib/globalAdmin";
 
 export class EmailAuthorizationError extends Error {
   constructor(
@@ -58,6 +59,7 @@ export async function authorizeTournamentEmailRequest(
 
   const tournament = tournamentSnapshot.data();
   const isOwnerOrAdmin =
+    isGlobalAdminUid(user.uid) ||
     tournament?.ownerId === user.uid ||
     Boolean(tournament?.admins?.[user.uid]);
 
