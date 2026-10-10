@@ -112,7 +112,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
 
   const handleStaffSync = async () => {
     if (!window.confirm(
-      "Sync participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
+      "Upload participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
     )) {
       return;
     }
@@ -255,11 +255,11 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                 type="button"
                 onClick={handleStaffSync}
                 disabled={!isOnline || cloudSyncState === "syncing"}
-                title="Sync approved participant, ballot, feedback, and result records"
+                title="Upload approved participant, ballot, feedback, and result records"
                 className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50"
               >
-                <Cloud className="w-3 h-3" />
-                <span>{cloudSyncState === "syncing" ? "Syncing…" : "Sync"}</span>
+                <Upload className="w-3 h-3" />
+                <span>{cloudSyncState === "syncing" ? "Uploading…" : "Upload"}</span>
               </button>
             ) : !user ? (
               <Link

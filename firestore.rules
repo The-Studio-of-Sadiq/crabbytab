@@ -17,7 +17,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "dataEntry";
       }
 
-      allow read: if request.auth == null || isTournamentAdmin() || isAssignedAssistant();
+      allow read: if isTournamentAdmin() || isAssignedAssistant();
       allow create: if isGlobalAdmin();
       allow update, delete: if isTournamentAdmin();
 

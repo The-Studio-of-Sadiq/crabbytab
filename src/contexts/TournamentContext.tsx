@@ -233,15 +233,32 @@ export function TournamentProvider({
       setCloudLoadError("");
       auditEventsRef.current = [];
       setAuditEvents([]);
+      if (authLoading) return () => { isMounted = false; };
+      const isSharedView =
+        pathname?.includes("/public") ||
+        pathname?.includes("/private/") ||
+        pathname?.includes("/display");
+      if (!user && !isSharedView) {
+        setTournament(null);
+        setRounds([]);
+        setActiveRound(null);
+        setTeams([]);
+        setAdjudicators([]);
+        setVenues([]);
+        setMotions([]);
+        setBreakCategories([]);
+        setDebates([]);
+        setBallots([]);
+        setFeedback([]);
+        setInstitutions([]);
+        setLoading(false);
+        return () => { isMounted = false; };
+      }
       try {
         if (typeof window === "undefined" || !isMounted) return;
         const readLocal = <T,>(key: string, fallback: T): T =>
           safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
-        const isSharedView =
-          pathname?.includes("/public") ||
-          pathname?.includes("/private/") ||
-          (!localTournament && !user);
         const loadPublicProjection = async () => {
           const response = await fetch(`/api/public/tournaments/${encodeURIComponent(tournamentSlug)}`);
           const result = await response.json() as {
@@ -321,7 +338,7 @@ export function TournamentProvider({
           return { tournament: result.tournament, collections: mergedCollections };
         };
 
-        if (db && (user || !localTournament || isSharedView)) {
+        if (db) {
           try {
             if (isSharedView) {
               await loadPublicProjection();
@@ -437,14 +454,6 @@ export function TournamentProvider({
               setInstitutions([]);
               setLoading(false);
               return;
-            }
-            if (!isSharedView && !user) {
-              try {
-                await loadPublicProjection();
-                return;
-              } catch (projectionError) {
-                console.error("Could not load the public tournament projection:", projectionError);
-              }
             }
             const message =
               error instanceof Error ? error.message : "Could not load tournament data from the cloud.";
@@ -572,7 +581,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user]);
+  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user, authLoading]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
@@ -840,7 +849,7 @@ export function TournamentProvider({
     return () => { active = false; };
   }, [isGlobalAdmin, pathname, persistLocal, storagePrefix, tournament?.id, user]);
   const isDataEntryAssistant = !isGlobalAdmin && cloudStaffRole === "dataEntry";
-  const staffAccessLoading = Boolean(user && db && cloudStaffRole === null);
+  const staffAccessLoading = Boolean(user && db && tournament && cloudStaffRole === null);
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
     const timestamp = new Date().toISOString();

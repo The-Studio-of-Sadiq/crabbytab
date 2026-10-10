@@ -33,6 +33,7 @@ export default function ImportDirectory({
 
   const {
     tournament,
+    isOwnerOrAdmin,
     teams,
     adjudicators,
     institutions,
@@ -503,15 +504,17 @@ export default function ImportDirectory({
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete team "${team.name}"?`)) deleteTeam(team.id);
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Team"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isOwnerOrAdmin && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete team "${team.name}"?`)) deleteTeam(team.id);
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded transition"
+                          title="Delete Team"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -599,15 +602,17 @@ export default function ImportDirectory({
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete judge "${adj.name}"?`)) deleteAdjudicator(adj.id);
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Judge"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isOwnerOrAdmin && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete judge "${adj.name}"?`)) deleteAdjudicator(adj.id);
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded transition"
+                          title="Delete Judge"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -668,17 +673,19 @@ export default function ImportDirectory({
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete institution "${inst.name}"? This will unlink associated teams and judges.`)) {
-                            deleteInstitution(inst.id);
-                          }
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Institution"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isOwnerOrAdmin && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete institution "${inst.name}"? This will unlink associated teams and judges.`)) {
+                              deleteInstitution(inst.id);
+                            }
+                          }}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded transition"
+                          title="Delete Institution"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
