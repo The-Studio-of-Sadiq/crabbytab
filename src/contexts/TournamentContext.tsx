@@ -24,17 +24,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
+import {
+  buildDataEntrySyncPayload,
+  downloadTournamentCommand,
+  uploadTournamentCommand,
+  type CloudRecord,
+} from "@/features/tournament/application/cloudSync";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
-import {
-  downloadTournamentCommand,
-  uploadTournamentCommand,
-  type CloudRecord,
-} from "@/features/tournament/application/cloudSync";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { addFeedbackCommand } from "@/features/tournament/application/feedback";
 import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand } from "@/features/tournament/application/allocation";
@@ -49,12 +50,18 @@ import {
 } from "@/features/tournament/application/roundAdministration";
 import { regeneratePrivateAccessCommand } from "@/features/tournament/application/privateAccess";
 import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
+import {
+  createTournamentBackup,
+  mergeTournamentBackup,
+  parseTournamentBackup,
+} from "@/features/tournament/application/tournamentBackup";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
 import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
+import { sanitizeAssistantAdjudicator, sanitizeAssistantTeam } from "@/lib/tournamentAccess";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -78,6 +85,8 @@ export interface TournamentContextType {
   replyStandings: SpeakerStandingRow[];
   breakResults: BreakCategoryResult[];
   isOwnerOrAdmin: boolean;
+    isDataEntryAssistant: boolean;
+  staffAccessLoading: boolean;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
   cloudSyncMessage: string;
   privateSyncState: "idle" | "syncing" | "error";
@@ -85,7 +94,10 @@ export interface TournamentContextType {
   localSaveError: string;
   uploadToCloud: () => Promise<void>;
   downloadFromCloud: () => Promise<void>;
+  syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
+  exportTournamentBackup: () => void;
+  importTournamentBackup: (file: File) => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
@@ -179,6 +191,7 @@ export function TournamentProvider({
   const [privateSyncState, setPrivateSyncState] = useState<"idle" | "syncing" | "error">("idle");
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
+  const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
   const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
@@ -264,6 +277,48 @@ export function TournamentProvider({
           setLoading(false);
         };
 
+        const loadAssistantProjection = async (tournamentId: string) => {
+          if (!user) throw new Error("Sign in to load assistant tournament data.");
+          const token = await user.getIdToken();
+          const response = await fetch(
+            `/api/tournaments/${encodeURIComponent(tournamentId)}/assistant-data`,
+            { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
+          );
+          const result = await response.json() as {
+            error?: string;
+            tournament: Tournament;
+            collections: Record<string, CloudRecord[]>;
+          };
+          if (!response.ok) throw new Error(result.error || "Could not load assistant tournament data.");
+
+          const localKeys: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
+            rounds: "rounds",
+            teams: "teams",
+            adjudicators: "adjudicators",
+            venues: "venues",
+            motions: "motions",
+            breakCategories: "breaks",
+            debates: "debates",
+            ballots: "ballots",
+            feedback: "feedback",
+            institutions: "institutions",
+            auditEvents: "auditEvents",
+          };
+          const mergedCollections = Object.fromEntries(CLOUD_COLLECTIONS.map((name) => {
+            const recordsById = new Map((result.collections[name] || []).map((record) => [record.id, record]));
+            for (const record of readLocal<CloudRecord[]>(localKeys[name], [])) recordsById.set(record.id, record);
+            return [name, [...recordsById.values()]];
+          })) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
+          mergedCollections.teams = mergedCollections.teams.map((record) => {
+            return sanitizeAssistantTeam(record as unknown as Team) as unknown as CloudRecord;
+          });
+          mergedCollections.adjudicators = mergedCollections.adjudicators.map((record) => {
+            return sanitizeAssistantAdjudicator(record as unknown as Adjudicator) as unknown as CloudRecord;
+          });
+          mergedCollections.auditEvents = [];
+          return { tournament: result.tournament, collections: mergedCollections };
+        };
+
         if ((!localTournament || isSharedView) && db) {
           try {
             if (isSharedView) {
@@ -278,13 +333,31 @@ export function TournamentProvider({
 
             if (cloudTournamentDoc) {
               const data = cloudTournamentDoc.data;
-              localTournament = {
-                ...data,
-                id: cloudTournamentDoc.id,
-                slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
-              } as Tournament;
-
-              const cloudCollections = await repository.getCollections(cloudTournamentDoc.id);
+              let isAssistant = false;
+              if (user) {
+                const token = await user.getIdToken();
+                const accessResponse = await fetch(
+                  `/api/tournaments/${encodeURIComponent(cloudTournamentDoc.id)}/access`,
+                  { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
+                );
+                if (accessResponse.ok) {
+                  const access = await accessResponse.json() as { role?: string | null };
+                  isAssistant = access.role === "dataEntry";
+                }
+              }
+              let cloudCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
+              if (isAssistant) {
+                const projection = await loadAssistantProjection(cloudTournamentDoc.id);
+                localTournament = projection.tournament;
+                cloudCollections = projection.collections;
+              } else {
+                localTournament = {
+                  ...data,
+                  id: cloudTournamentDoc.id,
+                  slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
+                } as Tournament;
+                cloudCollections = await repository.getCollections(cloudTournamentDoc.id);
+              }
               if (!isMounted) return;
 
               const localCollectionNames: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
@@ -686,14 +759,53 @@ export function TournamentProvider({
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
     if (!tournament) return false;
+    if (tournament.ownerId === "local" || tournament.ownerId === "director") return true;
+    if (user && db) return cloudStaffRole === "admin";
     if (!user) return tournament.ownerId === "local" || tournament.ownerId === "director";
     return (
       tournament.ownerId === user.uid ||
-      tournament.ownerId === "local" ||
-      tournament.ownerId === "director" ||
       Boolean(tournament.admins && tournament.admins[user.uid])
     );
-  }, [tournament, user]);
+  }, [tournament, user, cloudStaffRole]);
+  useEffect(() => {
+    let active = true;
+    setCloudStaffRole(null);
+    if (!user || !tournament || !db) return () => { active = false; };
+    const currentUser = user;
+    const currentTournament = tournament;
+
+    async function checkStaffRole() {
+      try {
+        const token = await currentUser.getIdToken();
+        const response = await fetch(
+          `/api/tournaments/${encodeURIComponent(currentTournament.id)}/access`,
+          { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
+        );
+        if (!response.ok) throw new Error("Could not verify tournament staff access.");
+        const result = await response.json() as { role?: "admin" | "dataEntry" | null };
+        if (active && result.role === "dataEntry" && typeof window !== "undefined") {
+          const safeTeams = safeJsonParse<Team[]>(localStorage.getItem(`${storagePrefix}_teams`), [])
+            .map(sanitizeAssistantTeam);
+          const safeAdjudicators = safeJsonParse<Adjudicator[]>(localStorage.getItem(`${storagePrefix}_adjudicators`), [])
+            .map(sanitizeAssistantAdjudicator);
+          setTeams(safeTeams);
+          persistLocal("teams", safeTeams);
+          setAdjudicators(safeAdjudicators);
+          persistLocal("adjudicators", safeAdjudicators);
+          const safeTournament = { ...currentTournament, ownerId: "", admins: {} };
+          setTournament(safeTournament);
+          persistLocal("meta", safeTournament);
+        }
+        if (active) setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
+      } catch {
+        if (active) setCloudStaffRole("none");
+      }
+    }
+    void checkStaffRole();
+    return () => { active = false; };
+  }, [pathname, persistLocal, storagePrefix, tournament?.id, user]);
+  const isDataEntryAssistant = cloudStaffRole === "dataEntry";
+  const staffAccessLoading = Boolean(user && db && cloudStaffRole === null);
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
     const timestamp = new Date().toISOString();
@@ -733,14 +845,16 @@ export function TournamentProvider({
       },
       teams: {
         save: (items) => {
-          setTeams(items);
-          persistLocal("teams", items);
+          const savedItems = isDataEntryAssistant ? items.map(sanitizeAssistantTeam) : items;
+          setTeams(savedItems);
+          persistLocal("teams", savedItems);
         },
       },
       adjudicators: {
         save: (items) => {
-          setAdjudicators(items);
-          persistLocal("adjudicators", items);
+          const savedItems = isDataEntryAssistant ? items.map(sanitizeAssistantAdjudicator) : items;
+          setAdjudicators(savedItems);
+          persistLocal("adjudicators", savedItems);
         },
       },
       venues: {
@@ -1287,6 +1401,46 @@ export function TournamentProvider({
     auditEvents: auditEventsRef.current,
   });
 
+  const syncDataEntry = async () => {
+    if (!db || !user || !tournament || !isDataEntryAssistant) {
+      throw new Error("Only assigned data-entry assistants can sync these records.");
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("You are offline. Your changes remain saved on this device.");
+    }
+
+    setCloudSyncState("syncing");
+    setCloudSyncMessage("Syncing participant, ballot, feedback, and result records…");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/tournaments/${encodeURIComponent(tournament.id)}/data-entry-sync`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(buildDataEntrySyncPayload({ localCollections: getLocalCollections() })),
+        }
+      );
+      const result = await response.json() as { error?: string; archivedConflictCount?: number };
+      if (!response.ok) throw new Error(result.error || "Data-entry sync failed.");
+      const archivedConflictCount = result.archivedConflictCount || 0;
+      setCloudSyncState("success");
+      setCloudSyncMessage(
+        archivedConflictCount > 0
+          ? `Synced records. Preserved ${archivedConflictCount} prior cloud version(s).`
+          : "Synced approved records. Tournament settings and draw data were not changed."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Data-entry sync failed.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw error;
+    }
+  };
+
   const uploadToCloud = async () => {
     if (!db) {
       const message = "Cloud sync is unavailable because Firebase is not configured.";
@@ -1430,6 +1584,55 @@ export function TournamentProvider({
     }
   };
 
+  const exportTournamentBackup = () => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can export a full backup.");
+    }
+    const backup = createTournamentBackup({ tournament, collections: getLocalCollections() });
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${tournament.slug}-backup.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importTournamentBackup = async (file: File) => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can restore a full backup.");
+    }
+    const parsed = parseTournamentBackup(JSON.parse(await file.text()) as unknown, tournament.id);
+    const collections = mergeTournamentBackup({ current: getLocalCollections(), backup: parsed.collections });
+    const restoredTournament = { ...parsed.tournament, ...tournament, id: tournament.id, slug: tournament.slug };
+    const roundsValue = collections.rounds as unknown as Round[];
+    setTournament(restoredTournament);
+    persistLocal("meta", restoredTournament);
+    setRounds(roundsValue);
+    persistLocal("rounds", roundsValue);
+    setActiveRound(roundsValue.find((round) => !round.cancelled) || null);
+    const apply = <T,>(name: (typeof CLOUD_COLLECTIONS)[number], localKey: string, setter: (items: T[]) => void) => {
+      const items = collections[name] as unknown as T[];
+      setter(items);
+      persistLocal(localKey, items);
+    };
+    apply<Team>("teams", "teams", setTeams);
+    apply<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
+    apply<Venue>("venues", "venues", setVenues);
+    apply<Motion>("motions", "motions", setMotions);
+    apply<BreakCategory>("breakCategories", "breaks", setBreakCategories);
+    apply<Debate>("debates", "debates", setDebates);
+    apply<BallotSubmission>("ballots", "ballots", setBallots);
+    apply<FeedbackSubmission>("feedback", "feedback", setFeedback);
+    apply<Institution>("institutions", "institutions", setInstitutions);
+    apply<AuditEvent>("auditEvents", "auditEvents", (events) => {
+      auditEventsRef.current = events;
+      setAuditEvents(events);
+    });
+    setCloudSyncState("success");
+    setCloudSyncMessage("Backup merged. Existing local records were preserved where IDs matched.");
+  };
+
   return (
     <TournamentContext.Provider
       value={{
@@ -1454,6 +1657,8 @@ export function TournamentProvider({
         replyStandings,
         breakResults,
         isOwnerOrAdmin,
+          isDataEntryAssistant,
+        staffAccessLoading,
         cloudSyncState,
         cloudSyncMessage,
         privateSyncState,
@@ -1461,7 +1666,10 @@ export function TournamentProvider({
         localSaveError,
         uploadToCloud,
         downloadFromCloud,
+        syncDataEntry,
         exportSyncRecovery,
+        exportTournamentBackup,
+        importTournamentBackup,
         syncPrivatePortal,
         loadPrivateTeamPortal,
         saveTournament,

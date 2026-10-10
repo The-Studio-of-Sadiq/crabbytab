@@ -1,5 +1,6 @@
 import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, FeedbackSubmission, TournamentPreferences } from "@/types";
 import { solveHungarian } from "./hungarian";
+import { isAvailableForRound } from "@/lib/roundAvailability";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
 
@@ -612,7 +613,10 @@ export function autoAllocateAdjudicators(
   }
 
   const skipCheckins = options.preferences?.skipAdjCheckins ?? false;
-  const availableAdjs = skipCheckins ? adjudicators : adjudicators.filter((a) => a.checkedIn !== false);
+  const roundId = debates[0]?.roundId;
+  const availableAdjs = skipCheckins
+    ? adjudicators
+    : adjudicators.filter((adjudicator) => isAvailableForRound(adjudicator, roundId));
   const numDebates = debates.length;
 
   if (numDebates === 0 || availableAdjs.length === 0) {

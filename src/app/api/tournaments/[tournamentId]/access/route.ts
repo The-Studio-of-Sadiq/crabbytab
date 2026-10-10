@@ -1,0 +1,50 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+
+export const runtime = "nodejs";
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ tournamentId: string }> }
+) {
+  const { tournamentId } = await params;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(tournamentId)) {
+    return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
+  }
+  const token = request.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/)?.[1];
+  if (!token) return NextResponse.json({ error: "Sign in to check tournament access." }, { status: 401 });
+
+  let auth;
+  let firestore;
+  try {
+    auth = getAdminAuth();
+    firestore = getAdminFirestore();
+  } catch {
+    return NextResponse.json({ error: "Server-side Firebase authorization is not configured." }, { status: 503 });
+  }
+
+  let user;
+  try {
+    user = await auth.verifyIdToken(token);
+  } catch {
+    return NextResponse.json({ error: "Your sign-in has expired. Please sign in again." }, { status: 401 });
+  }
+
+  try {
+    const tournamentSnapshot = await firestore.collection("tournaments").doc(tournamentId).get();
+    if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
+    const tournament = tournamentSnapshot.data();
+    const isOwnerOrAdmin =
+      tournament?.ownerId === user.uid || tournament?.admins?.[user.uid] === true;
+    const staffSnapshot = isOwnerOrAdmin
+      ? null
+      : await tournamentSnapshot.ref.collection("staff").doc(user.uid).get();
+    const isDataEntryAssistant = staffSnapshot?.data()?.role === "dataEntry";
+    return NextResponse.json(
+      { role: isOwnerOrAdmin ? "admin" : isDataEntryAssistant ? "dataEntry" : null },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    return NextResponse.json({ error: "Could not check tournament access." }, { status: 503 });
+  }
+}

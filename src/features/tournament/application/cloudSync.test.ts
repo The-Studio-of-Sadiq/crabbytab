@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Tournament } from "@/types";
 import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "../collections";
 import {
+  buildDataEntrySyncPayload,
   downloadTournamentCommand,
   uploadTournamentCommand,
   type CloudCollectionName,
@@ -150,5 +151,32 @@ describe("tournament cloud synchronization", () => {
       { id: "cloud-only", name: "Cloud only" },
       { id: "local-only", name: "Local only" },
     ]);
+  });
+
+  it("limits data-entry sync to approved collections and debate results", async () => {
+    const localCollections = emptyCollections();
+    localCollections.debates = [{ id: "debate-1" }];
+    localCollections.teams = [{
+      id: "team-1",
+      tournamentId: tournament.id,
+      name: "Team",
+      speakers: [{ id: "speaker-1", name: "Speaker", email: "private@example.com" }],
+      breakCategories: [],
+      speakerCategories: [],
+      privateUrlKey: "private-key",
+      privatePasscode: "private-code",
+    } as unknown as CloudRecord];
+    const payload = buildDataEntrySyncPayload({
+      localCollections,
+    });
+
+    expect(Object.keys(payload.collections)).toEqual(["teams", "adjudicators", "institutions", "ballots", "feedback"]);
+    expect(payload).toMatchObject({ debates: [{ id: "debate-1" }] });
+    expect(payload).not.toHaveProperty("rounds");
+    expect(payload).not.toHaveProperty("venues");
+    expect(payload).not.toHaveProperty("motions");
+    expect(payload.collections.teams[0]).not.toHaveProperty("privateUrlKey");
+    expect(payload.collections.teams[0]).not.toHaveProperty("privatePasscode");
+    expect((payload.collections.teams[0].speakers as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email");
   });
 });

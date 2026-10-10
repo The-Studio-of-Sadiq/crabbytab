@@ -1,7 +1,16 @@
-import type { Tournament } from "@/types";
+import type { Adjudicator, Team, Tournament } from "@/types";
 import { CLOUD_COLLECTIONS, type CloudCollectionName, type CloudRecord } from "@/features/tournament/collections";
+import { sanitizeAssistantAdjudicator, sanitizeAssistantTeam } from "@/lib/tournamentAccess";
 
 export type { CloudCollectionName, CloudRecord } from "@/features/tournament/collections";
+
+export const DATA_ENTRY_COLLECTIONS = [
+  "teams",
+  "adjudicators",
+  "institutions",
+  "ballots",
+  "feedback",
+] as const satisfies readonly CloudCollectionName[];
 
 export interface TournamentCloudRepository {
   getTournament(id: string): Promise<{ id: string; data: Record<string, unknown> } | null>;
@@ -21,6 +30,27 @@ export interface SyncConflict {
   recordId: string;
   record: CloudRecord;
   archivedAt: string;
+}
+
+export function buildDataEntrySyncPayload(input: {
+  localCollections: Record<CloudCollectionName, CloudRecord[]>;
+}): {
+  collections: Record<(typeof DATA_ENTRY_COLLECTIONS)[number], CloudRecord[]>;
+  debates: CloudRecord[];
+} {
+  const collections = Object.fromEntries(
+    DATA_ENTRY_COLLECTIONS.map((name) => [name, input.localCollections[name]])
+  ) as Record<(typeof DATA_ENTRY_COLLECTIONS)[number], CloudRecord[]>;
+  collections.teams = input.localCollections.teams.map(
+    (record) => sanitizeAssistantTeam(record as unknown as Team) as unknown as CloudRecord
+  );
+  collections.adjudicators = input.localCollections.adjudicators.map(
+    (record) => sanitizeAssistantAdjudicator(record as unknown as Adjudicator) as unknown as CloudRecord
+  );
+  return {
+    collections,
+    debates: input.localCollections.debates,
+  };
 }
 
 export async function uploadTournamentCommand(input: {

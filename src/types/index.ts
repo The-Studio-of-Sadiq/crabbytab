@@ -237,6 +237,7 @@ export interface Team {
   seed?: number;
   emoji?: string;
   checkedIn?: boolean;
+  roundAvailability?: Record<string, boolean>;
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
 }
@@ -260,6 +261,7 @@ export interface Adjudicator {
   trainee: boolean;
   independent: boolean;
   checkedIn?: boolean;
+  roundAvailability?: Record<string, boolean>;
   conflicts: AdjudicatorConflict[];
   gender?: string;
   privateUrlKey?: string; // Secret key for adjudicator's private URL

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -32,9 +32,13 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     cloudSyncMessage,
     localSaveError,
     isOwnerOrAdmin,
+    isDataEntryAssistant,
     uploadToCloud,
     downloadFromCloud,
     exportSyncRecovery,
+    exportTournamentBackup,
+    importTournamentBackup,
+    syncDataEntry,
   } = useTournament();
   const { user, logout } = useAuth();
   const [isOnline, setIsOnline] = useState(true);
@@ -44,6 +48,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   const [newRoundAbbr, setNewRoundAbbr] = useState("");
   const [newRoundStage, setNewRoundStage] = useState<"preliminary" | "elimination">("preliminary");
   const [isCreatingRound, setIsCreatingRound] = useState(false);
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -93,6 +98,31 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     }
   };
 
+  const handleImportBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setShowUserMenu(false);
+    if (!file) return;
+    try {
+      await importTournamentBackup(file);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not restore tournament backup.");
+    }
+  };
+
+  const handleStaffSync = async () => {
+    if (!window.confirm(
+      "Sync participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
+    )) {
+      return;
+    }
+    try {
+      await syncDataEntry();
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
+
   const handleCreateRound = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoundName.trim()) return;
@@ -114,6 +144,13 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   return (
     <header className="bg-[#24292e] text-white border-b border-[#1b1f23] sticky top-0 z-50 select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <input
+          ref={backupInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={handleImportBackup}
+        />
         <div className="flex items-center justify-between h-14 max-md:h-auto max-md:min-h-14 max-md:flex-wrap max-md:gap-y-2 max-md:py-2">
           {/* Brand & Tournament Name */}
           <div className="flex min-w-0 items-center space-x-2 sm:space-x-4">
@@ -168,13 +205,15 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
               );
             })}
 
-            <button
-              onClick={() => setShowRoundModal(true)}
-              className="p-1 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded text-xs ml-1"
-              title="Add New Round"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+            {isOwnerOrAdmin && (
+              <button
+                onClick={() => setShowRoundModal(true)}
+                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded text-xs ml-1"
+                title="Add New Round"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Right Actions */}
@@ -188,7 +227,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
               {isOnline ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
               <span>{isOnline ? "Local copy" : "Offline"}</span>
             </span>
-            {user ? (
+            {user && isOwnerOrAdmin ? (
               <>
                 <button
                   type="button"
@@ -211,7 +250,18 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                   <span className="max-sm:hidden">{cloudSyncState === "syncing" ? "Syncing…" : "Upload"}</span>
                 </button>
               </>
-            ) : (
+            ) : user && isDataEntryAssistant ? (
+              <button
+                type="button"
+                onClick={handleStaffSync}
+                disabled={!isOnline || cloudSyncState === "syncing"}
+                title="Sync approved participant, ballot, feedback, and result records"
+                className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50"
+              >
+                <Cloud className="w-3 h-3" />
+                <span>{cloudSyncState === "syncing" ? "Syncing…" : "Sync"}</span>
+              </button>
+            ) : !user ? (
               <Link
                 href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}
                 title="Sign in only when you want to upload your local copy"
@@ -219,7 +269,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
               >
                 Sign in to upload
               </Link>
-            )}
+            ) : null}
             {cloudSyncMessage && (
               <span
                 role="status"
@@ -280,15 +330,40 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                     <span>Tournament Settings</span>
                   </Link>
                   {isOwnerOrAdmin && (
-                    <button
-                      type="button"
-                      onClick={handleExportRecovery}
-                      disabled={!isOnline || cloudSyncState === "syncing"}
-                      className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Export Sync Recovery</span>
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          try {
+                            exportTournamentBackup();
+                          } catch (error) {
+                            window.alert(error instanceof Error ? error.message : "Could not export backup.");
+                          }
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export Tournament Backup</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => backupInputRef.current?.click()}
+                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <CloudDownload className="w-3.5 h-3.5" />
+                        <span>Merge Tournament Backup</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExportRecovery}
+                        disabled={!isOnline || cloudSyncState === "syncing"}
+                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export Sync Recovery</span>
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={async () => {

@@ -17,6 +17,9 @@ import {
 export default function CheckinsPage() {
   const {
     tournament,
+    rounds,
+    activeRound,
+    setActiveRound,
     teams,
     adjudicators,
     venues,
@@ -30,24 +33,43 @@ export default function CheckinsPage() {
 
   const checkedInTeams = teams.filter((t) => t.checkedIn !== false).length;
   const checkedInAdjs = adjudicators.filter((a) => a.checkedIn !== false).length;
-  const checkedInVenues = venues.filter((v) => v.available !== false).length;
+  const roundTeamsPresent = activeRound
+    ? teams.filter((team) => team.roundAvailability?.[activeRound.id] ?? team.checkedIn !== false).length
+    : checkedInTeams;
+  const roundAdjudicatorsPresent = activeRound
+    ? adjudicators.filter((adj) => adj.roundAvailability?.[activeRound.id] ?? adj.checkedIn !== false).length
+    : checkedInAdjs;
 
-  const toggleTeamCheckin = async (team: any) => {
-    await updateTeam({ ...team, checkedIn: team.checkedIn === false });
+  const toggleTeamCheckin = async (team: (typeof teams)[number]) => {
+    if (!activeRound) return;
+    const available = team.roundAvailability?.[activeRound.id] ?? team.checkedIn !== false;
+    await updateTeam({
+      ...team,
+      roundAvailability: { ...team.roundAvailability, [activeRound.id]: !available },
+    });
   };
 
-  const toggleAdjCheckin = async (adj: any) => {
-    await updateAdjudicator({ ...adj, checkedIn: adj.checkedIn === false });
+  const toggleAdjCheckin = async (adj: (typeof adjudicators)[number]) => {
+    if (!activeRound) return;
+    const available = adj.roundAvailability?.[activeRound.id] ?? adj.checkedIn !== false;
+    await updateAdjudicator({
+      ...adj,
+      roundAvailability: { ...adj.roundAvailability, [activeRound.id]: !available },
+    });
   };
 
   const checkInAll = async () => {
     if (activeTab === "teams") {
       for (const t of teams) {
-        if (t.checkedIn === false) await updateTeam({ ...t, checkedIn: true });
+        if (activeRound && (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) === false) {
+          await updateTeam({ ...t, roundAvailability: { ...t.roundAvailability, [activeRound.id]: true } });
+        }
       }
     } else if (activeTab === "adjs") {
       for (const a of adjudicators) {
-        if (a.checkedIn === false) await updateAdjudicator({ ...a, checkedIn: true });
+        if (activeRound && (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) === false) {
+          await updateAdjudicator({ ...a, roundAvailability: { ...a.roundAvailability, [activeRound.id]: true } });
+        }
       }
     }
   };
@@ -62,7 +84,7 @@ export default function CheckinsPage() {
             <span>Availability</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Mark teams, adjudicators, and venues available for the current round before generating the draw.
+            Set team and adjudicator availability for each round. Rounds without an override inherit global check-in.
           </p>
         </div>
 
@@ -71,8 +93,20 @@ export default function CheckinsPage() {
           className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs shadow-xs transition"
         >
           <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>Check In All {activeTab.toUpperCase()}</span>
+          <span>Mark All Present</span>
         </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="availability-round" className="text-xs font-semibold text-gray-700">Round</label>
+        <select
+          id="availability-round"
+          value={activeRound?.id || ""}
+          onChange={(event) => setActiveRound(rounds.find((round) => round.id === event.target.value) || null)}
+          className="min-w-48 rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+        >
+          {rounds.map((round) => <option key={round.id} value={round.id}>{round.abbreviation || round.name}</option>)}
+        </select>
       </div>
 
       {/* Tabs */}
@@ -87,7 +121,7 @@ export default function CheckinsPage() {
         >
           <Users className="w-3.5 h-3.5" />
           <span>
-            Teams ({checkedInTeams}/{teams.length})
+            Teams ({roundTeamsPresent}/{teams.length})
           </span>
         </button>
 
@@ -101,7 +135,7 @@ export default function CheckinsPage() {
         >
           <Users2 className="w-3.5 h-3.5" />
           <span>
-            Adjudicators ({checkedInAdjs}/{adjudicators.length})
+            Adjudicators ({roundAdjudicatorsPresent}/{adjudicators.length})
           </span>
         </button>
       </div>
@@ -129,12 +163,12 @@ export default function CheckinsPage() {
                         <button
                           onClick={() => toggleTeamCheckin(t)}
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            t.checkedIn !== false
+                            (activeRound ? (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) : t.checkedIn !== false)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {t.checkedIn !== false ? (
+                          {(activeRound ? (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) : t.checkedIn !== false) ? (
                             <>
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               <span>Present</span>
@@ -158,12 +192,12 @@ export default function CheckinsPage() {
                         <button
                           onClick={() => toggleAdjCheckin(a)}
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            a.checkedIn !== false
+                            (activeRound ? (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) : a.checkedIn !== false)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {a.checkedIn !== false ? (
+                          {(activeRound ? (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) : a.checkedIn !== false) ? (
                             <>
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               <span>Present</span>

@@ -154,7 +154,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       }
       return archivedConflictCount;
     },
-    async getSyncConflicts(tournamentId: string) {
+    async getSyncConflicts(tournamentId) {
       const firestoreDb = getFirestore();
       const snapshot = await getDocs(
         collection(firestoreDb, "tournaments", tournamentId, "syncConflicts")

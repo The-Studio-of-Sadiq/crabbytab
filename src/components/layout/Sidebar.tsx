@@ -132,6 +132,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
     debates,
     ballots,
     isOwnerOrAdmin,
+    isDataEntryAssistant,
   } = useTournament();
   const [openRounds, setOpenRounds] = useState<Record<string, boolean>>({});
   const [importsOpen, setImportsOpen] = useState(false);
@@ -246,27 +247,38 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             <NavLink nested href={`/${tournamentSlug}/imports/institutions`} icon={Building2} label="Institutions" />
             <NavLink nested href={`/${tournamentSlug}/imports/teams`} icon={Users2} label="Teams" />
             <NavLink nested href={`/${tournamentSlug}/imports/adjudicators`} icon={UserCheck} label="Adjudicators" />
-            <NavLink nested href={`/${tournamentSlug}/imports/venues`} icon={MapPin} label="Venues" />
-            <NavLink nested href={`/${tournamentSlug}/imports/motions`} icon={Lightbulb} label="Motions" />
+            {!isDataEntryAssistant && (
+              <>
+                <NavLink nested href={`/${tournamentSlug}/imports/venues`} icon={MapPin} label="Venues" />
+                <NavLink nested href={`/${tournamentSlug}/imports/motions`} icon={Lightbulb} label="Motions" />
+              </>
+            )}
           </SidebarDropdown>
-          <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
+          {isOwnerOrAdmin && (
+            <>
+              <NavLink href={`/${tournamentSlug}/private-urls`} icon={Key} label="Private URLs" />
+              <NavLink href={`/${tournamentSlug}/staff`} icon={Shield} label="Manage Staff" />
+            </>
+          )}
           {isOwnerOrAdmin && (
             <NavLink href={`/${tournamentSlug}/email`} icon={Mail} label="Email" />
           )}
-          <SidebarDropdown
-            label="Configuration"
-            icon={Sliders}
-            isActive={isConfigPage}
-            isOpen={configOpen}
-            onToggle={() => setConfigOpen((open) => !open)}
-          >
-            <NavLink nested href={`/${tournamentSlug}/config/draw`} icon={Shuffle} label="Draw rules" />
-            <NavLink nested href={`/${tournamentSlug}/config/rounds`} icon={Clock} label="Round settings" />
-            <NavLink nested href={`/${tournamentSlug}/config/format`} icon={Shield} label="Format & Teams" />
-            <NavLink nested href={`/${tournamentSlug}/config/scoring`} icon={FileCheck2} label="Scoring & Ballots" />
-            <NavLink nested href={`/${tournamentSlug}/config/standings`} icon={Trophy} label="Standings rules" />
-            <NavLink nested href={`/${tournamentSlug}/config/visibility`} icon={Eye} label="Public visibility" />
-          </SidebarDropdown>
+          {isOwnerOrAdmin && (
+            <SidebarDropdown
+              label="Configuration"
+              icon={Sliders}
+              isActive={isConfigPage}
+              isOpen={configOpen}
+              onToggle={() => setConfigOpen((open) => !open)}
+            >
+              <NavLink nested href={`/${tournamentSlug}/config/draw`} icon={Shuffle} label="Draw rules" />
+              <NavLink nested href={`/${tournamentSlug}/config/rounds`} icon={Clock} label="Round settings" />
+              <NavLink nested href={`/${tournamentSlug}/config/format`} icon={Shield} label="Format & Teams" />
+              <NavLink nested href={`/${tournamentSlug}/config/scoring`} icon={FileCheck2} label="Scoring & Ballots" />
+              <NavLink nested href={`/${tournamentSlug}/config/standings`} icon={Trophy} label="Standings rules" />
+              <NavLink nested href={`/${tournamentSlug}/config/visibility`} icon={Eye} label="Public visibility" />
+            </SidebarDropdown>
+          )}
         </div>
 
         <div className="space-y-0.5">
@@ -291,7 +303,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
           <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
             Rounds
           </div>
-          {rounds.length === 0 && (
+          {rounds.length === 0 && isOwnerOrAdmin && (
             <p className="px-3 text-[11px] text-gray-500">Create a round from the top bar.</p>
           )}
           {rounds.map((round) => {
@@ -328,14 +340,18 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
                       icon={Clock}
                       label="Availability"
                     />
-                    <NavLink
-                      nested
-                      href={`/${tournamentSlug}/draw`}
-                      icon={Shuffle}
-                      label="Draw"
-                      badge={rDebates.length > 0 ? `${rDebates.length}` : undefined}
-                    />
-                    <NavLink nested href={`/${tournamentSlug}/allocation`} icon={Users2} label="Allocation" />
+                    {isOwnerOrAdmin && (
+                      <>
+                        <NavLink
+                          nested
+                          href={`/${tournamentSlug}/draw`}
+                          icon={Shuffle}
+                          label="Draw"
+                          badge={rDebates.length > 0 ? `${rDebates.length}` : undefined}
+                        />
+                        <NavLink nested href={`/${tournamentSlug}/allocation`} icon={Users2} label="Allocation" />
+                      </>
+                    )}
                     <NavLink nested href={`/${tournamentSlug}/display`} icon={Monitor} label="Display" />
                     <NavLink
                       nested

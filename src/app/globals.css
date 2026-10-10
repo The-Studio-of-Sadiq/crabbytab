@@ -126,6 +126,13 @@ textarea {
   .no-print {
     display: none !important;
   }
+  input,
+  select,
+  textarea {
+    color: black !important;
+    background: white !important;
+    box-shadow: none !important;
+  }
   body {
     background: white;
     color: black;

@@ -1,6 +1,6 @@
 import type { DocumentData, DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
 import { describe, expect, it } from "vitest";
-import { checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
+import { checkPrivateApiRateLimit, checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
 
 function createFirestoreMock() {
   const documents = new Map<string, DocumentData>();
@@ -66,6 +66,22 @@ describe("checkPrivateTeamRateLimit", () => {
     await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.2", now)).resolves.toEqual({
       allowed: true,
       retryAfterSeconds: 0,
+    });
+  });
+
+  it("applies independent limits per private endpoint scope", async () => {
+    const { firestore } = createFirestoreMock();
+    const now = 1_000_000;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await checkPrivateApiRateLimit(firestore, "192.0.2.1", "sync", 2, now + attempt);
+    }
+
+    await expect(checkPrivateApiRateLimit(firestore, "192.0.2.1", "sync", 2, now + 2)).resolves.toMatchObject({
+      allowed: false,
+    });
+    await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.1", now + 2)).resolves.toMatchObject({
+      allowed: true,
     });
   });
 });

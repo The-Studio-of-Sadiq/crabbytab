@@ -16,6 +16,7 @@ import {
   Users,
   GitCompare,
   Check,
+  Printer,
 } from "lucide-react";
 import { BallotSubmission, DebateSide, Team } from "@/types";
 import {
@@ -548,7 +549,7 @@ export default function BallotEntryPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
       {/* Top Breadcrumb */}
-      <div className="flex items-center justify-between border-b border-[#d0d7de] pb-3">
+      <div className="no-print flex items-center justify-between border-b border-[#d0d7de] pb-3">
         <button
           onClick={() => router.push(`/${tournamentSlug}/results`)}
           className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
@@ -560,6 +561,17 @@ export default function BallotEntryPage() {
         <span className="text-xs text-gray-500 font-semibold">
           {round?.name} &bull; {debate.venueName}
         </span>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="no-print inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          <Printer className="h-4 w-4" />
+          Print Ballot
+        </button>
       </div>
 
       {/* Main Ballot Card */}
@@ -823,7 +835,7 @@ export default function BallotEntryPage() {
 
           {/* Official Confirmation Checkbox (When double entry is off) */}
           {!isDoubleEntryEnabled && (
-            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+              <div className="no-print pt-3 border-t border-gray-200 flex items-center justify-between">
               <label className="flex items-center space-x-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -858,7 +870,7 @@ export default function BallotEntryPage() {
 
           {/* Double Entry Submission Actions */}
           {isDoubleEntryEnabled && (
-            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+            <div className="no-print pt-3 border-t border-gray-200 flex items-center justify-between">
               <span className="text-xs text-gray-500">
                 {!existingBallot
                   ? "Double entry required: saving will create Pass 1 (Draft)."

@@ -8,6 +8,7 @@ import {
   Tournament,
 } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 
@@ -21,7 +22,29 @@ function validDocumentId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
 export async function POST(request: NextRequest) {
+  let rateLimit: Awaited<ReturnType<typeof checkPrivateApiRateLimit>>;
+  try {
+    rateLimit = await checkPrivateApiRateLimit(getAdminFirestore(), getClientIp(request), "sync");
+  } catch (error) {
+    console.error("Could not enforce private sync rate limit:", error);
+    return NextResponse.json(
+      { error: "Could not process private sync request. Try again later." },
+      { status: 503 }
+    );
+  }
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many private sync requests. Try again later." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await request.json();

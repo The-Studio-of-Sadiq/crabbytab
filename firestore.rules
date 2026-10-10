@@ -19,16 +19,25 @@ service cloud.firestore {
 
       // Tournament records and private participant data are administrator-only.
       match /{collection}/{document} {
-        allow read, write: if collection != "auditEvents" &&
-          collection != "auditReleases" &&
-          collection != "syncConflicts" &&
-          collection != "data" &&
+        allow read: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
           isTournamentAdmin();
+        allow create, delete: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
+          isTournamentAdmin();
+        allow update: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
+          isTournamentAdmin();
+      }
+
+      match /staff/{staffId} {
+        allow read, write: if isTournamentAdmin();
       }
 
       // Conflicting cloud versions are append-only recovery records.
       match /syncConflicts/{conflictId} {
-        allow read, create: if isTournamentAdmin();
+        allow read: if isTournamentAdmin();
+        allow create: if isTournamentAdmin();
         allow update, delete: if false;
       }
 

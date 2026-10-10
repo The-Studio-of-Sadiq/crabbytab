@@ -18,6 +18,7 @@ import { generateEliminationDraw } from "./elimination";
 import { shuffle } from "./pairing";
 import { SideAllocationOptions } from "./sideAllocator";
 import { allocateVenuesToDebates } from "./venueAllocator";
+import { isAvailableForRound } from "@/lib/roundAvailability";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -50,7 +51,7 @@ export function getRequiredVenueCount(
   teams: Team[]
 ): number {
   const teamsPerDebate = tournament.format === "bp" ? 4 : 2;
-  const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) => team.checkedIn !== false);
+  const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) => isAvailableForRound(team, round));
   const categories = round.stage === "elimination" && (round.breakCategoryIds?.length ?? 0) > 1
     ? round.breakCategoryIds!.map((categoryId) =>
         eligibleTeams.filter((team) => team.breakCategoryIds?.includes(categoryId))
@@ -192,7 +193,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   }
 
   // Filter checked-in teams (or all active if checkins aren't used)
-  let activeTeams = getEligibleTeamsForRound(teams, round).filter((t) => t.checkedIn !== false);
+  let activeTeams = getEligibleTeamsForRound(teams, round).filter((team) => isAvailableForRound(team, round));
   let byeTeams: Team[] = [];
 
   // Automatic byes apply only to preliminary rounds.
