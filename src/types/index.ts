@@ -52,6 +52,7 @@ export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
 export type FeedbackQuestionType = "text" | "textarea" | "scale" | "yes_no" | "select_one" | "select_many";
 export type FeedbackAnswer = string | number | boolean | string[] | null;
 export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
+export type BreakQualificationRule = "standard" | "aida_1996" | "aida_2016_australs" | "aida_2016_easters";
 
 export interface FeedbackQuestion {
   id: string;
@@ -114,6 +115,7 @@ export interface TournamentPreferences {
   importanceMismatchPenalty?: number; // default 10000000
   /** How voting adjudicator strength is matched to debate priority. */
   adjudicatorPanelStrategy?: AdjudicatorPanelStrategy;
+  usePreformedPanels?: boolean;
   skipAdjCheckins?: boolean;
   noPanellistAdjs?: boolean;
   noTraineeAdjs?: boolean;
@@ -306,6 +308,7 @@ export interface Adjudicator {
   roundAvailabilityAt?: Record<string, string>;
   conflicts: AdjudicatorConflict[];
   gender?: string;
+  preformedPanelId?: string;
   venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for adjudicator's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
@@ -463,6 +466,7 @@ export interface BreakCategory {
   priority: number;
   /** Maximum breaking and reserve teams selected from one institution. */
   maxPerInstitution?: number;
+  qualificationRule?: BreakQualificationRule;
 }
 
 export interface TeamStandingRow {

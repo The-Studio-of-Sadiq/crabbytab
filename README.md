@@ -22,6 +22,10 @@ CrabbyTab is an independent project and is not affiliated with Tabbycat.
   feedback links.
 - Print round ballots and feedback sheets, and use barcode labels with
   keyboard-scanner check-in.
+- Issue read-only API tokens for integrations, with separate released-draw
+  and all-draw scopes; the OpenAPI document is available at `/api/openapi.json`.
+- Export portable DebateXML archives in the Tabbycat DTA schema alongside
+  CrabbyTab's full-fidelity JSON backups.
 - Review tournament activity with audit tools and use analytics and display
   views during an event.
 - Keep tournament data in the browser for offline use, with optional Firebase
@@ -36,6 +40,10 @@ adjudicator, and institution imports can also include `required_venue_category`,
 `min_venue_capacity`, `requires_accessible_venue`, `requires_online_venue`, and
 `requires_near_tab_room` to apply standing venue requirements. Venue imports
 accept `near_tab_room` as a capability column.
+
+Break categories may use Standard qualification, AIDA 1996, AIDA 2016 Australs,
+or AIDA 2016 Easters rules. The AIDA 2016 options require a two-team format;
+the standard rule remains the default for existing and new categories.
 
 ## Requirements
 
@@ -87,6 +95,15 @@ records receive recoverable tombstones, so later downloads do not restore them
 and stale uploads cannot remove the tombstone. Team portals show ballots only
 after results are released on a non-silent round, and hide speaker scores until
 team speaks are released.
+
+The read-only integration API uses administrator-issued bearer tokens. Store
+them securely and revoke them from the tournament's **API Access** page when
+they are no longer needed. `read:public` returns only released draws;
+`read:draws` also returns unreleased draw assignments. Neither scope returns
+participant email addresses, private portal credentials, ballot scores, or
+feedback. Full-fidelity CrabbyTab backups remain the recovery format; DebateXML
+archives are the interoperable exchange format and may omit fields that the
+DebateXML schema does not represent.
 
 ## Development
 

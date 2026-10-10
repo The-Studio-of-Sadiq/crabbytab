@@ -18,6 +18,7 @@ import {
   Upload,
   CloudDownload,
   Download,
+  KeyRound,
 } from "lucide-react";
 
 export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
@@ -37,6 +38,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     downloadFromCloud,
     exportSyncRecovery,
     exportTournamentBackup,
+    exportTournamentArchive,
     importTournamentBackup,
     syncDataEntry,
   } = useTournament();
@@ -330,6 +332,16 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                     <span>Tournament Settings</span>
                   </Link>
                   {isOwnerOrAdmin && (
+                    <Link
+                      href={`/${tournamentSlug}/api`}
+                      className="block px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>API Access</span>
+                    </Link>
+                  )}
+                  {isOwnerOrAdmin && (
                     <>
                       <button
                         type="button"
@@ -345,6 +357,21 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Export Tournament Backup</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          try {
+                            exportTournamentArchive();
+                          } catch (error) {
+                            window.alert(error instanceof Error ? error.message : "Could not export DebateXML archive.");
+                          }
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export DebateXML Archive</span>
                       </button>
                       <button
                         type="button"

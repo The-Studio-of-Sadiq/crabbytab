@@ -95,6 +95,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     adjHistoryPenalty: 10000,
     importanceMismatchPenalty: 10000000,
     adjudicatorPanelStrategy: "crabbytab_v1",
+    usePreformedPanels: false,
     skipAdjCheckins: false,
     noPanellistAdjs: false,
     noTraineeAdjs: false,
@@ -321,6 +322,27 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     average strength of each complete voting panel to its debate priority; the strongest eligible
                     panel member is still promoted to chair.
                   </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="flex items-start gap-2 rounded border border-gray-200 bg-gray-50 p-3">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(prefs.usePreformedPanels)}
+                      onChange={(event) => setPrefs((current) => ({
+                        ...current,
+                        usePreformedPanels: event.target.checked,
+                      }))}
+                      className="mt-0.5 rounded border-gray-300 text-blue-600"
+                    />
+                    <span>
+                      <span className="block text-xs font-semibold text-gray-800">Allocate preformed panels as a unit</span>
+                      <span className="mt-1 block text-[11px] text-gray-500">
+                        Assign adjudicators a shared <code>preformed_panel_id</code> in their CSV. Each group must have
+                        exactly the configured number of available voting adjudicators; the group remains together and
+                        is matched to debates by panel-average strength. A group with unavailable members is not split.
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <div>

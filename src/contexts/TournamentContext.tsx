@@ -56,6 +56,7 @@ import {
   mergeTournamentBackup,
   parseTournamentBackup,
 } from "@/features/tournament/application/tournamentBackup";
+import { createDebateXmlArchive } from "@/features/tournament/application/debateXml";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
 import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
@@ -99,6 +100,7 @@ export interface TournamentContextType {
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
   exportTournamentBackup: () => void;
+  exportTournamentArchive: () => void;
   importTournamentBackup: (file: File) => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
@@ -1093,7 +1095,7 @@ export function TournamentProvider({
   // Dynamic Break Qualification Calculation
   const breakResults = useMemo(() => {
     if (breakCategories.length === 0 || teamStandings.length === 0) return [];
-    return calculateBreaks(breakCategories, teams, teamStandings);
+    return calculateBreaks(breakCategories, teams, teamStandings, tournament?.format);
   }, [breakCategories, teams, teamStandings]);
 
   // Mutations
@@ -1754,6 +1756,32 @@ export function TournamentProvider({
     URL.revokeObjectURL(url);
   };
 
+  const exportTournamentArchive = () => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can export a DebateXML archive.");
+    }
+    const archive = createDebateXmlArchive({
+      tournament,
+      rounds,
+      teams,
+      adjudicators,
+      venues,
+      motions,
+      breakCategories,
+      debates,
+      ballots,
+      feedback,
+      institutions,
+    });
+    const blob = new Blob([archive], { type: "application/xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${tournament.slug}-archive.xml`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const importTournamentBackup = async (file: File) => {
     if (!tournament || !isOwnerOrAdmin) {
       throw new Error("Only a tournament administrator can restore a full backup.");
@@ -1826,6 +1854,7 @@ export function TournamentProvider({
         syncDataEntry,
         exportSyncRecovery,
         exportTournamentBackup,
+        exportTournamentArchive,
         importTournamentBackup,
         syncPrivatePortal,
         loadPrivateTeamPortal,

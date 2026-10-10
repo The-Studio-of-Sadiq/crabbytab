@@ -32,6 +32,7 @@ export default function BreakPage() {
   const [newCatBreakSize, setNewCatBreakSize] = useState(8);
   const [newCatReserveSize, setNewCatReserveSize] = useState(2);
   const [newCatMaxPerInstitution, setNewCatMaxPerInstitution] = useState(0);
+  const [newCatQualificationRule, setNewCatQualificationRule] = useState<BreakCategory["qualificationRule"]>("standard");
   const [newCatIsGeneral, setNewCatIsGeneral] = useState(false);
   const [newCatPriority, setNewCatPriority] = useState(5);
   const [isGeneratingBreak, setIsGeneratingBreak] = useState(false);
@@ -70,6 +71,7 @@ export default function BreakPage() {
       isGeneral: newCatIsGeneral,
       priority: newCatPriority,
       maxPerInstitution: newCatMaxPerInstitution > 0 ? newCatMaxPerInstitution : undefined,
+      qualificationRule: newCatQualificationRule,
     };
 
     const updated = [...breakCategories, newCat];
@@ -376,7 +378,26 @@ export default function BreakPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Maximum qualifiers per institution
+                  Break qualification rule
+                </label>
+                <select
+                  value={newCatQualificationRule}
+                  onChange={(event) => setNewCatQualificationRule(event.target.value as BreakCategory["qualificationRule"])}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white"
+                >
+                  <option value="standard">Standard — highest-ranked eligible teams</option>
+                  <option value="aida_1996">AIDA 1996 — maximum three teams per institution</option>
+                  <option value="aida_2016_australs">AIDA 2016 Australs</option>
+                  <option value="aida_2016_easters">AIDA 2016 Easters</option>
+                </select>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  AIDA 2016 rules use wins and institution ranking; Easters gives capped teams inside the natural break priority when reinserting teams. The institution limit below applies only to the standard rule.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Maximum qualifiers per institution
                 </label>
                 <input
                   type="number"
@@ -387,8 +408,7 @@ export default function BreakPage() {
                   className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                 />
                 <p className="mt-1 text-[11px] text-gray-500">
-                  Set to 0 for no limit. For example, 3 enforces the AIDA 2016 Easters institution cap; ranking order
-                  is preserved and the next eligible institution is promoted. The limit also applies to reserves.
+                  Set to 0 for no limit. Applied to breaking teams and reserves when using the standard rule.
                 </p>
               </div>
 

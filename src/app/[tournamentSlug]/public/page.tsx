@@ -135,7 +135,12 @@ export default function PublicTournamentPage() {
   const publicStandings = tournament
     ? calculateStandings(tournament, publicRounds, teams, publicDebates, publicBallots)
     : { teams: [], speakers: [], replies: [] };
-  const publicBreakResults = calculateBreaks(breakCategories, teams, publicStandings.teams);
+  const publicBreakResults = calculateBreaks(
+    breakCategories,
+    teams,
+    publicStandings.teams,
+    tournament?.format
+  );
 
   const ballotMap = new Map<string, any>();
   publicBallots.forEach((ballot) => ballotMap.set(ballot.debateId, ballot));
