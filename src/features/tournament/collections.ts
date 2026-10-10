@@ -13,7 +13,11 @@ export const CLOUD_COLLECTIONS = [
 ] as const;
 
 export type CloudCollectionName = (typeof CLOUD_COLLECTIONS)[number];
-export type CloudRecord = { id: string };
+export type CloudRecord = {
+  id: string;
+  syncVersion?: number;
+  deletedAt?: string;
+};
 
 export interface CollectionReconciliationPlan {
   recordsToWrite: CloudRecord[];

@@ -36,8 +36,14 @@ export async function GET(
     const tournamentSnapshot = await firestore
       .collection("tournaments")
       .where("slug", "==", slug)
-      .limit(1)
+      .limit(2)
       .get();
+    if (tournamentSnapshot.docs.length > 1) {
+      return NextResponse.json(
+        { error: "This tournament slug is ambiguous. Contact a tournament administrator." },
+        { status: 409 }
+      );
+    }
     const tournamentDocument = tournamentSnapshot.docs[0];
     if (!tournamentDocument) {
       return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
@@ -77,8 +83,19 @@ export async function GET(
       tournamentRef.collection("institutions").get(),
       tournamentRef.collection("venues").get(),
     ]);
+    const activeDocuments = <T extends { data(): Record<string, unknown> }>(documents: T[]) =>
+      documents.filter((document) => typeof document.data().deletedAt !== "string");
+    const roundDocuments = activeDocuments(roundsSnapshot.docs);
+    const teamDocuments = activeDocuments(teamsSnapshot.docs);
+    const adjudicatorDocuments = activeDocuments(adjudicatorsSnapshot.docs);
+    const debateDocuments = activeDocuments(debatesSnapshot.docs);
+    const ballotDocuments = activeDocuments(ballotsSnapshot.docs);
+    const motionDocuments = activeDocuments(motionsSnapshot.docs);
+    const breakCategoryDocuments = activeDocuments(breakCategoriesSnapshot.docs);
+    const institutionDocuments = activeDocuments(institutionsSnapshot.docs);
+    const venueDocuments = activeDocuments(venuesSnapshot.docs);
 
-    const allRounds: Round[] = roundsSnapshot.docs.map((document) => ({
+    const allRounds: Round[] = roundDocuments.map((document) => ({
       ...document.data(),
       id: document.id,
     } as Round));
@@ -103,12 +120,12 @@ export async function GET(
     const visibleRoundById = new Map(visibleRounds.map((round) => [round.id, round]));
     const visibleMotionIds = new Set(
       preferences.publicMotions !== false
-        ? motionsSnapshot.docs
+        ? motionDocuments
             .filter((document) => document.data().released === true)
             .map((document) => document.id)
         : []
     );
-    const debates: Array<Partial<Debate> & { id: string }> = debatesSnapshot.docs
+    const debates: Array<Partial<Debate> & { id: string }> = debateDocuments
       .map((document) => ({ ...document.data(), id: document.id } as Debate))
       .filter((debate) => visibleRoundIds.has(debate.roundId))
       .map((debate) => {
@@ -159,7 +176,7 @@ export async function GET(
       });
 
     const visibleBallotIds = new Set(
-      ballotsSnapshot.docs
+      ballotDocuments
         .filter((document) => {
           const ballot = document.data();
           const round = visibleRoundById.get(ballot.roundId);
@@ -173,7 +190,7 @@ export async function GET(
         })
         .map((document) => document.id)
     );
-    const ballots = ballotsSnapshot.docs
+    const ballots = ballotDocuments
       .filter((document) => visibleBallotIds.has(document.id))
       .map((document) => {
         const ballot = { ...document.data(), id: document.id } as BallotSubmission;
@@ -209,7 +226,7 @@ export async function GET(
         Object.values(debate.teams || {}).map((slot: { teamId?: string }) => slot.teamId).filter(Boolean)
       )
     );
-    const teams = teamsSnapshot.docs
+    const teams = teamDocuments
       .filter((document) => publicTeamIds.has(document.id))
       .map((document) => {
         const team = document.data() as Team;
@@ -247,7 +264,7 @@ export async function GET(
         ].filter(Boolean);
       })
     );
-    const adjudicators = adjudicatorsSnapshot.docs
+    const adjudicators = adjudicatorDocuments
       .filter((document) => revealedAdjudicatorIds.has(document.id))
       .map((document) => {
         const adjudicator = document.data() as Adjudicator;
@@ -294,7 +311,7 @@ export async function GET(
         teamSpeaksReleased: publishedResults && round.teamSpeaksReleased === true,
       };
     });
-    const motions = motionsSnapshot.docs
+    const motions = motionDocuments
       .filter((document) => preferences.publicMotions !== false && document.data().released === true)
       .map((document) => ({
         ...pick(document.data(), [
@@ -308,7 +325,7 @@ export async function GET(
         ] as (keyof Motion)[]),
         id: document.id,
       }));
-    const breakCategories = breakCategoriesSnapshot.docs.map((document) => ({
+    const breakCategories = breakCategoryDocuments.map((document) => ({
       ...pick(document.data() as BreakCategory, [
         "tournamentId",
         "name",
@@ -321,11 +338,11 @@ export async function GET(
       ] as (keyof BreakCategory)[]),
       id: document.id,
     }));
-    const institutions = institutionsSnapshot.docs.map((document) => ({
+    const institutions = institutionDocuments.map((document) => ({
       ...pick(document.data() as Institution, ["tournamentId", "name", "code", "region"]),
       id: document.id,
     }));
-    const venues = venuesSnapshot.docs.map((document) => ({
+    const venues = venueDocuments.map((document) => ({
       ...pick(document.data() as Venue, [
         "tournamentId",
         "name",

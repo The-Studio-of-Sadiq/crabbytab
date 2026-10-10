@@ -1,39 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Debate } from "@/types";
+import { Debate, Round } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
+import { sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 
 export const runtime = "nodejs";
-
-function getClientIp(request: NextRequest): string {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  const forwardedIp = forwardedFor?.split(",")[0]?.trim();
-  return forwardedIp || request.headers.get("x-real-ip")?.trim() || "unknown";
-}
 
 function validDocumentId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
 export async function POST(request: NextRequest) {
-  let rateLimit: Awaited<ReturnType<typeof checkPrivateTeamRateLimit>>;
-  try {
-    rateLimit = await checkPrivateTeamRateLimit(getAdminFirestore(), getClientIp(request));
-  } catch (error) {
-    console.error("Could not enforce private team rate limit:", error);
-    return NextResponse.json(
-      { error: "Could not process private team request. Try again later." },
-      { status: 503 }
-    );
-  }
-
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Too many private team requests. Try again later." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
-    );
-  }
-
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await request.json();
@@ -63,11 +40,32 @@ export async function POST(request: NextRequest) {
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
     const [tournamentSnapshot, teamSnapshot] = await Promise.all([
       tournamentRef.get(),
-      tournamentRef.collection("teams").where("privateUrlKey", "==", privateUrlKey).limit(1).get(),
+      tournamentRef.collection("teams").where("privateUrlKey", "==", privateUrlKey).get(),
     ]);
-    const teamDocument = teamSnapshot.docs[0];
+    const teamDocument = teamSnapshot.docs.find(
+      (document) => typeof document.data().deletedAt !== "string"
+    );
     if (!tournamentSnapshot.exists || !teamDocument) {
       return NextResponse.json({ error: "This private team link is invalid." }, { status: 404 });
+    }
+    let rateLimit: Awaited<ReturnType<typeof checkPrivateTeamRateLimit>>;
+    try {
+      rateLimit = await checkPrivateTeamRateLimit(
+        firestore,
+        `${tournamentId}:${privateUrlKey}`
+      );
+    } catch (error) {
+      console.error("Could not enforce private team rate limit:", error);
+      return NextResponse.json(
+        { error: "Could not process private team request. Try again later." },
+        { status: 503 }
+      );
+    }
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many private team requests. Try again later." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
     }
     if (teamDocument.data().privatePasscode !== passcode) {
       return NextResponse.json({ error: "Invalid team link or passcode." }, { status: 403 });
@@ -79,7 +77,8 @@ export async function POST(request: NextRequest) {
       tournamentRef.collection("rounds").get(),
       tournamentRef.collection("feedback").where("sourceId", "==", teamDocument.id).get(),
     ]);
-    const debates = debatesSnapshot.docs
+    const debates: Debate[] = debatesSnapshot.docs
+      .filter((document) => typeof document.data().deletedAt !== "string")
       .map((document) => ({ ...document.data(), id: document.id } as Debate))
       .filter((debate) =>
         Object.values(debate.teams || {}).some(
@@ -88,9 +87,18 @@ export async function POST(request: NextRequest) {
       );
     const roundIds = new Set(debates.map((debate) => debate.roundId));
     const rounds = roundsSnapshot.docs
+      .filter((document) => typeof document.data().deletedAt !== "string")
       .filter((document) => roundIds.has(document.id))
       .map((document) => ({ ...document.data(), id: document.id }));
     const tournamentData = tournamentSnapshot.data()!;
+    const roundsById = new Map(rounds.map((round) => [round.id, round as Round]));
+    const safeDebates = debates.map((debate) =>
+      sanitizeTeamPrivateDebate(
+        debate,
+        roundsById.get(debate.roundId),
+        tournamentData.preferences?.publicResults !== false
+      )
+    );
 
     return NextResponse.json({
       team: {
@@ -124,7 +132,7 @@ export async function POST(request: NextRequest) {
         preferences: tournamentData.preferences,
       },
       rounds,
-      debates,
+      debates: safeDebates,
       feedback: feedbackSnapshot.docs.map((document) => ({
         ...document.data(),
         id: document.id,

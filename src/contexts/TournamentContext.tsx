@@ -29,6 +29,7 @@ import {
   downloadTournamentCommand,
   uploadTournamentCommand,
   type CloudRecord,
+  type CloudDeletionMap,
 } from "@/features/tournament/application/cloudSync";
 import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
@@ -215,6 +216,55 @@ export function TournamentProvider({
     },
     [storagePrefix]
   );
+
+  const readSyncTombstones = (): CloudDeletionMap => {
+    if (typeof window === "undefined") return {};
+    const raw = localStorage.getItem(`${storagePrefix}_syncTombstones`);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Local sync deletion data is invalid. Export a backup before continuing.");
+    }
+    const tombstones: CloudDeletionMap = {};
+    for (const [collectionName, ids] of Object.entries(parsed)) {
+      if (
+        !CLOUD_COLLECTIONS.includes(collectionName as (typeof CLOUD_COLLECTIONS)[number]) ||
+        !Array.isArray(ids) ||
+        !ids.every((id) => typeof id === "string")
+      ) {
+        throw new Error("Local sync deletion data is invalid. Export a backup before continuing.");
+      }
+      tombstones[collectionName as (typeof CLOUD_COLLECTIONS)[number]] = ids;
+    }
+    return tombstones;
+  };
+
+  const recordSyncTombstones = (deletions: CloudDeletionMap) => {
+    const current = readSyncTombstones();
+    for (const [collectionName, ids] of Object.entries(deletions)) {
+      if (!ids?.length) continue;
+      current[collectionName as (typeof CLOUD_COLLECTIONS)[number]] = [
+        ...new Set([...(current[collectionName as (typeof CLOUD_COLLECTIONS)[number]] || []), ...ids]),
+      ];
+    }
+    persistLocal("syncTombstones", current);
+  };
+
+  const clearSyncedTombstones = (uploaded: CloudDeletionMap) => {
+    const remaining = readSyncTombstones();
+    for (const [collectionName, ids] of Object.entries(uploaded)) {
+      const uploadedIds = new Set(ids || []);
+      remaining[collectionName as (typeof CLOUD_COLLECTIONS)[number]] =
+        (remaining[collectionName as (typeof CLOUD_COLLECTIONS)[number]] || [])
+          .filter((id) => !uploadedIds.has(id));
+    }
+    persistLocal(
+      "syncTombstones",
+      Object.fromEntries(
+        Object.entries(remaining).filter(([, ids]) => ids && ids.length > 0)
+      )
+    );
+  };
 
   const saveRoundsLocally = useCallback(
     (updatedRounds: Round[], nextActiveRound?: Round) => {
@@ -1198,6 +1248,15 @@ export function TournamentProvider({
   };
 
   const deleteRound = async (roundId: string) => {
+    if (!rounds.some((round) => round.id === roundId)) return;
+    const deletedDebates = debates.filter((debate) => debate.roundId === roundId);
+    const deletedDebateIds = new Set(deletedDebates.map((debate) => debate.id));
+    const deletedBallots = ballots.filter(
+      (ballot) => ballot.roundId === roundId || deletedDebateIds.has(ballot.debateId)
+    );
+    const deletedFeedback = feedback.filter(
+      (submission) => submission.roundId === roundId || deletedDebateIds.has(submission.debateId)
+    );
     await deleteRoundCommand({
       roundId,
       rounds,
@@ -1234,6 +1293,12 @@ export function TournamentProvider({
           ? createFirestoreRoundRepository(tournament.id)
           : undefined,
       recordAuditEvent,
+    });
+    recordSyncTombstones({
+      rounds: [roundId],
+      debates: deletedDebates.map((debate) => debate.id),
+      ballots: deletedBallots.map((ballot) => ballot.id),
+      feedback: deletedFeedback.map((submission) => submission.id),
     });
   };
 
@@ -1309,6 +1374,9 @@ export function TournamentProvider({
 
   const deleteInstitution = async (instId: string) => {
     await deleteInstitutionCommand(instId);
+    if (institutions.some((institution) => institution.id === instId)) {
+      recordSyncTombstones({ institutions: [instId] });
+    }
   };
 
   const addTeams = async (teamData: Omit<Team, "id" | "tournamentId">[]) => {
@@ -1325,6 +1393,7 @@ export function TournamentProvider({
 
   const deleteTeam = async (teamId: string) => {
     await deleteTeamCommand(teamId);
+    if (teams.some((team) => team.id === teamId)) recordSyncTombstones({ teams: [teamId] });
   };
 
   const addAdjudicators = async (adjData: Omit<Adjudicator, "id" | "tournamentId">[]) => {
@@ -1341,6 +1410,9 @@ export function TournamentProvider({
 
   const deleteAdjudicator = async (adjId: string) => {
     await deleteAdjudicatorCommand(adjId);
+    if (adjudicators.some((adjudicator) => adjudicator.id === adjId)) {
+      recordSyncTombstones({ adjudicators: [adjId] });
+    }
   };
 
   const addVenues = async (venueData: Omit<Venue, "id" | "tournamentId">[]) => {
@@ -1357,6 +1429,7 @@ export function TournamentProvider({
 
   const deleteVenue = async (venueId: string) => {
     await deleteVenueCommand(venueId);
+    if (venues.some((venue) => venue.id === venueId)) recordSyncTombstones({ venues: [venueId] });
   };
 
   const addMotions = async (motionData: Omit<Motion, "id" | "tournamentId">[]) => {
@@ -1373,10 +1446,15 @@ export function TournamentProvider({
 
   const deleteMotion = async (motionId: string) => {
     await deleteMotionCommand(motionId);
+    if (motions.some((motion) => motion.id === motionId)) recordSyncTombstones({ motions: [motionId] });
   };
 
   const saveBreakCategories = async (cats: BreakCategory[]) => {
     await saveBreakCategoriesCommand(cats, breakDependencies);
+    const deletedIds = breakCategories
+      .filter((category) => !cats.some((next) => next.id === category.id))
+      .map((category) => category.id);
+    if (deletedIds.length > 0) recordSyncTombstones({ breakCategories: deletedIds });
   };
 
   const generateBreak = async (categoryId: string) => {
@@ -1431,18 +1509,21 @@ export function TournamentProvider({
     });
   };
 
+  const asCloudRecords = (records: Array<{ id: string }>): CloudRecord[] =>
+    records as unknown as CloudRecord[];
+
   const getLocalCollections = (): Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]> => ({
-    rounds,
-    teams,
-    adjudicators,
-    venues,
-    motions,
-    breakCategories,
-    debates,
-    ballots,
-    feedback,
-    institutions,
-    auditEvents: auditEventsRef.current,
+    rounds: asCloudRecords(rounds),
+    teams: asCloudRecords(teams),
+    adjudicators: asCloudRecords(adjudicators),
+    venues: asCloudRecords(venues),
+    motions: asCloudRecords(motions),
+    breakCategories: asCloudRecords(breakCategories),
+    debates: asCloudRecords(debates),
+    ballots: asCloudRecords(ballots),
+    feedback: asCloudRecords(feedback),
+    institutions: asCloudRecords(institutions),
+    auditEvents: asCloudRecords(auditEventsRef.current),
   });
 
   const syncDataEntry = async () => {
@@ -1514,18 +1595,44 @@ export function TournamentProvider({
     setCloudSyncState("syncing");
     setCloudSyncMessage("Merging this device's tournament records into Firestore…");
     try {
+      const localCollections = getLocalCollections();
+      const deletions = readSyncTombstones();
       const archivedConflictCount = await uploadTournamentCommand({
         tournament,
         userId: user.uid,
         isGlobalAdmin,
-        localCollections: getLocalCollections(),
+        localCollections,
+        deletions,
         repository: createFirestoreTournamentRepository(),
       });
+      clearSyncedTombstones(deletions);
+      setTournament({ ...tournament });
+      persistLocal("meta", { ...tournament });
+      const persistSyncedCollection = <T,>(
+        collectionName: (typeof CLOUD_COLLECTIONS)[number],
+        localName: string,
+        setter: (items: T[]) => void
+      ) => {
+        const items = localCollections[collectionName] as unknown as T[];
+        setter([...items]);
+        persistLocal(localName, items);
+      };
+      persistSyncedCollection<Round>("rounds", "rounds", setRounds);
+      persistSyncedCollection<Team>("teams", "teams", setTeams);
+      persistSyncedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
+      persistSyncedCollection<Venue>("venues", "venues", setVenues);
+      persistSyncedCollection<Motion>("motions", "motions", setMotions);
+      persistSyncedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
+      persistSyncedCollection<Debate>("debates", "debates", setDebates);
+      persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
+      persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
+      persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
+      persistLocal("auditEvents", localCollections.auditEvents);
       setCloudSyncState("success");
       setCloudSyncMessage(
         archivedConflictCount > 0
-          ? `Merged records. Preserved ${archivedConflictCount} previous cloud version(s) for recovery.`
-          : `Merged records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`
+          ? `Synced records. Preserved ${archivedConflictCount} unresolved cloud conflict(s) for recovery.`
+          : `Synced records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud upload failed.";
@@ -1553,9 +1660,10 @@ export function TournamentProvider({
         isGlobalAdmin,
         localTournament: tournament,
         localCollections: getLocalCollections(),
+        deletions: readSyncTombstones(),
         repository: createFirestoreTournamentRepository(),
       });
-      const downloadedRounds = collections.rounds as Round[];
+      const downloadedRounds = collections.rounds as unknown as Round[];
 
       setTournament(cloudTournament);
       persistLocal("meta", cloudTournament);

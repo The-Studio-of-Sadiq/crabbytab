@@ -51,7 +51,9 @@ export async function GET(
     const snapshots = await Promise.all(names.map((name) => tournamentRef.collection(name).get()));
     const records = Object.fromEntries(names.map((name, index) => [
       name,
-      snapshots[index].docs.map((document) => ({ ...document.data(), id: document.id })),
+      snapshots[index].docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => ({ ...document.data(), id: document.id })),
     ])) as unknown as Record<(typeof names)[number], Array<Record<string, unknown>>>;
 
     const tournament = {

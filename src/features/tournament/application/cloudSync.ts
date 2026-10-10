@@ -4,6 +4,15 @@ import { sanitizeAssistantAdjudicator, sanitizeAssistantTeam } from "@/lib/tourn
 
 export type { CloudCollectionName, CloudRecord } from "@/features/tournament/collections";
 
+export type CloudDeletionMap = Partial<Record<CloudCollectionName, string[]>>;
+
+export function hasStaleSyncVersion(
+  localVersion: number | undefined,
+  cloudVersion: number
+): boolean {
+  return (Number(localVersion) || 0) !== (Number(cloudVersion) || 0);
+}
+
 export const DATA_ENTRY_COLLECTIONS = [
   "teams",
   "adjudicators",
@@ -19,7 +28,8 @@ export interface TournamentCloudRepository {
   getCollections(tournamentId: string): Promise<Record<CloudCollectionName, CloudRecord[]>>;
   syncCollections(
     tournamentId: string,
-    collections: Record<CloudCollectionName, CloudRecord[]>
+    collections: Record<CloudCollectionName, CloudRecord[]>,
+    deletions?: CloudDeletionMap
   ): Promise<number>;
   getSyncConflicts(tournamentId: string): Promise<SyncConflict[]>;
 }
@@ -29,6 +39,7 @@ export interface SyncConflict {
   collectionName: string;
   recordId: string;
   record: CloudRecord;
+  incomingRecord?: CloudRecord;
   archivedAt: string;
 }
 
@@ -58,9 +69,10 @@ export async function uploadTournamentCommand(input: {
   userId: string;
   isGlobalAdmin?: boolean;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
+  deletions?: CloudDeletionMap;
   repository: TournamentCloudRepository;
 }): Promise<number> {
-  const { tournament, userId, localCollections, repository } = input;
+  const { tournament, userId, localCollections, deletions, repository } = input;
   const cloudTournament = await repository.getTournament(tournament.id);
   if (
     cloudTournament &&
@@ -91,7 +103,12 @@ export async function uploadTournamentCommand(input: {
     updatedAt: new Date().toISOString(),
   };
   const metadataConflict = await repository.saveTournament(tournament.id, metadata);
-  const collectionConflicts = await repository.syncCollections(tournament.id, localCollections);
+  if (!metadataConflict) tournament.syncVersion = metadata.syncVersion;
+  const collectionConflicts = await repository.syncCollections(
+    tournament.id,
+    localCollections,
+    deletions
+  );
   return collectionConflicts + Number(metadataConflict);
 }
 
@@ -102,12 +119,21 @@ export async function downloadTournamentCommand(input: {
   isGlobalAdmin?: boolean;
   localTournament: Tournament;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
+  deletions?: CloudDeletionMap;
   repository: TournamentCloudRepository;
 }): Promise<{
   tournament: Tournament;
   collections: Record<CloudCollectionName, CloudRecord[]>;
 }> {
-  const { tournamentId, slug, userId, localTournament, localCollections, repository } = input;
+  const {
+    tournamentId,
+    slug,
+    userId,
+    localTournament,
+    localCollections,
+    deletions = {},
+    repository,
+  } = input;
   const snapshot = await repository.getTournament(tournamentId);
   if (!snapshot) throw new Error("This tournament is not available in Firestore.");
   const cloudAdmins = snapshot.data.admins as Record<string, boolean> | undefined;
@@ -125,8 +151,20 @@ export async function downloadTournamentCommand(input: {
   const cloudCollections = await repository.getCollections(tournamentId);
   const collections = Object.fromEntries(
     CLOUD_COLLECTIONS.map((name) => {
-      const recordsById = new Map(cloudCollections[name].map((record) => [record.id, record]));
-      for (const record of localCollections[name]) recordsById.set(record.id, record);
+      const deletedIds = new Set(
+        cloudCollections[name]
+          .filter((record) => typeof record.deletedAt === "string")
+          .map((record) => record.id)
+      );
+      for (const deletedId of deletions[name] || []) deletedIds.add(deletedId);
+      const recordsById = new Map(
+        cloudCollections[name]
+          .filter((record) => !deletedIds.has(record.id))
+          .map((record) => [record.id, record])
+      );
+      for (const record of localCollections[name]) {
+        if (!deletedIds.has(record.id)) recordsById.set(record.id, record);
+      }
       return [name, [...recordsById.values()]];
     })
   ) as Record<CloudCollectionName, CloudRecord[]>;

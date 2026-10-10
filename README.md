@@ -61,12 +61,27 @@ for your own project and review [firestore.rules](./firestore.rules) before
 publishing them. Never expose service-account credentials or SMTP passwords in
 client-side environment variables.
 
+Cloud synchronization uses a per-record version. If an offline device edits a
+record after another device has changed it, CrabbyTab keeps the cloud copy and
+archives both versions rather than silently replacing the newer copy. Use the
+tournament's sync-recovery export to inspect archived versions. Deleted cloud
+records receive recoverable tombstones, so later downloads do not restore them
+and stale uploads cannot remove the tombstone. Team portals show ballots only
+after results are released on a non-silent round, and hide speaker scores until
+team speaks are released.
+
 ## Development
 
 Run the test suite:
 
 ```sh
 npm test
+```
+
+Run lint checks:
+
+```sh
+npm run lint
 ```
 
 Create a production build:

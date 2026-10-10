@@ -139,6 +139,7 @@ export interface Tournament {
   createdAt: string;
   updatedAt: string;
   migratedAt?: string;
+  syncVersion?: number;
 }
 
 export type AuditCategory =

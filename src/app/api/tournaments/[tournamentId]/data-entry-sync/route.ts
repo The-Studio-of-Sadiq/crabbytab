@@ -169,6 +169,19 @@ export async function POST(
         const current: Record<string, unknown> | null = snapshot.exists
           ? { ...snapshot.data(), id: snapshot.id }
           : null;
+        if (current && typeof current.deletedAt === "string") {
+          transaction.create(conflictRef, {
+            id: conflictRef.id,
+            collectionName,
+            recordId: record.id,
+            record: current,
+            incomingRecord: record,
+            resolution: "deleted",
+            archivedAt: new Date().toISOString(),
+            archivedBy: authorization.user.uid,
+          });
+          return true;
+        }
         const merged: Record<string, unknown> = current ? { ...current, ...record } : record;
         if (collectionName === "teams") {
           const currentSpeakers = current?.speakers;
@@ -219,6 +232,9 @@ export async function POST(
         const snapshot = await transaction.get(debateRef);
         if (!snapshot.exists) throw new Error(`Debate ${debate.id} no longer exists.`);
         const current: Record<string, unknown> = { ...snapshot.data(), id: snapshot.id };
+        if (typeof current.deletedAt === "string") {
+          throw new Error(`Debate ${debate.id} has been deleted and cannot receive new results.`);
+        }
         const currentTeams = current.teams;
         const localTeams = debate.teams;
         if (!isRecord(currentTeams) || !isRecord(localTeams)) throw new Error(`Debate ${debate.id} has invalid result data.`);

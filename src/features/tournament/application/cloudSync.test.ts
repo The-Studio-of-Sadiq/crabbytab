@@ -5,6 +5,7 @@ import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "../collections"
 import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
+  hasStaleSyncVersion,
   uploadTournamentCommand,
   type CloudCollectionName,
   type CloudRecord,
@@ -56,12 +57,77 @@ describe("tournament cloud synchronization", () => {
     ])).toEqual({
       recordsToWrite: [{ id: "keep" }, { id: "add" }],
     });
+
     expect(planCollectionReconciliation("auditEvents", ["existing"], [
       { id: "existing" },
       { id: "new" },
     ])).toEqual({
       recordsToWrite: [{ id: "new" }],
     });
+  });
+
+  it("does not resurrect locally cached records deleted in the cloud", async () => {
+    const localCollections = emptyCollections();
+    localCollections.teams = [{ id: "deleted-team", name: "Old local copy" } as CloudRecord];
+    const cloudCollections = emptyCollections();
+    cloudCollections.teams = [{
+      id: "deleted-team",
+      deletedAt: "2026-10-10T00:00:00.000Z",
+    } as CloudRecord];
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return {
+          id: tournament.id,
+          data: { ...tournament, ownerId: "user-1", admins: {} },
+        };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return cloudCollections; },
+      async syncCollections() { return 0; },
+      async getSyncConflicts() { return []; },
+    };
+
+    const result = await downloadTournamentCommand({
+      tournamentId: tournament.id,
+      slug: tournament.slug,
+      userId: "user-1",
+      localTournament: tournament,
+      localCollections,
+      repository,
+    });
+
+    expect(result.collections.teams).toEqual([]);
+  });
+
+  it("does not restore a cloud record with a pending local deletion", async () => {
+    const cloudCollections = emptyCollections();
+    cloudCollections.teams = [{ id: "deleted-team", name: "Cloud copy" }];
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return {
+          id: tournament.id,
+          data: { ...tournament, ownerId: "user-1", admins: {} },
+        };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return cloudCollections; },
+      async syncCollections() { return 0; },
+      async getSyncConflicts() { return []; },
+    };
+
+    const result = await downloadTournamentCommand({
+      tournamentId: tournament.id,
+      slug: tournament.slug,
+      userId: "user-1",
+      localTournament: tournament,
+      localCollections: emptyCollections(),
+      deletions: { teams: ["deleted-team"] },
+      repository,
+    });
+
+    expect(result.collections.teams).toEqual([]);
   });
 
   it("promotes a local tournament and writes metadata before reconciling collections", async () => {
@@ -82,11 +148,44 @@ describe("tournament cloud synchronization", () => {
       localCollections: emptyCollections(),
       repository,
     });
-
     expect(calls).toEqual(["read", "metadata", "collections"]);
     expect(archivedConflictCount).toBe(2);
     expect(savedMetadata).toMatchObject({ ownerId: "user-1", admins: { "user-1": true } });
     expect(savedMetadata?.updatedAt).toEqual(expect.any(String));
+  });
+
+  it("forwards local deletion tombstones with the upload", async () => {
+    let receivedDeletions: Partial<Record<CloudCollectionName, string[]>> | undefined;
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return { id: tournament.id, data: { ...tournament, ownerId: "user-1" } };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return emptyCollections(); },
+      async syncCollections(_id, _collections, deletions) {
+        receivedDeletions = deletions;
+        return 0;
+      },
+      async getSyncConflicts() { return []; },
+    };
+    const deletions = { teams: ["deleted-team"] };
+
+    await uploadTournamentCommand({
+      tournament,
+      userId: "user-1",
+      localCollections: emptyCollections(),
+      deletions,
+      repository,
+    });
+
+    expect(receivedDeletions).toEqual(deletions);
+  });
+
+  it("detects stale device versions while accepting current versions", () => {
+    expect(hasStaleSyncVersion(3, 4)).toBe(true);
+    expect(hasStaleSyncVersion(undefined, 0)).toBe(false);
+    expect(hasStaleSyncVersion(4, 4)).toBe(false);
   });
 
   it("lets global admins sync another owner's tournament without changing its owner access", async () => {
@@ -208,6 +307,7 @@ describe("tournament cloud synchronization", () => {
     expect(payload).not.toHaveProperty("motions");
     expect(payload.collections.teams[0]).not.toHaveProperty("privateUrlKey");
     expect(payload.collections.teams[0]).not.toHaveProperty("privatePasscode");
-    expect((payload.collections.teams[0].speakers as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email");
+    const teamPayload = payload.collections.teams[0] as unknown as Record<string, unknown>;
+    expect((teamPayload.speakers as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email");
   });
 });

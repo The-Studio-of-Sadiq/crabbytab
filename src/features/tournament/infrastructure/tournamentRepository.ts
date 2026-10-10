@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   query,
   runTransaction,
   where,
@@ -11,11 +12,13 @@ import {
 import { auth, db } from "@/lib/firebase";
 import type { Tournament } from "@/types";
 import type {
+  CloudDeletionMap,
   CloudCollectionName,
   CloudRecord,
   TournamentCloudRepository,
   SyncConflict,
 } from "@/features/tournament/application/cloudSync";
+import { hasStaleSyncVersion } from "@/features/tournament/application/cloudSync";
 import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "@/features/tournament/collections";
 import { cleanUndefined } from "./firestore";
 
@@ -37,7 +40,7 @@ function recordsEqual(left: unknown, right: unknown): boolean {
 }
 
 function withoutUpdatedAt(data: Record<string, unknown>): Record<string, unknown> {
-  const { updatedAt: _updatedAt, ...rest } = data;
+  const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = data;
   return rest;
 }
 
@@ -77,8 +80,11 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
 
       const firestoreDb = getFirestore();
       const snapshot = await getDocs(
-        query(collection(firestoreDb, "tournaments"), where("slug", "==", slug))
+        query(collection(firestoreDb, "tournaments"), where("slug", "==", slug), limit(2))
       );
+      if (snapshot.docs.length > 1) {
+        throw new Error("This tournament slug is ambiguous. Contact a tournament administrator.");
+      }
       const tournament = snapshot.docs[0];
       return tournament
         ? { id: tournament.id, data: tournament.data() as Record<string, unknown> }
@@ -88,27 +94,71 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       const firestoreDb = getFirestore();
       const tournamentRef = doc(firestoreDb, "tournaments", tournamentId);
       const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
+      const slug = tournament.slug;
+      if (!/^[a-z0-9-]{1,40}$/.test(slug)) {
+        throw new Error("Tournament slug must contain 1-40 lowercase letters, numbers, or hyphens.");
+      }
+      const slugRef = doc(firestoreDb, "tournamentSlugs", slug);
+      const matchingTournaments = await getDocs(
+        query(collection(firestoreDb, "tournaments"), where("slug", "==", slug), limit(2))
+      );
+      if (matchingTournaments.docs.some((document) => document.id !== tournamentId)) {
+        throw new Error("This tournament slug is already in use.");
+      }
       const cleanTournament = cleanUndefined(tournament);
       return runTransaction(firestoreDb, async (transaction) => {
         const snapshot = await transaction.get(tournamentRef);
+        const slugReservation = await transaction.get(slugRef);
+        const previousSlug = snapshot.data()?.slug;
+        const previousSlugRef =
+          typeof previousSlug === "string" && previousSlug !== slug
+            ? doc(firestoreDb, "tournamentSlugs", previousSlug)
+            : null;
+        const previousSlugReservation = previousSlugRef
+          ? await transaction.get(previousSlugRef)
+          : null;
+
+        if (
+          slugReservation.exists() && slugReservation.data().tournamentId !== tournamentId
+        ) {
+          throw new Error("This tournament slug is already in use.");
+        }
+
         if (!snapshot.exists()) {
-          transaction.set(tournamentRef, cleanTournament, { merge: true });
+          transaction.set(slugRef, { tournamentId });
+          transaction.set(tournamentRef, { ...cleanTournament, syncVersion: 1 }, { merge: true });
+          tournament.syncVersion = 1;
           return false;
         }
         const current = { ...snapshot.data(), id: snapshot.id } as Record<string, unknown>;
         const incoming = cleanTournament as unknown as Record<string, unknown>;
+        const currentVersion = Number(current.syncVersion) || 0;
+        const incomingVersion = Number(incoming.syncVersion) || 0;
         const hasConflict = !recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(incoming));
-        if (hasConflict) {
+        if (hasConflict && currentVersion !== incomingVersion) {
           transaction.set(conflictRef, {
             id: conflictRef.id,
             collectionName: "tournament",
             recordId: tournamentId,
             record: current,
+            incomingRecord: incoming,
+            resolution: "unresolved",
             archivedAt: new Date().toISOString(),
           });
+          return true;
         }
-        transaction.set(tournamentRef, cleanTournament, { merge: true });
-        return hasConflict;
+        if (
+          previousSlugRef &&
+          previousSlugReservation?.exists() &&
+          previousSlugReservation.data().tournamentId === tournamentId
+        ) {
+          transaction.delete(previousSlugRef);
+        }
+        transaction.set(slugRef, { tournamentId });
+        const nextVersion = hasConflict ? currentVersion + 1 : currentVersion;
+        transaction.set(tournamentRef, { ...cleanTournament, syncVersion: nextVersion }, { merge: true });
+        tournament.syncVersion = nextVersion;
+        return false;
       });
     },
     async getCollections(tournamentId) {
@@ -130,7 +180,8 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
     },
     async syncCollections(
       tournamentId: string,
-      localCollections: Record<CloudCollectionName, CloudRecord[]>
+      localCollections: Record<CloudCollectionName, CloudRecord[]>,
+      deletions: CloudDeletionMap = {}
     ) {
       const firestoreDb = getFirestore();
       let archivedConflictCount = 0;
@@ -145,30 +196,97 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
           remoteIds,
           localItems
         );
+        const deletedIds = new Set(deletions[collectionName] || []);
+        for (const recordId of deletedIds) {
+          const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, recordId);
+          const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
+          await runTransaction(firestoreDb, async (transaction) => {
+            const snapshot = await transaction.get(recordRef);
+            if (snapshot.exists() && typeof snapshot.data().deletedAt === "string") return;
+            const deletedAt = new Date().toISOString();
+            const current = snapshot.exists()
+              ? { ...snapshot.data(), id: snapshot.id } as CloudRecord
+              : { id: recordId };
+            if (snapshot.exists()) {
+              transaction.set(conflictRef, {
+                id: conflictRef.id,
+                collectionName,
+                recordId,
+                record: current,
+                resolution: "recoverable-delete",
+                archivedAt: deletedAt,
+              });
+            }
+            transaction.set(recordRef, {
+              ...current,
+              id: recordId,
+              deletedAt,
+              syncVersion: (Number(current.syncVersion) || 0) + 1,
+            });
+          });
+        }
         for (const item of plan.recordsToWrite) {
+          if (deletedIds.has(item.id)) continue;
           const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, item.id);
           const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
           const cleanRecord = cleanUndefined(item);
           const archived = await runTransaction(firestoreDb, async (transaction) => {
             const snapshot = await transaction.get(recordRef);
-            if (collectionName === "auditEvents" && snapshot.exists()) return false;
+            if (collectionName === "auditEvents" && snapshot.exists()) {
+              return { conflict: false, syncVersion: Number(snapshot.data().syncVersion) || 0 };
+            }
             if (!snapshot.exists()) {
-              transaction.set(recordRef, cleanRecord);
-              return false;
+              transaction.set(recordRef, { ...cleanRecord, syncVersion: 1 });
+              return { conflict: false, syncVersion: 1 };
             }
             const current = { ...snapshot.data(), id: snapshot.id } as CloudRecord;
-            if (recordsEqual(current, cleanRecord)) return false;
+            const currentVersion = Number(current.syncVersion) || 0;
+            const incomingVersion = Number(item.syncVersion) || 0;
+            if (typeof current.deletedAt === "string") {
+              transaction.set(conflictRef, {
+                id: conflictRef.id,
+                collectionName,
+                recordId: item.id,
+                record: current,
+                incomingRecord: cleanRecord,
+                resolution: "deleted",
+                archivedAt: new Date().toISOString(),
+              });
+              return { conflict: true, syncVersion: currentVersion };
+            }
+            if (recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(cleanRecord))) {
+              return { conflict: false, syncVersion: currentVersion };
+            }
+            if (hasStaleSyncVersion(incomingVersion, currentVersion)) {
+              transaction.set(conflictRef, {
+                id: conflictRef.id,
+                collectionName,
+                recordId: item.id,
+                record: current,
+                incomingRecord: cleanRecord,
+                resolution: typeof current.deletedAt === "string" ? "deleted" : "unresolved",
+                archivedAt: new Date().toISOString(),
+              });
+              return { conflict: true, syncVersion: currentVersion };
+            }
             transaction.set(conflictRef, {
               id: conflictRef.id,
               collectionName,
               recordId: item.id,
               record: current,
+              incomingRecord: cleanRecord,
+              resolution: "superseded",
               archivedAt: new Date().toISOString(),
             });
-            transaction.set(recordRef, cleanRecord);
-            return true;
+            const nextVersion = currentVersion + 1;
+            transaction.set(recordRef, { ...cleanRecord, syncVersion: nextVersion });
+            return { conflict: false, syncVersion: nextVersion };
           });
-          archivedConflictCount += Number(archived);
+          if (archived.conflict) {
+            archivedConflictCount += 1;
+          } else {
+            item.syncVersion = archived.syncVersion;
+          }
         }
       }
       return archivedConflictCount;

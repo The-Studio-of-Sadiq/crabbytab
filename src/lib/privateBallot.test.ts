@@ -77,7 +77,7 @@ const teams = new Map(
 
 function ballotInput() {
   return {
-    id: "ballot-d1-adj-123",
+    id: "ballot-d1-adj-chair-123",
     submitterType: "judge",
     submitterId: "chair",
     confirmed: false,
@@ -128,6 +128,35 @@ describe("buildPrivateBallot", () => {
       speakerScores: { OG: [{ speakerId: "speaker-OG", speakerName: "OG Speaker", score: 75 }] },
       teamScores: { OG: { teamId: "team-OG", points: 3, totalSpeakerScore: 75, rank: 1 } },
     });
+
+  });
+
+  it("keeps panellist submissions as drafts for chair review", () => {
+    const result = buildPrivateBallot(
+      { ...ballotInput(), id: "ballot-d1-adj-panel-123", submitterId: "panel" },
+      {
+        tournament,
+        adjudicator: { ...chair, id: "panel" },
+        debate,
+        teams,
+        tournamentId: "t1",
+      }
+    );
+
+    expect(result.confirmed).toBe(false);
+    expect(result).not.toHaveProperty("confirmedBy");
+  });
+
+  it("rejects a ballot identifier owned by another adjudicator", () => {
+    expect(() =>
+      buildPrivateBallot(ballotInput(), {
+        tournament,
+        adjudicator: { ...chair, id: "panel" },
+        debate,
+        teams,
+        tournamentId: "t1",
+      })
+    ).toThrow("The ballot identifier is invalid.");
   });
 
   it("rejects a trainee or other non-voting adjudicator", () => {

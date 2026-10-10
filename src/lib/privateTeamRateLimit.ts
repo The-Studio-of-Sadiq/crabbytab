@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
 import type { Firestore } from "firebase-admin/firestore";
 
-const MAX_ATTEMPTS = 50;
+const MAX_ATTEMPTS = 300;
 const WINDOW_MS = 60 * 60 * 1000;
 
 export async function checkPrivateApiRateLimit(
   firestore: Firestore,
-  clientIp: string,
+  identity: string,
   scope: string,
   maxAttempts = MAX_ATTEMPTS,
   now = Date.now()
 ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
-  const documentId = createHash("sha256").update(clientIp).digest("hex");
+  const documentId = createHash("sha256").update(identity).digest("hex");
   const safeScope = scope.replace(/[^a-z0-9-]/gi, "-").slice(0, 40);
   const rateLimitRef = firestore.collection("apiRateLimits").doc(`private-${safeScope}-${documentId}`);
 
@@ -39,8 +39,8 @@ export async function checkPrivateApiRateLimit(
 
 export function checkPrivateTeamRateLimit(
   firestore: Firestore,
-  clientIp: string,
+  identity: string,
   now = Date.now()
 ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
-  return checkPrivateApiRateLimit(firestore, clientIp, "team", MAX_ATTEMPTS, now);
+  return checkPrivateApiRateLimit(firestore, identity, "team", MAX_ATTEMPTS, now);
 }

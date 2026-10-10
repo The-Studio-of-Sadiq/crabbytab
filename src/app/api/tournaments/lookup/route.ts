@@ -30,7 +30,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const snapshot = await firestore.collection("tournaments").where("slug", "==", slug).limit(1).get();
+    const snapshot = await firestore.collection("tournaments").where("slug", "==", slug).limit(2).get();
+    if (snapshot.docs.length > 1) {
+      return NextResponse.json(
+        { error: "This tournament slug is ambiguous. Contact a tournament administrator." },
+        { status: 409 }
+      );
+    }
     const tournamentDocument = snapshot.docs[0];
     if (!tournamentDocument) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
 

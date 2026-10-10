@@ -476,7 +476,7 @@ export default function AdjudicatorPrivatePortalPage() {
       });
 
       const candidateBallot: BallotSubmission = {
-        id: `ballot-${ballotDebate.id}-adj-${Date.now()}`,
+        id: `ballot-${ballotDebate.id}-adj-${adjudicator.id}-${crypto.randomUUID()}`,
         tournamentId: tournament?.id || tournamentSlug,
         roundId: ballotDebate.roundId,
         debateId: ballotDebate.id,

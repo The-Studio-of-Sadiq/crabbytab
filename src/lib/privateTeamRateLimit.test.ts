@@ -25,18 +25,18 @@ function createFirestoreMock() {
 }
 
 describe("checkPrivateTeamRateLimit", () => {
-  it("allows 50 attempts and rejects the 51st for the same IP within an hour", async () => {
+  it("allows 300 attempts and rejects the 301st for the same private identity within an hour", async () => {
     const { firestore } = createFirestoreMock();
     const now = 1_000_000;
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.1", now + attempt)).resolves.toEqual({
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      await expect(checkPrivateTeamRateLimit(firestore, "private-link-a", now + attempt)).resolves.toEqual({
         allowed: true,
         retryAfterSeconds: 0,
       });
     }
 
-    await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.1", now + 50)).resolves.toEqual({
+    await expect(checkPrivateTeamRateLimit(firestore, "private-link-a", now + 300)).resolves.toEqual({
       allowed: false,
       retryAfterSeconds: 3600,
     });
@@ -46,24 +46,24 @@ describe("checkPrivateTeamRateLimit", () => {
     const { firestore } = createFirestoreMock();
     const now = 1_000_000;
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      await checkPrivateTeamRateLimit(firestore, "192.0.2.1", now);
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      await checkPrivateTeamRateLimit(firestore, "private-link-a", now);
     }
 
     await expect(
-      checkPrivateTeamRateLimit(firestore, "192.0.2.1", now + 60 * 60 * 1000)
+      checkPrivateTeamRateLimit(firestore, "private-link-a", now + 60 * 60 * 1000)
     ).resolves.toEqual({ allowed: true, retryAfterSeconds: 0 });
   });
 
-  it("tracks different IP addresses independently", async () => {
+  it("tracks different private identities independently", async () => {
     const { firestore } = createFirestoreMock();
     const now = 1_000_000;
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      await checkPrivateTeamRateLimit(firestore, "192.0.2.1", now);
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      await checkPrivateTeamRateLimit(firestore, "private-link-a", now);
     }
 
-    await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.2", now)).resolves.toEqual({
+    await expect(checkPrivateTeamRateLimit(firestore, "private-link-b", now)).resolves.toEqual({
       allowed: true,
       retryAfterSeconds: 0,
     });
@@ -74,13 +74,13 @@ describe("checkPrivateTeamRateLimit", () => {
     const now = 1_000_000;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await checkPrivateApiRateLimit(firestore, "192.0.2.1", "sync", 2, now + attempt);
+      await checkPrivateApiRateLimit(firestore, "private-link-a", "sync", 2, now + attempt);
     }
 
-    await expect(checkPrivateApiRateLimit(firestore, "192.0.2.1", "sync", 2, now + 2)).resolves.toMatchObject({
+    await expect(checkPrivateApiRateLimit(firestore, "private-link-a", "sync", 2, now + 2)).resolves.toMatchObject({
       allowed: false,
     });
-    await expect(checkPrivateTeamRateLimit(firestore, "192.0.2.1", now + 2)).resolves.toMatchObject({
+    await expect(checkPrivateTeamRateLimit(firestore, "private-link-a", now + 2)).resolves.toMatchObject({
       allowed: true,
     });
   });

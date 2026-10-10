@@ -40,7 +40,7 @@ export function buildPrivateBallot(
   const id = input.id;
   if (
     typeof id !== "string" ||
-    !id.startsWith(`ballot-${debate.id}-adj-`) ||
+    !id.startsWith(`ballot-${debate.id}-adj-${adjudicatorId}-`) ||
     id.length > 128 ||
     id.includes("/")
   ) {
@@ -167,13 +167,14 @@ export function buildPrivateBallot(
   }
 
   const timestamp = new Date().toISOString();
+  const isChair = debate.adjudicators?.chairId === adjudicatorId;
   return {
     id,
     tournamentId,
     roundId: debate.roundId,
     debateId: debate.id,
     version: 1,
-    confirmed: true,
+    confirmed: isChair,
     discarded: false,
     submitterType: "judge",
     submitterId: adjudicatorId,
@@ -186,8 +187,9 @@ export function buildPrivateBallot(
       ? { chairId: debate.adjudicators.chairId }
       : {}),
     timestamp,
-    confirmedBy: adjudicator.name,
-    confirmedTimestamp: timestamp,
+    ...(isChair
+      ? { confirmedBy: adjudicator.name, confirmedTimestamp: timestamp }
+      : {}),
   };
 }
 

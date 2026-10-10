@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { QuerySnapshot } from "firebase-admin/firestore";
 import {
   Adjudicator,
   BallotSubmission,
   Debate,
   FeedbackSubmission,
+  Round,
   Team,
   Tournament,
 } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
+import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 
 export const runtime = "nodejs";
@@ -22,29 +25,7 @@ function validDocumentId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
 }
 
-function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
-}
-
 export async function POST(request: NextRequest) {
-  let rateLimit: Awaited<ReturnType<typeof checkPrivateApiRateLimit>>;
-  try {
-    rateLimit = await checkPrivateApiRateLimit(getAdminFirestore(), getClientIp(request), "sync");
-  } catch (error) {
-    console.error("Could not enforce private sync rate limit:", error);
-    return NextResponse.json(
-      { error: "Could not process private sync request. Try again later." },
-      { status: 503 }
-    );
-  }
-  if (!rateLimit.allowed) {
-    return NextResponse.json(
-      { error: "Too many private sync requests. Try again later." },
-      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
-    );
-  }
-
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await request.json();
@@ -80,15 +61,43 @@ export async function POST(request: NextRequest) {
       id: tournamentSnapshot.id,
     } as Tournament;
 
-    const [adjudicatorSnapshot, teamsSnapshot, debatesSnapshot] = await Promise.all([
-      tournamentRef.collection("adjudicators").where("privateUrlKey", "==", privateUrlKey).limit(1).get(),
-      tournamentRef.collection("teams").get(),
-      tournamentRef.collection("debates").get(),
+    const [adjudicatorSnapshot, teamIdentitySnapshot] = await Promise.all([
+      tournamentRef.collection("adjudicators").where("privateUrlKey", "==", privateUrlKey).get(),
+      tournamentRef.collection("teams").where("privateUrlKey", "==", privateUrlKey).get(),
     ]);
-    const adjudicatorDocument = adjudicatorSnapshot.docs[0];
+    const adjudicatorDocument = adjudicatorSnapshot.docs.find(
+      (document) => typeof document.data().deletedAt !== "string"
+    );
     const adjudicator = adjudicatorDocument?.data();
-    const teamDocument = teamsSnapshot.docs.find((document) => document.data().privateUrlKey === privateUrlKey);
+    const teamDocument = teamIdentitySnapshot.docs.find(
+      (document) => typeof document.data().deletedAt !== "string"
+    );
     const team = teamDocument?.data();
+    if (!adjudicatorDocument && !teamDocument) {
+      return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
+    }
+
+    let rateLimit: Awaited<ReturnType<typeof checkPrivateApiRateLimit>>;
+    try {
+      rateLimit = await checkPrivateApiRateLimit(
+        firestore,
+        `${tournamentId}:${privateUrlKey}`,
+        "sync"
+      );
+    } catch (error) {
+      console.error("Could not enforce private sync rate limit:", error);
+      return NextResponse.json(
+        { error: "Could not process private sync request. Try again later." },
+        { status: 503 }
+      );
+    }
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many private sync requests. Try again later." },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+      );
+    }
+
     const actorType = adjudicator?.privatePasscode === passcode
       ? "adjudicator"
       : team?.privatePasscode === passcode
@@ -100,25 +109,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
-    const [
-      /* snapshots already fetched above */
-    ] = [];
-    /*
-      tournamentRef.collection("debates").get(),
+    const [teamsSnapshot, debatesSnapshot] = await Promise.all([
       tournamentRef.collection("teams").get(),
+      tournamentRef.collection("debates").get(),
     ]);
-    */
-    const allDebates = new Map(
-      debatesSnapshot.docs.map((document) => [
-        document.id,
-        { ...document.data(), id: document.id } as Debate,
-      ])
+    const allDebates = new Map<string, Debate>(
+      debatesSnapshot.docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => [
+          document.id,
+          { ...document.data(), id: document.id } as Debate,
+        ] as const)
     );
-    const teams = new Map(
-      teamsSnapshot.docs.map((document) => [
-        document.id,
-        { ...document.data(), id: document.id } as Team,
-      ])
+    const teams = new Map<string, Team>(
+      teamsSnapshot.docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => [
+          document.id,
+          { ...document.data(), id: document.id } as Team,
+        ] as const)
     );
     const assignedDebates = new Map(
       debatesSnapshot.docs
@@ -131,9 +140,8 @@ export async function POST(request: NextRequest) {
     );
 
     const batch = firestore.batch();
-    const existingBallotsSnapshot = await tournamentRef.collection("ballots").get();
     let uploadedCount = 0;
-    const pendingBallotByDebate = new Map<string, BallotSubmission>();
+    const ballotSubmissions: BallotSubmission[] = [];
     for (const item of pending as unknown[]) {
       if (!isRecord(item) || !isRecord(item.record)) {
         return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
@@ -177,31 +185,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        const previousVersion = existingBallotsSnapshot.docs
-          .filter((document) => document.data().debateId === ballot.debateId)
-          .reduce((version, document) => Math.max(version, Number(document.data().version) || 0), 0);
-        ballot.version = previousVersion + 1;
-        for (const existing of existingBallotsSnapshot.docs) {
-          if (existing.data().debateId === ballot.debateId && existing.id !== ballot.id) {
-            batch.set(existing.ref, {
-              ...existing.data(),
-              confirmed: false,
-              discarded: true,
-            });
-          }
-        }
-        const previousPendingBallot = pendingBallotByDebate.get(ballot.debateId);
-        if (previousPendingBallot && previousPendingBallot.id !== ballot.id) {
-          batch.set(tournamentRef.collection("ballots").doc(previousPendingBallot.id), {
-            ...previousPendingBallot,
-            confirmed: false,
-            discarded: true,
-          });
-        }
-        pendingBallotByDebate.set(ballot.debateId, ballot);
-        batch.set(tournamentRef.collection("ballots").doc(ballot.id), {
-          ...ballot,
-        });
+        ballotSubmissions.push(ballot);
       } else {
         const debate = assignedDebates.get(debateId)!;
         const panel = debate.adjudicators;
@@ -297,15 +281,97 @@ export async function POST(request: NextRequest) {
       uploadedCount += 1;
     }
 
+    if (ballotSubmissions.length > 0) {
+      const ballotCollection = tournamentRef.collection("ballots");
+      const committed = await firestore.runTransaction(async (transaction) => {
+        const debateIds = [...new Set(ballotSubmissions.map((ballot) => ballot.debateId))];
+        const existingBallotsByDebate = new Map<string, QuerySnapshot>();
+        for (const debateId of debateIds) {
+          const snapshot = await transaction.get(
+            ballotCollection.where("debateId", "==", debateId)
+          );
+          existingBallotsByDebate.set(debateId, snapshot);
+        }
+        const existingSubmissions = await Promise.all(
+          ballotSubmissions.map((ballot) => transaction.get(ballotCollection.doc(ballot.id)))
+        );
+        if (existingSubmissions.some(
+          (snapshot) => snapshot.exists && snapshot.data()?.submitterId !== actorDocument.id
+        )) {
+          return false;
+        }
+
+        const pendingIdsToDiscard = new Set<string>();
+        for (const debateId of debateIds) {
+          const group = ballotSubmissions.filter((ballot) => ballot.debateId === debateId);
+          const finalChairIndex = group.reduce(
+            (lastIndex, ballot, index) => ballot.confirmed ? index : lastIndex,
+            -1
+          );
+          if (finalChairIndex >= 0) {
+            group.slice(0, finalChairIndex).forEach((ballot) => pendingIdsToDiscard.add(ballot.id));
+            for (const existing of existingBallotsByDebate.get(debateId)!.docs) {
+              if (existing.data().discarded !== true) {
+                transaction.update(existing.ref, {
+                  confirmed: false,
+                  discarded: true,
+                });
+              }
+            }
+          }
+        }
+
+        const nextVersionByDebate = new Map<string, number>();
+        for (const debateId of debateIds) {
+          const currentVersion = existingBallotsByDebate.get(debateId)!.docs.reduce(
+            (version, document) =>
+              Math.max(version, Number(document.data().version) || 0),
+            0
+          );
+          nextVersionByDebate.set(debateId, currentVersion);
+        }
+        for (const ballot of ballotSubmissions) {
+          const version = (nextVersionByDebate.get(ballot.debateId) || 0) + 1;
+          nextVersionByDebate.set(ballot.debateId, version);
+          const discarded = pendingIdsToDiscard.has(ballot.id);
+          transaction.set(ballotCollection.doc(ballot.id), {
+            ...ballot,
+            version,
+            confirmed: ballot.confirmed && !discarded,
+            discarded,
+          });
+        }
+        return true;
+      });
+      if (!committed) {
+        return NextResponse.json(
+          { error: "This ballot identifier belongs to another adjudicator." },
+          { status: 403 }
+        );
+      }
+    }
+
     if (uploadedCount > 0) await batch.commit();
 
-    const [ballotsSnapshot, feedbackSnapshot] = await Promise.all([
+    const [ballotsSnapshot, feedbackSnapshot, roundsSnapshot] = await Promise.all([
       tournamentRef.collection("ballots").get(),
       tournamentRef.collection("feedback").where("sourceId", "==", actorDocument.id).get(),
+      tournamentRef.collection("rounds").get(),
     ]);
-    const ballots = ballotsSnapshot.docs
-      .filter((document) => assignedDebates.has(document.data().debateId))
-      .map((document) => ({ ...document.data(), id: document.id }));
+    const allRounds = roundsSnapshot.docs.map((document) => ({
+      ...document.data(),
+      id: document.id,
+    } as Round & { deletedAt?: string })).filter((round) => typeof round.deletedAt !== "string");
+    const ballots = getPrivatePortalBallots(ballotsSnapshot.docs
+      .filter((document) =>
+        typeof document.data().deletedAt !== "string" &&
+        assignedDebates.has(document.data().debateId)
+      )
+      .map((document) => ({ ...document.data(), id: document.id } as BallotSubmission)),
+      allRounds,
+      actorType,
+      tournament.preferences?.publicResults !== false
+    );
     const feedback = feedbackSnapshot.docs.map((document) => ({
       ...document.data(),
       id: document.id,
@@ -339,10 +405,10 @@ export async function POST(request: NextRequest) {
           speakerCategories: team.speakerCategories || [],
         };
       });
-    const privateRounds = (await tournamentRef.collection("rounds").get()).docs
+    const privateRounds = roundsSnapshot.docs
       .filter((document) => assignedRoundIds.has(document.id))
       .map((document) => ({ ...document.data(), id: document.id }));
-    const safeAdjudicator = actorType === "adjudicator" ? {
+    const safeAdjudicator = actorType === "adjudicator" && adjudicator ? {
       tournamentId,
       name: adjudicator.name,
       institutionId: adjudicator.institutionId,
@@ -371,6 +437,17 @@ export async function POST(request: NextRequest) {
       checkedIn: actor.checkedIn,
     } : undefined;
 
+    const roundsById = new Map(allRounds.map((round) => [round.id, round]));
+    const responseDebates = [...assignedDebates.values()].map((debate) =>
+      actorType === "team"
+        ? sanitizeTeamPrivateDebate(
+            debate,
+            roundsById.get(debate.roundId),
+            tournament.preferences?.publicResults !== false
+          )
+        : debate
+    );
+
     return NextResponse.json({
       uploadedCount,
       ballots,
@@ -387,7 +464,7 @@ export async function POST(request: NextRequest) {
       ...(safeTeam ? { team: { ...safeTeam, id: actorDocument.id } } : {}),
       teams: privateTeams,
       rounds: privateRounds,
-      debates: [...assignedDebates.values()],
+      debates: responseDebates,
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);
