@@ -1307,6 +1307,7 @@ export function TournamentProvider({
       tournament,
       rounds,
       teams,
+      institutions,
       venues,
       debates,
       motions,

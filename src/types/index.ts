@@ -51,6 +51,7 @@ export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
 export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
 export type FeedbackQuestionType = "text" | "textarea" | "scale" | "yes_no" | "select_one" | "select_many";
 export type FeedbackAnswer = string | number | boolean | string[] | null;
+export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
 
 export interface FeedbackQuestion {
   id: string;
@@ -82,6 +83,12 @@ export interface TournamentPreferences {
   feedbackMinScore: number;
   feedbackMaxScore: number;
   feedbackQuestions?: FeedbackQuestion[];
+  teamFeedbackQuestions?: FeedbackQuestion[];
+  adjudicatorFeedbackQuestions?: FeedbackQuestion[];
+  feedbackPath?: "chairs_to_panel" | "two_way" | "everyone";
+  feedbackInEliminationRounds?: boolean;
+  checkInExpiresAfterHours?: number;
+  publicCheckInStatus?: boolean;
   /** Up to 8 metric ids, most important first. Empty/absent -> format default. */
   teamStandingsPrecedence?: TeamMetricId[];
   /** Shown on the standings page but not used to rank. */
@@ -219,8 +226,10 @@ export interface Round {
   breakCategoryIds?: string[];
   eliminationAdvanced?: boolean;
   cancelled?: boolean;
+  divisionId?: string;
   completed: boolean;
   createdAt: string;
+  feedbackEnabled?: boolean;
 }
 
 export interface Institution {
@@ -229,6 +238,15 @@ export interface Institution {
   name: string;
   code: string;
   region?: string;
+  venueRequirements?: VenueRequirements;
+}
+
+export interface VenueRequirements {
+  category?: string;
+  minimumCapacity?: number;
+  accessible?: boolean;
+  online?: boolean;
+  nearTabRoom?: boolean;
 }
 
 export interface Speaker {
@@ -246,6 +264,8 @@ export interface Team {
   breakCategoryIds?: string[];
   eliminatedInRoundId?: string;
   codeName?: string;
+  divisionId?: string;
+  divisionName?: string;
   institutionId?: string;
   institutionName?: string;
   speakers: Speaker[];
@@ -254,7 +274,10 @@ export interface Team {
   seed?: number;
   emoji?: string;
   checkedIn?: boolean;
+  checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
+  roundAvailabilityAt?: Record<string, string>;
+  venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
 }
@@ -278,9 +301,12 @@ export interface Adjudicator {
   trainee: boolean;
   independent: boolean;
   checkedIn?: boolean;
+  checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
+  roundAvailabilityAt?: Record<string, string>;
   conflicts: AdjudicatorConflict[];
   gender?: string;
+  venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for adjudicator's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
 }
@@ -294,6 +320,7 @@ export interface Venue {
   capacity?: number;
   accessible?: boolean;
   online?: boolean;
+  nearTabRoom?: boolean;
   available?: boolean;
   checkedIn?: boolean;
 }
@@ -339,6 +366,7 @@ export interface Debate {
   requiredVenueCapacity?: number;
   requiresAccessibleVenue?: boolean;
   requiresOnlineVenue?: boolean;
+  requiresNearTabRoom?: boolean;
   bracket: number; // e.g., 6 points bracket in round 3
   roomRank: number;
   importance: number;
@@ -349,6 +377,8 @@ export interface Debate {
   adjudicators: DebateAdjudicatorSlot;
   motionId?: string;
   motionText?: string;
+  postponed?: boolean;
+  postponedReason?: string;
 }
 
 export interface SpeakerScoreEntry {

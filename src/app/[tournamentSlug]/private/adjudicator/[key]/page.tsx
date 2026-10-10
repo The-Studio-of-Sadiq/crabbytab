@@ -27,7 +27,7 @@ import {
 import { DebateSide, Debate, BallotSubmission, FeedbackAnswer } from "@/types";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
-import { validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export default function AdjudicatorPrivatePortalPage() {
   const params = useParams();
@@ -62,7 +62,7 @@ export default function AdjudicatorPrivatePortalPage() {
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
-  const feedbackQuestions = tournament?.preferences?.feedbackQuestions ?? [];
+  const feedbackQuestions = questionsForFeedbackSource("adjudicator", tournament?.preferences);
   const isBP = tournament?.format === "bp";
   const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
 

@@ -249,7 +249,7 @@ export default function DrawPage() {
     debate: Debate,
     requirements: Partial<Pick<
       Debate,
-      "requiredVenueCategory" | "requiredVenueCapacity" | "requiresAccessibleVenue" | "requiresOnlineVenue"
+      "requiredVenueCategory" | "requiredVenueCapacity" | "requiresAccessibleVenue" | "requiresOnlineVenue" | "requiresNearTabRoom"
     >>
   ) => {
     setVenueAssignmentError("");
@@ -539,6 +539,30 @@ export default function DrawPage() {
           </button>
         ))}
       </div>
+      {activeRound && teams.some((team) => team.divisionId || team.divisionName) && (
+        <label className="flex max-w-md items-center gap-2 text-xs font-semibold text-gray-700">
+          Division
+          <select
+            value={activeRound.divisionId || ""}
+            onChange={(event) => void updateRound({
+              ...activeRound,
+              divisionId: event.target.value || undefined,
+            })}
+            className="min-w-48 rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">All divisions</option>
+            {[...new Map(teams
+              .filter((team) => team.divisionId || team.divisionName)
+              .map((team) => [team.divisionId || team.divisionName || "", {
+                id: team.divisionId || team.divisionName || "",
+                name: team.divisionName || team.divisionId || "",
+              }])).values()]
+              .sort((left, right) => left.name.localeCompare(right.name))
+              .map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+          </select>
+          <span className="font-normal text-gray-500">This round will draw only teams in the selected division.</span>
+        </label>
+      )}
 
       {/* Unassigned Teams Bar & Search */}
       <div className="space-y-3">
@@ -692,6 +716,32 @@ export default function DrawPage() {
 
                 <div className="px-4 py-3 border-b border-gray-100 bg-white">
                   <div className="flex flex-wrap items-end gap-3">
+                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={debate.postponed === true}
+                        onChange={(event) => void updateDebate({
+                          ...debate,
+                          postponed: event.target.checked || undefined,
+                          postponedReason: event.target.checked ? debate.postponedReason : undefined,
+                        })}
+                      />
+                      Postponed (exclude from standings and history)
+                    </label>
+                    {debate.postponed && (
+                      <input
+                        type="text"
+                        aria-label="Postponement reason"
+                        maxLength={500}
+                        value={debate.postponedReason || ""}
+                        onChange={(event) => void updateDebate({
+                          ...debate,
+                          postponedReason: event.target.value || undefined,
+                        })}
+                        placeholder="Reason (optional)"
+                        className="min-w-48 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
+                      />
+                    )}
                     <label className="flex flex-col gap-1 text-[10px] font-semibold text-gray-600">
                       Required category
                       <select
@@ -752,6 +802,16 @@ export default function DrawPage() {
                         })}
                       />
                       Online-capable
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={debate.requiresNearTabRoom === true}
+                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                          requiresNearTabRoom: e.target.checked,
+                        })}
+                      />
+                      Near tab room
                     </label>
                     {assignedVenueIssues.length > 0 && (
                       <span className="basis-full text-[11px] font-semibold text-red-700" role="status">

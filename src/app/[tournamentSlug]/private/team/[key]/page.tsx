@@ -23,7 +23,7 @@ import {
 import { Debate, DebateSide, FeedbackAnswer } from "@/types";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
-import { validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export default function TeamPrivatePortalPage() {
   const params = useParams();
@@ -131,7 +131,7 @@ export default function TeamPrivatePortalPage() {
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
-  const feedbackQuestions = tournament?.preferences?.feedbackQuestions ?? [];
+  const feedbackQuestions = questionsForFeedbackSource("team", tournament?.preferences);
   const isBP = tournament?.format === "bp";
 
   // Filter state

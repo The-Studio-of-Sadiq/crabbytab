@@ -80,6 +80,8 @@ export function calculateStandings(
   const byeSpeakerScores = new Map<string, Map<string, number>>();
 
   for (const debate of debates) {
+    if (debate.postponed) continue;
+    if (debate.postponed) continue;
     if (debate.byeTeamId) {
       if (debate.byeResult !== "win") continue;
 
@@ -296,6 +298,7 @@ export function calculateStandings(
   }
 
   for (const debate of debates) {
+    if (debate.postponed) continue;
     const speakerScores = byeSpeakerScores.get(debate.id);
     if (!speakerScores) continue;
     for (const [speakerId, score] of speakerScores) {
@@ -310,6 +313,7 @@ export function calculateStandings(
   }
 
   for (const debate of debates) {
+    if (debate.postponed) continue;
     const ballot = ballotMap.get(debate.id);
     if (!ballot) continue;
 

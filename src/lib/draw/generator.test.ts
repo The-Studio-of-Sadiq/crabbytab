@@ -5,6 +5,7 @@ import {
   generateRoundDraw,
   getEligibleTeamsForRound,
   getRequiredVenueCount,
+  getTeamVenueRequirements,
 } from "./generator";
 
 const teams: Team[] = [
@@ -61,9 +62,54 @@ function makeRound(stage: Round["stage"], breakCategoryIds?: string[]): Round {
 }
 
 describe("Round draw eligibility", () => {
+  it("combines team and institution standing venue requirements", () => {
+    const requirements = getTeamVenueRequirements(
+      [{
+        ...teams[0],
+        institutionId: "institution-a",
+        venueRequirements: { minimumCapacity: 20, accessible: true },
+      }],
+      new Map([["institution-a", {
+        id: "institution-a",
+        tournamentId: "t1",
+        name: "Institution A",
+        code: "A",
+        venueRequirements: { category: "quiet", nearTabRoom: true },
+      }]])
+    );
+    expect(requirements).toEqual({
+      requiredVenueCategory: "quiet",
+      requiredVenueCapacity: 20,
+      requiresAccessibleVenue: true,
+      requiresOnlineVenue: undefined,
+      requiresNearTabRoom: true,
+    });
+  });
+
+  it("rejects incompatible standing venue categories rather than weakening them", () => {
+    expect(() => getTeamVenueRequirements([
+      { ...teams[0], venueRequirements: { category: "quiet" } },
+      { ...teams[1], venueRequirements: { category: "large" } },
+    ], new Map())).toThrow("incompatible venue categories");
+  });
+
   it("uses only the selected category's qualifiers for category elimination rounds", () => {
     expect(getEligibleTeamsForRound(teams, makeRound("elimination", ["open"])).map((team) => team.id))
       .toEqual(["open-team"]);
+  });
+
+  it("limits a round draw to its selected division", () => {
+    const dividedTeams = [
+      { ...teams[0], id: "west-1", divisionId: "west" },
+      { ...teams[1], id: "east-1", divisionId: "east" },
+    ];
+    expect(getEligibleTeamsForRound(dividedTeams, { ...makeRound("preliminary"), divisionId: "east" })
+      .map((team) => team.id)).toEqual(["east-1"]);
+    const nameOnlyTeam = { ...teams[0], id: "north-1", divisionName: "north" };
+    expect(getEligibleTeamsForRound([nameOnlyTeam], {
+      ...makeRound("preliminary"),
+      divisionId: "north",
+    })).toEqual([nameOnlyTeam]);
   });
 
   it("uses all qualified teams for uncategorized elimination rounds", () => {

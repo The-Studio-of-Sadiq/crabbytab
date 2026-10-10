@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Clock,
@@ -13,6 +14,19 @@ import {
   Printer,
 } from "lucide-react";
 import { Code39Barcode } from "@/components/ui/Code39Barcode";
+import { isAvailableForRound } from "@/lib/roundAvailability";
+
+interface BarcodeDetectorResult {
+  rawValue: string;
+}
+
+interface BarcodeDetectorLike {
+  detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
+}
+
+type WindowWithBarcodeDetector = Window & {
+  BarcodeDetector?: new (options: { formats: string[] }) => BarcodeDetectorLike;
+};
 
 export default function CheckinsPage() {
   const {
@@ -33,15 +47,18 @@ export default function CheckinsPage() {
   const [scanValue, setScanValue] = useState("");
   const [scanStatus, setScanStatus] = useState<{ message: string; error: boolean } | null>(null);
   const [showBarcodeSheet, setShowBarcodeSheet] = useState(false);
+  const [cameraScanning, setCameraScanning] = useState(false);
   const scannerRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const checkedInTeams = teams.filter((t) => t.checkedIn !== false).length;
   const checkedInAdjs = adjudicators.filter((a) => a.checkedIn !== false).length;
+  const checkInExpiry = tournament?.preferences?.checkInExpiresAfterHours;
   const roundTeamsPresent = activeRound
-    ? teams.filter((team) => team.roundAvailability?.[activeRound.id] ?? team.checkedIn !== false).length
+    ? teams.filter((team) => isAvailableForRound(team, activeRound, checkInExpiry)).length
     : checkedInTeams;
   const roundAdjudicatorsPresent = activeRound
-    ? adjudicators.filter((adj) => adj.roundAvailability?.[activeRound.id] ?? adj.checkedIn !== false).length
+    ? adjudicators.filter((adj) => isAvailableForRound(adj, activeRound, checkInExpiry)).length
     : checkedInAdjs;
   const filteredTeams = teams.filter((team) =>
     `${team.name} ${team.institutionName ?? ""} ${team.id}`.toLowerCase().includes(searchQuery.toLowerCase())
@@ -60,35 +77,111 @@ export default function CheckinsPage() {
     return () => window.removeEventListener("afterprint", handleAfterPrint);
   }, []);
 
+  useEffect(() => {
+    if (!cameraScanning) return;
+    let stopped = false;
+    let animationFrame = 0;
+    let stream: MediaStream | undefined;
+    let videoElement: HTMLVideoElement | null = null;
+    let inFlight = false;
+    let lastScannedId = "";
+    const startCamera = async () => {
+      const Detector = (window as WindowWithBarcodeDetector).BarcodeDetector;
+      if (!Detector) {
+        setScanStatus({ message: "Camera barcode scanning is not supported by this browser. Use a USB scanner instead.", error: true });
+        setCameraScanning(false);
+        return;
+      }
+      try {
+        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (stopped) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = cameraStream;
+        videoElement = videoRef.current;
+        if (!videoElement) throw new Error("The camera preview is unavailable.");
+        videoElement.srcObject = cameraStream;
+        await videoElement.play();
+        const detector = new Detector({ formats: ["code_39"] });
+        const scanFrame = async () => {
+          if (stopped || !videoElement || inFlight) return;
+          inFlight = true;
+          try {
+            const results = await detector.detect(videoElement);
+            const rawValue = results[0]?.rawValue.trim();
+            if (rawValue && rawValue !== lastScannedId) {
+              lastScannedId = rawValue;
+              setScanValue(rawValue);
+              window.setTimeout(() => scannerRef.current?.form?.requestSubmit(), 0);
+              window.setTimeout(() => { lastScannedId = ""; }, 1500);
+            }
+          } catch {
+            setScanStatus({ message: "Could not read a barcode from the camera stream.", error: true });
+          } finally {
+            inFlight = false;
+            if (!stopped) animationFrame = window.requestAnimationFrame(() => void scanFrame());
+          }
+        };
+        animationFrame = window.requestAnimationFrame(() => void scanFrame());
+      } catch (error) {
+        setScanStatus({
+          message: error instanceof Error ? `Camera could not be started: ${error.message}` : "Camera permission was denied.",
+          error: true,
+        });
+        setCameraScanning(false);
+      }
+    };
+    void startCamera();
+    return () => {
+      stopped = true;
+      window.cancelAnimationFrame(animationFrame);
+      stream?.getTracks().forEach((track) => track.stop());
+      if (videoElement) videoElement.srcObject = null;
+    };
+  }, [cameraScanning]);
+
   const toggleTeamCheckin = async (team: (typeof teams)[number]) => {
     if (!activeRound) return;
-    const available = team.roundAvailability?.[activeRound.id] ?? team.checkedIn !== false;
+    const available = isAvailableForRound(team, activeRound, checkInExpiry);
+    const timestamp = new Date().toISOString();
     await updateTeam({
       ...team,
       roundAvailability: { ...team.roundAvailability, [activeRound.id]: !available },
+      roundAvailabilityAt: { ...team.roundAvailabilityAt, [activeRound.id]: timestamp },
     });
   };
 
   const toggleAdjCheckin = async (adj: (typeof adjudicators)[number]) => {
     if (!activeRound) return;
-    const available = adj.roundAvailability?.[activeRound.id] ?? adj.checkedIn !== false;
+    const available = isAvailableForRound(adj, activeRound, checkInExpiry);
+    const timestamp = new Date().toISOString();
     await updateAdjudicator({
       ...adj,
       roundAvailability: { ...adj.roundAvailability, [activeRound.id]: !available },
+      roundAvailabilityAt: { ...adj.roundAvailabilityAt, [activeRound.id]: timestamp },
     });
   };
 
   const checkInAll = async () => {
     if (activeTab === "teams") {
       for (const t of teams) {
-        if (activeRound && (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) === false) {
-          await updateTeam({ ...t, roundAvailability: { ...t.roundAvailability, [activeRound.id]: true } });
+        if (activeRound && !isAvailableForRound(t, activeRound, checkInExpiry)) {
+          await updateTeam({
+            ...t,
+            roundAvailability: { ...t.roundAvailability, [activeRound.id]: true },
+            roundAvailabilityAt: { ...t.roundAvailabilityAt, [activeRound.id]: new Date().toISOString() },
+          });
         }
       }
     } else if (activeTab === "adjs") {
       for (const a of adjudicators) {
-        if (activeRound && (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) === false) {
-          await updateAdjudicator({ ...a, roundAvailability: { ...a.roundAvailability, [activeRound.id]: true } });
+        if (activeRound && !isAvailableForRound(a, activeRound, checkInExpiry)) {
+          await updateAdjudicator({
+            ...a,
+            roundAvailability: { ...a.roundAvailability, [activeRound.id]: true },
+            roundAvailabilityAt: { ...a.roundAvailabilityAt, [activeRound.id]: new Date().toISOString() },
+          });
         }
       }
     } else {
@@ -110,6 +203,7 @@ export default function CheckinsPage() {
         await updateTeam({
           ...team,
           roundAvailability: { ...team.roundAvailability, [activeRound.id]: true },
+          roundAvailabilityAt: { ...team.roundAvailabilityAt, [activeRound.id]: new Date().toISOString() },
         });
         setScanStatus({ message: `${team.name} checked in for ${activeRound.name}.`, error: false });
       } else {
@@ -119,6 +213,7 @@ export default function CheckinsPage() {
           await updateAdjudicator({
             ...adjudicator,
             roundAvailability: { ...adjudicator.roundAvailability, [activeRound.id]: true },
+            roundAvailabilityAt: { ...adjudicator.roundAvailabilityAt, [activeRound.id]: new Date().toISOString() },
           });
           setScanStatus({ message: `${adjudicator.name} checked in for ${activeRound.name}.`, error: false });
         } else {
@@ -174,6 +269,12 @@ export default function CheckinsPage() {
           <Printer className="w-3.5 h-3.5" />
           <span>Print Barcode Labels</span>
         </button>
+        <Link
+          href={`/${tournament?.slug}/checkins/public`}
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+        >
+          <span>Public Status</span>
+        </Link>
       </div>
 
       <form onSubmit={handleScan} className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
@@ -196,7 +297,23 @@ export default function CheckinsPage() {
           >
             Check In
           </button>
+          <button
+            type="button"
+            onClick={() => setCameraScanning((active) => !active)}
+            className="rounded border border-blue-400 bg-white px-4 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100"
+          >
+            {cameraScanning ? "Stop camera" : "Use camera"}
+          </button>
         </div>
+        {cameraScanning && (
+          <video
+            ref={videoRef}
+            aria-label="Camera barcode scanner preview"
+            muted
+            playsInline
+            className="max-h-64 w-full rounded border border-blue-300 bg-black object-contain"
+          />
+        )}
         <p className="text-[11px] text-blue-800">
           Most USB scanners type the barcode and press Enter. This field also accepts a pasted participant or venue ID.
         </p>
@@ -294,12 +411,12 @@ export default function CheckinsPage() {
                         <button
                           onClick={() => toggleTeamCheckin(t)}
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            (activeRound ? (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) : t.checkedIn !== false)
+                            isAvailableForRound(t, activeRound, checkInExpiry)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {(activeRound ? (t.roundAvailability?.[activeRound.id] ?? t.checkedIn !== false) : t.checkedIn !== false) ? (
+                          {isAvailableForRound(t, activeRound, checkInExpiry) ? (
                             <>
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               <span>Present</span>
@@ -323,12 +440,12 @@ export default function CheckinsPage() {
                         <button
                           onClick={() => toggleAdjCheckin(a)}
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            (activeRound ? (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) : a.checkedIn !== false)
+                            isAvailableForRound(a, activeRound, checkInExpiry)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {(activeRound ? (a.roundAvailability?.[activeRound.id] ?? a.checkedIn !== false) : a.checkedIn !== false) ? (
+                          {isAvailableForRound(a, activeRound, checkInExpiry) ? (
                             <>
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               <span>Present</span>

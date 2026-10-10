@@ -52,18 +52,20 @@ describe("venue allocation", () => {
     expect(allocateVenuesToDebates(debates, venues).get("normal")?.id).toBe("main");
   });
 
-  it("matches category, capacity, accessibility, and online requirements", () => {
+  it("matches category, capacity, accessibility, online, and location requirements", () => {
     const debate = makeDebate("special", {
       requiredVenueCategory: "Online",
       requiredVenueCapacity: 20,
       requiresAccessibleVenue: true,
       requiresOnlineVenue: true,
+      requiresNearTabRoom: true,
     });
     const venue = makeVenue("online-room", {
       category: "online",
       capacity: 30,
       accessible: true,
       online: true,
+      nearTabRoom: true,
     });
 
     expect(getVenueIncompatibilities(debate, venue)).toEqual([]);
@@ -72,6 +74,7 @@ describe("venue allocation", () => {
       "requires capacity of at least 20",
       "requires an accessible venue",
       "requires an online-capable venue",
+      "requires a venue near the tab room",
     ]);
   });
 

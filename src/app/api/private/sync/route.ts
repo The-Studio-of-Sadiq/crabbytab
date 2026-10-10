@@ -14,7 +14,13 @@ import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
-import { isFeedbackAnswerRecord, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import {
+  canSubmitParticipantFeedback,
+  isFeedbackAnswerRecord,
+  isFeedbackEnabledForRound,
+  questionsForFeedbackSource,
+  validateFeedbackAnswers,
+} from "@/lib/feedback/questions";
 
 export const runtime = "nodejs";
 
@@ -114,6 +120,12 @@ export async function POST(request: NextRequest) {
       tournamentRef.collection("teams").get(),
       tournamentRef.collection("debates").get(),
     ]);
+    const feedbackRoundsSnapshot = await tournamentRef.collection("rounds").get();
+    const roundById = new Map(
+      feedbackRoundsSnapshot.docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => [document.id, { ...document.data(), id: document.id } as Round])
+    );
     const allDebates = new Map<string, Debate>(
       debatesSnapshot.docs
         .filter((document) => typeof document.data().deletedAt !== "string")
@@ -222,9 +234,28 @@ export async function POST(request: NextRequest) {
           ? targetAdjudicatorIsAssigned && targetAdjudicatorId !== actorDocument.id
           : targetType === "team" && Boolean(targetTeamSlot) &&
             (actorType !== "team" || targetTeamId !== actorDocument.id);
+        const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;
+        const targetIsChair = Boolean(targetAdjudicatorId && panel.chairId === targetAdjudicatorId);
+        const feedbackAllowed = canSubmitParticipantFeedback({
+          sourceType: actorType,
+          sourceId: actorDocument.id,
+          sourceIsChair: actorType === "adjudicator" && panel.chairId === actorDocument.id,
+          targetType,
+          targetId: targetId || "",
+          targetIsChair,
+          path: tournament.preferences?.feedbackPath || "two_way",
+        });
+        const round = roundById.get(debate.roundId);
         if (
           !sourceIsAuthorized ||
-          !targetIsAuthorized
+          !targetIsAuthorized ||
+          !feedbackAllowed ||
+          tournament.preferences?.feedbackEnabled === false ||
+          !isFeedbackEnabledForRound(
+            debate,
+            round,
+            tournament.preferences?.feedbackInEliminationRounds !== false
+          )
         ) {
           return NextResponse.json({ error: "Feedback does not match this participant or debate." }, { status: 403 });
         }
@@ -235,7 +266,10 @@ export async function POST(request: NextRequest) {
             (typeof record.comments !== "string" || record.comments.length > 5000)) ||
           (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean") ||
           !isFeedbackAnswerRecord(answers) ||
-          Boolean(validateFeedbackAnswers(tournament.preferences?.feedbackQuestions || [], answers))
+          Boolean(validateFeedbackAnswers(
+            questionsForFeedbackSource(actorType, tournament.preferences),
+            answers
+          ))
         ) {
           return NextResponse.json({ error: "Feedback contains invalid details." }, { status: 400 });
         }

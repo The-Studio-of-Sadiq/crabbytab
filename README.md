@@ -13,6 +13,8 @@ CrabbyTab is an independent project and is not affiliated with Tabbycat.
   rounds, scoring, breaks, and public visibility.
 - Import and manage teams, adjudicators, institutions, venues, and motions.
 - Generate draws, allocate adjudicators and venues, and manage check-ins.
+- Import division IDs and names with teams, then restrict a round draw to one
+  division when divisions should run in parallel.
 - Record results and ballots, calculate standings, and manage break categories.
 - Configure adjudicator panel balancing, feedback questions, and institution
   limits for break qualifiers.
@@ -24,6 +26,16 @@ CrabbyTab is an independent project and is not affiliated with Tabbycat.
   views during an event.
 - Keep tournament data in the browser for offline use, with optional Firebase
   authentication and cloud synchronization.
+
+### CSV divisions and venue requirements
+
+Team imports can include `division_id` and `division` columns. Select a
+division on the Draw page to limit that round's eligible teams; leaving the
+round set to **All divisions** preserves the default draw behavior. Team,
+adjudicator, and institution imports can also include `required_venue_category`,
+`min_venue_capacity`, `requires_accessible_venue`, `requires_online_venue`, and
+`requires_near_tab_room` to apply standing venue requirements. Venue imports
+accept `near_tab_room` as a capability column.
 
 ## Requirements
 

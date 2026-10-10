@@ -1,4 +1,4 @@
-import type { AuditCategory, Debate, Motion, Round, Team, TeamStandingRow, Tournament, Venue } from "@/types";
+import type { AuditCategory, Debate, Institution, Motion, Round, Team, TeamStandingRow, Tournament, Venue } from "@/types";
 import type { generateRoundDraw } from "@/lib/draw/generator";
 
 export interface DrawAuditEvent {
@@ -13,6 +13,7 @@ export interface GenerateDrawDependencies {
   tournament: Tournament | null;
   rounds: Round[];
   teams: Team[];
+  institutions?: Institution[];
   venues: Venue[];
   debates: Debate[];
   motions: Motion[];
@@ -32,7 +33,7 @@ export async function generateDrawCommand(
   roundId: string,
   dependencies: GenerateDrawDependencies
 ): Promise<void> {
-  const { tournament, rounds, teams, venues, debates, motions, standings } = dependencies;
+  const { tournament, rounds, teams, institutions = [], venues, debates, motions, standings } = dependencies;
   const round = rounds.find((item) => item.id === roundId);
   if (!round || !tournament) return;
 
@@ -46,6 +47,7 @@ export async function generateDrawCommand(
     tournament,
     round,
     teams,
+    institutions,
     venues,
     pastDebates,
     standings,

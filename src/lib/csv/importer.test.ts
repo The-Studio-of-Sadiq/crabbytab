@@ -27,6 +27,43 @@ Oxford A,Oxford,Emma,Frank`;
     expect(teams2[0].speakers[1].name).toBe("Frank");
   });
 
+  it("imports team division IDs and names", () => {
+    const teams = parseTeamsCsv(
+      "name,division_id,division\nTeam A,north,North Division",
+      "t1"
+    );
+    expect(teams[0]).toMatchObject({
+      divisionId: "north",
+      divisionName: "North Division",
+    });
+  });
+
+  it("imports standing venue requirements for teams, adjudicators, and institutions", () => {
+    const team = parseTeamsCsv(
+      "name,requires_accessible_venue,requires_near_tab_room,min_venue_capacity\nTeam A,yes,1,40",
+      "t1"
+    )[0];
+    const adjudicator = parseAdjudicatorsCsv(
+      "name,required_venue_category,requires_online_venue\nJudge A,Quiet,no",
+      "t1"
+    )[0];
+    const institution = parseInstitutionsCsv(
+      "name,venue_category,venue_accessible\nInstitution A,Quiet,yes",
+      "t1"
+    )[0];
+    expect(team.venueRequirements).toEqual({
+      category: undefined,
+      minimumCapacity: 40,
+      accessible: true,
+      online: undefined,
+      nearTabRoom: true,
+    });
+    expect(adjudicator.venueRequirements?.category).toBe("Quiet");
+    expect(adjudicator.venueRequirements?.online).toBe(false);
+    expect(institution.venueRequirements?.category).toBe("Quiet");
+    expect(institution.venueRequirements?.accessible).toBe(true);
+  });
+
   it("parses adjudicators with scores, boolean flags, and alias headers", () => {
     const csv = `Name,Institution,Score,Trainee,Independent
 Judge Alpha,Cambridge,7.5,yes,no
@@ -71,6 +108,11 @@ Room 102,10,Tutorial`;
         { capacity: 120, accessible: true, online: false },
         { capacity: 20, accessible: false, online: true },
       ]);
+  });
+
+  it("imports the near-tab-room venue capability", () => {
+    const [venue] = parseVenuesCsv("name,near_tab_room\nRoom A,true", "t1");
+    expect(venue.nearTabRoom).toBe(true);
   });
 
   it("rejects invalid venue capacities and capability flags", () => {

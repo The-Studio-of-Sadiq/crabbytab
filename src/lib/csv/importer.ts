@@ -1,10 +1,17 @@
 import Papa from "papaparse";
-import { Team, Adjudicator, Institution, Venue, Motion, Round, TeamStandingRow, SpeakerStandingRow } from "@/types";
+import { Team, Adjudicator, Institution, Venue, VenueRequirements, Motion, Round, TeamStandingRow, SpeakerStandingRow } from "@/types";
 
 export interface TeamCsvRow {
   name: string;
   code?: string;
   institution?: string;
+  division_id?: string;
+  division?: string;
+  required_venue_category?: string;
+  min_venue_capacity?: string | number;
+  requires_accessible_venue?: string | boolean;
+  requires_online_venue?: string | boolean;
+  requires_near_tab_room?: string | boolean;
   speaker1: string;
   speaker1_email?: string;
   speaker2: string;
@@ -21,12 +28,18 @@ export interface AdjudicatorCsvRow {
   email?: string;
   trainee?: string | boolean;
   independent?: string | boolean;
+  required_venue_category?: string;
+  min_venue_capacity?: string | number;
+  requires_accessible_venue?: string | boolean;
+  requires_online_venue?: string | boolean;
+  requires_near_tab_room?: string | boolean;
 }
 
 export interface VenueCsvRow {
   name: string;
   priority?: string | number;
   category?: string;
+  near_tab_room?: string | boolean;
 }
 
 function getField(row: Record<string, string>, ...aliases: string[]): string {
@@ -40,6 +53,30 @@ function getField(row: Record<string, string>, ...aliases: string[]): string {
     }
   }
   return "";
+}
+
+function parseCsvFlag(raw: string, field: string, rowNumber: number): boolean | undefined {
+  if (!raw.trim()) return undefined;
+  if (/^(yes|true|1)$/i.test(raw.trim())) return true;
+  if (/^(no|false|0)$/i.test(raw.trim())) return false;
+  throw new Error(`Invalid ${field} value on CSV row ${rowNumber}: ${raw}`);
+}
+
+function parseVenueRequirements(row: Record<string, string>, rowNumber: number): VenueRequirements | undefined {
+  const category = getField(row, "required_venue_category", "venue_category").trim();
+  const capacityRaw = getField(row, "min_venue_capacity", "minimum_venue_capacity");
+  const capacity = capacityRaw.trim() ? Number(capacityRaw) : undefined;
+  if (capacity !== undefined && (!Number.isFinite(capacity) || capacity < 0)) {
+    throw new Error(`Invalid minimum venue capacity on CSV row ${rowNumber}: ${capacityRaw}`);
+  }
+  const requirements: VenueRequirements = {
+    category: category || undefined,
+    minimumCapacity: capacity,
+    accessible: parseCsvFlag(getField(row, "requires_accessible_venue", "venue_accessible"), "requires_accessible_venue", rowNumber),
+    online: parseCsvFlag(getField(row, "requires_online_venue", "venue_online"), "requires_online_venue", rowNumber),
+    nearTabRoom: parseCsvFlag(getField(row, "requires_near_tab_room", "venue_near_tab_room"), "requires_near_tab_room", rowNumber),
+  };
+  return Object.values(requirements).some((value) => value !== undefined) ? requirements : undefined;
 }
 
 /**
@@ -77,7 +114,10 @@ export function parseTeamsCsv(csvContent: string, tournamentId: string): Team[] 
       tournamentId,
       name: name.trim(),
       codeName: getField(row, "code", "Code") || undefined,
+      divisionId: getField(row, "division_id", "divisionId", "division") || undefined,
+      divisionName: getField(row, "division", "Division", "division_id", "divisionId") || undefined,
       institutionName: instName.trim() || undefined,
+      venueRequirements: parseVenueRequirements(row, idx + 2),
       speakers,
       breakCategories: [],
       speakerCategories: category ? [category.toLowerCase().trim()] : [],
@@ -115,6 +155,7 @@ export function parseAdjudicatorsCsv(csvContent: string, tournamentId: string): 
       baseScore: scoreVal,
       trainee: isTrainee,
       independent: isIndep,
+      venueRequirements: parseVenueRequirements(row, idx + 2),
       checkedIn: true,
       conflicts: [],
     });
@@ -139,12 +180,6 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
     const capacity = capacityRaw?.trim() ? Number(capacityRaw) : undefined;
     const accessibleRaw = getField(row, "accessible", "Accessible");
     const onlineRaw = getField(row, "online", "Online");
-    const parseVenueFlag = (raw: string | undefined, field: string): boolean | undefined => {
-      if (!raw?.trim()) return undefined;
-      if (/^(yes|true|1)$/i.test(raw.trim())) return true;
-      if (/^(no|false|0)$/i.test(raw.trim())) return false;
-      throw new Error(`Invalid ${field} value on CSV row ${idx + 2}: ${raw}`);
-    };
 
     if (
       capacity !== undefined &&
@@ -160,8 +195,9 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
       priority,
       category,
       capacity,
-      accessible: parseVenueFlag(accessibleRaw, "accessible"),
-      online: parseVenueFlag(onlineRaw, "online"),
+      accessible: parseCsvFlag(accessibleRaw, "accessible", idx + 2),
+      online: parseCsvFlag(onlineRaw, "online", idx + 2),
+      nearTabRoom: parseCsvFlag(getField(row, "near_tab_room", "nearTabRoom"), "near_tab_room", idx + 2),
       available: true,
     });
   });
@@ -198,6 +234,7 @@ export function parseInstitutionsCsv(csvContent: string, tournamentId: string): 
       name: institutionName,
       code: institutionCode,
       region: region?.trim() || undefined,
+      venueRequirements: parseVenueRequirements(row, idx + 2),
     });
   });
 

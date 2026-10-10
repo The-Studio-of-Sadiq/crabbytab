@@ -62,6 +62,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     rounds,
     debates,
     ballots,
+    updateRound,
     setPreliminaryRoundCount,
     deleteRound,
   } = useTournament();
@@ -82,6 +83,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     publicResults: true,
     publicStandings: true,
     publicMotions: true,
+    publicCheckInStatus: false,
+    checkInExpiresAfterHours: 0,
     feedbackEnabled: true,
     feedbackMinScore: 1,
     feedbackMaxScore: 10,
@@ -141,6 +144,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
+  const [questionnaireSource, setQuestionnaireSource] = useState<"team" | "adjudicator">("team");
+  const currentFeedbackQuestions = questionnaireSource === "team"
+    ? prefs.teamFeedbackQuestions ?? prefs.feedbackQuestions ?? []
+    : prefs.adjudicatorFeedbackQuestions ?? prefs.feedbackQuestions ?? [];
   const [prelimRoundCount, setPrelimRoundCount] = useState(0);
   const [isSavingRoundCount, setIsSavingRoundCount] = useState(false);
   const [roundCountError, setRoundCountError] = useState("");
@@ -148,6 +155,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const [showDeleteRoundConfirm, setShowDeleteRoundConfirm] = useState(false);
   const [isDeletingRound, setIsDeletingRound] = useState(false);
   const [deleteRoundError, setDeleteRoundError] = useState("");
+  const [roundFeedbackError, setRoundFeedbackError] = useState("");
   const activePrelimCount = rounds.filter((round) => round.stage === "preliminary").length;
   const roundToDelete = rounds.find((round) => round.id === roundToDeleteId);
   const debatesToDelete = roundToDelete ? debates.filter((debate) => debate.roundId === roundToDelete.id) : [];
@@ -195,7 +203,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     e.preventDefault();
     if (!tournament) return;
     if (prefs.feedbackEnabled !== false) {
-      const questionError = validateFeedbackQuestions(prefs.feedbackQuestions ?? []);
+      const questionError = validateFeedbackQuestions(prefs.teamFeedbackQuestions ?? prefs.feedbackQuestions ?? []) ||
+        validateFeedbackQuestions(prefs.adjudicatorFeedbackQuestions ?? prefs.feedbackQuestions ?? []);
       if (questionError) {
         setFeedbackQuestionError(questionError);
         return;
@@ -217,9 +226,17 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const updateFeedbackQuestion = (id: string, updates: Partial<FeedbackQuestion>) => {
     setPrefs((current) => ({
       ...current,
-      feedbackQuestions: (current.feedbackQuestions ?? []).map((question) =>
-        question.id === id ? { ...question, ...updates } : question
-      ),
+      ...(questionnaireSource === "team"
+        ? {
+            teamFeedbackQuestions: (current.teamFeedbackQuestions ?? current.feedbackQuestions ?? []).map((question) =>
+              question.id === id ? { ...question, ...updates } : question
+            ),
+          }
+        : {
+            adjudicatorFeedbackQuestions: (current.adjudicatorFeedbackQuestions ?? current.feedbackQuestions ?? []).map((question) =>
+              question.id === id ? { ...question, ...updates } : question
+            ),
+          }),
     }));
   };
 
@@ -232,7 +249,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     };
     setPrefs((current) => ({
       ...current,
-      feedbackQuestions: [...(current.feedbackQuestions ?? []), question],
+      ...(questionnaireSource === "team"
+        ? { teamFeedbackQuestions: [...(current.teamFeedbackQuestions ?? current.feedbackQuestions ?? []), question] }
+        : { adjudicatorFeedbackQuestions: [...(current.adjudicatorFeedbackQuestions ?? current.feedbackQuestions ?? []), question] }),
     }));
   };
 
@@ -963,6 +982,35 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               </div>
 
               <div className="border-t border-gray-100 pt-4 space-y-2">
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-700">Feedback by round</h4>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Override the tournament feedback setting for individual rounds.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {rounds.map((round) => (
+                      <label key={round.id} className="flex items-center gap-2 rounded border border-gray-200 px-3 py-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={round.feedbackEnabled ?? (
+                            round.stage !== "elimination" || prefs.feedbackInEliminationRounds !== false
+                          )}
+                          onChange={(event) => {
+                            setRoundFeedbackError("");
+                            void updateRound({ ...round, feedbackEnabled: event.target.checked })
+                              .catch(() => setRoundFeedbackError(`Could not update feedback for ${round.name}.`));
+                          }}
+                          className="rounded border-gray-300 text-blue-600"
+                        />
+                        <span>{round.name} ({round.stage})</span>
+                      </label>
+                    ))}
+                  </div>
+                  {roundFeedbackError && <p role="alert" className="mt-2 text-xs text-red-600">{roundFeedbackError}</p>}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 pt-4 space-y-2">
                 <label className="block text-xs font-semibold text-gray-700" htmlFor="delete-round-select">
                   Delete an Individual Round
                 </label>
@@ -1313,7 +1361,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h4 className="text-xs font-bold text-gray-800">Custom feedback questions</h4>
-                        <p className="text-[11px] text-gray-500">Questions are included on team and adjudicator feedback forms.</p>
+                        <p className="text-[11px] text-gray-500">Configure separate questionnaires by feedback submitter.</p>
                       </div>
                       <button
                         type="button"
@@ -1323,8 +1371,23 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         Add question
                       </button>
                     </div>
+                    <label className="block max-w-xs text-[11px] font-semibold text-gray-700">
+                      Questionnaire
+                      <select
+                        value={questionnaireSource}
+                        onChange={(event) => {
+                          if (event.target.value === "team" || event.target.value === "adjudicator") {
+                            setQuestionnaireSource(event.target.value);
+                          }
+                        }}
+                        className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                      >
+                        <option value="team">Team feedback</option>
+                        <option value="adjudicator">Adjudicator feedback</option>
+                      </select>
+                    </label>
                     {feedbackQuestionError && <p role="alert" className="text-xs text-red-700">{feedbackQuestionError}</p>}
-                    {(prefs.feedbackQuestions ?? []).map((question, index) => (
+                    {currentFeedbackQuestions.map((question, index) => (
                       <div key={question.id} className="grid grid-cols-1 gap-2 rounded bg-gray-50 p-3 sm:grid-cols-2">
                         <label className="text-[11px] font-semibold text-gray-700">
                           Question {index + 1}
@@ -1397,16 +1460,53 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         </label>
                         <button
                           type="button"
-                          onClick={() => setPrefs((current) => ({
-                            ...current,
-                            feedbackQuestions: (current.feedbackQuestions ?? []).filter((item) => item.id !== question.id),
-                          }))}
+                          onClick={() => setPrefs((current) => questionnaireSource === "team"
+                            ? {
+                                ...current,
+                                teamFeedbackQuestions: (current.teamFeedbackQuestions ?? current.feedbackQuestions ?? [])
+                                  .filter((item) => item.id !== question.id),
+                              }
+                            : {
+                                ...current,
+                                adjudicatorFeedbackQuestions: (current.adjudicatorFeedbackQuestions ?? current.feedbackQuestions ?? [])
+                                  .filter((item) => item.id !== question.id),
+                              })}
                           className="justify-self-end text-xs font-semibold text-red-700 hover:text-red-900"
                         >
                           Remove question
                         </button>
                       </div>
                     ))}
+                    <div className="grid gap-3 border-t border-gray-200 pt-3 sm:grid-cols-2">
+                      <label className="text-[11px] font-semibold text-gray-700">
+                        Feedback path
+                        <select
+                          value={prefs.feedbackPath || "two_way"}
+                          onChange={(event) => {
+                            const path = event.target.value;
+                            if (path === "chairs_to_panel" || path === "two_way" || path === "everyone") {
+                              setPrefs((current) => ({ ...current, feedbackPath: path }));
+                            }
+                          }}
+                          className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                        >
+                          <option value="chairs_to_panel">Chair to panel (team feedback remains open)</option>
+                          <option value="two_way">Chair and panel two-way (team feedback remains open)</option>
+                          <option value="everyone">Everyone in the debate</option>
+                        </select>
+                      </label>
+                      <label className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={prefs.feedbackInEliminationRounds !== false}
+                          onChange={(event) => setPrefs((current) => ({
+                            ...current,
+                            feedbackInEliminationRounds: event.target.checked,
+                          }))}
+                        />
+                        Collect feedback in elimination rounds
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1554,7 +1654,38 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <span className="text-[11px] text-gray-500">Publish released debate motions and information slides on the public page.</span>
                 </div>
               </label>
+
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.publicCheckInStatus === true}
+                  onChange={(e) => setPrefs((p) => ({ ...p, publicCheckInStatus: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Public check-in counts</span>
+                  <span className="text-[11px] text-gray-500">Publish round totals only; no participant names or individual check-in details.</span>
+                </div>
+              </label>
             </div>
+
+            <label className="block max-w-xs text-xs font-semibold text-gray-700">
+              Check-in expiry (hours; 0 means never)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={prefs.checkInExpiresAfterHours ?? 0}
+                onChange={(event) => setPrefs((current) => ({
+                  ...current,
+                  checkInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                }))}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                Applies to timestamped check-ins. Legacy records without check-in timestamps remain unchanged.
+              </span>
+            </label>
           </div>
         )}
 

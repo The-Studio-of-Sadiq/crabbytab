@@ -253,6 +253,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
           capacity: venue.capacity,
           accessible: venue.accessible,
           online: venue.online,
+          nearTabRoom: venue.nearTabRoom,
         },
       });
     }
@@ -268,9 +269,10 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
       capacity,
       accessible,
       online,
+      nearTabRoom,
       available,
       checkedIn,
-    }: Venue) => ({ name, priority, category, capacity, accessible, online, available, checkedIn });
+    }: Venue) => ({ name, priority, category, capacity, accessible, online, nearTabRoom, available, checkedIn });
     await recordAuditEvent({
       action: "venue.updated",
       category: "venue",

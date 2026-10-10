@@ -19,14 +19,13 @@ import { isFeedbackEligibleForRating } from "@/lib/draw/allocator";
 import type { FeedbackAnswer } from "@/types";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 
 export default function FeedbackPage() {
   const { tournament, adjudicators, feedback, addFeedback } = useTournament();
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const minScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxScore = tournament?.preferences?.feedbackMaxScore ?? 10;
-  const feedbackQuestions = tournament?.preferences?.feedbackQuestions ?? [];
-
   const [showModal, setShowModal] = useState(false);
   const [targetAdjId, setTargetAdjId] = useState("");
   const [sourceName, setSourceName] = useState("");
@@ -37,6 +36,7 @@ export default function FeedbackPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [answers, setAnswers] = useState<Record<string, FeedbackAnswer>>({});
+  const feedbackQuestions = questionsForFeedbackSource(sourceType, tournament?.preferences);
 
   const handleCreateFeedback = async (e: React.FormEvent) => {
     e.preventDefault();

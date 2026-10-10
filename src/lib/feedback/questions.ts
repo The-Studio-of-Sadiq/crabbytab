@@ -1,4 +1,46 @@
-import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
+import type { Debate, FeedbackAnswer, FeedbackPath, FeedbackQuestion, Round } from "@/types";
+
+export function questionsForFeedbackSource(
+  sourceType: "team" | "adjudicator",
+  preferences?: {
+    feedbackQuestions?: FeedbackQuestion[];
+    teamFeedbackQuestions?: FeedbackQuestion[];
+    adjudicatorFeedbackQuestions?: FeedbackQuestion[];
+  }
+): FeedbackQuestion[] {
+  return sourceType === "team"
+    ? preferences?.teamFeedbackQuestions ?? preferences?.feedbackQuestions ?? []
+    : preferences?.adjudicatorFeedbackQuestions ?? preferences?.feedbackQuestions ?? [];
+}
+
+export function isFeedbackEnabledForRound(
+  debate: Pick<Debate, "postponed">,
+  round: Pick<Round, "stage" | "feedbackEnabled"> | undefined,
+  feedbackInEliminationRounds = true
+): boolean {
+  return !debate.postponed &&
+    (round?.feedbackEnabled ?? (round?.stage !== "elimination" || feedbackInEliminationRounds));
+}
+
+export function canSubmitParticipantFeedback(input: {
+  sourceType: "team" | "adjudicator";
+  sourceId: string;
+  sourceIsChair: boolean;
+  targetType: "team" | "adjudicator";
+  targetId: string;
+  targetIsChair: boolean;
+  path: FeedbackPath;
+}): boolean {
+  if (input.sourceId === input.targetId) return false;
+  if (input.sourceType === "team") {
+    return input.targetType === "adjudicator" ||
+      (input.path === "everyone" && input.targetType === "team");
+  }
+  if (input.targetType === "team") return input.path === "everyone";
+  if (input.path === "everyone") return true;
+  if (input.path === "chairs_to_panel") return input.sourceIsChair && !input.targetIsChair;
+  return input.sourceIsChair !== input.targetIsChair;
+}
 
 export function isFeedbackAnswerRecord(value: unknown): value is Record<string, FeedbackAnswer> {
   return value !== null &&

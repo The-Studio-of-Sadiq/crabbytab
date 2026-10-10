@@ -6,6 +6,7 @@ import {
   Debate,
   DebateSide,
   DebateResultStatus,
+  Institution,
   TeamStandingRow,
   BPSide,
   TwoTeamSide,
@@ -24,25 +25,33 @@ export interface GenerateDrawParams {
   tournament: Tournament;
   round: Round;
   teams: Team[];
+  institutions?: Institution[];
   venues: Venue[];
   pastDebates: Debate[];
   standings: TeamStandingRow[];
 }
 
 export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Team[] {
-  if (!round || round.stage !== "elimination") return teams;
+  if (!round) return teams;
 
-  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
-  if (!breakHasBeenGenerated) return teams;
-
-  if (round.breakCategoryIds) {
-    const categoryIds = new Set(round.breakCategoryIds);
-    return teams.filter(
-      (team) => team.breakStatus === "breaking" && team.breakCategoryIds?.some((id) => categoryIds.has(id))
-    );
+  let eligibleTeams = teams;
+  if (round.stage === "elimination") {
+    const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
+    if (!breakHasBeenGenerated) {
+      eligibleTeams = teams;
+    } else if (round.breakCategoryIds) {
+      const categoryIds = new Set(round.breakCategoryIds);
+      eligibleTeams = teams.filter(
+        (team) => team.breakStatus === "breaking" && team.breakCategoryIds?.some((id) => categoryIds.has(id))
+      );
+    } else {
+      eligibleTeams = teams.filter((team) => team.breakStatus === "breaking");
+    }
   }
 
-  return teams.filter((team) => team.breakStatus === "breaking");
+  return round.divisionId
+    ? eligibleTeams.filter((team) => (team.divisionId || team.divisionName) === round.divisionId)
+    : eligibleTeams;
 }
 
 export function getRequiredVenueCount(
@@ -51,7 +60,9 @@ export function getRequiredVenueCount(
   teams: Team[]
 ): number {
   const teamsPerDebate = tournament.format === "bp" ? 4 : 2;
-  const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) => isAvailableForRound(team, round));
+  const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) =>
+    isAvailableForRound(team, round, tournament.preferences?.checkInExpiresAfterHours)
+  );
   const categories = round.stage === "elimination" && (round.breakCategoryIds?.length ?? 0) > 1
     ? round.breakCategoryIds!.map((categoryId) =>
         eligibleTeams.filter((team) => team.breakCategoryIds?.includes(categoryId))
@@ -134,6 +145,7 @@ export function buildMatchupHistory(debates: Debate[]): MatchupHistory {
   const sides = new Map<string, DebateSide[]>();
 
   for (const d of debates) {
+    if (d.postponed) continue;
     if (d.byeTeamId) continue;
     const teamSlots = Object.values(d.teams).filter((t) => t && t.teamId);
     for (let i = 0; i < teamSlots.length; i++) {
@@ -158,7 +170,8 @@ export function buildMatchupHistory(debates: Debate[]): MatchupHistory {
  * Master draw generator function for any tournament round.
  */
 export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
-  const { tournament, round, teams, venues, pastDebates, standings } = params;
+  const { tournament, round, teams, institutions = [], venues, pastDebates, standings } = params;
+  const institutionsById = new Map(institutions.map((institution) => [institution.id, institution]));
   const isBP = tournament.format === "bp";
   const teamsPerDebate = isBP ? 4 : 2;
   const availableVenues = venues.filter((venue) => venue.available !== false);
@@ -193,7 +206,9 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   }
 
   // Filter checked-in teams (or all active if checkins aren't used)
-  let activeTeams = getEligibleTeamsForRound(teams, round).filter((team) => isAvailableForRound(team, round));
+  let activeTeams = getEligibleTeamsForRound(teams, round).filter((team) =>
+    isAvailableForRound(team, round, tournament.preferences?.checkInExpiresAfterHours)
+  );
   let byeTeams: Team[] = [];
 
   // Automatic byes apply only to preliminary rounds.
@@ -440,6 +455,10 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         side: side as DebateSide,
       };
     });
+    const requirements = getTeamVenueRequirements(
+      Object.values(draft.teamsWithSides),
+      institutionsById
+    );
 
     const debateObj: Debate = {
       id: `debate-${round.id}-${idx + 1}`,
@@ -454,6 +473,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       resultStatus: "none" as DebateResultStatus,
       sidesConfirmed: true,
       flags: [],
+      ...requirements,
       teams: teamsSlotRecord as Record<DebateSide, any>,
       adjudicators: {
         panellistIds: [],
@@ -469,6 +489,32 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     ...assignVenues(generatedDebates, availableVenues),
     ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
   ];
+}
+
+export function getTeamVenueRequirements(
+  teams: Team[],
+  institutionsById: Map<string, Institution>
+): Pick<Debate, "requiredVenueCategory" | "requiredVenueCapacity" | "requiresAccessibleVenue" | "requiresOnlineVenue" | "requiresNearTabRoom"> {
+  const requirements = teams.flatMap((team) => [
+    team.venueRequirements,
+    team.institutionId ? institutionsById.get(team.institutionId)?.venueRequirements : undefined,
+  ]).filter((item) => item !== undefined);
+  const categories = [...new Set(requirements
+    .map((item) => item?.category?.trim())
+    .filter((category): category is string => Boolean(category)))];
+  if (categories.length > 1) {
+    throw new Error(`Teams in a debate require incompatible venue categories: ${categories.join(", ")}.`);
+  }
+  return {
+    requiredVenueCategory: categories[0],
+    requiredVenueCapacity: requirements.reduce(
+      (capacity, item) => Math.max(capacity, item?.minimumCapacity ?? 0),
+      0
+    ) || undefined,
+    requiresAccessibleVenue: requirements.some((item) => item?.accessible === true) || undefined,
+    requiresOnlineVenue: requirements.some((item) => item?.online === true) || undefined,
+    requiresNearTabRoom: requirements.some((item) => item?.nearTabRoom === true) || undefined,
+  };
 }
 
 function assignVenues(debates: Debate[], venues: Venue[]): Debate[] {

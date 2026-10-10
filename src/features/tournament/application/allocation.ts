@@ -16,6 +16,7 @@ import {
   calculateAdjudicatorFeedbackScores,
   type IntelligentAllocationContext,
 } from "@/lib/draw/allocator";
+import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
 
 export interface AllocationAuditEvent {
   action: string;
@@ -112,9 +113,26 @@ export async function autoAllocateCommand(
       },
     };
   });
+  const hasAdjudicatorVenueRequirements = dependencies.adjudicators.some(
+    (adjudicator) => adjudicator.venueRequirements &&
+      Object.values(adjudicator.venueRequirements).some((value) => value !== undefined && value !== false)
+  );
+  const finalRoundDebates = hasAdjudicatorVenueRequirements
+    ? (() => {
+        const withRequirements = applyAdjudicatorVenueRequirements(
+          updatedRoundDebates,
+          dependencies.adjudicators
+        );
+        const venueAssignments = allocateVenuesToDebates(withRequirements, dependencies.venues);
+        return withRequirements.map((debate) => {
+          const venue = venueAssignments.get(debate.id);
+          return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
+        });
+      })()
+    : updatedRoundDebates;
   const updatedDebates = [
     ...dependencies.debates.filter((debate) => debate.roundId !== roundId),
-    ...updatedRoundDebates,
+    ...finalRoundDebates,
   ];
 
   dependencies.repository.saveDebates(updatedDebates);
@@ -129,7 +147,7 @@ export async function autoAllocateCommand(
     roundId,
     details: {
       panelSize: effectivePanelSize,
-      debateCount: updatedRoundDebates.length,
+      debateCount: finalRoundDebates.length,
       adjudicatorCount: dependencies.adjudicators.length,
       assignments: allocations.map((allocation) => ({
         debateId: allocation.debateId,

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 
 export default function PrintableFeedbackPage() {
   const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
@@ -12,7 +13,7 @@ export default function PrintableFeedbackPage() {
     : [];
   const teamMap = new Map(teams.map((team) => [team.id, team]));
   const adjudicatorMap = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
-  const questions = tournament?.preferences?.feedbackQuestions ?? [];
+  const questions = questionsForFeedbackSource("team", tournament?.preferences);
   const forms = roundDebates.flatMap((debate) => {
     const panelIds = [
       debate.adjudicators?.chairId,

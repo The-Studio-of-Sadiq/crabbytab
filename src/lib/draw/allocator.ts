@@ -374,6 +374,7 @@ export function buildPastPanelHistory(
   const history = new Map<string, number>();
 
   for (const debate of allDebates) {
+    if (debate.postponed) continue;
     const adjs = debate.adjudicators;
     if (!adjs) continue;
 
@@ -403,6 +404,7 @@ export function buildPastAdjTeams(
   const map = new Map<string, Set<string>>();
 
   for (const debate of allDebates) {
+    if (debate.postponed) continue;
     const adjs = debate.adjudicators;
     if (!adjs) continue;
 
@@ -618,7 +620,9 @@ export function autoAllocateAdjudicators(
   const roundId = debates[0]?.roundId;
   const availableAdjs = skipCheckins
     ? adjudicators
-    : adjudicators.filter((adjudicator) => isAvailableForRound(adjudicator, roundId));
+    : adjudicators.filter((adjudicator) =>
+        isAvailableForRound(adjudicator, roundId, options.preferences?.checkInExpiresAfterHours)
+      );
   const numDebates = debates.length;
 
   if (numDebates === 0 || availableAdjs.length === 0) {
