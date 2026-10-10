@@ -87,6 +87,7 @@ export interface TournamentContextType {
   isOwnerOrAdmin: boolean;
     isDataEntryAssistant: boolean;
   staffAccessLoading: boolean;
+  staffAccessError: string;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
   cloudSyncMessage: string;
   privateSyncState: "idle" | "syncing" | "error";
@@ -192,6 +193,7 @@ export function TournamentProvider({
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
+  const [staffAccessError, setStaffAccessError] = useState("");
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
   const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
@@ -770,6 +772,7 @@ export function TournamentProvider({
   useEffect(() => {
     let active = true;
     setCloudStaffRole(null);
+    setStaffAccessError("");
     if (!user || !tournament || !db) return () => { active = false; };
     const currentUser = user;
     const currentTournament = tournament;
@@ -781,8 +784,13 @@ export function TournamentProvider({
           `/api/tournaments/${encodeURIComponent(currentTournament.id)}/access`,
           { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
         );
-        if (!response.ok) throw new Error("Could not verify tournament staff access.");
-        const result = await response.json() as { role?: "admin" | "dataEntry" | null };
+        const result = await response.json().catch(() => ({})) as {
+          error?: string;
+          role?: "admin" | "dataEntry" | null;
+        };
+        if (!response.ok) {
+          throw new Error(result.error || `Access verification failed (${response.status}).`);
+        }
         if (active && result.role === "dataEntry" && typeof window !== "undefined") {
           const safeTeams = safeJsonParse<Team[]>(localStorage.getItem(`${storagePrefix}_teams`), [])
             .map(sanitizeAssistantTeam);
@@ -796,9 +804,23 @@ export function TournamentProvider({
           setTournament(safeTournament);
           persistLocal("meta", safeTournament);
         }
-        if (active) setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
-      } catch {
+        if (active) {
+          setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
+          setStaffAccessError(
+            result.role === "admin" || result.role === "dataEntry"
+              ? ""
+              : "This account is not listed as a tournament owner, administrator, or data-entry assistant."
+          );
+        }
+      } catch (error) {
         if (active) setCloudStaffRole("none");
+        if (active) {
+          setStaffAccessError(
+            error instanceof Error
+              ? `Could not verify tournament access: ${error.message}`
+              : "Could not verify tournament access. Check the server Firebase configuration and try again."
+          );
+        }
       }
     }
     void checkStaffRole();
@@ -1659,6 +1681,7 @@ export function TournamentProvider({
         isOwnerOrAdmin,
           isDataEntryAssistant,
         staffAccessLoading,
+          staffAccessError,
         cloudSyncState,
         cloudSyncMessage,
         privateSyncState,

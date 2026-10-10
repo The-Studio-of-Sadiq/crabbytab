@@ -16,7 +16,7 @@ export function TournamentChrome({
 }) {
   const pathname = usePathname();
   const { user } = useAuth();
-  const { isOwnerOrAdmin, staffAccessLoading } = useTournament();
+  const { isOwnerOrAdmin, staffAccessLoading, staffAccessError } = useTournament();
 
   const isPublic = pathname?.includes("/public");
   const isParticipantPortal = pathname?.includes("/private/");
@@ -40,7 +40,16 @@ export function TournamentChrome({
   }
 
   if (user && isAdminRoute && !isOwnerOrAdmin) {
-    return <div role="alert" className="p-6 text-sm text-red-700">You do not have access to this tournament operation.</div>;
+    return (
+      <div role="alert" className="m-6 max-w-2xl space-y-2 border border-red-200 bg-red-50 p-5 text-sm text-red-900">
+        <h1 className="font-semibold">Tournament access could not be confirmed</h1>
+        <p>{staffAccessError || "Your signed-in account is not authorized for this operation."}</p>
+        <p className="text-red-800">
+          Private URLs, email tools, draws, allocations, and settings require a verified tournament administrator.
+          If you own this tournament, check the server Firebase credentials and that your account is listed as its owner or admin.
+        </p>
+      </div>
+    );
   }
 
   return (
