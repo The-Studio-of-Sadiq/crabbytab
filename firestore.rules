@@ -8,17 +8,17 @@ service cloud.firestore {
     // Tournaments root collection
     match /tournaments/{tournamentId} {
       function isTournamentAdmin() {
-        let tournament = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data;
-        return isGlobalAdmin() || (request.auth != null && (
-          tournament.ownerId == request.auth.uid ||
-          (tournament.admins != null && tournament.admins[request.auth.uid] == true)
-        ));
+        return isGlobalAdmin();
       }
 
-      allow read: if true; // Public discovery reads root metadata; child data uses the sanitized API.
-      allow create: if request.auth != null &&
-        request.resource.data.ownerId == request.auth.uid &&
-        request.resource.data.admins[request.auth.uid] == true;
+      function isAssignedAssistant() {
+        return request.auth != null &&
+          exists(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "dataEntry";
+      }
+
+      allow read: if request.auth == null || isTournamentAdmin() || isAssignedAssistant();
+      allow create: if isGlobalAdmin();
       allow update, delete: if isTournamentAdmin();
 
       // Tournament records and private participant data are administrator-only.

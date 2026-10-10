@@ -57,13 +57,7 @@ export async function authorizeTournamentEmailRequest(
     throw new EmailAuthorizationError("Tournament not found.", 404);
   }
 
-  const tournament = tournamentSnapshot.data();
-  const isOwnerOrAdmin =
-    isGlobalAdminUid(user.uid) ||
-    tournament?.ownerId === user.uid ||
-    Boolean(tournament?.admins?.[user.uid]);
-
-  if (!isOwnerOrAdmin) {
+  if (!isGlobalAdminUid(user.uid)) {
     throw new EmailAuthorizationError("Only tournament administrators can send email.", 403);
   }
 

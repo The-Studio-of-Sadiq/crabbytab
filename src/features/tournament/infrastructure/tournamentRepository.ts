@@ -8,7 +8,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import type { Tournament } from "@/types";
 import type {
   CloudCollectionName,
@@ -56,6 +56,25 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         : null;
     },
     async findTournamentBySlug(slug) {
+      if (auth?.currentUser) {
+        const token = await auth.currentUser.getIdToken();
+        const response = await fetch(
+          `/api/tournaments/lookup?slug=${encodeURIComponent(slug)}`,
+          { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
+        );
+        if (response.status === 404) return null;
+        const result = await response.json() as {
+          error?: string;
+          id?: string;
+          data?: Record<string, unknown>;
+        };
+        if (!response.ok) {
+          throw new Error(result.error || "This account cannot access the requested tournament.");
+        }
+        if (!result.id || !result.data) throw new Error("Tournament lookup returned invalid data.");
+        return { id: result.id, data: result.data };
+      }
+
       const firestoreDb = getFirestore();
       const snapshot = await getDocs(
         query(collection(firestoreDb, "tournaments"), where("slug", "==", slug))

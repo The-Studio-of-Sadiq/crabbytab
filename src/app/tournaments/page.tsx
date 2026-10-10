@@ -20,7 +20,9 @@ import { db } from "@/lib/firebase";
 import { getFormatPreset } from "@/lib/setup/presets";
 import { SetupShell } from "@/components/setup/SetupShell";
 
-type Summary = Pick<Tournament, "id" | "name" | "slug" | "format" | "createdAt" | "ownerId" | "admins">;
+type Summary = Pick<Tournament, "id" | "name" | "slug" | "format" | "createdAt"> & {
+  accessRole?: "admin" | "dataEntry";
+};
 
 function toSummary(id: string, data: Record<string, any>): Summary {
   const slug: string = data.slug || id.replace(/^tourn-/, "");
@@ -30,8 +32,6 @@ function toSummary(id: string, data: Record<string, any>): Summary {
     name: data.name || slug,
     format: data.format || "bp",
     createdAt: data.createdAt || "",
-    ownerId: data.ownerId || "",
-    admins: data.admins || {},
   };
 }
 
@@ -41,8 +41,8 @@ function mergeById(lists: Summary[][]): Summary[] {
   return Array.from(map.values());
 }
 
-function TournamentRow({ t, uid }: { t: Summary; uid?: string }) {
-  const isMine = Boolean(uid && (t.ownerId === uid || t.admins[uid]));
+function TournamentRow({ t }: { t: Summary }) {
+  const isMine = t.accessRole === "admin";
   return (
     <li>
       <Link
@@ -58,7 +58,7 @@ function TournamentRow({ t, uid }: { t: Summary; uid?: string }) {
         <div className="flex items-center space-x-3 shrink-0">
           {isMine && (
             <span className="text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-              {t.ownerId === uid ? "Owner" : "Admin"}
+              Admin
             </span>
           )}
           <ArrowRight className="w-4 h-4 text-gray-400" />
@@ -69,10 +69,11 @@ function TournamentRow({ t, uid }: { t: Summary; uid?: string }) {
 }
 
 export default function TournamentsHubPage() {
-  const { user, configured } = useAuth();
+  const { user, configured, isGlobalAdmin, loading: authLoading } = useAuth();
 
   const [mine, setMine] = useState<Summary[]>([]);
   const [loadingMine, setLoadingMine] = useState(true);
+  const [mineError, setMineError] = useState("");
 
   const [term, setTerm] = useState("");
   const [results, setResults] = useState<Summary[] | null>(null);
@@ -80,41 +81,91 @@ export default function TournamentsHubPage() {
   const [searchError, setSearchError] = useState("");
   const searchSeq = useRef(0);
 
-  // The local tournament list is available without sign-in or a network connection.
+  // Signed-in users only receive their authorized tournaments from the server.
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setLoadingMine(false);
-      return;
-    }
-    const list: Summary[] = [];
-    for (let index = 0; index < localStorage.length; index++) {
-      const key = localStorage.key(index);
-      if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
-      try {
-        const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
-        if (value?.id && value.slug && value.name && value.format && value.createdAt) {
-          list.push({
-            id: value.id,
-            slug: value.slug,
-            name: value.name,
-            format: value.format,
-            createdAt: value.createdAt,
-            ownerId: value.ownerId || "director",
-            admins: value.admins || {},
-          });
+    if (authLoading) return;
+    let active = true;
+    setMine([]);
+    setMineError("");
+    setLoadingMine(true);
+    void (async () => {
+      if (!user) {
+        if (typeof window !== "undefined") {
+          const local: Summary[] = [];
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
+            try {
+              const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
+              if (value?.id && value.slug && value.name && value.format && value.createdAt) {
+                local.push({
+                  id: value.id,
+                  slug: value.slug,
+                  name: value.name,
+                  format: value.format,
+                  createdAt: value.createdAt,
+                });
+              }
+            } catch (error) {
+              console.warn(`Could not read local tournament at ${key}:`, error);
+            }
+          }
+          if (active) setMine(local.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
         }
-      } catch (error) {
-        console.warn(`Could not read local tournament at ${key}:`, error);
+        if (active) setLoadingMine(false);
+        return;
       }
-    }
-    setMine(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-    setLoadingMine(false);
-  }, []);
+
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch("/api/tournaments", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const result = await response.json() as { error?: string; tournaments?: Summary[] };
+        if (!response.ok) throw new Error(result.error || "Could not load your tournaments.");
+        const accessible = result.tournaments || [];
+        const merged = new Map(accessible.map((tournament) => [tournament.id, tournament]));
+        if (typeof window !== "undefined") {
+          for (let index = 0; index < localStorage.length; index++) {
+            const key = localStorage.key(index);
+            if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
+            try {
+              const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
+              if (
+                value?.id && value.slug && value.name && value.format && value.createdAt &&
+                isGlobalAdmin &&
+                !merged.has(value.id)
+              ) {
+                merged.set(value.id, {
+                  id: value.id,
+                  slug: value.slug,
+                  name: value.name,
+                  format: value.format,
+                  createdAt: value.createdAt,
+                });
+              }
+            } catch (error) {
+              console.warn(`Could not read local tournament at ${key}:`, error);
+            }
+          }
+        }
+        if (active) setMine([...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      } catch (error) {
+        if (active) setMineError(error instanceof Error ? error.message : "Could not load your tournaments.");
+      } finally {
+        if (active) setLoadingMine(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [authLoading, isGlobalAdmin, user]);
 
   // Search: prefix match on slug and on the lowercase name, debounced.
   useEffect(() => {
     const q = term.trim().toLowerCase();
-    if (!q) {
+    if (!q || (user && !isGlobalAdmin)) {
       setResults(null);
       setSearchError("");
       setSearching(false);
@@ -146,7 +197,7 @@ export default function TournamentsHubPage() {
       }
     }, 300);
     return () => clearTimeout(handle);
-  }, [term]);
+  }, [term, user, isGlobalAdmin]);
 
   return (
     <SetupShell>
@@ -161,7 +212,7 @@ export default function TournamentsHubPage() {
           </div>
 
           {/* Create */}
-          <Link
+          {isGlobalAdmin && <Link
             href="/tournaments/new"
             className="flex items-center justify-between bg-white border border-[#d0d7de] rounded-lg shadow-xs p-5 hover:border-blue-500 transition-colors"
           >
@@ -177,10 +228,10 @@ export default function TournamentsHubPage() {
               </div>
             </div>
             <ArrowRight className="w-4 h-4 text-gray-400" />
-          </Link>
+          </Link>}
 
           {/* Search */}
-          <section>
+          {(!user || isGlobalAdmin) && <section>
             <h2 className="text-sm font-bold text-gray-900 mb-2">Find an existing tournament</h2>
             {!configured || !db ? (
               <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
@@ -216,7 +267,7 @@ export default function TournamentsHubPage() {
                     ) : (
                       <ul className="divide-y divide-[#eaeef2]">
                         {results.map((t) => (
-                          <TournamentRow key={t.id} t={t} uid={user?.uid} />
+                          <TournamentRow key={t.id} t={t} />
                         ))}
                       </ul>
                     )}
@@ -224,23 +275,32 @@ export default function TournamentsHubPage() {
                 )}
               </>
             )}
-          </section>
+          </section>}
 
           {/* Mine */}
           {(
             <section>
-              <h2 className="text-sm font-bold text-gray-900 mb-2">Tournaments on this device</h2>
+              <h2 className="text-sm font-bold text-gray-900 mb-2">
+                {user ? "Your assigned tournaments" : "Tournaments on this device"}
+              </h2>
+              {mineError && (
+                <p role="alert" className="mb-2 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                  {mineError}
+                </p>
+              )}
               <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs">
                 {loadingMine ? (
                   <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading...</p>
                 ) : mine.length === 0 ? (
                   <p className="px-4 py-6 text-sm text-gray-500 text-center">
-                    You don&apos;t own or administer any tournaments yet.
+                    {user
+                      ? "No tournaments are assigned to your account."
+                      : "There are no tournaments saved on this device."}
                   </p>
                 ) : (
                   <ul className="divide-y divide-[#eaeef2]">
                     {mine.map((t) => (
-                      <TournamentRow key={t.id} t={t} uid={user?.uid} />
+                      <TournamentRow key={t.id} t={t} />
                     ))}
                   </ul>
                 )}

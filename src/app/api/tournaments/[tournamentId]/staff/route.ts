@@ -39,12 +39,11 @@ async function authorizeAdministrator(request: NextRequest, tournamentId: string
   const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
   const tournamentSnapshot = await tournamentRef.get();
   if (!tournamentSnapshot.exists) return { error: "Tournament not found.", status: 404 as const };
-  const tournament = tournamentSnapshot.data();
   const globalAdmin = isGlobalAdminUid(user.uid);
-  if (!globalAdmin && tournament?.ownerId !== user.uid && tournament?.admins?.[user.uid] !== true) {
+  if (!globalAdmin) {
     return { error: "Only tournament administrators can manage staff.", status: 403 as const };
   }
-  return { auth, firestore, tournamentRef, tournament, user, globalAdmin };
+  return { auth, firestore, tournamentRef, user, globalAdmin };
 }
 
 export async function GET(
@@ -59,7 +58,6 @@ export async function GET(
   }
 
   try {
-    const tournament = authorization.tournament || {};
     const [staffSnapshot, accountPages] = await Promise.all([
       authorization.tournamentRef.collection("staff").get(),
       (async () => {
@@ -69,9 +67,7 @@ export async function GET(
           const page = await authorization.auth.listUsers(1000, pageToken);
           accounts.push(...page.users
             .filter((account) =>
-              !isGlobalAdminUid(account.uid) &&
-              account.uid !== tournament.ownerId &&
-              tournament.admins?.[account.uid] !== true
+              !isGlobalAdminUid(account.uid)
             )
             .map((account) => ({
               uid: account.uid,
@@ -128,21 +124,13 @@ export async function POST(
   }
 
   const { tournamentRef, user } = authorization;
-  const tournament = authorization.tournament || {};
-  const existingAdmin = (uid: string) => uid === tournament.ownerId || tournament.admins?.[uid] === true;
-  if (invitedUsers.some((invitedUser) => existingAdmin(invitedUser.uid))) {
-    return NextResponse.json({ error: "Administrators do not need to be assigned as assistants." }, { status: 409 });
-  }
 
   const addedAt = new Date().toISOString();
   try {
     await authorization.firestore.runTransaction(async (transaction) => {
       const currentSnapshot = await transaction.get(tournamentRef);
       const current = currentSnapshot.data();
-      if (
-        !currentSnapshot.exists ||
-        (!authorization.globalAdmin && current?.ownerId !== user.uid && current?.admins?.[user.uid] !== true)
-      ) {
+      if (!currentSnapshot.exists || !authorization.globalAdmin) {
         throw new Error("Tournament staff permissions changed. Reload and try again.");
       }
       for (const invitedUser of invitedUsers) {
@@ -197,12 +185,7 @@ export async function DELETE(
     await authorization.firestore.runTransaction(async (transaction) => {
       const currentSnapshot = await transaction.get(authorization.tournamentRef);
       const current = currentSnapshot.data();
-      if (
-        !currentSnapshot.exists ||
-        (!authorization.globalAdmin &&
-          current?.ownerId !== authorization.user.uid &&
-          current?.admins?.[authorization.user.uid] !== true)
-      ) {
+      if (!currentSnapshot.exists || !authorization.globalAdmin) {
         throw new Error("Tournament staff permissions changed. Reload and try again.");
       }
       const staffRef = authorization.tournamentRef.collection("staff").doc(uid);

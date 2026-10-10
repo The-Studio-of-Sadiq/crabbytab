@@ -169,7 +169,7 @@ export function TournamentProvider({
   tournamentSlug: string;
   children: React.ReactNode;
 }) {
-  const { user, isGlobalAdmin } = useAuth();
+  const { user, isGlobalAdmin, loading: authLoading } = useAuth();
   const pathname = usePathname();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
@@ -321,7 +321,7 @@ export function TournamentProvider({
           return { tournament: result.tournament, collections: mergedCollections };
         };
 
-        if ((!localTournament || isSharedView) && db) {
+        if (db && (user || !localTournament || isSharedView)) {
           try {
             if (isSharedView) {
               await loadPublicProjection();
@@ -420,7 +420,25 @@ export function TournamentProvider({
               return;
             }
           } catch (error) {
-            if (!isSharedView) {
+            if (user && !isGlobalAdmin) {
+              const message = error instanceof Error ? error.message : "This account is not assigned to this tournament.";
+              setCloudLoadError(message);
+              setTournament(null);
+              setRounds([]);
+              setActiveRound(null);
+              setTeams([]);
+              setAdjudicators([]);
+              setVenues([]);
+              setMotions([]);
+              setBreakCategories([]);
+              setDebates([]);
+              setBallots([]);
+              setFeedback([]);
+              setInstitutions([]);
+              setLoading(false);
+              return;
+            }
+            if (!isSharedView && !user) {
               try {
                 await loadPublicProjection();
                 return;
@@ -761,15 +779,9 @@ export function TournamentProvider({
   // Is the current user an owner or admin of this tournament?
   const isOwnerOrAdmin = useMemo(() => {
     if (!tournament) return false;
-    if (isGlobalAdmin) return true;
-    if (user && (tournament.ownerId === user.uid || tournament.admins?.[user.uid] === true)) return true;
-    if (
-      (tournament.ownerId === "local" || tournament.ownerId === "director") &&
-      cloudStaffRole !== "dataEntry"
-    ) return true;
-    if (user && db) return cloudStaffRole === "admin";
-    return false;
-  }, [tournament, user, isGlobalAdmin, cloudStaffRole]);
+    return isGlobalAdmin || cloudStaffRole === "admin" ||
+      (!authLoading && !user && (tournament.ownerId === "local" || tournament.ownerId === "director"));
+  }, [tournament, user, isGlobalAdmin, cloudStaffRole, authLoading]);
   useEffect(() => {
     let active = true;
     setCloudStaffRole(null);
@@ -826,7 +838,7 @@ export function TournamentProvider({
     }
     void checkStaffRole();
     return () => { active = false; };
-  }, [pathname, persistLocal, storagePrefix, tournament?.id, user]);
+  }, [isGlobalAdmin, pathname, persistLocal, storagePrefix, tournament?.id, user]);
   const isDataEntryAssistant = !isGlobalAdmin && cloudStaffRole === "dataEntry";
   const staffAccessLoading = Boolean(user && db && cloudStaffRole === null);
 

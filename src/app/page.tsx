@@ -16,15 +16,8 @@ import {
   Clock,
   User as UserIcon,
 } from "lucide-react";
-import { TournamentFormat } from "@/types";
+import type { TournamentFormat } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  getDocs,
-  doc,
-  getDoc,
-} from "firebase/firestore";
 import { safeJsonParse } from "@/lib/safeJson";
 
 interface StoredTournamentSummary {
@@ -37,6 +30,7 @@ interface StoredTournamentSummary {
   ownerEmail?: string;
   isOwner?: boolean;
   isLocal?: boolean;
+  accessRole?: "admin" | "dataEntry";
 }
 
 export default function HomePage() {
@@ -48,7 +42,7 @@ export default function HomePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [cloudError, setCloudError] = useState("");
 
-  // Creating a tournament happens in the guided setup wizard.
+  // Tournament creation is reserved for global administrators.
   const goCreate = () => router.push("/tournaments/new");
 
   // Scan localStorage for local copies
@@ -84,7 +78,7 @@ export default function HomePage() {
     return list;
   }, []);
 
-  // Load local tournaments only; cloud access is always initiated by the user.
+  // Local data remains available offline; signed-in accounts load only authorized cloud tournaments.
   const loadTournaments = useCallback(async () => {
     const localList = getLocalTournaments();
     setTournaments(localList.sort(
@@ -93,42 +87,41 @@ export default function HomePage() {
     setLoadingTournaments(false);
   }, [getLocalTournaments]);
 
-  useEffect(() => {
-    loadTournaments();
-  }, [loadTournaments]);
-
-  const refreshCloudTournaments = async () => {
-    if (!db) {
-      setCloudError("Cloud access is not configured. Local tournaments are still available.");
+  const refreshCloudTournaments = useCallback(async () => {
+    if (!user) {
+      await loadTournaments();
       return;
     }
+    setLoadingTournaments(true);
     setIsRefreshing(true);
     setCloudError("");
     try {
-      const localSlugs = new Set(getLocalTournaments().map((item) => item.slug));
-      const snapshot = await getDocs(collection(db, "tournaments"));
-      const cloudItems = snapshot.docs.map((cloudDoc) => {
-        const data = cloudDoc.data();
-        const slug = typeof data.slug === "string" ? data.slug : cloudDoc.id.replace(/^tourn-/, "");
-        return {
-          id: cloudDoc.id,
-          slug,
-          name: typeof data.name === "string" ? data.name : slug,
-          format: (data.format as TournamentFormat) || "bp",
-          createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
-          ownerId: typeof data.ownerId === "string" ? data.ownerId : undefined,
-          ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : undefined,
-          isOwner: isGlobalAdmin || Boolean(user && (data.ownerId === user.uid || data.admins?.[user.uid] === true)),
-          isLocal: localSlugs.has(slug),
-        } satisfies StoredTournamentSummary;
+      const token = await user.getIdToken();
+      const response = await fetch("/api/tournaments", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
+      const result = await response.json() as {
+        error?: string;
+        tournaments?: StoredTournamentSummary[];
+      };
+      if (!response.ok) throw new Error(result.error || "Could not load your tournaments.");
+
       const localItems = getLocalTournaments();
+      const cloudItems = (result.tournaments || []).map((item) => ({
+        ...item,
+        isOwner: isGlobalAdmin || item.accessRole === "admin",
+        isLocal: localItems.some((local) => local.slug === item.slug),
+      }));
+      const accessibleSlugs = new Set(cloudItems.map((item) => item.slug));
       const cloudBySlug = new Map<string, StoredTournamentSummary>(
         cloudItems.map((item) => [item.slug, item])
       );
-      localItems.forEach((item) => {
-        if (!cloudBySlug.has(item.slug)) cloudBySlug.set(item.slug, item);
-      });
+      localItems
+        .filter((item) => isGlobalAdmin || accessibleSlugs.has(item.slug))
+        .forEach((item) => {
+          if (!cloudBySlug.has(item.slug)) cloudBySlug.set(item.slug, item);
+        });
       setTournaments([...cloudBySlug.values()].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ));
@@ -136,54 +129,18 @@ export default function HomePage() {
       console.error("Could not refresh cloud tournaments:", error);
       setCloudError("Could not load the cloud tournament list. Check your connection and try again.");
     } finally {
+      setLoadingTournaments(false);
       setIsRefreshing(false);
     }
-  };
+  }, [getLocalTournaments, isGlobalAdmin, loadTournaments, user]);
 
-  const downloadTournament = async (summary: StoredTournamentSummary) => {
-    if (!db || !summary.id) {
-      setCloudError("Cloud download is unavailable because Firebase is not configured.");
-      return;
-    }
-    if (summary.isLocal && !window.confirm("Replace this device's local copy with the cloud copy? This discards unsynced local changes.")) {
-      return;
-    }
-
-    setIsRefreshing(true);
-    try {
-      const tournamentSnapshot = await getDoc(doc(db, "tournaments", summary.id));
-      if (!tournamentSnapshot.exists()) throw new Error("Tournament no longer exists in the cloud.");
-      const tournamentData = { ...tournamentSnapshot.data(), id: summary.id, slug: summary.slug };
-      const prefix = `crabbytab_t_${summary.slug}`;
-      localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournamentData));
-      const collections: Array<[string, string]> = [
-        ["rounds", "rounds"],
-        ["teams", "teams"],
-        ["adjudicators", "adjudicators"],
-        ["venues", "venues"],
-        ["motions", "motions"],
-        ["breakCategories", "breaks"],
-        ["debates", "debates"],
-        ["ballots", "ballots"],
-        ["feedback", "feedback"],
-        ["institutions", "institutions"],
-      ];
-      for (const [collectionName, storageKey] of collections) {
-        const docs = await getDocs(collection(db, "tournaments", summary.id, collectionName));
-        localStorage.setItem(
-          `${prefix}_${storageKey}`,
-          JSON.stringify(docs.docs.map((document) => document.data()))
-        );
-      }
-      await loadTournaments();
-      router.push(`/${summary.slug}`);
-    } catch (error) {
-      console.error("Could not download tournament:", error);
-      window.alert(error instanceof Error ? error.message : "Could not download tournament.");
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+  useEffect(() => {
+    if (authLoading) return;
+    setTournaments([]);
+    setLoadingTournaments(true);
+    if (user) void refreshCloudTournaments();
+    else void loadTournaments();
+  }, [authLoading, loadTournaments, refreshCloudTournaments, user]);
 
   const handleDelete = async (t: StoredTournamentSummary) => {
     if (!confirm(`Are you sure you want to delete tournament "${t.name}"? This action cannot be undone.`)) {
@@ -212,11 +169,7 @@ export default function HomePage() {
     if (filterTab === "mine") {
       if (!user) return false;
       if (isGlobalAdmin) return true;
-      return (
-        t.ownerId === user.uid ||
-        (user.email && t.ownerEmail === user.email) ||
-        t.isOwner === true
-      );
+      return t.accessRole === "admin" || t.accessRole === "dataEntry";
     }
     return true;
   });
@@ -224,12 +177,7 @@ export default function HomePage() {
   const myTournamentsCount = user
     ? isGlobalAdmin
       ? tournaments.length
-      : tournaments.filter(
-          (t) =>
-            t.ownerId === user.uid ||
-            (user.email && t.ownerEmail === user.email) ||
-            t.isOwner === true
-        ).length
+      : tournaments.filter((t) => t.accessRole === "admin" || t.accessRole === "dataEntry").length
     : 0;
 
   return (
@@ -264,14 +212,14 @@ export default function HomePage() {
                 Sign in to upload
               </Link>
             )}
-            <button
+            {isGlobalAdmin && <button
               onClick={goCreate}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition max-sm:px-2"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition max-sm:px-2"
             >
               <Plus className="w-4 h-4" />
-            <span className="max-sm:hidden">Create Tournament</span>
-            <span className="hidden max-sm:inline">Create</span>
-            </button>
+              <span className="max-sm:hidden">Create Tournament</span>
+              <span className="hidden max-sm:inline">Create</span>
+            </button>}
           </div>
         </div>
       </header>
@@ -329,7 +277,7 @@ export default function HomePage() {
                       : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
-                  My Tournaments ({myTournamentsCount})
+                  Assigned Tournaments ({myTournamentsCount})
                 </button>
               )}
             </div>
@@ -372,14 +320,18 @@ export default function HomePage() {
           <div className="bg-white rounded-lg border border-dashed border-gray-300 p-12 text-center">
             <Layers className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <h4 className="text-base font-bold text-gray-800 mb-1">
-              {filterTab === "mine" ? "No tournaments created by you yet" : "No tournaments available"}
+              {user && !isGlobalAdmin
+                ? "No tournaments are assigned to your account"
+                : filterTab === "mine"
+                  ? "No tournaments created by you yet"
+                  : "No tournaments available"}
             </h4>
             <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
-              {filterTab === "mine"
+              {isGlobalAdmin
                 ? "Create a new debate tournament to get started."
-                : "Create a tournament to begin tabulating debates."}
+                : "Ask a tournament administrator to assign your account to a tournament."}
             </p>
-            {user ? (
+            {isGlobalAdmin ? (
               <button
                 onClick={goCreate}
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
@@ -387,20 +339,19 @@ export default function HomePage() {
                 <Plus className="w-4 h-4" />
                 <span>Create Tournament</span>
               </button>
-            ) : (
+            ) : !user ? (
               <Link
                 href="/login"
                 className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
               >
-                <span>Sign in to create tournament</span>
+                <span>Sign in</span>
               </Link>
-            )}
+            ) : null}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredTournaments.map((t) => {
-              const isMine =
-                Boolean(user && (t.ownerId === user.uid || (user.email && t.ownerEmail === user.email) || t.isOwner));
+              const isMine = Boolean(user && (isGlobalAdmin || t.isOwner));
               return (
                 <div
                   key={t.slug}
@@ -470,25 +421,13 @@ export default function HomePage() {
                       )}
                     </div>
 
-                    {t.isLocal ? (
-                      <Link
-                        href={`/${t.slug}`}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition"
-                      >
-                        <span>Enter Tab Room</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => downloadTournament(t)}
-                        disabled={isRefreshing}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition disabled:opacity-50"
-                      >
-                        <span>Download to Device</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <Link
+                      href={`/${t.slug}`}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition"
+                    >
+                      <span>{t.isLocal ? "Enter Tab Room" : "Open Tournament"}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
                   </div>
                 </div>
               );

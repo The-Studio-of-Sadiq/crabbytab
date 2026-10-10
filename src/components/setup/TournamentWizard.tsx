@@ -182,7 +182,7 @@ function Toggle({
 
 export function TournamentWizard() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isGlobalAdmin, loading: authLoading } = useAuth();
 
   const [s, setS] = useState<WizardState>(initialState);
   const [step, setStep] = useState(0);
@@ -346,6 +346,10 @@ export function TournamentWizard() {
 
   const handleCreate = async () => {
     setError("");
+    if (!isGlobalAdmin) {
+      setError("Only a global administrator can create a tournament.");
+      return;
+    }
 
     // Re-validate every step so a skipped-over problem can't slip through.
     for (const i of [0, 2, 3, 4, 5]) {
@@ -424,6 +428,18 @@ export function TournamentWizard() {
   /* ------------------------------- render ------------------------------- */
 
   const isLast = step === STEPS.length - 1;
+
+  if (authLoading) {
+    return <p role="status" className="text-sm text-gray-600">Checking administrator access…</p>;
+  }
+
+  if (!isGlobalAdmin) {
+    return (
+      <div role="alert" className="rounded border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+        Only a global administrator can create a tournament. Ask an administrator to assign you to an existing tournament.
+      </div>
+    );
+  }
 
   return (
     <div>

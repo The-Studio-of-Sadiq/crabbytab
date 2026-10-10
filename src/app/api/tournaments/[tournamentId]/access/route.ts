@@ -41,15 +41,10 @@ export async function GET(
   try {
     const tournamentSnapshot = await firestore.collection("tournaments").doc(tournamentId).get();
     if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
-    const tournament = tournamentSnapshot.data();
-    const isOwnerOrAdmin =
-      tournament?.ownerId === user.uid || tournament?.admins?.[user.uid] === true;
-    const staffSnapshot = isOwnerOrAdmin
-      ? null
-      : await tournamentSnapshot.ref.collection("staff").doc(user.uid).get();
+    const staffSnapshot = await tournamentSnapshot.ref.collection("staff").doc(user.uid).get();
     const isDataEntryAssistant = staffSnapshot?.data()?.role === "dataEntry";
     return NextResponse.json(
-      { role: isOwnerOrAdmin ? "admin" : isDataEntryAssistant ? "dataEntry" : null },
+      { role: isDataEntryAssistant ? "dataEntry" : null },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {

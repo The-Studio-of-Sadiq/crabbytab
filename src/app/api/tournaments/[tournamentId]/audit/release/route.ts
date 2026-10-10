@@ -87,12 +87,7 @@ export async function POST(
     if (!tournamentSnapshot.exists) {
       return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
     }
-    const tournament = tournamentSnapshot.data();
-    if (
-      !isGlobalAdminUid(user.uid) &&
-      tournament?.ownerId !== user.uid &&
-      tournament?.admins?.[user.uid] !== true
-    ) {
+    if (!isGlobalAdminUid(user.uid)) {
       return NextResponse.json({ error: "Only tournament administrators can release the audit log." }, { status: 403 });
     }
 
