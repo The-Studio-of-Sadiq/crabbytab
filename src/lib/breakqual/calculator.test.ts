@@ -83,6 +83,39 @@ describe("Break Qualification Calculator (breakqual/calculator)", () => {
     expect(regenerated[0].breakCategoryIds).toEqual([]);
   });
 
+  it("enforces an institution cap and promotes the next eligible institution", () => {
+    const teams = [
+      createTeam("a-1", "A1", ["open"]),
+      createTeam("a-2", "A2", ["open"]),
+      createTeam("a-3", "A3", ["open"]),
+      createTeam("a-4", "A4", ["open"]),
+      createTeam("b-1", "B1", ["open"]),
+    ].map((team, index) => ({
+      ...team,
+      institutionId: index < 4 ? "institution-a" : "institution-b",
+    }));
+    const category: BreakCategory = {
+      id: "open",
+      tournamentId: "t1",
+      name: "Open",
+      slug: "open",
+      seq: 1,
+      breakSize: 4,
+      reserveSize: 1,
+      isGeneral: true,
+      priority: 1,
+      maxPerInstitution: 3,
+    };
+    const result = calculateBreaks(
+      [category],
+      teams,
+      teams.map((team, index) => createStanding(team.id, team.name, index + 1, 6 - index))
+    )[0];
+
+    expect(result.breakingTeams.map((entry) => entry.team.id)).toEqual(["a-1", "a-2", "a-3", "b-1"]);
+    expect(result.reserveTeams).toHaveLength(0);
+  });
+
   it("prioritizes higher-priority categories and excludes broken teams from lower ones", () => {
     // Categories: Open (priority 10, size 2, reserve 1), ESL (priority 5, size 2, reserve 1)
     const openCat: BreakCategory = {

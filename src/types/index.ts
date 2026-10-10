@@ -48,6 +48,19 @@ export type BPPositionCost = "renyi_entropy" | "sum_squared_deviations";
 export type BPAssignmentMethod = "hungarian" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
+export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
+export type FeedbackQuestionType = "text" | "textarea" | "scale" | "yes_no" | "select_one" | "select_many";
+export type FeedbackAnswer = string | number | boolean | string[] | null;
+
+export interface FeedbackQuestion {
+  id: string;
+  label: string;
+  type: FeedbackQuestionType;
+  required: boolean;
+  options?: string[];
+  min?: number;
+  max?: number;
+}
 
 export interface TournamentPreferences {
   teamsInDebate: 4 | 2;
@@ -68,6 +81,7 @@ export interface TournamentPreferences {
   feedbackEnabled: boolean;
   feedbackMinScore: number;
   feedbackMaxScore: number;
+  feedbackQuestions?: FeedbackQuestion[];
   /** Up to 8 metric ids, most important first. Empty/absent -> format default. */
   teamStandingsPrecedence?: TeamMetricId[];
   /** Shown on the standings page but not used to rank. */
@@ -91,6 +105,8 @@ export interface TournamentPreferences {
   adjConflictPenalty?: number; // default 1000000
   adjHistoryPenalty?: number; // default 10000
   importanceMismatchPenalty?: number; // default 10000000
+  /** How voting adjudicator strength is matched to debate priority. */
+  adjudicatorPanelStrategy?: AdjudicatorPanelStrategy;
   skipAdjCheckins?: boolean;
   noPanellistAdjs?: boolean;
   noTraineeAdjs?: boolean;
@@ -279,6 +295,7 @@ export interface Venue {
   accessible?: boolean;
   online?: boolean;
   available?: boolean;
+  checkedIn?: boolean;
 }
 
 // BP Debate Sides: OG (Opening Gov), OO (Opening Opp), CG (Closing Gov), CO (Closing Opp)
@@ -399,7 +416,7 @@ export interface FeedbackSubmission {
   score: number; // 1 to 10 (or 1 to 5)
   agreeWithDecision?: boolean;
   comments?: string;
-  answers?: Record<string, any>;
+  answers?: Record<string, FeedbackAnswer>;
   confirmed: boolean;
   timestamp: string;
 }
@@ -414,6 +431,8 @@ export interface BreakCategory {
   reserveSize: number;
   isGeneral: boolean;
   priority: number;
+  /** Maximum breaking and reserve teams selected from one institution. */
+  maxPerInstitution?: number;
 }
 
 export interface TeamStandingRow {

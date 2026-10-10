@@ -269,7 +269,8 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
       accessible,
       online,
       available,
-    }: Venue) => ({ name, priority, category, capacity, accessible, online, available });
+      checkedIn,
+    }: Venue) => ({ name, priority, category, capacity, accessible, online, available, checkedIn });
     await recordAuditEvent({
       action: "venue.updated",
       category: "venue",

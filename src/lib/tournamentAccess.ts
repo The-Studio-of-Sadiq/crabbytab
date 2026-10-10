@@ -1,14 +1,32 @@
 import type { Adjudicator, Speaker, Team, Tournament } from "@/types";
 
 export function isTournamentAdministrator(
-  tournament: Pick<Tournament, "ownerId" | "admins"> | null,
+  tournament: { ownerId?: unknown; admins?: Record<string, unknown> } | null,
   userId: string | null | undefined
 ): boolean {
   return Boolean(
     tournament &&
       userId &&
-      (tournament.ownerId === userId || tournament.admins[userId] === true)
+      (tournament.ownerId === userId || tournament.admins?.[userId] === true)
   );
+}
+
+export type TournamentAccessRole = "admin" | "dataEntry" | null;
+
+export function resolveTournamentAccessRole(
+  tournament: { ownerId?: unknown; admins?: Record<string, unknown> } | null,
+  userId: string,
+  staffRole: unknown,
+  globalAdmin: boolean
+): TournamentAccessRole {
+  if (
+    globalAdmin ||
+    isTournamentAdministrator(tournament, userId) ||
+    staffRole === "admin"
+  ) {
+    return "admin";
+  }
+  return staffRole === "dataEntry" ? "dataEntry" : null;
 }
 
 export function isDataEntryRole(role: unknown): role is "dataEntry" {

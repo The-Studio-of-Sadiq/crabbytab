@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
+import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
 
 export const runtime = "nodejs";
 
@@ -42,9 +43,15 @@ export async function GET(
     const tournamentSnapshot = await firestore.collection("tournaments").doc(tournamentId).get();
     if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
     const staffSnapshot = await tournamentSnapshot.ref.collection("staff").doc(user.uid).get();
-    const isDataEntryAssistant = staffSnapshot?.data()?.role === "dataEntry";
+    const data = tournamentSnapshot.data()!;
+    const role = resolveTournamentAccessRole(
+      { ownerId: data.ownerId, admins: data.admins },
+      user.uid,
+      staffSnapshot.data()?.role,
+      false
+    );
     return NextResponse.json(
-      { role: isDataEntryAssistant ? "dataEntry" : null },
+      { role, globalAdmin: false },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {

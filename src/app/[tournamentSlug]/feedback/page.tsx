@@ -12,15 +12,20 @@ import {
   Search,
   Lock,
   AlertTriangle,
+  Printer,
 } from "lucide-react";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import { isFeedbackEligibleForRating } from "@/lib/draw/allocator";
+import type { FeedbackAnswer } from "@/types";
+import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
+import { validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export default function FeedbackPage() {
   const { tournament, adjudicators, feedback, addFeedback } = useTournament();
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const minScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxScore = tournament?.preferences?.feedbackMaxScore ?? 10;
+  const feedbackQuestions = tournament?.preferences?.feedbackQuestions ?? [];
 
   const [showModal, setShowModal] = useState(false);
   const [targetAdjId, setTargetAdjId] = useState("");
@@ -31,6 +36,7 @@ export default function FeedbackPage() {
   const [comments, setComments] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [formError, setFormError] = useState("");
+  const [answers, setAnswers] = useState<Record<string, FeedbackAnswer>>({});
 
   const handleCreateFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +59,11 @@ export default function FeedbackPage() {
     }
 
     const targetAdj = adjudicators.find((a) => a.id === targetAdjId);
+    const answerError = validateFeedbackAnswers(feedbackQuestions, answers);
+    if (answerError) {
+      setFormError(answerError);
+      return;
+    }
 
     await addFeedback({
       debateId: "direct-feedback",
@@ -65,12 +76,14 @@ export default function FeedbackPage() {
       score,
       agreeWithDecision: agree,
       comments: comments.trim(),
+      answers,
       confirmed: true,
     });
 
     setTargetAdjId("");
     setSourceName("");
     setComments("");
+    setAnswers({});
     setShowModal(false);
   };
 
@@ -129,10 +142,18 @@ export default function FeedbackPage() {
             <Users2 className="w-3.5 h-3.5" />
             <span>View Submitted Forms</span>
           </Link>
+          <Link
+            href={`/${tournament?.slug}/print/feedback`}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Forms</span>
+          </Link>
           <button
             onClick={() => {
               setScore(Math.round((minScore + maxScore) / 2));
               setFormError("");
+              setAnswers({});
               setShowModal(true);
             }}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded text-xs shadow-xs transition"
@@ -223,7 +244,7 @@ export default function FeedbackPage() {
       {/* Submit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-white max-h-[90vh] rounded-lg shadow-xl max-w-md w-full overflow-y-auto p-6 space-y-4">
             <h3 className="text-base font-bold text-gray-900 border-b border-gray-100 pb-2 flex items-center space-x-2">
               <MessageSquareHeart className="w-5 h-5 text-pink-600" />
               <span>Submit Adjudicator Feedback</span>
@@ -303,6 +324,14 @@ export default function FeedbackPage() {
                   className="w-full border border-gray-300 rounded p-2 text-xs focus:outline-none focus:ring-2 focus:ring-pink-500"
                 />
               </div>
+
+              <FeedbackQuestionFields
+                questions={feedbackQuestions}
+                answers={answers}
+                onChange={(questionId, value) =>
+                  setAnswers((current) => ({ ...current, [questionId]: value }))
+                }
+              />
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
                 <button

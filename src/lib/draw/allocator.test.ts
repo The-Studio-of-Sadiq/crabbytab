@@ -200,6 +200,87 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(panelistIds).toEqual(expect.arrayContaining([lowerScoredAdj.id, lowestScoredAdj.id]));
   });
 
+  it("preserves Preset 1 slot ranking when older tournaments have no strategy setting", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`legacy-team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debates = [
+      { ...createDebate("legacy-high", teams.slice(0, 2)), bracket: 10 },
+      { ...createDebate("legacy-low", teams.slice(2)), bracket: 0 },
+    ];
+    const adjudicators = [
+      createAdj("legacy-high-1", "High 1", 8),
+      createAdj("legacy-high-2", "High 2", 8),
+      createAdj("legacy-low-1", "Low 1", 2),
+      createAdj("legacy-low-2", "Low 2", 2),
+    ];
+
+    const allocations = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+    const averageStrength = (debateId: string) => {
+      const allocation = allocations.find((item) => item.debateId === debateId)!;
+      const ids = [allocation.chairId, ...allocation.panellistIds].filter((id): id is string => Boolean(id));
+      return ids.reduce(
+        (total, id) => total + adjudicators.find((adjudicator) => adjudicator.id === id)!.baseScore,
+        0
+      ) / ids.length;
+    };
+
+    expect(averageStrength("legacy-high")).toBe(5);
+    expect(averageStrength("legacy-low")).toBe(5);
+  });
+
+  it("matches complete panel averages to debate priority in panel-average mode", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`average-team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debates = [
+      { ...createDebate("average-high", teams.slice(0, 2)), bracket: 10 },
+      { ...createDebate("average-low", teams.slice(2)), bracket: 0 },
+    ];
+    const adjudicators = [
+      createAdj("average-high-1", "High 1", 8),
+      createAdj("average-high-2", "High 2", 8),
+      createAdj("average-low-1", "Low 1", 2),
+      createAdj("average-low-2", "Low 2", 2),
+    ];
+
+    const allocations = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        panelStrengthStrategy: "panel_average",
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+    const averageStrength = (debateId: string) => {
+      const allocation = allocations.find((item) => item.debateId === debateId)!;
+      const ids = [allocation.chairId, ...allocation.panellistIds].filter((id): id is string => Boolean(id));
+      return ids.reduce(
+        (total, id) => total + adjudicators.find((adjudicator) => adjudicator.id === id)!.baseScore,
+        0
+      ) / ids.length;
+    };
+
+    expect(averageStrength("average-high")).toBe(8);
+    expect(averageStrength("average-low")).toBe(2);
+  });
+
   it("uses all available score-10 adjudicators as chairs before assigning lower scores", () => {
     const debateTeams = Array.from({ length: 6 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
     const debates = [

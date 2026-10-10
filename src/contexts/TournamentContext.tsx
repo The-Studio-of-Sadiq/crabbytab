@@ -1473,6 +1473,7 @@ export function TournamentProvider({
     await addFeedbackCommand(fbData, {
       tournamentId: tournament?.id || tournamentSlug,
       feedback,
+      questions: tournament?.preferences?.feedbackQuestions,
       privatePasscode,
       privateUrlKey,
       teams,

@@ -3,6 +3,7 @@ import { DocumentSnapshot } from "firebase-admin/firestore";
 import { NextRequest } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
+import { isTournamentAdministrator } from "@/lib/tournamentAccess";
 
 export class EmailAuthorizationError extends Error {
   constructor(
@@ -57,7 +58,16 @@ export async function authorizeTournamentEmailRequest(
     throw new EmailAuthorizationError("Tournament not found.", 404);
   }
 
-  if (!isGlobalAdminUid(user.uid)) {
+  const staffSnapshot = await tournamentSnapshot.ref.collection("staff").doc(user.uid).get();
+  const tournament = tournamentSnapshot.data();
+  if (
+    !isGlobalAdminUid(user.uid) &&
+    !isTournamentAdministrator(
+      { ownerId: tournament?.ownerId, admins: tournament?.admins },
+      user.uid
+    ) &&
+    staffSnapshot.data()?.role !== "admin"
+  ) {
     throw new EmailAuthorizationError("Only tournament administrators can send email.", 403);
   }
 

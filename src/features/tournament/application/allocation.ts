@@ -89,6 +89,7 @@ export async function autoAllocateCommand(
     {
       panelSize: effectivePanelSize,
       balancePanels: true,
+      panelStrengthStrategy: tournament.preferences?.adjudicatorPanelStrategy ?? "crabbytab_v1",
       respectInstitutionConflicts: true,
       respectPersonalConflicts: true,
       respectHistoryConflicts: true,

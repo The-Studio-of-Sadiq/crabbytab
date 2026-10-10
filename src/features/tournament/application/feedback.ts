@@ -1,4 +1,5 @@
-import type { AuditCategory, FeedbackSubmission } from "@/types";
+import type { AuditCategory, FeedbackQuestion, FeedbackSubmission } from "@/types";
+import { validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export interface FeedbackAuditEvent {
   action: string;
@@ -14,6 +15,7 @@ export async function addFeedbackCommand(
   input: {
     tournamentId: string;
     feedback: FeedbackSubmission[];
+    questions?: FeedbackQuestion[];
     privatePasscode?: string;
     privateUrlKey?: string;
     teams: Array<{ id: string; privateUrlKey?: string }>;
@@ -27,6 +29,9 @@ export async function addFeedbackCommand(
     recordAuditEvent(event: FeedbackAuditEvent): Promise<void>;
   }
 ): Promise<void> {
+  const answerError = validateFeedbackAnswers(input.questions ?? [], data.answers ?? {});
+  if (answerError) throw new Error(answerError);
+
   const feedback: FeedbackSubmission = {
     ...data,
     id: `fb-${Date.now()}`,

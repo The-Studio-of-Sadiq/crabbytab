@@ -72,8 +72,38 @@ export function calculateBreaks(
     });
 
     // Select breaking teams
-    const breakingCount = Math.min(cat.breakSize, eligibleStandings.length);
-    const breakingSlice = eligibleStandings.slice(0, breakingCount);
+    const institutionLimit =
+      Number.isInteger(cat.maxPerInstitution) && (cat.maxPerInstitution ?? 0) > 0
+        ? cat.maxPerInstitution
+        : undefined;
+    const institutionCounts = new Map<string, number>();
+    const takeEligible = (
+      candidates: TeamStandingRow[],
+      count: number
+    ): TeamStandingRow[] => {
+      const selected: TeamStandingRow[] = [];
+      for (const standing of candidates) {
+        if (selected.length >= count) break;
+        const team = teamMap.get(standing.teamId);
+        if (!team) continue;
+        const institutionKey = team.institutionId?.trim().toLowerCase() ||
+          team.institutionName?.trim().toLowerCase() ||
+          `team:${team.id}`;
+        const institutionCount = institutionCounts.get(institutionKey) ?? 0;
+        if (institutionLimit !== undefined && institutionCount >= institutionLimit) continue;
+        selected.push(standing);
+        institutionCounts.set(institutionKey, institutionCount + 1);
+      }
+      return selected;
+    };
+
+    const breakingSlice = takeEligible(eligibleStandings, cat.breakSize);
+    const breakingIds = new Set(breakingSlice.map((standing) => standing.teamId));
+    const reserveSlice = takeEligible(
+      eligibleStandings.filter((standing) => !breakingIds.has(standing.teamId)),
+      cat.reserveSize || 0
+    );
+    const breakingCount = breakingSlice.length;
 
     const breakingEntries: BreakingTeamEntry[] = breakingSlice.map((st, idx) => {
       const team = teamMap.get(st.teamId)!;
@@ -89,8 +119,7 @@ export function calculateBreaks(
     });
 
     // Select reserve teams
-    const reserveCount = Math.min(cat.reserveSize || 0, eligibleStandings.length - breakingCount);
-    const reserveSlice = eligibleStandings.slice(breakingCount, breakingCount + reserveCount);
+    const reserveCount = reserveSlice.length;
 
     const reserveEntries: BreakingTeamEntry[] = reserveSlice.map((st, idx) => {
       const team = teamMap.get(st.teamId)!;

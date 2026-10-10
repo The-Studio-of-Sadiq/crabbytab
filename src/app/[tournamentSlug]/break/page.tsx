@@ -31,6 +31,7 @@ export default function BreakPage() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatBreakSize, setNewCatBreakSize] = useState(8);
   const [newCatReserveSize, setNewCatReserveSize] = useState(2);
+  const [newCatMaxPerInstitution, setNewCatMaxPerInstitution] = useState(0);
   const [newCatIsGeneral, setNewCatIsGeneral] = useState(false);
   const [newCatPriority, setNewCatPriority] = useState(5);
   const [isGeneratingBreak, setIsGeneratingBreak] = useState(false);
@@ -68,12 +69,14 @@ export default function BreakPage() {
       reserveSize: newCatReserveSize,
       isGeneral: newCatIsGeneral,
       priority: newCatPriority,
+      maxPerInstitution: newCatMaxPerInstitution > 0 ? newCatMaxPerInstitution : undefined,
     };
 
     const updated = [...breakCategories, newCat];
     await saveBreakCategories(updated);
     setShowAddCategoryModal(false);
     setNewCatName("");
+    setNewCatMaxPerInstitution(0);
   };
 
   const handleGenerateBreak = async () => {
@@ -369,6 +372,24 @@ export default function BreakPage() {
                   onChange={(e) => setNewCatPriority(parseInt(e.target.value, 10))}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Maximum qualifiers per institution
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max={newCatBreakSize}
+                  value={newCatMaxPerInstitution}
+                  onChange={(event) => setNewCatMaxPerInstitution(Math.max(0, parseInt(event.target.value, 10) || 0))}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                />
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Set to 0 for no limit. For example, 3 enforces the AIDA 2016 Easters institution cap; ranking order
+                  is preserved and the next eligible institution is promoted. The limit also applies to reserves.
+                </p>
               </div>
 
               <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">

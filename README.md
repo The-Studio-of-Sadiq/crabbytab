@@ -14,8 +14,12 @@ CrabbyTab is an independent project and is not affiliated with Tabbycat.
 - Import and manage teams, adjudicators, institutions, venues, and motions.
 - Generate draws, allocate adjudicators and venues, and manage check-ins.
 - Record results and ballots, calculate standings, and manage break categories.
+- Configure adjudicator panel balancing, feedback questions, and institution
+  limits for break qualifiers.
 - Publish selected tournament information and provide private ballot and
   feedback links.
+- Print round ballots and feedback sheets, and use barcode labels with
+  keyboard-scanner check-in.
 - Review tournament activity with audit tools and use analytics and display
   views during an event.
 - Keep tournament data in the browser for offline use, with optional Firebase
@@ -52,9 +56,11 @@ list of Firebase Authentication UIDs for global administrators. Global admins
 can manage every tournament and Firestore collection. On sign-in, the server
 uses its Firebase Admin credentials to assign the matching Firestore custom
 claim; deploy the repository's `firestore.rules` for that claim to grant access.
-Tournament assistants are selected from existing Firebase Authentication
-accounts on each tournament's **Imports → Assistants** page and only receive
-access to tournaments where they are assigned.
+Tournament owners and tournament administrators can use the tournament's
+**Staff** page to assign existing Firebase accounts as tournament
+administrators or data-entry staff. Assignments are tournament-scoped; staff
+emails must already belong to an account, and no account directory is exposed
+to tournament administrators.
 
 When deploying, configure the Firebase Authentication and Firestore services
 for your own project and review [firestore.rules](./firestore.rules) before

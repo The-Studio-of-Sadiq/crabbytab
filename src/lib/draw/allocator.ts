@@ -1,4 +1,4 @@
-import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, FeedbackSubmission, TournamentPreferences } from "@/types";
+import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, FeedbackSubmission, TournamentPreferences, AdjudicatorPanelStrategy } from "@/types";
 import { solveHungarian } from "./hungarian";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 
@@ -6,8 +6,10 @@ import { isAvailableForRound } from "@/lib/roundAvailability";
 
 export interface AllocationOptions {
   panelSize: number; // e.g., 1 (solo chair), 3 (chair + 2 panellists), or 5
-  /** Match each full panel's average strength to its debate priority. */
+  /** Whether to include panel-average balance in the strength-matching objective. */
   balancePanels: boolean;
+  /** Defaults to the original CrabbyTab slot-ranking behavior for old tournaments. */
+  panelStrengthStrategy?: AdjudicatorPanelStrategy;
   respectInstitutionConflicts: boolean;
   respectPersonalConflicts: boolean;
   respectHistoryConflicts: boolean;
@@ -775,13 +777,17 @@ export function autoAllocateAdjudicators(
       allocationWeights.REPEAT_PANEL *
       panelSlots.length *
       panelSlots.length;
+    const panelAverageStrategy = options.panelStrengthStrategy === "panel_average";
     const strengthRankWeight = repeatPanelCostBound + 1;
     const maxRankDistance = Math.max(nonTrainees.length, panelSlots.length);
     const strengthCostBound =
       panelSlots.length * maxRankDistance * maxRankDistance * strengthRankWeight;
     const balanceCostBound = numDebates * 0.01;
-    const hardConflictCost =
-      strengthCostBound + repeatPanelCostBound + balanceCostBound + 1;
+    const panelAverageCostBound =
+      numDebates * 10 * Math.max(1, allocationWeights.PRIORITY_STRENGTH_MISMATCH);
+    const hardConflictCost = panelAverageStrategy
+      ? panelAverageCostBound + repeatPanelCostBound + 1
+      : strengthCostBound + repeatPanelCostBound + balanceCostBound + 1;
     const basePanelCostMatrix = panelSlots.map(({ debate }, slotIdx) => {
       const debateTeams: Team[] = Object.values(debate.teams)
         .map((t) => teamsMap.get(t.teamId))
@@ -807,11 +813,13 @@ export function autoAllocateAdjudicators(
           (options.respectInstitutionConflicts && cost.institutionConflict > 0) ||
           (options.respectPersonalConflicts && cost.personalConflict > 0) ||
           (options.respectHistoryConflicts && cost.repeatTeamConflict > 0          );
-          const rankDistance = Math.abs(
-        slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)
-          );
-          return (hasRespectedConflict ? hardConflictCost : 0) +
-        rankDistance * rankDistance * strengthRankWeight;
+        const conflictCost = hasRespectedConflict ? hardConflictCost : 0;
+        if (panelAverageStrategy) return conflictCost;
+
+        const rankDistance = Math.abs(
+          slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)
+        );
+        return conflictCost + rankDistance * rankDistance * strengthRankWeight;
       });
     });
     const panelCostMatrix = basePanelCostMatrix;
@@ -839,7 +847,10 @@ export function autoAllocateAdjudicators(
             const debateId = panelSlots[slotIndices[0]].debate.id;
             const priority = priorityMap.get(debateId)?.priorityScore ?? 5;
             const averageStrength = panelScores.reduce((sum, score) => sum + score, 0) / panelScores.length;
-            total += Math.abs(averageStrength - priority) * 0.001;
+            const mismatchWeight = panelAverageStrategy
+              ? allocationWeights.PRIORITY_STRENGTH_MISMATCH
+              : 0.001;
+            total += Math.abs(averageStrength - priority) * mismatchWeight;
           }
         }
         for (let i = 0; i < slotIndices.length; i++) {

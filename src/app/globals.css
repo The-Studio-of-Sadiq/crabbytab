@@ -122,9 +122,207 @@ textarea {
 }
 
 /* Print Optimization */
+.print-only {
+  display: none !important;
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
 @media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-only,
+  .print-only * {
+    visibility: visible !important;
+  }
+  .print-only {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
   .no-print {
     display: none !important;
+  }
+  .screen-only {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .barcode-sheet {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .barcode-sheet h1 {
+    font-size: 18pt;
+    margin-bottom: 4mm;
+  }
+  .barcode-sheet > p {
+    font-size: 9pt;
+    margin-bottom: 6mm;
+  }
+  .barcode-label-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm;
+  }
+  .barcode-label {
+    break-inside: avoid;
+    border: 1px solid #888;
+    padding: 3mm;
+    min-height: 20mm;
+  }
+  .barcode-label strong {
+    display: block;
+    font-size: 9pt;
+    margin-bottom: 2mm;
+  }
+  .printable-ballots {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .print-ballot {
+    box-sizing: border-box;
+    break-after: page;
+    min-height: 270mm;
+    padding: 2mm;
+  }
+  .print-ballot:last-child {
+    break-after: auto;
+  }
+  .ballot-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 8mm;
+    border-bottom: 2px solid black;
+    padding-bottom: 4mm;
+  }
+  .ballot-header h1 {
+    font-size: 17pt;
+    margin: 0 0 2mm;
+  }
+  .ballot-header p,
+  .ballot-room span {
+    display: block;
+    font-size: 10pt;
+    margin: 1mm 0;
+  }
+  .ballot-room {
+    display: flex;
+    flex-direction: column;
+    text-align: right;
+  }
+  .ballot-room strong {
+    font-size: 13pt;
+  }
+  .ballot-intro {
+    margin: 4mm 0;
+    font-size: 9pt;
+  }
+  .ballot-score-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 7mm;
+    font-size: 10pt;
+  }
+  .ballot-score-table th,
+  .ballot-score-table td {
+    border: 1px solid black;
+    padding: 3mm;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .ballot-score-table thead th {
+    background: #eee !important;
+  }
+  .ballot-score-table tbody td span {
+    display: block;
+    margin-top: 1mm;
+  }
+  .ballot-score-table .blank-score {
+    min-width: 28mm;
+  }
+  .ballot-notes {
+    margin-top: 8mm;
+    font-size: 10pt;
+  }
+  .ballot-notes div {
+    height: 15mm;
+    border-bottom: 1px solid #777;
+  }
+  .ballot-footer {
+    display: grid;
+    gap: 4mm;
+    margin-top: 10mm;
+    font-size: 9pt;
+  }
+  .printable-feedback {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .print-feedback-sheet {
+    box-sizing: border-box;
+    break-after: page;
+    min-height: 270mm;
+    padding: 2mm;
+  }
+  .print-feedback-sheet:last-child {
+    break-after: auto;
+  }
+  .print-feedback-sheet header {
+    border-bottom: 2px solid black;
+    padding-bottom: 3mm;
+  }
+  .print-feedback-sheet h1 {
+    font-size: 16pt;
+    margin: 0 0 2mm;
+  }
+  .print-feedback-sheet header p,
+  .feedback-print-question,
+  .feedback-print-score {
+    font-size: 10pt;
+    margin: 4mm 0;
+  }
+  .print-feedback-sheet dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    margin: 4mm 0;
+  }
+  .print-feedback-sheet dl div {
+    border-bottom: 1px solid black;
+    padding: 2mm 0;
+  }
+  .print-feedback-sheet dt {
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  .print-feedback-sheet dd {
+    margin: 1mm 0 0;
+  }
+  .feedback-print-question {
+    break-inside: avoid;
+  }
+  .feedback-print-question p {
+    margin: 2mm 0;
+  }
+  .feedback-print-writing {
+    min-height: 12mm;
+    border-bottom: 1px solid #777;
+  }
+  .feedback-print-writing-tall {
+    min-height: 35mm;
+  }
+  .feedback-print-confidential {
+    border-top: 1px solid #777;
+    margin-top: 7mm;
+    padding-top: 2mm;
+    font-size: 8pt;
   }
   input,
   select,

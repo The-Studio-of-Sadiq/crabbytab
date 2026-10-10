@@ -1,18 +1,18 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Clock,
-  UserCheck,
   CheckCircle2,
   XCircle,
   Users,
   Users2,
   MapPin,
   Search,
-  Sparkles,
+  Printer,
 } from "lucide-react";
+import { Code39Barcode } from "@/components/ui/Code39Barcode";
 
 export default function CheckinsPage() {
   const {
@@ -30,6 +30,10 @@ export default function CheckinsPage() {
 
   const [activeTab, setActiveTab] = useState<"teams" | "adjs" | "venues">("teams");
   const [searchQuery, setSearchQuery] = useState("");
+  const [scanValue, setScanValue] = useState("");
+  const [scanStatus, setScanStatus] = useState<{ message: string; error: boolean } | null>(null);
+  const [showBarcodeSheet, setShowBarcodeSheet] = useState(false);
+  const scannerRef = useRef<HTMLInputElement>(null);
 
   const checkedInTeams = teams.filter((t) => t.checkedIn !== false).length;
   const checkedInAdjs = adjudicators.filter((a) => a.checkedIn !== false).length;
@@ -39,6 +43,22 @@ export default function CheckinsPage() {
   const roundAdjudicatorsPresent = activeRound
     ? adjudicators.filter((adj) => adj.roundAvailability?.[activeRound.id] ?? adj.checkedIn !== false).length
     : checkedInAdjs;
+  const filteredTeams = teams.filter((team) =>
+    `${team.name} ${team.institutionName ?? ""} ${team.id}`.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const filteredAdjudicators = adjudicators.filter((adjudicator) =>
+    `${adjudicator.name} ${adjudicator.institutionName ?? ""} ${adjudicator.id}`
+      .toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const filteredVenues = venues.filter((venue) =>
+    `${venue.name} ${venue.category ?? ""} ${venue.id}`.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleAfterPrint = () => setShowBarcodeSheet(false);
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
 
   const toggleTeamCheckin = async (team: (typeof teams)[number]) => {
     if (!activeRound) return;
@@ -71,11 +91,63 @@ export default function CheckinsPage() {
           await updateAdjudicator({ ...a, roundAvailability: { ...a.roundAvailability, [activeRound.id]: true } });
         }
       }
+    } else {
+      for (const venue of venues) {
+        if (venue.checkedIn === false) await updateVenue({ ...venue, checkedIn: true });
+      }
     }
   };
 
+  const handleScan = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const scannedId = scanValue.trim().toLowerCase();
+    if (!scannedId) return;
+
+    try {
+      const team = teams.find((item) => item.id.toLowerCase() === scannedId);
+      if (team) {
+        if (!activeRound) throw new Error("Select a round before scanning a team.");
+        await updateTeam({
+          ...team,
+          roundAvailability: { ...team.roundAvailability, [activeRound.id]: true },
+        });
+        setScanStatus({ message: `${team.name} checked in for ${activeRound.name}.`, error: false });
+      } else {
+        const adjudicator = adjudicators.find((item) => item.id.toLowerCase() === scannedId);
+        if (adjudicator) {
+          if (!activeRound) throw new Error("Select a round before scanning an adjudicator.");
+          await updateAdjudicator({
+            ...adjudicator,
+            roundAvailability: { ...adjudicator.roundAvailability, [activeRound.id]: true },
+          });
+          setScanStatus({ message: `${adjudicator.name} checked in for ${activeRound.name}.`, error: false });
+        } else {
+          const venue = venues.find((item) => item.id.toLowerCase() === scannedId);
+          if (!venue) throw new Error("No team, adjudicator, or venue matches that barcode.");
+          await updateVenue({ ...venue, checkedIn: true });
+          setScanStatus({ message: `${venue.name} checked in.`, error: false });
+        }
+      }
+      setScanValue("");
+      scannerRef.current?.focus();
+    } catch (error) {
+      setScanStatus({
+        message: error instanceof Error ? error.message : "The barcode could not be processed.",
+        error: true,
+      });
+      setScanValue("");
+      scannerRef.current?.focus();
+    }
+  };
+
+  const printBarcodeLabels = () => {
+    setShowBarcodeSheet(true);
+    window.setTimeout(() => window.print(), 100);
+  };
+
   return (
-    <div className="space-y-6">
+    <>
+    <div className="space-y-6 screen-only">
       {/* Header */}
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -95,7 +167,45 @@ export default function CheckinsPage() {
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>Mark All Present</span>
         </button>
+        <button
+          onClick={printBarcodeLabels}
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+        >
+          <Printer className="w-3.5 h-3.5" />
+          <span>Print Barcode Labels</span>
+        </button>
       </div>
+
+      <form onSubmit={handleScan} className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2">
+        <label htmlFor="checkin-barcode" className="block text-xs font-bold text-blue-950">
+          Scan participant or venue barcode
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={scannerRef}
+            id="checkin-barcode"
+            autoComplete="off"
+            value={scanValue}
+            onChange={(event) => setScanValue(event.target.value)}
+            placeholder="Click here, then scan with a USB barcode scanner"
+            className="min-w-64 flex-1 rounded border border-blue-300 bg-white px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            className="rounded bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800"
+          >
+            Check In
+          </button>
+        </div>
+        <p className="text-[11px] text-blue-800">
+          Most USB scanners type the barcode and press Enter. This field also accepts a pasted participant or venue ID.
+        </p>
+        {scanStatus && (
+          <p role="status" className={`text-xs font-semibold ${scanStatus.error ? "text-red-700" : "text-emerald-800"}`}>
+            {scanStatus.message}
+          </p>
+        )}
+      </form>
 
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="availability-round" className="text-xs font-semibold text-gray-700">Round</label>
@@ -138,6 +248,27 @@ export default function CheckinsPage() {
             Adjudicators ({roundAdjudicatorsPresent}/{adjudicators.length})
           </span>
         </button>
+        <button
+          onClick={() => setActiveTab("venues")}
+          className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+            activeTab === "venues"
+              ? "bg-blue-600 text-white shadow-xs"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          <MapPin className="w-3.5 h-3.5" />
+          <span>Venues ({venues.filter((venue) => venue.checkedIn !== false).length}/{venues.length})</span>
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Search className="h-4 w-4 text-gray-500" />
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={`Search ${activeTab === "teams" ? "teams" : activeTab === "adjs" ? "adjudicators" : "venues"} by name or ID`}
+          className="w-full max-w-md rounded border border-gray-300 px-3 py-2 text-sm"
+        />
       </div>
 
       {/* List */}
@@ -147,14 +278,14 @@ export default function CheckinsPage() {
             <thead>
               <tr>
                 <th className="w-12 text-center">#</th>
-                <th>{activeTab === "teams" ? "Team Name" : "Adjudicator Name"}</th>
-                <th>Institution</th>
+                <th>{activeTab === "teams" ? "Team Name" : activeTab === "adjs" ? "Adjudicator Name" : "Venue"}</th>
+                <th>{activeTab === "venues" ? "Category" : "Institution"}</th>
                 <th className="w-32 text-center">Check-in Status</th>
               </tr>
             </thead>
             <tbody>
               {activeTab === "teams"
-                ? teams.map((t, idx) => (
+                ? filteredTeams.map((t, idx) => (
                     <tr key={t.id} className="hover:bg-gray-50">
                       <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
                       <td className="font-bold text-gray-900 text-xs">{t.name}</td>
@@ -183,7 +314,7 @@ export default function CheckinsPage() {
                       </td>
                     </tr>
                   ))
-                : adjudicators.map((a, idx) => (
+                : activeTab === "adjs" ? filteredAdjudicators.map((a, idx) => (
                     <tr key={a.id} className="hover:bg-gray-50">
                       <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
                       <td className="font-bold text-gray-900 text-xs">{a.name}</td>
@@ -211,11 +342,48 @@ export default function CheckinsPage() {
                         </button>
                       </td>
                     </tr>
+                  )) : filteredVenues.map((venue, idx) => (
+                    <tr key={venue.id} className="hover:bg-gray-50">
+                      <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
+                      <td className="font-bold text-gray-900 text-xs">{venue.name}</td>
+                      <td className="text-xs text-gray-600">{venue.category || "—"}</td>
+                      <td className="text-center">
+                        <button
+                          onClick={() => updateVenue({ ...venue, checkedIn: venue.checkedIn === false })}
+                          className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
+                            venue.checkedIn !== false
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                              : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
+                          }`}
+                        >
+                          {venue.checkedIn !== false ? "Present" : "Absent"}
+                        </button>
+                      </td>
+                    </tr>
                   ))}
             </tbody>
           </table>
         </div>
       </div>
     </div>
+    {showBarcodeSheet && (
+      <section className="print-only barcode-sheet">
+        <h1>{tournament?.name} — Identification Barcodes</h1>
+        <p>Scan the printed ID with a USB barcode scanner on the Check-ins page.</p>
+        <div className="barcode-label-grid">
+          {[
+            ...teams.map((item) => ({ id: item.id, name: item.name, kind: "Team" })),
+            ...adjudicators.map((item) => ({ id: item.id, name: item.name, kind: "Adjudicator" })),
+            ...venues.map((item) => ({ id: item.id, name: item.name, kind: "Venue" })),
+          ].map((item) => (
+            <article key={`${item.kind}-${item.id}`} className="barcode-label">
+              <strong>{item.kind}: {item.name}</strong>
+              <Code39Barcode value={item.id} label={item.kind} />
+            </article>
+          ))}
+        </div>
+      </section>
+    )}
+    </>
   );
 }

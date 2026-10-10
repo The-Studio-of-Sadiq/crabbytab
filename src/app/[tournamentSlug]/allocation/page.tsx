@@ -545,7 +545,11 @@ export default function AllocationPage() {
                 <option value={5}>5 (Chair + 4 Panellists)</option>
               </select>
             </div>
-            <p className="mt-1 text-[10px] text-indigo-700">The computer assigns chairs to the highest-priority rooms first.</p>
+            <p className="mt-1 text-[10px] text-indigo-700">
+              {tournament?.preferences?.adjudicatorPanelStrategy === "panel_average"
+                ? "Panel average strategy matches each panel's average strength to debate priority."
+                : "Preset 1 ranks adjudicators into priority rooms; this is the existing CrabbyTab behavior."}
+            </p>
           </div>
 
           <button

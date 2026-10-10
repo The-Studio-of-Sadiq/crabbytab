@@ -32,6 +32,7 @@ import {
   BPAssignmentMethod,
   ByeTeamResults,
   ByeTeamSelectionMethod,
+  FeedbackQuestion,
 } from "@/types";
 import { PrecedenceEditor, ExtraMetricsEditor } from "@/components/setup/PrecedenceEditor";
 import {
@@ -41,6 +42,7 @@ import {
   TWO_TEAM_ONLY_TEAM_METRICS,
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
+import { validateFeedbackQuestions } from "@/lib/feedback/questions";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -83,11 +85,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     feedbackEnabled: true,
     feedbackMinScore: 1,
     feedbackMaxScore: 10,
+    feedbackQuestions: [],
     // Tabbycat Draw Rules defaults:
     minAdjScoreToVote: 1.5,
     adjConflictPenalty: 1000000,
     adjHistoryPenalty: 10000,
     importanceMismatchPenalty: 10000000,
+    adjudicatorPanelStrategy: "crabbytab_v1",
     skipAdjCheckins: false,
     noPanellistAdjs: false,
     noTraineeAdjs: false,
@@ -136,6 +140,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   }, [tournament]);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
   const [prelimRoundCount, setPrelimRoundCount] = useState(0);
   const [isSavingRoundCount, setIsSavingRoundCount] = useState(false);
   const [roundCountError, setRoundCountError] = useState("");
@@ -189,6 +194,14 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tournament) return;
+    if (prefs.feedbackEnabled !== false) {
+      const questionError = validateFeedbackQuestions(prefs.feedbackQuestions ?? []);
+      if (questionError) {
+        setFeedbackQuestionError(questionError);
+        return;
+      }
+    }
+    setFeedbackQuestionError("");
 
     await saveTournament({
       ...tournament,
@@ -199,6 +212,28 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  const updateFeedbackQuestion = (id: string, updates: Partial<FeedbackQuestion>) => {
+    setPrefs((current) => ({
+      ...current,
+      feedbackQuestions: (current.feedbackQuestions ?? []).map((question) =>
+        question.id === id ? { ...question, ...updates } : question
+      ),
+    }));
+  };
+
+  const addFeedbackQuestion = () => {
+    const question: FeedbackQuestion = {
+      id: `feedback-${globalThis.crypto.randomUUID()}`,
+      label: "",
+      type: "text",
+      required: false,
+    };
+    setPrefs((current) => ({
+      ...current,
+      feedbackQuestions: [...(current.feedbackQuestions ?? []), question],
+    }));
   };
 
   return (
@@ -245,6 +280,30 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Adjudicator allocation strategy
+                  </label>
+                  <select
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
+                    value={prefs.adjudicatorPanelStrategy ?? "crabbytab_v1"}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        adjudicatorPanelStrategy: e.target.value as TournamentPreferences["adjudicatorPanelStrategy"],
+                      }))
+                    }
+                  >
+                    <option value="crabbytab_v1">Preset 1 — Current CrabbyTab allocation</option>
+                    <option value="panel_average">Panel average — match each panel to debate priority</option>
+                  </select>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Preset 1 preserves the existing strength-ranking behavior. Panel average instead matches the
+                    average strength of each complete voting panel to its debate priority; the strongest eligible
+                    panel member is still promoted to chair.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Minimum adjudicator score to vote
@@ -1217,7 +1276,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   </label>
 
                   {prefs.feedbackEnabled !== false && (
-                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200">
+                    <div className="space-y-4 pt-2 border-t border-gray-200">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] font-semibold text-gray-700 mb-1">
                           Minimum Feedback Score
@@ -1245,8 +1305,110 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         />
                       </div>
                     </div>
+                    </div>
                   )}
                 </div>
+                {prefs.feedbackEnabled !== false && (
+                  <div className="space-y-3 rounded border border-gray-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-800">Custom feedback questions</h4>
+                        <p className="text-[11px] text-gray-500">Questions are included on team and adjudicator feedback forms.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addFeedbackQuestion}
+                        className="rounded border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100"
+                      >
+                        Add question
+                      </button>
+                    </div>
+                    {feedbackQuestionError && <p role="alert" className="text-xs text-red-700">{feedbackQuestionError}</p>}
+                    {(prefs.feedbackQuestions ?? []).map((question, index) => (
+                      <div key={question.id} className="grid grid-cols-1 gap-2 rounded bg-gray-50 p-3 sm:grid-cols-2">
+                        <label className="text-[11px] font-semibold text-gray-700">
+                          Question {index + 1}
+                          <input
+                            value={question.label}
+                            onChange={(event) => updateFeedbackQuestion(question.id, { label: event.target.value })}
+                            className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                            placeholder="Enter a question"
+                          />
+                        </label>
+                        <label className="text-[11px] font-semibold text-gray-700">
+                          Answer type
+                          <select
+                            value={question.type}
+                            onChange={(event) => updateFeedbackQuestion(question.id, {
+                              type: event.target.value as FeedbackQuestion["type"],
+                            })}
+                            className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                          >
+                            <option value="text">Short text</option>
+                            <option value="textarea">Long text</option>
+                            <option value="scale">Number scale</option>
+                            <option value="yes_no">Yes / No</option>
+                            <option value="select_one">Select one</option>
+                            <option value="select_many">Select many</option>
+                          </select>
+                        </label>
+                        {(question.type === "select_one" || question.type === "select_many") && (
+                          <label className="text-[11px] font-semibold text-gray-700 sm:col-span-2">
+                            Options (comma-separated)
+                            <input
+                              value={(question.options ?? []).join(", ")}
+                              onChange={(event) => updateFeedbackQuestion(question.id, {
+                                options: event.target.value.split(",").map((value) => value.trim()).filter(Boolean),
+                              })}
+                              className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                              placeholder="Option one, Option two"
+                            />
+                          </label>
+                        )}
+                        {question.type === "scale" && (
+                          <div className="flex gap-2">
+                            <label className="flex-1 text-[11px] font-semibold text-gray-700">
+                              Minimum
+                              <input
+                                type="number"
+                                value={question.min ?? 1}
+                                onChange={(event) => updateFeedbackQuestion(question.id, { min: Number(event.target.value) })}
+                                className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                              />
+                            </label>
+                            <label className="flex-1 text-[11px] font-semibold text-gray-700">
+                              Maximum
+                              <input
+                                type="number"
+                                value={question.max ?? 5}
+                                onChange={(event) => updateFeedbackQuestion(question.id, { max: Number(event.target.value) })}
+                                className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                              />
+                            </label>
+                          </div>
+                        )}
+                        <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={question.required}
+                            onChange={(event) => updateFeedbackQuestion(question.id, { required: event.target.checked })}
+                          />
+                          Required
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setPrefs((current) => ({
+                            ...current,
+                            feedbackQuestions: (current.feedbackQuestions ?? []).filter((item) => item.id !== question.id),
+                          }))}
+                          className="justify-self-end text-xs font-semibold text-red-700 hover:text-red-900"
+                        >
+                          Remove question
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

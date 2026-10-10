@@ -24,8 +24,10 @@ import {
   Lock,
   RefreshCw,
 } from "lucide-react";
-import { DebateSide, Debate, BallotSubmission } from "@/types";
+import { DebateSide, Debate, BallotSubmission, FeedbackAnswer } from "@/types";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
+import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
+import { validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export default function AdjudicatorPrivatePortalPage() {
   const params = useParams();
@@ -60,6 +62,7 @@ export default function AdjudicatorPrivatePortalPage() {
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
+  const feedbackQuestions = tournament?.preferences?.feedbackQuestions ?? [];
   const isBP = tournament?.format === "bp";
   const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
 
@@ -151,6 +154,7 @@ export default function AdjudicatorPrivatePortalPage() {
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
+  const [feedbackAnswers, setFeedbackAnswers] = useState<Record<string, FeedbackAnswer>>({});
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState("");
@@ -284,6 +288,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
     setFeedbackAgree(true);
     setFeedbackComments("");
+    setFeedbackAnswers({});
     setFeedbackError("");
     setShowFeedbackModal(true);
   };
@@ -297,6 +302,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
     setFeedbackAgree(true);
     setFeedbackComments("");
+    setFeedbackAnswers({});
     setFeedbackError("");
     setShowFeedbackModal(true);
   };
@@ -305,6 +311,11 @@ export default function AdjudicatorPrivatePortalPage() {
     e.preventDefault();
     if (!adjudicator) return;
     setFeedbackError("");
+    const answersError = validateFeedbackAnswers(feedbackQuestions, feedbackAnswers);
+    if (answersError) {
+      setFeedbackError(answersError);
+      return;
+    }
 
     const check = validateFeedbackScore(feedbackScore, tournament?.preferences);
     if (!check.valid && check.error) {
@@ -331,6 +342,7 @@ export default function AdjudicatorPrivatePortalPage() {
         score: feedbackScore,
         agreeWithDecision: feedbackAgree,
         comments: feedbackComments.trim(),
+        answers: feedbackAnswers,
         confirmed: true,
       }, activePasscode, privateKey);
       setShowFeedbackModal(false);
@@ -1074,7 +1086,7 @@ export default function AdjudicatorPrivatePortalPage() {
       {/* FEEDBACK MODAL */}
       {showFeedbackModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-gray-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white max-h-[90vh] rounded-xl max-w-md w-full overflow-y-auto p-6 shadow-xl border border-gray-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2">
                 <MessageSquareHeart className="w-5 h-5 text-pink-600" />
@@ -1172,6 +1184,14 @@ export default function AdjudicatorPrivatePortalPage() {
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
+
+              <FeedbackQuestionFields
+                questions={feedbackQuestions}
+                answers={feedbackAnswers}
+                onChange={(questionId, value) =>
+                  setFeedbackAnswers((current) => ({ ...current, [questionId]: value }))
+                }
+              />
 
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
                 <button

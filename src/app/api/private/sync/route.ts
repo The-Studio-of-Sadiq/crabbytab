@@ -14,6 +14,7 @@ import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { isFeedbackAnswerRecord, validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 export const runtime = "nodejs";
 
@@ -204,6 +205,7 @@ export async function POST(request: NextRequest) {
           ? record.targetTeamId
           : undefined;
         const score = record.score;
+        const answers = record.answers === undefined ? {} : record.answers;
         const targetAdjudicatorIsAssigned =
           typeof targetAdjudicatorId === "string" &&
           (panel.chairId === targetAdjudicatorId ||
@@ -231,7 +233,9 @@ export async function POST(request: NextRequest) {
           !validateFeedbackScore(score, tournament.preferences).valid ||
           (record.comments !== undefined &&
             (typeof record.comments !== "string" || record.comments.length > 5000)) ||
-          (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean")
+          (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean") ||
+          !isFeedbackAnswerRecord(answers) ||
+          Boolean(validateFeedbackAnswers(tournament.preferences?.feedbackQuestions || [], answers))
         ) {
           return NextResponse.json({ error: "Feedback contains invalid details." }, { status: 400 });
         }
@@ -261,7 +265,7 @@ export async function POST(request: NextRequest) {
             ? { agreeWithDecision: record.agreeWithDecision }
             : {}),
           ...(typeof record.comments === "string" ? { comments: record.comments } : {}),
-          ...(isRecord(record.answers) ? { answers: record.answers } : {}),
+          ...(Object.keys(answers).length > 0 ? { answers } : {}),
           confirmed: true,
           timestamp: new Date().toISOString(),
         };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
+import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
 
 export const runtime = "nodejs";
 
@@ -42,14 +43,16 @@ export async function GET(request: NextRequest) {
 
     const data = tournamentDocument.data();
     const globalAdmin = isGlobalAdminUid(uid);
-    const assistant = !globalAdmin
-      ? await tournamentDocument.ref.collection("staff").doc(uid).get()
-      : null;
-    const role = globalAdmin
-      ? "admin"
-      : assistant?.data()?.role === "dataEntry"
-        ? "dataEntry"
-        : null;
+    const assistant = await tournamentDocument.ref.collection("staff").doc(uid).get();
+    const role = resolveTournamentAccessRole(
+      {
+        ownerId: data.ownerId,
+        admins: data.admins && typeof data.admins === "object" ? data.admins : undefined,
+      },
+      uid,
+      assistant.data()?.role,
+      globalAdmin
+    );
 
     if (!role) {
       return NextResponse.json({ error: "This account is not assigned to this tournament." }, { status: 403 });

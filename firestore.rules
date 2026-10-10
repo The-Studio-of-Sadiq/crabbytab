@@ -8,7 +8,20 @@ service cloud.firestore {
     // Tournaments root collection
     match /tournaments/{tournamentId} {
       function isTournamentAdmin() {
-        return isGlobalAdmin();
+        return isGlobalAdmin() || (
+          request.auth != null && (
+            get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId == request.auth.uid ||
+            (
+              "admins" in get(/databases/$(database)/documents/tournaments/$(tournamentId)).data &&
+              request.auth.uid in get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.admins &&
+              get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.admins[request.auth.uid] == true
+            ) ||
+            (
+              exists(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)) &&
+              get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "admin"
+            )
+          )
+        );
       }
 
       function isAssignedAssistant() {
@@ -18,7 +31,13 @@ service cloud.firestore {
       }
 
       allow read: if isTournamentAdmin() || isAssignedAssistant();
-      allow create: if isGlobalAdmin();
+      allow create: if isGlobalAdmin() || (
+        request.auth != null &&
+        request.resource.data.ownerId == request.auth.uid &&
+        "admins" in request.resource.data &&
+        request.auth.uid in request.resource.data.admins &&
+        request.resource.data.admins[request.auth.uid] == true
+      );
       allow update, delete: if isTournamentAdmin();
 
       // Tournament records and private participant data are administrator-only.

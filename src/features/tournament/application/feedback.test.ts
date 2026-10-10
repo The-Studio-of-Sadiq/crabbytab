@@ -43,4 +43,34 @@ describe("addFeedbackCommand", () => {
     expect(JSON.stringify(auditDetails)).not.toContain("Sensitive feedback text");
     expect(JSON.stringify(auditDetails)).not.toContain("secret-passcode");
   });
+
+  it("rejects missing required questionnaire answers before persisting", async () => {
+    let persisted = false;
+    await expect(addFeedbackCommand({
+      roundId: "round-1",
+      debateId: "debate-1",
+      sourceType: "team",
+      sourceId: "team-1",
+      sourceName: "Team A",
+      score: 8,
+      confirmed: false,
+    }, {
+      tournamentId: "tournament-1",
+      feedback: [],
+      questions: [{
+        id: "reason",
+        label: "Reason for score",
+        type: "textarea",
+        required: true,
+      }],
+      teams: [],
+      adjudicators: [],
+      repository: {
+        saveFeedback() { persisted = true; },
+      },
+      async queuePrivateRecord() {},
+      async recordAuditEvent() {},
+    })).rejects.toThrow("Please answer “Reason for score”.");
+    expect(persisted).toBe(false);
+  });
 });

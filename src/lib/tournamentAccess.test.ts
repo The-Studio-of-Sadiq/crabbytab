@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDataEntryRole,
   isTournamentAdministrator,
+  resolveTournamentAccessRole,
   sanitizeAssistantAdjudicator,
   sanitizeAssistantTeam,
 } from "./tournamentAccess";
@@ -23,6 +24,14 @@ describe("tournament staff roles", () => {
     expect(isDataEntryRole("dataEntry")).toBe(true);
     expect(isDataEntryRole("admin")).toBe(false);
     expect(isDataEntryRole(null)).toBe(false);
+  });
+
+  it("resolves tournament-scoped admin and data-entry access without global access", () => {
+    expect(resolveTournamentAccessRole(tournament, "owner-1", null, false)).toBe("admin");
+    expect(resolveTournamentAccessRole(tournament, "staff-admin", "admin", false)).toBe("admin");
+    expect(resolveTournamentAccessRole(tournament, "assistant", "dataEntry", false)).toBe("dataEntry");
+    expect(resolveTournamentAccessRole(tournament, "unassigned", null, false)).toBeNull();
+    expect(resolveTournamentAccessRole(null, "global", null, true)).toBe("admin");
   });
 
   it("removes private participant portal and adjudicator conflict data", () => {

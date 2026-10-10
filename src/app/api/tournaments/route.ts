@@ -3,6 +3,7 @@ import type { DocumentData } from "firebase-admin/firestore";
 import type { TournamentFormat } from "@/types";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
+import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
 
 export const runtime = "nodejs";
 
@@ -53,14 +54,25 @@ export async function GET(request: NextRequest) {
     const accessibleTournaments = await Promise.all(tournamentSnapshot.docs.map(async (document) => {
       const data = document.data();
       const assistant = await document.ref.collection("staff").doc(uid).get();
-      return assistant.data()?.role === "dataEntry"
-        ? toSummary(document.id, data, "dataEntry")
-        : null;
+      const role = resolveTournamentAccessRole(
+        {
+          ownerId: data.ownerId,
+          admins: data.admins && typeof data.admins === "object" ? data.admins : undefined,
+        },
+        uid,
+        assistant.data()?.role,
+        isGlobalAdminUid(uid)
+      );
+      return role ? toSummary(document.id, data, role) : null;
     }));
 
     const tournaments = accessibleTournaments.filter((tournament) => tournament !== null);
     return NextResponse.json({
-      role: tournaments.length ? "assistant" : "none",
+      role: tournaments.some((tournament) => tournament.accessRole === "admin")
+        ? "admin"
+        : tournaments.length
+          ? "assistant"
+          : "none",
       tournaments,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
