@@ -12,7 +12,7 @@ export async function saveTournamentCommand(
   previous: Tournament | null,
   dependencies: {
     localRepository: { saveTournament(tournament: Tournament): void };
-    cloudRepository?: { saveTournament(tournamentId: string, tournament: Tournament): Promise<void> };
+    cloudRepository?: { saveTournament(tournamentId: string, tournament: Tournament): Promise<void | boolean> };
     recordAuditEvent(event: TournamentSettingsAuditEvent): Promise<void>;
     warn(message: string, error: unknown): void;
   }

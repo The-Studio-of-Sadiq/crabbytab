@@ -17,6 +17,7 @@ import {
   CloudOff,
   Upload,
   CloudDownload,
+  Download,
 } from "lucide-react";
 
 export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
@@ -30,8 +31,10 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     cloudSyncState,
     cloudSyncMessage,
     localSaveError,
+    isOwnerOrAdmin,
     uploadToCloud,
     downloadFromCloud,
+    exportSyncRecovery,
   } = useTournament();
   const { user, logout } = useAuth();
   const [isOnline, setIsOnline] = useState(true);
@@ -54,7 +57,9 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   }, []);
 
   const handleUpload = async () => {
-    if (!window.confirm("Upload this device's local copy to Firestore? This replaces cloud data for this tournament.")) {
+    if (!window.confirm(
+      "Merge this device's records into Firestore? Cloud-only records are retained. Different cloud versions are archived before replacement. Local deletions are not applied to cloud."
+    )) {
       return;
     }
     try {
@@ -67,13 +72,22 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   const handleDownload = async () => {
     if (
       !window.confirm(
-        "Download the latest Firestore copy? This replaces this device's local tournament data, including unsynced changes."
+        "Merge Firestore records into this device? Local-only records and this device's version of matching records are retained. No cloud records are deleted."
       )
     ) {
       return;
     }
     try {
       await downloadFromCloud();
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
+
+  const handleExportRecovery = async () => {
+    setShowUserMenu(false);
+    try {
+      await exportSyncRecovery();
     } catch {
       // The sync state displays the specific failure.
     }
@@ -180,7 +194,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                   type="button"
                   onClick={handleDownload}
                   disabled={!isOnline || cloudSyncState === "syncing"}
-                  title="Replace this device's local tournament data with the latest Firestore copy"
+                  title="Merge cloud records with this device's local copy"
                   className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
                 >
                   <CloudDownload className="w-3 h-3" />
@@ -190,7 +204,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                   type="button"
                   onClick={handleUpload}
                   disabled={!isOnline || cloudSyncState === "syncing"}
-                  title={cloudSyncMessage || "Explicitly upload this device's local copy to Firestore"}
+                  title="Merge this device's records into Firestore; archive any conflicting cloud versions"
                   className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
                 >
                   <Upload className="w-3 h-3" />
@@ -265,6 +279,17 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                     <Shield className="w-3.5 h-3.5" />
                     <span>Tournament Settings</span>
                   </Link>
+                  {isOwnerOrAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleExportRecovery}
+                      disabled={!isOnline || cloudSyncState === "syncing"}
+                      className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export Sync Recovery</span>
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       setShowUserMenu(false);

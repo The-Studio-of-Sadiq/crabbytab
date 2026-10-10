@@ -4,9 +4,8 @@ import {
   getDoc,
   getDocs,
   query,
-  setDoc,
+  runTransaction,
   where,
-  type WriteBatch,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
@@ -15,9 +14,32 @@ import type {
   CloudCollectionName,
   CloudRecord,
   TournamentCloudRepository,
+  SyncConflict,
 } from "@/features/tournament/application/cloudSync";
 import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "@/features/tournament/collections";
-import { cleanUndefined, commitChunkedBatches } from "./firestore";
+import { cleanUndefined } from "./firestore";
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, nested]) => nested !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, canonicalize(nested)])
+    );
+  }
+  return value;
+}
+
+function recordsEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+function withoutUpdatedAt(data: Record<string, unknown>): Record<string, unknown> {
+  const { updatedAt: _updatedAt, ...rest } = data;
+  return rest;
+}
 
 export function createFirestoreTournamentRepository(): TournamentCloudRepository {
   const getFirestore = () => {
@@ -43,13 +65,32 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         ? { id: tournament.id, data: tournament.data() as Record<string, unknown> }
         : null;
     },
-    async saveTournament(tournamentId, tournament: Tournament) {
+    async saveTournament(tournamentId: string, tournament: Tournament) {
       const firestoreDb = getFirestore();
-      await setDoc(
-        doc(firestoreDb, "tournaments", tournamentId),
-        cleanUndefined(tournament),
-        { merge: true }
-      );
+      const tournamentRef = doc(firestoreDb, "tournaments", tournamentId);
+      const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
+      const cleanTournament = cleanUndefined(tournament);
+      return runTransaction(firestoreDb, async (transaction) => {
+        const snapshot = await transaction.get(tournamentRef);
+        if (!snapshot.exists()) {
+          transaction.set(tournamentRef, cleanTournament, { merge: true });
+          return false;
+        }
+        const current = { ...snapshot.data(), id: snapshot.id } as Record<string, unknown>;
+        const incoming = cleanTournament as unknown as Record<string, unknown>;
+        const hasConflict = !recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(incoming));
+        if (hasConflict) {
+          transaction.set(conflictRef, {
+            id: conflictRef.id,
+            collectionName: "tournament",
+            recordId: tournamentId,
+            record: current,
+            archivedAt: new Date().toISOString(),
+          });
+        }
+        transaction.set(tournamentRef, cleanTournament, { merge: true });
+        return hasConflict;
+      });
     },
     async getCollections(tournamentId) {
       const firestoreDb = getFirestore();
@@ -68,34 +109,60 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         ])
       ) as Record<CloudCollectionName, CloudRecord[]>;
     },
-    async syncCollections(tournamentId, localCollections) {
+    async syncCollections(
+      tournamentId: string,
+      localCollections: Record<CloudCollectionName, CloudRecord[]>
+    ) {
       const firestoreDb = getFirestore();
-      const operations: Array<(batch: WriteBatch) => void> = [];
+      let archivedConflictCount = 0;
       for (const collectionName of CLOUD_COLLECTIONS) {
-        const remoteSnapshot = await getDocs(
-          collection(firestoreDb, "tournaments", tournamentId, collectionName)
-        );
+        const collectionRef = collection(firestoreDb, "tournaments", tournamentId, collectionName);
+        const remoteIds = collectionName === "auditEvents"
+          ? (await getDocs(collectionRef)).docs.map((remoteDoc) => remoteDoc.id)
+          : [];
         const localItems = localCollections[collectionName];
         const plan = planCollectionReconciliation(
           collectionName,
-          remoteSnapshot.docs.map((remoteDoc) => remoteDoc.id),
+          remoteIds,
           localItems
         );
-        const remoteDocumentsById = new Map(remoteSnapshot.docs.map((remoteDoc) => [remoteDoc.id, remoteDoc]));
-        for (const id of plan.deleteIds) {
-          const remoteDocument = remoteDocumentsById.get(id);
-          if (remoteDocument) operations.push((batch) => batch.delete(remoteDocument.ref));
-        }
         for (const item of plan.recordsToWrite) {
-          operations.push((batch) =>
-            batch.set(
-              doc(firestoreDb, "tournaments", tournamentId, collectionName, item.id),
-              cleanUndefined(item)
-            )
-          );
+          const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, item.id);
+          const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
+          const cleanRecord = cleanUndefined(item);
+          const archived = await runTransaction(firestoreDb, async (transaction) => {
+            const snapshot = await transaction.get(recordRef);
+            if (collectionName === "auditEvents" && snapshot.exists()) return false;
+            if (!snapshot.exists()) {
+              transaction.set(recordRef, cleanRecord);
+              return false;
+            }
+            const current = { ...snapshot.data(), id: snapshot.id } as CloudRecord;
+            if (recordsEqual(current, cleanRecord)) return false;
+            transaction.set(conflictRef, {
+              id: conflictRef.id,
+              collectionName,
+              recordId: item.id,
+              record: current,
+              archivedAt: new Date().toISOString(),
+            });
+            transaction.set(recordRef, cleanRecord);
+            return true;
+          });
+          archivedConflictCount += Number(archived);
         }
       }
-      await commitChunkedBatches(operations, firestoreDb);
+      return archivedConflictCount;
+    },
+    async getSyncConflicts(tournamentId: string) {
+      const firestoreDb = getFirestore();
+      const snapshot = await getDocs(
+        collection(firestoreDb, "tournaments", tournamentId, "syncConflicts")
+      );
+      return snapshot.docs.map((document) => ({
+        ...document.data(),
+        id: document.id,
+      })) as SyncConflict[];
     },
   };
 }

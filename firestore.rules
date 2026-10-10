@@ -21,8 +21,15 @@ service cloud.firestore {
       match /{collection}/{document} {
         allow read, write: if collection != "auditEvents" &&
           collection != "auditReleases" &&
+          collection != "syncConflicts" &&
           collection != "data" &&
           isTournamentAdmin();
+      }
+
+      // Conflicting cloud versions are append-only recovery records.
+      match /syncConflicts/{conflictId} {
+        allow read, create: if isTournamentAdmin();
+        allow update, delete: if false;
       }
 
       // Audit events are append-only; only tournament administrators may read them.

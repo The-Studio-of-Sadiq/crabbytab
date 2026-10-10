@@ -48,19 +48,17 @@ function emptyCollections(): Record<CloudCollectionName, CloudRecord[]> {
 }
 
 describe("tournament cloud synchronization", () => {
-  it("reconciles ordinary collections but only appends audit events", () => {
+  it("preserves cloud-only records and only appends audit events", () => {
     expect(planCollectionReconciliation("teams", ["keep", "remove"], [
       { id: "keep" },
       { id: "add" },
     ])).toEqual({
-      deleteIds: ["remove"],
       recordsToWrite: [{ id: "keep" }, { id: "add" }],
     });
     expect(planCollectionReconciliation("auditEvents", ["existing"], [
       { id: "existing" },
       { id: "new" },
     ])).toEqual({
-      deleteIds: [],
       recordsToWrite: [{ id: "new" }],
     });
   });
@@ -71,12 +69,13 @@ describe("tournament cloud synchronization", () => {
     const repository: TournamentCloudRepository = {
       async getTournament() { calls.push("read"); return null; },
       async findTournamentBySlug() { return null; },
-      async saveTournament(_id, metadata) { calls.push("metadata"); savedMetadata = metadata; },
+      async saveTournament(_id, metadata) { calls.push("metadata"); savedMetadata = metadata; return false; },
       async getCollections() { return emptyCollections(); },
-      async syncCollections() { calls.push("collections"); },
+      async syncCollections() { calls.push("collections"); return 2; },
+      async getSyncConflicts() { return []; },
     };
 
-    await uploadTournamentCommand({
+    const archivedConflictCount = await uploadTournamentCommand({
       tournament,
       userId: "user-1",
       localCollections: emptyCollections(),
@@ -84,6 +83,7 @@ describe("tournament cloud synchronization", () => {
     });
 
     expect(calls).toEqual(["read", "metadata", "collections"]);
+    expect(archivedConflictCount).toBe(2);
     expect(savedMetadata).toMatchObject({ ownerId: "user-1", admins: { "user-1": true } });
     expect(savedMetadata?.updatedAt).toEqual(expect.any(String));
   });
@@ -96,18 +96,59 @@ describe("tournament cloud synchronization", () => {
         return { id: tournament.id, data: { ...tournament, ownerId: "other-user", admins: {} } };
       },
       async findTournamentBySlug() { return null; },
-      async saveTournament() { calls.push("save"); },
+      async saveTournament() { calls.push("save"); return false; },
       async getCollections() { calls.push("collections"); return emptyCollections(); },
-      async syncCollections() { calls.push("sync"); },
+      async syncCollections() { calls.push("sync"); return 0; },
+      async getSyncConflicts() { return []; },
     };
 
     await expect(downloadTournamentCommand({
       tournamentId: tournament.id,
       slug: tournament.slug,
       userId: "user-1",
+      localTournament: tournament,
+      localCollections: emptyCollections(),
       repository,
     })).rejects.toThrow("This cloud tournament belongs to another account.");
 
     expect(calls).toEqual(["read"]);
+  });
+
+  it("merges downloaded records without dropping local-only records or replacing local conflicts", async () => {
+    const localCollections = emptyCollections();
+    localCollections.teams = [
+      { id: "same", name: "Local version" } as CloudRecord,
+      { id: "local-only", name: "Local only" } as CloudRecord,
+    ];
+    const cloudCollections = emptyCollections();
+    cloudCollections.teams = [
+      { id: "same", name: "Cloud version" } as CloudRecord,
+      { id: "cloud-only", name: "Cloud only" } as CloudRecord,
+    ];
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return { id: tournament.id, data: { ...tournament, ownerId: "user-1", admins: {} } };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return cloudCollections; },
+      async syncCollections() { return 0; },
+      async getSyncConflicts() { return []; },
+    };
+
+    const result = await downloadTournamentCommand({
+      tournamentId: tournament.id,
+      slug: tournament.slug,
+      userId: "user-1",
+      localTournament: tournament,
+      localCollections,
+      repository,
+    });
+
+    expect(result.collections.teams).toEqual([
+      { id: "same", name: "Local version" },
+      { id: "cloud-only", name: "Cloud only" },
+      { id: "local-only", name: "Local only" },
+    ]);
   });
 });

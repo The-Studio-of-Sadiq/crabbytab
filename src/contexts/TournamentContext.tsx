@@ -30,7 +30,11 @@ import { createRoundCommand, updateRoundCommand } from "@/features/tournament/ap
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
-import { downloadTournamentCommand, uploadTournamentCommand } from "@/features/tournament/application/cloudSync";
+import {
+  downloadTournamentCommand,
+  uploadTournamentCommand,
+  type CloudRecord,
+} from "@/features/tournament/application/cloudSync";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { addFeedbackCommand } from "@/features/tournament/application/feedback";
 import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand } from "@/features/tournament/application/allocation";
@@ -81,6 +85,7 @@ export interface TournamentContextType {
   localSaveError: string;
   uploadToCloud: () => Promise<void>;
   downloadFromCloud: () => Promise<void>;
+  exportSyncRecovery: () => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
@@ -1268,6 +1273,20 @@ export function TournamentProvider({
     });
   };
 
+  const getLocalCollections = (): Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]> => ({
+    rounds,
+    teams,
+    adjudicators,
+    venues,
+    motions,
+    breakCategories,
+    debates,
+    ballots,
+    feedback,
+    institutions,
+    auditEvents: auditEventsRef.current,
+  });
+
   const uploadToCloud = async () => {
     if (!db) {
       const message = "Cloud sync is unavailable because Firebase is not configured.";
@@ -1295,29 +1314,20 @@ export function TournamentProvider({
     }
 
     setCloudSyncState("syncing");
-    setCloudSyncMessage("Uploading this device's local tournament to Firestore…");
+    setCloudSyncMessage("Merging this device's tournament records into Firestore…");
     try {
-      const localCollections: Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>> = {
-        rounds,
-        teams,
-        adjudicators,
-        venues,
-        motions,
-        breakCategories,
-        debates,
-        ballots,
-        feedback,
-        institutions,
-        auditEvents: auditEventsRef.current,
-      };
-      await uploadTournamentCommand({
+      const archivedConflictCount = await uploadTournamentCommand({
         tournament,
         userId: user.uid,
-        localCollections,
+        localCollections: getLocalCollections(),
         repository: createFirestoreTournamentRepository(),
       });
       setCloudSyncState("success");
-      setCloudSyncMessage(`Uploaded local tournament at ${new Date().toLocaleTimeString()}.`);
+      setCloudSyncMessage(
+        archivedConflictCount > 0
+          ? `Merged records. Preserved ${archivedConflictCount} previous cloud version(s) for recovery.`
+          : `Merged records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud upload failed.";
       setCloudSyncState("error");
@@ -1335,12 +1345,14 @@ export function TournamentProvider({
     }
 
     setCloudSyncState("syncing");
-    setCloudSyncMessage("Downloading the latest tournament data from Firestore…");
+    setCloudSyncMessage("Merging Firestore records with this device's local data…");
     try {
       const { tournament: cloudTournament, collections } = await downloadTournamentCommand({
         tournamentId: tournament.id,
         slug: tournament.slug,
         userId: user.uid,
+        localTournament: tournament,
+        localCollections: getLocalCollections(),
         repository: createFirestoreTournamentRepository(),
       });
       const downloadedRounds = collections.rounds as Round[];
@@ -1373,9 +1385,45 @@ export function TournamentProvider({
         setAuditEvents(events);
       });
       setCloudSyncState("success");
-      setCloudSyncMessage("Downloaded the latest tournament data, including adjudicator ballots and feedback.");
+      setCloudSyncMessage("Merged cloud and local records. Local records and matching-ID local versions were retained.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud download failed.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw error;
+    }
+  };
+
+  const exportSyncRecovery = async () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin) {
+      throw new Error("Sign in as a tournament administrator to export recovery data.");
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("Connect to the internet before exporting cloud recovery data.");
+    }
+
+    setCloudSyncState("syncing");
+    setCloudSyncMessage("Preparing archived cloud versions for export…");
+    try {
+      const conflicts = await createFirestoreTournamentRepository().getSyncConflicts(tournament.id);
+      const backup = {
+        format: "crabbytab-sync-recovery-v1",
+        tournamentId: tournament.id,
+        tournamentSlug: tournament.slug,
+        exportedAt: new Date().toISOString(),
+        conflicts,
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${tournament.slug.replace(/[^a-z0-9-]/gi, "-")}-sync-recovery.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setCloudSyncState("success");
+      setCloudSyncMessage(`Exported ${conflicts.length} archived version(s) for recovery.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not export sync recovery data.";
       setCloudSyncState("error");
       setCloudSyncMessage(message);
       throw error;
@@ -1413,6 +1461,7 @@ export function TournamentProvider({
         localSaveError,
         uploadToCloud,
         downloadFromCloud,
+        exportSyncRecovery,
         syncPrivatePortal,
         loadPrivateTeamPortal,
         saveTournament,
