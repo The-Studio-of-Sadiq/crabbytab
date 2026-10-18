@@ -110,3 +110,31 @@ results rewrites and invalidates only that round's section and the sections it c
 Known limits: a tournament that was never published is still built live from its collections into
 one cache entry (too large to cache for very large events, so publish before sharing links), and
 publishing still rebuilds the projection by reading every public collection once.
+
+## Scale benchmark
+
+`src/features/tournament/application/scale.test.ts` runs 1000-team BP (550 adjudicators) and WSDC
+(1100 adjudicators) tournaments through the real commands: draw, auto-allocation (panels of 2),
+ballots, standings and the public view. It checks that each round is a valid draw (every team once,
+no adjudicator twice, no draw-check errors), that public sections and the first public response
+stay under the cache and response limits, and time budgets. By default it plays 2 rounds of each
+(~20 s); `CRABBYTAB_SCALE=full` plays all 9 and `CRABBYTAB_SCALE=off` skips it.
+
+Full run on a developer laptop (Vitest, Node 22):
+
+| | BP, 1000 teams | WSDC, 1000 teams |
+| --- | --- | --- |
+| Draw per round | 0.07–3.1 s | 0.26–0.8 s |
+| Auto-allocation per round | 0.7–6.5 s | 7–17.7 s |
+| Standings | 17–41 ms | 39–97 ms |
+| Public view after 9 rounds | 5.0 MB in 18 sections, largest 527 KB | 8.4 MB in 18 sections, largest 886 KB |
+| First public response | 864 KB | 1.34 MB |
+| Working copy | 7.3 MB | 12.9 MB |
+
+Known limits found by the benchmark:
+- Auto-allocation is the slowest step at this size. It runs in a Web Worker, so the page stays
+  usable, but it has not been optimised.
+- With the default two-team conflict avoidance (`one_up_one_down`), pairing ignores side limits, so
+  late rounds of a long two-team tournament can pair two teams that have both reached the
+  per-side limit; the draw then stops with an error naming them. `min_cost` conflict avoidance
+  treats side limits as hard while pairing (the benchmark's WSDC run uses it).
