@@ -7,6 +7,7 @@ import {
   Debate,
   Round,
   DebateSide,
+  SpeakerScoreEntry,
   TeamMetricId,
 } from "@/types";
 import { TeamRoundAccum, computeSpeakerMetrics, computeTeamMetrics } from "./metrics";
@@ -17,6 +18,24 @@ export interface StandingsCalculationResult {
   teams: TeamStandingRow[];
   speakers: SpeakerStandingRow[];
   replies: SpeakerStandingRow[];
+}
+
+const LEGACY_REPLY_ID = /^reply-(AFF|NEG)$/;
+
+/**
+ * Substantive speeches that count for a speaker: ghosts are excluded, and for ballots saved before
+ * ghost flags existed, any repeat speech by the same speaker is treated as the ghost.
+ */
+function countedSubstantiveSpeeches(entries: SpeakerScoreEntry[], replyEnabled: boolean): SpeakerScoreEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (replyEnabled && entry.position === 4) return false;
+    if (entry.ghost) return false;
+    if (!entry.speakerId) return true;
+    if (seen.has(entry.speakerId)) return false;
+    seen.add(entry.speakerId);
+    return true;
+  });
 }
 
 /** BP places a team's points onto a 1st-4th finish; two-team formats have no such notion. */
@@ -39,6 +58,13 @@ export function calculateStandings(
   ballots: BallotSubmission[]
 ): StandingsCalculationResult {
   const isBP = tournament.format === "bp";
+
+  // Standings are a preliminary-round tab: elimination and cancelled rounds never count.
+  // Debates whose round is unknown are kept so partial data still produces a tab.
+  const excludedRoundIds = new Set(
+    rounds.filter((round) => round.stage === "elimination" || round.cancelled).map((round) => round.id)
+  );
+  debates = debates.filter((debate) => !excludedRoundIds.has(debate.roundId));
 
   const validBallots = ballots.filter((b) => b.confirmed && !b.discarded);
   const ballotMap = new Map<string, BallotSubmission>();
@@ -80,7 +106,6 @@ export function calculateStandings(
   const byeSpeakerScores = new Map<string, Map<string, number>>();
 
   for (const debate of debates) {
-    if (debate.postponed) continue;
     if (debate.postponed) continue;
     if (debate.byeTeamId) {
       if (debate.byeResult !== "win") continue;
@@ -172,27 +197,23 @@ export function calculateStandings(
       const teamScore = ballot.teamScores[side];
       const speakerScores = ballot.speakerScores[side] || [];
       const includeGhosts = tournament.preferences?.teamScoreIncludesGhosts ?? false;
-      let substantiveList = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
-      if (!includeGhosts) {
-        const seenSpeakerIds = new Set<string>();
-        substantiveList = substantiveList.filter((sc) => {
-          if (!sc.speakerId) return true;
-          if (seenSpeakerIds.has(sc.speakerId)) return false;
-          seenSpeakerIds.add(sc.speakerId);
-          return true;
-        });
-      }
-      const substantiveScores = substantiveList.map((sc) => sc.score || 0);
+      const countedSpeeches = countedSubstantiveSpeeches(speakerScores, Boolean(isReplyPosition));
+      const substantiveList = includeGhosts
+        ? speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4))
+        : countedSpeeches;
+      const substantiveScores = countedSpeeches.map((sc) => sc.score || 0);
       const totalSpeakersScore = teamScore?.totalSpeakerScore !== undefined
         ? teamScore.totalSpeakerScore
-        : substantiveScores.reduce((sum, sc) => sum + sc, 0);
+        : substantiveList.reduce((sum, sc) => sum + (sc.score || 0), 0);
+      // A forfeit has a result but no speeches; it is excluded from speaker-score averages.
+      const isForfeit = Boolean(ballot.forfeitSide);
 
       const pts = teamScore ? teamScore.points || 0 : 0;
       const win = isBP ? pts >= 2 : Boolean(teamScore?.win) || pts === 1;
       const margin = isBP ? 0 : teamScore?.margin || 0;
 
       teamRow.points += pts;
-      teamRow.totalSpeakerScore += totalSpeakersScore;
+      if (!isForfeit) teamRow.totalSpeakerScore += totalSpeakersScore;
 
       if (isBP) {
         if (pts === 3) teamRow.firstPlaces!++;
@@ -212,8 +233,8 @@ export function calculateStandings(
       teamRoundAccum.get(teamSlot.teamId)!.push({
         points: pts,
         win,
-        speaksSum: totalSpeakersScore,
-        individualScores: substantiveScores,
+        speaksSum: isForfeit ? null : totalSpeakersScore,
+        individualScores: isForfeit ? [] : substantiveScores,
         margin,
         opponentTeamIds,
         pulledUp: Boolean(teamSlot.pulledUp),
@@ -246,7 +267,7 @@ export function calculateStandings(
     opponentSpeaksSum.set(team.id, rows.reduce((s, r) => s + (r.speaksSum ?? 0), 0));
 
     const row = teamRowsMap.get(team.id)!;
-    const roundsCount = rows.length;
+    const roundsCount = rows.filter((r) => r.speaksSum !== null).length;
     const totalSpeeches = roundsCount * speakersPerTeam;
     row.averageSpeakerScore = totalSpeeches > 0 ? Number((row.totalSpeakerScore / totalSpeeches).toFixed(2)) : 0;
   }
@@ -318,10 +339,17 @@ export function calculateStandings(
     if (!ballot) continue;
 
     for (const [, scoresList] of Object.entries(ballot.speakerScores || {})) {
+      const counted = new Set(countedSubstantiveSpeeches(scoresList, Boolean(isReplyPosition)));
       for (const entry of scoresList) {
         if (!entry.speakerId || !entry.score) continue;
+        const isReply = Boolean(isReplyPosition && entry.position === 4);
+        // Ghost (iron-person) speeches never count in the speaker tab.
+        if (!isReply && !counted.has(entry)) continue;
+        // Early private-portal ballots recorded replies under a per-side placeholder id; they
+        // cannot be attributed to a speaker, so they are left out rather than merged.
+        if (isReply && LEGACY_REPLY_ID.test(entry.speakerId)) continue;
 
-        if (isReplyPosition && entry.position === 4) {
+        if (isReply) {
           if (!replyRowsMap.has(entry.speakerId)) {
             const team = teams.find((t) => t.speakers?.some((s) => s.id === entry.speakerId));
             replyRowsMap.set(entry.speakerId, {

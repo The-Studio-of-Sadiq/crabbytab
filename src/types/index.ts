@@ -146,6 +146,16 @@ export interface TournamentPreferences {
   marginIncludesDissenters?: boolean; // If checked, a team's winning margin includes dissenting adjudicators
   ballotIntroExplanation?: string; // Any explanatory text needed to introduce the ballot form, e.g. speaker scale
   teamScoreIncludesGhosts?: boolean; // If checked, all speaker scores, including for duplicate speeches, will be counted for team scores
+  /** Two-team formats only: one scoresheet per voting adjudicator, majority decides. BP is always consensus. */
+  ballotMode?: BallotMode;
+  /** With ballotDoubleEntry: "review" = a second person reviews and confirms; "blind" = a second person re-enters without seeing the first entry. */
+  ballotCheckMode?: BallotCheckMode;
+  /** Allow a team with the lower total speaker score to be awarded the win (consensus ballots only). */
+  allowLowPointWins?: boolean;
+  /** Record which motion each team vetoed. */
+  enableMotionVetoes?: boolean;
+  /** Allow two-team debates to be recorded as forfeits. */
+  enableForfeits?: boolean;
 }
 
 export interface Tournament {
@@ -389,6 +399,8 @@ export interface SpeakerScoreEntry {
   speakerName: string;
   position: number; // 1, 2, 3 (and 4 for reply if applicable)
   score: number;
+  /** A duplicate (iron-person) speech: excluded from speaker standings, and from team totals unless teamScoreIncludesGhosts. */
+  ghost?: boolean;
 }
 
 export interface TeamScoreEntry {
@@ -399,6 +411,20 @@ export interface TeamScoreEntry {
   win?: boolean;
   margin?: number;
   rank?: number; // 1, 2, 3, 4 for BP
+  /** Voting ballots: adjudicator votes this team received. */
+  votes?: number;
+  /** This team forfeited the debate. */
+  forfeit?: boolean;
+}
+
+export type BallotMode = "consensus" | "voting";
+export type BallotCheckMode = "review" | "blind";
+
+/** One voting adjudicator's scoresheet within a voting ballot. */
+export interface AdjudicatorSheet {
+  adjudicatorId: string;
+  adjudicatorName?: string;
+  speakerScores: Record<DebateSide, SpeakerScoreEntry[]>;
 }
 
 export interface BallotSubmission {
@@ -420,6 +446,16 @@ export interface BallotSubmission {
   timestamp: string;
   confirmedBy?: string;
   confirmedTimestamp?: string;
+  /** Voting ballots: the individual scoresheets. Top-level scores hold the aggregated result. */
+  sheets?: AdjudicatorSheet[];
+  /** Motion id vetoed by each side. */
+  vetoes?: Partial<Record<DebateSide, string>>;
+  /** Side that forfeited; a forfeit ballot carries no speaker scores. */
+  forfeitSide?: DebateSide;
+  /** Blind double entry: the version this entry was checked against. */
+  checksVersion?: number;
+  discardedBy?: string;
+  discardedTimestamp?: string;
 }
 
 export interface Motion {

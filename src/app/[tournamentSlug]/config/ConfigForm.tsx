@@ -1319,10 +1319,64 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <div>
                     <span className="font-semibold text-gray-800 block">Require Double-Entry Ballot Verification</span>
                     <span className="text-[11px] text-gray-500">
-                      Two separate scorekeepers must enter ballots independently; differences are flagged for tabroom resolution.
+                      A ballot only counts once a second person has checked it.
                     </span>
                   </div>
                 </label>
+
+                {prefs.ballotDoubleEntry && (
+                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
+                    <span className="font-semibold text-gray-800 block mb-1">How ballots are checked</span>
+                    <select
+                      value={prefs.ballotCheckMode ?? "review"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, ballotCheckMode: e.target.value as "review" | "blind" }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
+                    >
+                      <option value="review">Review — the checker compares the entry with the paper ballot and confirms it</option>
+                      <option value="blind">Blind — the checker re-enters the ballot without seeing the first entry</option>
+                    </select>
+                  </label>
+                )}
+
+                {tournament?.format !== "bp" && (
+                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
+                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate</span>
+                    <select
+                      value={prefs.ballotMode ?? "consensus"}
+                      onChange={(e) => setPrefs((p) => ({ ...p, ballotMode: e.target.value as "consensus" | "voting" }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
+                    >
+                      <option value="consensus">Consensus — one ballot for the whole panel</option>
+                      <option value="voting">Voting — one scoresheet per voting adjudicator; the majority decides</option>
+                    </select>
+                    <span className="text-[11px] text-gray-500 block mt-1">
+                      With voting ballots, recorded speaker scores are the average of the majority; the chair breaks a tied panel.
+                    </span>
+                  </label>
+                )}
+
+                {(
+                  [
+                    ["allowLowPointWins", "Allow low-point wins", "A team with the lower total speaker score may be given the win (consensus ballots only)."],
+                    ["enableMotionVetoes", "Record motion vetoes", "Ballots record which motion each team vetoed; vetoes appear in motion statistics."],
+                    ...(tournament?.format !== "bp"
+                      ? [["enableForfeits", "Allow forfeits", "A debate can be recorded as a forfeit: the other team wins and no speaker scores are recorded."]]
+                      : []),
+                  ] as Array<["allowLowPointWins" | "enableMotionVetoes" | "enableForfeits", string, string]>
+                ).map(([key, label, help]) => (
+                  <label key={key} className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(prefs[key])}
+                      onChange={(e) => setPrefs((p) => ({ ...p, [key]: e.target.checked }))}
+                      className="rounded border-gray-300 text-blue-600"
+                    />
+                    <div>
+                      <span className="font-semibold text-gray-800 block">{label}</span>
+                      <span className="text-[11px] text-gray-500">{help}</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             </div>
 

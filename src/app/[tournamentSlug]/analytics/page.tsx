@@ -79,7 +79,12 @@ export default function AnalyticsPage() {
   const motionStats = useMemo(() => {
     return motions.map((m) => {
       const motionDebates = debates.filter((d) => d.motionId === m.id);
-      const mBallots = confirmedBallots.filter((b) => b.motionId === m.id);
+      // Forfeits were never debated, so they say nothing about a motion's balance.
+      const mBallots = confirmedBallots.filter((b) => b.motionId === m.id && !b.forfeitSide);
+      const vetoes = confirmedBallots.reduce(
+        (count, b) => count + Object.values(b.vetoes || {}).filter((motionId) => motionId === m.id).length,
+        0
+      );
 
       const ogWins = mBallots.filter((b) => b.teamScores?.OG?.points === 3).length;
       const ooWins = mBallots.filter((b) => b.teamScores?.OO?.points === 3).length;
@@ -96,6 +101,7 @@ export default function AnalyticsPage() {
         motion: m,
         totalDebates: motionDebates.length,
         completedBallots: mBallots.length,
+        vetoes,
         ogWins,
         ooWins,
         cgWins,
@@ -106,6 +112,8 @@ export default function AnalyticsPage() {
       };
     });
   }, [motions, debates, confirmedBallots, isBP]);
+  const showVetoes =
+    Boolean(tournament?.preferences?.enableMotionVetoes) || motionStats.some((stat) => stat.vetoes > 0);
 
   return (
     <div className="space-y-8 pb-12">
@@ -266,6 +274,7 @@ export default function AnalyticsPage() {
                     <th className="w-24 text-center text-slate-700 font-bold">NEG Wins</th>
                   </>
                 )}
+                {showVetoes && <th className="w-20 text-center">Vetoes</th>}
                 <th className="w-32 text-center">Chi-squared (p)</th>
               </tr>
             </thead>
@@ -304,6 +313,7 @@ export default function AnalyticsPage() {
                       </td>
                     </>
                   )}
+                  {showVetoes && <td className="text-center font-mono text-xs text-gray-700">{ms.vetoes}</td>}
                   <td className="text-center text-xs">
                     {ms.balance.chiSquared === null || ms.balance.pValue === null ? (
                       <span className="text-gray-500">Insufficient data</span>

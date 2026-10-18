@@ -19,7 +19,7 @@ import {
   ArrowDown,
   Printer,
 } from "lucide-react";
-import { DebateSide } from "@/types";
+import { BallotSubmission, DebateSide } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
 
@@ -40,10 +40,18 @@ export default function ResultsOverviewPage() {
   const isBP = tournament?.format === "bp";
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
-  const ballotMap = new Map<string, any>();
+  // The confirmed version is the debate's result; otherwise show the newest pending version.
+  const ballotMap = new Map<string, BallotSubmission>();
+  const pendingDebateIds = new Set<string>();
   ballots.forEach((b) => {
-    if (!b.discarded) ballotMap.set(b.debateId, b);
+    if (b.discarded) return;
+    if (!b.confirmed) pendingDebateIds.add(b.debateId);
+    const current = ballotMap.get(b.debateId);
+    if (!current || (b.confirmed && !current.confirmed) || (b.confirmed === current.confirmed && b.version > current.version)) {
+      ballotMap.set(b.debateId, b);
+    }
   });
+  const needsCheckLabel = tournament?.preferences?.ballotDoubleEntry ? "Awaiting check" : "Draft";
 
   const confirmedCount = roundDebates.filter(
     (d) => d.byeTeamId || ballotMap.get(d.id)?.confirmed
@@ -360,8 +368,11 @@ export default function ResultsOverviewPage() {
                               : "bg-gray-100 text-gray-500 border border-gray-200"
                           }`}
                         >
-                          {isConfirmed ? "Confirmed" : isDraft ? "Draft" : "Unsubmitted"}
+                          {isConfirmed ? "Confirmed" : isDraft ? needsCheckLabel : "Unsubmitted"}
                         </span>
+                        {isConfirmed && pendingDebateIds.has(debate.id) && (
+                          <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">New version {needsCheckLabel.toLowerCase()}</span>
+                        )}
                       </td>
 
                       <td className="text-right">

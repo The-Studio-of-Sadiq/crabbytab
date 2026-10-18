@@ -1,3 +1,4 @@
+import { consensusTeamScores, sheetOutcome, TWO_TEAM_SIDES } from "@/lib/ballots/result";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -194,7 +195,24 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
         : undefined;
       const venueId = debate.venueId ? venueIds.get(debate.venueId) : undefined;
       const motionId = debate.motionId ? motionIds.get(debate.motionId) : undefined;
-      const debateBallots = ballotsByDebate.get(debate.id) ?? [];
+      // Voting ballots are archived as one ballot per adjudicator, as DebateXML expects.
+      const rules = { format: input.tournament.format, preferences: input.tournament.preferences };
+      const debateBallots = (ballotsByDebate.get(debate.id) ?? []).flatMap((ballot) =>
+        ballot.sheets?.length
+          ? ballot.sheets.map((sheet) => {
+              const outcome = sheetOutcome(sheet, rules);
+              const ranks = Object.fromEntries(
+                TWO_TEAM_SIDES.map((side) => [side, side === outcome.winner ? 1 : 2])
+              );
+              return {
+                ...ballot,
+                chairId: sheet.adjudicatorId,
+                speakerScores: sheet.speakerScores,
+                teamScores: consensusTeamScores(sheet.speakerScores, ranks, {}, rules),
+              };
+            })
+          : [ballot]
+      );
       const sideXml = slots.map(([side, slot]) => {
         const team = teamMap.get(slot.teamId)!;
         const sideBallots = debateBallots.map((ballot) => {
@@ -209,7 +227,7 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
           if (!xmlSpeakerId) return [];
           const entries = debateBallots.flatMap((ballot) =>
             (ballot.speakerScores?.[side as keyof typeof ballot.speakerScores] || [])
-              .filter((entry) => entry.speakerId === speaker.id)
+              .filter((entry) => entry.speakerId === speaker.id && !entry.ghost)
               .map((entry) => ({ entry, ballot }))
           );
           if (entries.length === 0) return [];

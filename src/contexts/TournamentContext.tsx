@@ -35,7 +35,7 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
-import { confirmBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
+import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { addFeedbackCommand } from "@/features/tournament/application/feedback";
@@ -126,6 +126,7 @@ export interface TournamentContextType {
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
   confirmBallot: (ballotId: string, debateId: string, submittedBallot?: BallotSubmission) => Promise<void>;
+  discardBallot: (ballotId: string) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
   addInstitutions: (institutions: Omit<Institution, "id" | "tournamentId">[]) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
@@ -1368,6 +1369,10 @@ export function TournamentProvider({
     await confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies);
   };
 
+  const discardBallot = async (ballotId: string) => {
+    await discardBallotCommand(ballotId, user?.email || user?.uid || undefined, ballotWorkflowDependencies);
+  };
+
   const addInstitutions = async (instData: Omit<Institution, "id" | "tournamentId">[]) => {
     await addInstitutionsCommand(instData);
   };
@@ -1874,6 +1879,7 @@ export function TournamentProvider({
         updateDebates,
         submitBallot,
         confirmBallot,
+        discardBallot,
         addInstitution,
         addInstitutions,
         updateInstitution,
