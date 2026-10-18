@@ -26,7 +26,24 @@ export function cleanUndefined<T>(obj: T): T {
 }
 
 /**
+ * Thrown when a multi-batch write stops part-way. Earlier batches stay committed, so callers must
+ * either retry (every write here is an idempotent set/delete) or reconcile from local state.
+ */
+export class PartialBatchCommitError extends Error {
+  constructor(
+    readonly committedOperations: number,
+    readonly totalOperations: number,
+    readonly cause: unknown
+  ) {
+    super(`Only ${committedOperations} of ${totalOperations} cloud writes were saved before an error.`);
+    this.name = "PartialBatchCommitError";
+  }
+}
+
+/**
  * Execute batch operations in chunks of at most 400 operations to respect Firestore's limit.
+ * Each chunk is atomic; the sequence is not. A failed chunk is retried once before giving up with
+ * a PartialBatchCommitError that reports how much was saved.
  */
 export async function commitChunkedBatches(
   operations: Array<(batch: WriteBatch) => void>,
@@ -34,10 +51,23 @@ export async function commitChunkedBatches(
 ): Promise<void> {
   if (!firestoreDb || operations.length === 0) return;
 
+  let committed = 0;
   for (let i = 0; i < operations.length; i += BATCH_CHUNK_SIZE) {
     const chunk = operations.slice(i, i + BATCH_CHUNK_SIZE);
-    const batch = writeBatch(firestoreDb);
-    chunk.forEach((operation) => operation(batch));
-    await batch.commit();
+    const commitChunk = () => {
+      const batch = writeBatch(firestoreDb);
+      chunk.forEach((operation) => operation(batch));
+      return batch.commit();
+    };
+    try {
+      await commitChunk();
+    } catch {
+      try {
+        await commitChunk();
+      } catch (error) {
+        throw new PartialBatchCommitError(committed, operations.length, error);
+      }
+    }
+    committed += chunk.length;
   }
 }

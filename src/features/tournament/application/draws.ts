@@ -36,6 +36,11 @@ export interface GenerateDrawDependencies {
   localRepository: {
     saveDebates(debates: Debate[]): void;
     saveBallots(ballots: BallotSubmission[]): void;
+    /**
+     * Queues the replaced debates for deletion on the next cloud upload. Each draw has its own
+     * debate ids, so without this the cloud would keep the old draw next to the new one.
+     */
+    markDebatesRemoved(debateIds: string[]): void;
     saveRounds(rounds: Round[], activeRound: Round): void;
   };
   cloudRepository?: {
@@ -48,6 +53,17 @@ export interface GenerateDrawDependencies {
     ): Promise<void>;
   };
   recordAuditEvent(event: DrawAuditEvent): Promise<void>;
+}
+
+/** The draw is saved locally, but the immediate cloud replacement did not finish. */
+export class DrawCloudSyncIncompleteError extends Error {
+  constructor(readonly cause: unknown) {
+    super(
+      "The new draw is saved on this device, but updating the cloud copy did not finish. " +
+      "Use \"Upload to cloud\" to complete it: the removed debates and discarded ballots are queued."
+    );
+    this.name = "DrawCloudSyncIncompleteError";
+  }
 }
 
 export class DrawHasResultsError extends Error {
@@ -144,14 +160,25 @@ export async function generateDrawCommand(
   }
   dependencies.localRepository.saveDebates(updatedDebates);
   dependencies.localRepository.saveRounds(updatedRounds, updatedRound);
+  if (removedDebates.length > 0) {
+    dependencies.localRepository.markDebatesRemoved(removedDebates.map((debate) => debate.id));
+  }
+  // Local state is complete at this point, and the queued deletions plus the saved records let a
+  // normal upload finish an interrupted cloud replacement. A cloud failure is therefore reported
+  // as an incomplete sync, not as a failed draw.
+  let cloudError: unknown;
   if (dependencies.cloudRepository) {
-    await dependencies.cloudRepository.replaceRoundDraw(
-      roundId,
-      removedDebates,
-      generated,
-      updatedRound,
-      discardedBallots
-    );
+    try {
+      await dependencies.cloudRepository.replaceRoundDraw(
+        roundId,
+        removedDebates,
+        generated,
+        updatedRound,
+        discardedBallots
+      );
+    } catch (error) {
+      cloudError = error;
+    }
   }
 
   await dependencies.recordAuditEvent({
@@ -168,10 +195,12 @@ export async function generateDrawCommand(
       debateCount: generated.length,
       previousDebateCount: removedDebates.length,
       discardedBallotCount: existingResults.length,
+      cloudSync: dependencies.cloudRepository ? (cloudError ? "incomplete" : "complete") : "local-only",
       pairingMethod: tournament.preferences?.pairingMethod ?? tournament.preferences?.drawRule,
       conflictAvoidance: tournament.preferences?.conflictAvoidance,
       sideAllocationRule: tournament.preferences?.sideAllocationRule,
       seed,
     },
   });
+  if (cloudError) throw new DrawCloudSyncIncompleteError(cloudError);
 }

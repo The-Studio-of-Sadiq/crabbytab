@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate, Tournament } from "@/types";
 import { createRoundRecord } from "./rounds";
 import type { GenerateDrawDependencies } from "./draws";
-import { DrawHasResultsError, generateDrawCommand, roundResults, withGenerationIds } from "./draws";
+import { DrawCloudSyncIncompleteError, DrawHasResultsError, generateDrawCommand, roundResults, withGenerationIds } from "./draws";
+import { PartialBatchCommitError } from "../infrastructure/firestore";
 
 const tournament: Tournament = {
   id: "tournament-1",
@@ -71,6 +72,9 @@ describe("generateDrawCommand", () => {
         saveBallots() {
           calls.push("local-ballots");
         },
+        markDebatesRemoved() {
+          calls.push("removed-debates");
+        },
         saveRounds(rounds, activeRound) {
           calls.push("local-rounds");
           expect(rounds[0]).toMatchObject({ drawStatus: "draft", adjudicatorsRevealed: false, drawSeed: seedUsed });
@@ -112,7 +116,7 @@ describe("regenerating a draw that already has results", () => {
     ({ id: "b1", debateId: oldDebate.id, roundId: round.id, confirmed: true, discarded: false, ...overrides }) as BallotSubmission;
 
   function setup(ballots: BallotSubmission[]) {
-    const saved: { ballots?: BallotSubmission[]; debates?: Debate[] } = {};
+    const saved: { ballots?: BallotSubmission[]; debates?: Debate[]; removedIds?: string[] } = {};
     const dependencies: GenerateDrawDependencies = {
       tournament,
       rounds: [round],
@@ -127,6 +131,7 @@ describe("regenerating a draw that already has results", () => {
       localRepository: {
         saveDebates(debates) { saved.debates = debates; },
         saveBallots(items) { saved.ballots = items; },
+        markDebatesRemoved(ids) { saved.removedIds = ids; },
         saveRounds() {},
       },
       async recordAuditEvent() {},
@@ -169,5 +174,28 @@ describe("regenerating a draw that already has results", () => {
     const locallyDiscarded = saved.ballots!.filter((item) => item.discarded);
     expect(cloud!.ballots).toEqual(locallyDiscarded);
     expect(cloud!.ballots.map((item) => item.id).sort()).toEqual(["b1", "b2"]);
+  });
+
+  it("queues the replaced debates for deletion so an upload removes them from the cloud", async () => {
+    const { dependencies, saved } = setup([]);
+    await generateDrawCommand(round.id, dependencies);
+    expect(saved.removedIds).toEqual([oldDebate.id]);
+  });
+
+  it("keeps the local draw and reports an incomplete sync when the cloud write fails part-way", async () => {
+    const { dependencies, saved } = setup([ballot({})]);
+    const audit: Array<Record<string, unknown> | undefined> = [];
+    dependencies.recordAuditEvent = async (event) => { audit.push(event.details); };
+    dependencies.cloudRepository = {
+      async replaceRoundDraw() {
+        throw new PartialBatchCommitError(400, 650, new Error("network"));
+      },
+    };
+    await expect(generateDrawCommand(round.id, dependencies, { discardExistingResults: true }))
+      .rejects.toBeInstanceOf(DrawCloudSyncIncompleteError);
+    expect(saved.debates?.some((debate) => debate.id !== oldDebate.id)).toBe(true);
+    expect(saved.removedIds).toEqual([oldDebate.id]);
+    expect(saved.ballots?.find((item) => item.id === "b1")?.discarded).toBe(true);
+    expect(audit[0]).toMatchObject({ cloudSync: "incomplete" });
   });
 });

@@ -53,7 +53,7 @@ export function createFirestoreRoundRepository(tournamentId: string) {
       }
       for (const round of changes.remainingRounds) {
         operations.push((batch) =>
-          batch.set(doc(firestoreDb, "tournaments", tournamentId, "rounds", round.id), round)
+          batch.set(doc(firestoreDb, "tournaments", tournamentId, "rounds", round.id), cleanUndefined(round))
         );
       }
       for (const debate of changes.updatedDebates) {
