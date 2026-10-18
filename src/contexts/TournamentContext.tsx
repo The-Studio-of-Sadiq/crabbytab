@@ -1716,6 +1716,35 @@ export function TournamentProvider({
     try {
       const localCollections = getLocalCollections();
       const deletions = readSyncTombstones();
+      // Runs after the records are sent, also when the upload stops part-way, so the sync
+      // versions of the records that were written are kept on this device.
+      const saveSyncedRecords = (
+        syncedTournament: Tournament,
+        syncedCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>
+      ) => {
+        setTournament({ ...syncedTournament });
+        persistLocal("meta", { ...syncedTournament });
+        const persistSyncedCollection = <T,>(
+          collectionName: (typeof CLOUD_COLLECTIONS)[number],
+          localName: string,
+          setter: (items: T[]) => void
+        ) => {
+          const items = syncedCollections[collectionName] as unknown as T[];
+          setter([...items]);
+          persistLocal(localName, items);
+        };
+        persistSyncedCollection<Round>("rounds", "rounds", setRounds);
+        persistSyncedCollection<Team>("teams", "teams", setTeams);
+        persistSyncedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
+        persistSyncedCollection<Venue>("venues", "venues", setVenues);
+        persistSyncedCollection<Motion>("motions", "motions", setMotions);
+        persistSyncedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
+        persistSyncedCollection<Debate>("debates", "debates", setDebates);
+        persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
+        persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
+        persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
+        persistLocal("auditEvents", syncedCollections.auditEvents);
+      };
       const archivedConflictCount = await uploadTournamentCommand({
         tournament,
         userId: user.uid,
@@ -1723,30 +1752,9 @@ export function TournamentProvider({
         localCollections,
         deletions,
         repository: createFirestoreTournamentRepository(),
+        saveSyncedRecords,
       });
       clearSyncedTombstones(deletions);
-      setTournament({ ...tournament });
-      persistLocal("meta", { ...tournament });
-      const persistSyncedCollection = <T,>(
-        collectionName: (typeof CLOUD_COLLECTIONS)[number],
-        localName: string,
-        setter: (items: T[]) => void
-      ) => {
-        const items = localCollections[collectionName] as unknown as T[];
-        setter([...items]);
-        persistLocal(localName, items);
-      };
-      persistSyncedCollection<Round>("rounds", "rounds", setRounds);
-      persistSyncedCollection<Team>("teams", "teams", setTeams);
-      persistSyncedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
-      persistSyncedCollection<Venue>("venues", "venues", setVenues);
-      persistSyncedCollection<Motion>("motions", "motions", setMotions);
-      persistSyncedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
-      persistSyncedCollection<Debate>("debates", "debates", setDebates);
-      persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
-      persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
-      persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
-      persistLocal("auditEvents", localCollections.auditEvents);
       const syncSummary =
         archivedConflictCount > 0
           ? `Synced records. Preserved ${archivedConflictCount} unresolved cloud conflict(s) for recovery.`

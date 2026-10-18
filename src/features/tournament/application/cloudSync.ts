@@ -71,6 +71,13 @@ export async function uploadTournamentCommand(input: {
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   deletions?: CloudDeletionMap;
   repository: TournamentCloudRepository;
+  /**
+   * Saves the tournament and records locally once the collections have been sent, whether or not
+   * every record was written. The repository stamps each record it saves with the cloud's new
+   * syncVersion, so keeping those after an interrupted upload lets the device edit the records
+   * already written without its next upload being read as a stale copy.
+   */
+  saveSyncedRecords?(tournament: Tournament, collections: Record<CloudCollectionName, CloudRecord[]>): void;
 }): Promise<number> {
   const { tournament, userId, localCollections, deletions, repository } = input;
   const cloudTournament = await repository.getTournament(tournament.id);
@@ -106,11 +113,16 @@ export async function uploadTournamentCommand(input: {
   };
   const metadataConflict = await repository.saveTournament(tournament.id, metadata);
   if (!metadataConflict) tournament.syncVersion = metadata.syncVersion;
-  const collectionConflicts = await repository.syncCollections(
-    tournament.id,
-    localCollections,
-    deletions
-  );
+  let collectionConflicts: number;
+  try {
+    collectionConflicts = await repository.syncCollections(
+      tournament.id,
+      localCollections,
+      deletions
+    );
+  } finally {
+    input.saveSyncedRecords?.(tournament, localCollections);
+  }
   return collectionConflicts + Number(metadataConflict);
 }
 
