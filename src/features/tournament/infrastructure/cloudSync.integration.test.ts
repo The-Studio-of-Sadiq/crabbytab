@@ -240,6 +240,28 @@ describe("two devices editing the same record", () => {
     ]);
   });
 
+  it("brings another admin device's settings change, and flags settings edited on both", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    const b = blankDevice(a, "device-b");
+    await download(b);
+    a.tournament = { ...a.tournament, preferences: { ...a.tournament.preferences, publicStandings: false } };
+    expect(await upload(a)).toBe(0);
+
+    await download(b);
+    expect(b.tournament.preferences.publicStandings).toBe(false);
+    expect(b.divergedRecords).toEqual([]);
+
+    a.tournament = { ...a.tournament, name: "Name from A" };
+    b.tournament = { ...b.tournament, shortName: "From B" };
+    expect(await upload(a)).toBe(0);
+    await download(b);
+    expect(b.tournament).toMatchObject({ shortName: "From B" });
+    expect(b.divergedRecords).toEqual([
+      expect.objectContaining({ collectionName: "tournament", cloudRecord: expect.objectContaining({ name: "Name from A" }) }),
+    ]);
+  });
+
   it("brings another admin device's upload to records this device has not changed", async () => {
     const a = await playedTournament();
     await upload(a);
@@ -442,6 +464,7 @@ describe("self check-ins", () => {
     ]);
 
     const resolved = resolveDivergedRecords({
+      localTournament: a.tournament,
       localCollections: a.collections(),
       baseline: a.syncBaseline,
       divergedRecords: a.divergedRecords,

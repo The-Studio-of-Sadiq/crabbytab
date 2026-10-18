@@ -143,11 +143,10 @@ export async function uploadTournamentCommand(input: {
       overwrites
     );
   } finally {
-    input.saveSyncedRecords?.(
-      tournament,
-      localCollections,
-      baselineAfterUpload(input.baseline || {}, localCollections, versionsBeforeUpload)
-    );
+    const baseline = baselineAfterUpload(input.baseline || {}, localCollections, versionsBeforeUpload);
+    // The settings were written (or already matched the cloud) unless the upload hit a newer version.
+    baseline.tournament = metadataConflict ? input.baseline?.tournament : baselineEntryFor(tournament);
+    input.saveSyncedRecords?.(tournament, localCollections, baseline);
   }
   return collectionConflicts + Number(metadataConflict);
 }
@@ -156,21 +155,28 @@ export async function uploadTournamentCommand(input: {
 /**
  * A record as this device last uploaded or downloaded it: the cloud `syncVersion` it had then
  * (`v`) and a hash of its content (`h`). Stored per tournament in localStorage, by collection and
- * record id, so a download can tell records edited on this device since they were last synced
- * from unchanged records, which can safely take a newer cloud version.
+ * record id (and `tournament` for the tournament's settings), so a download can tell records
+ * edited on this device since they were last synced from unchanged records, which can safely take
+ * a newer cloud version.
  */
 export interface SyncBaselineEntry {
   v: number;
   h: string;
 }
-export type SyncBaseline = Partial<Record<CloudCollectionName, Record<string, SyncBaselineEntry>>>;
+export type SyncBaseline = Partial<Record<CloudCollectionName, Record<string, SyncBaselineEntry>>> & {
+  tournament?: SyncBaselineEntry;
+};
+
+/** The tournament document itself (settings), alongside the record collections. */
+export const TOURNAMENT_SETTINGS = "tournament";
+export type SyncedRecordKind = CloudCollectionName | typeof TOURNAMENT_SETTINGS;
 
 /**
  * A record changed both on this device (since its baseline) and in the cloud. The device keeps its
- * own version until the organiser chooses one; `cloudRecord` is the cloud version seen at download.
+ * own version until someone chooses one; `cloudRecord` is the cloud version seen at download.
  */
 export interface DivergedRecord {
-  collectionName: CloudCollectionName;
+  collectionName: SyncedRecordKind;
   recordId: string;
   cloudRecord: CloudRecord;
 }
@@ -220,6 +226,31 @@ function baselineEntryFor(record: CloudRecord): SyncBaselineEntry {
 }
 
 /**
+ * How a record on both sides merges, given this device's baseline entry for it:
+ * - "cloud": identical to the cloud, or unchanged here since the last sync, so the cloud version
+ *   is current (this is how check-ins, ballot discards and other devices' writes arrive);
+ * - "local": edited here while the cloud still holds the version the edit started from, so the
+ *   edit is kept for upload;
+ * - "diverged": edited here and changed in the cloud, so both versions matter.
+ * The cloud counts as changed when its content or version differs from the baseline, so a server
+ * write that does not bump `syncVersion` is still noticed. Without an entry (synced before
+ * baselines existed), the record's own `syncVersion` is the version it started from. That version
+ * must match the cloud's too, so a record whose baseline was saved without it is flagged.
+ */
+function classifyAgainstBaseline(
+  local: CloudRecord,
+  cloud: CloudRecord,
+  base: SyncBaselineEntry | undefined
+): "cloud" | "local" | "diverged" {
+  const localHash = syncContentHash(local);
+  const cloudHash = syncContentHash(cloud);
+  if (localHash === cloudHash || base?.h === localHash) return "cloud";
+  const cloudVersion = syncVersionOf(cloud);
+  const cloudChanged = base ? base.h !== cloudHash || base.v !== cloudVersion : false;
+  return !cloudChanged && syncVersionOf(local) === cloudVersion ? "local" : "diverged";
+}
+
+/**
  * The baseline after an upload. The repository stamps each record it writes with the cloud's new
  * `syncVersion`, so a record whose version changed is now in the cloud exactly as held locally.
  * Other records (a stale-version conflict, or not reached by an interrupted upload) keep their
@@ -245,6 +276,32 @@ function baselineAfterUpload(
   ) as SyncBaseline;
 }
 
+/**
+ * The baseline after a data-entry assistant's sync. The server applied every record it was sent
+ * except the `rejected` ones (archived for the tab room instead), so the others now count as
+ * synced in the version this device holds, and the next load takes the server's result for them.
+ * Rejected records keep their previous entry, so they stay local edits (or are flagged as
+ * diverged once the cloud changes them).
+ */
+export function baselineAfterDataEntrySync(input: {
+  baseline: SyncBaseline;
+  sentCollections: Partial<Record<CloudCollectionName, CloudRecord[]>>;
+  rejected: Array<{ collectionName: string; recordId: string }>;
+}): SyncBaseline {
+  const rejected = new Set(input.rejected.map(({ collectionName, recordId }) => `${collectionName}/${recordId}`));
+  const baseline: SyncBaseline = { ...input.baseline };
+  for (const name of CLOUD_COLLECTIONS) {
+    const sent = input.sentCollections[name];
+    if (!sent) continue;
+    const entries = { ...baseline[name] };
+    for (const record of sent) {
+      if (!rejected.has(`${name}/${record.id}`)) entries[record.id] = baselineEntryFor(record);
+    }
+    baseline[name] = entries;
+  }
+  return baseline;
+}
+
 export async function downloadTournamentCommand(input: {
   tournamentId: string;
   slug: string;
@@ -263,7 +320,7 @@ export async function downloadTournamentCommand(input: {
     userId,
     localTournament,
     localCollections,
-    baseline,
+    baseline = {},
     deletions = {},
     overwrites = {},
     repository,
@@ -271,44 +328,75 @@ export async function downloadTournamentCommand(input: {
   const snapshot = await repository.getTournament(tournamentId);
   if (!snapshot) throw new Error("This tournament is not available in Firestore.");
   const cloudAdmins = snapshot.data.admins as Record<string, boolean> | undefined;
-  const tournament = {
-    ...snapshot.data,
-    ...localTournament,
-    id: snapshot.id,
-    slug,
-    ownerId: typeof snapshot.data.ownerId === "string" ? snapshot.data.ownerId : localTournament.ownerId,
-    admins: { ...cloudAdmins, ...localTournament.admins },
-  } as Tournament;
-  if (!input.isGlobalAdmin && tournament.ownerId !== userId && tournament.admins?.[userId] !== true) {
+  const ownerId = typeof snapshot.data.ownerId === "string" ? snapshot.data.ownerId : localTournament.ownerId;
+  const admins = { ...cloudAdmins, ...localTournament.admins };
+  if (!input.isGlobalAdmin && ownerId !== userId && admins[userId] !== true) {
     throw new Error("This cloud tournament belongs to another account.");
   }
+  const settings = mergeCloudTournament({
+    cloudTournament: { ...snapshot.data, id: snapshot.id, slug } as Tournament,
+    localTournament,
+    base: baseline.tournament,
+  });
   const cloudCollections = await repository.getCollections(tournamentId);
   const merge = mergeCloudIntoWorkingCopy({ cloudCollections, localCollections, baseline, deletions, overwrites });
-  return { tournament, ...merge };
+  return {
+    tournament: settings.tournament,
+    collections: merge.collections,
+    baseline: { ...merge.baseline, tournament: settings.baseline },
+    divergedRecords: settings.diverged ? [settings.diverged, ...merge.divergedRecords] : merge.divergedRecords,
+  };
+}
+
+/**
+ * Merges the cloud's tournament settings into this device's copy with the same rule as records
+ * (see `classifyAgainstBaseline`). A kept local copy takes the cloud's owner and adds its admins,
+ * which an upload never changes. With no local copy, the cloud settings are used.
+ */
+export function mergeCloudTournament(input: {
+  cloudTournament: Tournament;
+  localTournament: Tournament | null;
+  base?: SyncBaselineEntry;
+}): { tournament: Tournament; baseline?: SyncBaselineEntry; diverged?: DivergedRecord } {
+  const { cloudTournament, localTournament, base } = input;
+  if (!localTournament) return { tournament: cloudTournament, baseline: baselineEntryFor(cloudTournament) };
+  const outcome = classifyAgainstBaseline(localTournament, cloudTournament, base);
+  if (outcome === "cloud") return { tournament: cloudTournament, baseline: baselineEntryFor(cloudTournament) };
+  const tournament = {
+    ...cloudTournament,
+    ...localTournament,
+    id: cloudTournament.id,
+    slug: cloudTournament.slug,
+    ownerId: typeof cloudTournament.ownerId === "string" ? cloudTournament.ownerId : localTournament.ownerId,
+    admins: { ...cloudTournament.admins, ...localTournament.admins },
+  } as Tournament;
+  if (outcome === "local") return { tournament, baseline: base ?? baselineEntryFor(cloudTournament) };
+  return {
+    tournament,
+    baseline: base,
+    diverged: { collectionName: TOURNAMENT_SETTINGS, recordId: cloudTournament.id, cloudRecord: cloudTournament },
+  };
 }
 
 export interface WorkingCopyMerge {
   collections: Record<CloudCollectionName, CloudRecord[]>;
   /** The baseline to store with `collections`. */
   baseline: SyncBaseline;
-  /** Records kept locally although the cloud changed them too; the organiser resolves these. */
+  /** Records kept locally although the cloud changed them too; someone has to choose a version. */
   divergedRecords: DivergedRecord[];
 }
 
 /**
- * Merges cloud records into the device's working copy without losing local work. For a record on
- * both sides, the device's synced baseline decides:
- * - unchanged here since its baseline, or identical to the cloud: the cloud version is taken, so
- *   self check-ins, private-URL ballot discards, assistant edits and other devices' uploads arrive;
- * - edited here while the cloud is still at the version it was synced at: the edit is kept for upload;
- * - edited here and changed in the cloud: the local version is kept and reported in
- *   `divergedRecords`. It is never overwritten unless the organiser chooses the cloud version.
- * A record with no baseline entry (e.g. synced before baselines existed) counts as edited here,
- * with its own `syncVersion` as the baseline version. Cloud-only records are added, while records
- * soft-deleted in the cloud (`deletedAt`) or pending local deletion (`deletions` tombstones) are
- * dropped. Records restored from a backup (`overwrites`) keep their local version, even if the
- * cloud soft-deleted them. With no local copy (`localCollections` null) this is the cloud state
- * minus soft-deletions.
+ * Merges cloud records into the device's working copy without losing local work. A record on both
+ * sides takes the cloud version, keeps the local edit, or is kept and reported in `divergedRecords`
+ * (see `classifyAgainstBaseline`); a diverged record is never overwritten unless someone chooses
+ * the cloud version. Cloud-only records are added, while records soft-deleted in the cloud
+ * (`deletedAt`) or pending local deletion (`deletions` tombstones) are dropped. Records restored
+ * from a backup (`overwrites`) keep their local version, even if the cloud soft-deleted them.
+ * `cloudOmitsDeleted` is for a cloud copy that leaves deleted or hidden records out (a data-entry
+ * assistant's projection): a local record missing from it that is unchanged since its baseline is
+ * dropped, while one edited here is kept. With no local copy (`localCollections` null) this is the
+ * cloud state minus soft-deletions.
  */
 export function mergeCloudIntoWorkingCopy(input: {
   cloudCollections: Record<CloudCollectionName, CloudRecord[]>;
@@ -316,6 +404,7 @@ export function mergeCloudIntoWorkingCopy(input: {
   baseline?: SyncBaseline;
   deletions?: CloudDeletionMap;
   overwrites?: CloudOverwriteMap;
+  cloudOmitsDeleted?: boolean;
 }): WorkingCopyMerge {
   const { cloudCollections, localCollections, baseline = {}, deletions = {}, overwrites = {} } = input;
   const divergedRecords: DivergedRecord[] = [];
@@ -343,27 +432,24 @@ export function mergeCloudIntoWorkingCopy(input: {
         if (deletedIds.has(local.id)) continue;
         const cloud = recordsById.get(local.id);
         const base = previousBaseline[local.id];
+        if (!cloud && input.cloudOmitsDeleted && base?.h === syncContentHash(local)) continue;
         if (!cloud || restoredIds.has(local.id)) {
           recordsById.set(local.id, local);
           if (base) entries[local.id] = base;
           else delete entries[local.id];
           continue;
         }
-        const localHash = syncContentHash(local);
-        // In sync, or unchanged here since the last sync: the cloud version (already in place) is current.
-        if (localHash === entries[local.id].h || base?.h === localHash) continue;
+        const outcome = classifyAgainstBaseline(local, cloud, base);
+        // The cloud version and its entry are already in place.
+        if (outcome === "cloud") continue;
         recordsById.set(local.id, local);
-        // The record carries the version it was synced at, like its baseline entry; both must
-        // match, so a record whose baseline was saved without it (a failed local write) is flagged.
-        const cloudVersion = syncVersionOf(cloud);
-        if (syncVersionOf(local) === cloudVersion && (!base || base.v === cloudVersion)) {
-          // Edited only here. Without an entry, the cloud version is the one the edit started from.
-          if (base) entries[local.id] = base;
-        } else {
+        if (outcome === "diverged") {
           divergedRecords.push({ collectionName: name, recordId: local.id, cloudRecord: cloud });
-          if (base) entries[local.id] = base;
-          else delete entries[local.id];
         }
+        // Without an entry, a local edit started from the cloud version (whose entry is in place);
+        // a diverged record without one stays without, so it is flagged until resolved.
+        if (base) entries[local.id] = base;
+        else if (outcome === "diverged") delete entries[local.id];
       }
       nextBaseline[name] = entries;
       return [name, [...recordsById.values()]];
@@ -373,31 +459,56 @@ export function mergeCloudIntoWorkingCopy(input: {
 }
 
 /**
- * Applies the organiser's choice for diverged records. "cloud" replaces this device's version with
- * the cloud version seen at download. "local" keeps this device's version and adopts the cloud's
- * `syncVersion`, so the next upload replaces the cloud version (archiving it in `syncConflicts`,
- * as every replaced version is). Either way the record is then based on that cloud version, so a
- * later download treats it like any other synced record.
+ * Applies a choice for some diverged records. "cloud" replaces this device's version with the
+ * cloud version seen at download. "local" keeps this device's version and adopts the cloud's
+ * `syncVersion`, so the next upload replaces the cloud version (archiving it in `syncConflicts`, as
+ * every replaced version is). Either way the record is then based on that cloud version, so a later
+ * download treats it like any other synced record. Returns the records still diverged.
  */
 export function resolveDivergedRecords(input: {
+  localTournament: Tournament;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   baseline: SyncBaseline;
   divergedRecords: DivergedRecord[];
+  /** The records to resolve, as `divergedRecordKey`s; all of them when omitted. */
+  keys?: string[];
   keep: "cloud" | "local";
-}): { collections: Record<CloudCollectionName, CloudRecord[]>; baseline: SyncBaseline } {
-  const { divergedRecords, keep } = input;
+}): {
+  tournament: Tournament;
+  collections: Record<CloudCollectionName, CloudRecord[]>;
+  baseline: SyncBaseline;
+  remaining: DivergedRecord[];
+} {
+  const { keep } = input;
+  const selected = input.keys ? new Set(input.keys) : null;
+  const isSelected = (record: DivergedRecord) => !selected || selected.has(divergedRecordKey(record));
+  let tournament = input.localTournament;
   const collections = { ...input.localCollections };
   const baseline: SyncBaseline = { ...input.baseline };
-  for (const { collectionName, recordId, cloudRecord } of divergedRecords) {
+  const adopt = <T extends CloudRecord>(local: T, cloudRecord: CloudRecord): T =>
+    keep === "cloud" ? cloudRecord as T : { ...local, syncVersion: cloudRecord.syncVersion };
+  for (const diverged of input.divergedRecords.filter(isSelected)) {
+    const { collectionName, recordId, cloudRecord } = diverged;
+    if (collectionName === TOURNAMENT_SETTINGS) {
+      tournament = adopt(tournament, cloudRecord);
+      baseline.tournament = baselineEntryFor(cloudRecord);
+      continue;
+    }
     const records = collections[collectionName] || [];
     if (!records.some((record) => record.id === recordId)) continue;
-    collections[collectionName] = records.map((record) => {
-      if (record.id !== recordId) return record;
-      return keep === "cloud" ? cloudRecord : { ...record, syncVersion: cloudRecord.syncVersion };
-    });
+    collections[collectionName] = records.map((record) => record.id === recordId ? adopt(record, cloudRecord) : record);
     baseline[collectionName] = { ...baseline[collectionName], [recordId]: baselineEntryFor(cloudRecord) };
   }
-  return { collections, baseline };
+  return {
+    tournament,
+    collections,
+    baseline,
+    remaining: input.divergedRecords.filter((record) => !isSelected(record)),
+  };
+}
+
+export function divergedRecordKey(record: Pick<DivergedRecord, "collectionName" | "recordId">): string {
+  return `${record.collectionName}/${record.recordId}`;
 }
 
 function isBaselineEntry(value: unknown): value is SyncBaselineEntry {
@@ -412,14 +523,16 @@ function isBaselineEntry(value: unknown): value is SyncBaselineEntry {
  */
 export function parseSyncBaseline(value: unknown): SyncBaseline {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const stored = value as Record<string, unknown>;
   const baseline: SyncBaseline = {};
   for (const name of CLOUD_COLLECTIONS) {
-    const stored = (value as Record<string, unknown>)[name];
-    if (!stored || typeof stored !== "object" || Array.isArray(stored)) continue;
+    const entries = stored[name];
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
     baseline[name] = Object.fromEntries(
-      Object.entries(stored).filter(([, entry]) => isBaselineEntry(entry))
+      Object.entries(entries).filter(([, entry]) => isBaselineEntry(entry))
     ) as Record<string, SyncBaselineEntry>;
   }
+  if (isBaselineEntry(stored.tournament)) baseline.tournament = stored.tournament;
   return baseline;
 }
 
@@ -431,7 +544,8 @@ export function parseDivergedRecords(value: unknown): DivergedRecord[] {
     const record = item as Record<string, unknown>;
     const cloudRecord = record.cloudRecord as Record<string, unknown> | null | undefined;
     return (
-      CLOUD_COLLECTIONS.includes(record.collectionName as CloudCollectionName) &&
+      (record.collectionName === TOURNAMENT_SETTINGS ||
+        CLOUD_COLLECTIONS.includes(record.collectionName as CloudCollectionName)) &&
       typeof record.recordId === "string" &&
       !!cloudRecord &&
       typeof cloudRecord === "object" &&

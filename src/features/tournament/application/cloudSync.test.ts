@@ -5,8 +5,11 @@ import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "../collections"
 import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
+  baselineAfterDataEntrySync,
+  divergedRecordKey,
   hasStaleSyncVersion,
   mergeCloudIntoWorkingCopy,
+  mergeCloudTournament,
   parseDivergedRecords,
   parseSyncBaseline,
   resolveDivergedRecords,
@@ -695,6 +698,7 @@ describe("tournament cloud synchronization", () => {
       localCollections.teams = [edited];
 
       const resolved = resolveDivergedRecords({
+        localTournament: tournament,
         localCollections,
         baseline: baselineOf(team({ syncVersion: 2 })),
         divergedRecords: [{ collectionName: "teams", recordId: "t1", cloudRecord }],
@@ -713,6 +717,7 @@ describe("tournament cloud synchronization", () => {
       localCollections.teams = [edited];
 
       const resolved = resolveDivergedRecords({
+        localTournament: tournament,
         localCollections,
         baseline: baselineOf(team({ syncVersion: 2 })),
         divergedRecords: [{ collectionName: "teams", recordId: "t1", cloudRecord }],
@@ -774,6 +779,189 @@ describe("tournament cloud synchronization", () => {
         { collectionName: "nope", recordId: "t3", cloudRecord: { id: "t3" } },
       ])).toEqual([{ collectionName: "teams", recordId: "t1", cloudRecord: { id: "t1" } }]);
       expect(parseDivergedRecords(null)).toEqual([]);
+    });
+  });
+
+  describe("synced baseline: server writes, settings, assistants and per-record choices", () => {
+    const team = (fields: Record<string, unknown>) => ({ id: "t1", name: "Team", ...fields }) as CloudRecord;
+    const entry = (record: CloudRecord) => ({ v: Number(record.syncVersion) || 0, h: syncContentHash(record) });
+
+    it("notices a cloud change that did not bump syncVersion, and flags it against a local edit", () => {
+      const synced = team({ syncVersion: 2 });
+      const local = emptyCollections();
+      local.teams = [team({ name: "Renamed here", syncVersion: 2 })];
+      const cloud = emptyCollections();
+      cloud.teams = [team({ speakers: ["new"], syncVersion: 2 })];
+
+      const merge = mergeCloudIntoWorkingCopy({ cloudCollections: cloud, localCollections: local, baseline: { teams: { t1: entry(synced) } } });
+
+      expect(merge.collections.teams).toEqual(local.teams);
+      expect(merge.divergedRecords.map((record) => record.recordId)).toEqual(["t1"]);
+    });
+
+    describe("tournament settings", () => {
+      const cloudSettings = (fields: Partial<Tournament>) =>
+        ({ ...tournament, ownerId: "owner", admins: { owner: true }, ...fields }) as Tournament;
+
+      it("take the cloud settings when unchanged here since the last sync", () => {
+        const synced = { ...tournament, syncVersion: 1 };
+        const cloudTournament = cloudSettings({ name: "Renamed on another device", syncVersion: 2 });
+
+        const result = mergeCloudTournament({ cloudTournament, localTournament: synced, base: entry(synced) });
+
+        expect(result.tournament).toEqual(cloudTournament);
+        expect(result.baseline).toEqual(entry(cloudTournament));
+        expect(result.diverged).toBeUndefined();
+      });
+
+      it("keep settings edited here, with the cloud's owner and admins", () => {
+        const synced = cloudSettings({ syncVersion: 2 });
+        const edited = { ...synced, name: "Renamed here", ownerId: "local", admins: { me: true } };
+
+        const result = mergeCloudTournament({ cloudTournament: synced, localTournament: edited, base: entry(synced) });
+
+        expect(result.tournament).toMatchObject({ name: "Renamed here", ownerId: "owner", admins: { owner: true, me: true } });
+        expect(result.baseline).toEqual(entry(synced));
+        expect(result.diverged).toBeUndefined();
+      });
+
+      it("are reported when changed both here and in the cloud", () => {
+        const synced = cloudSettings({ syncVersion: 2 });
+        const edited = { ...synced, name: "Renamed here" };
+        const cloudTournament = cloudSettings({ shortName: "Other", syncVersion: 3 });
+
+        const result = mergeCloudTournament({ cloudTournament, localTournament: edited, base: entry(synced) });
+
+        expect(result.tournament.name).toBe("Renamed here");
+        expect(result.baseline).toEqual(entry(synced));
+        expect(result.diverged).toEqual({ collectionName: "tournament", recordId: tournament.id, cloudRecord: cloudTournament });
+      });
+
+      it("arrive on download from another admin device, alongside the records", async () => {
+        const synced = cloudSettings({ syncVersion: 1 });
+        const cloudTournament = cloudSettings({ preferences: { ...tournament.preferences, publicStandings: false }, syncVersion: 2 });
+        const repository: TournamentCloudRepository = {
+          async getTournament() { return { id: tournament.id, data: { ...cloudTournament } }; },
+          async findTournamentBySlug() { return null; },
+          async saveTournament() { return false; },
+          async getCollections() { return emptyCollections(); },
+          async syncCollections() { return 0; },
+          async getSyncConflicts() { return []; },
+        };
+
+        const result = await downloadTournamentCommand({
+          tournamentId: tournament.id,
+          slug: tournament.slug,
+          userId: "owner",
+          localTournament: synced,
+          localCollections: emptyCollections(),
+          baseline: { tournament: entry(synced) },
+          repository,
+        });
+
+        expect(result.tournament.preferences.publicStandings).toBe(false);
+        expect(result.baseline.tournament).toEqual(entry(cloudTournament));
+        expect(result.divergedRecords).toEqual([]);
+      });
+
+      it("get a baseline entry when an upload writes them, and keep the old one on a conflict", async () => {
+        const previous = { v: 1, h: "before" };
+        const upload = async (metadataConflict: boolean) => {
+          let saved: SyncBaseline | undefined;
+          const repository: TournamentCloudRepository = {
+            async getTournament() { return { id: tournament.id, data: { ...tournament, ownerId: "user-1" } }; },
+            async findTournamentBySlug() { return null; },
+            async saveTournament(_id, metadata) {
+              if (!metadataConflict) metadata.syncVersion = 2;
+              return metadataConflict;
+            },
+            async getCollections() { return emptyCollections(); },
+            async syncCollections() { return 0; },
+            async getSyncConflicts() { return []; },
+          };
+          const local = { ...tournament, syncVersion: 1 };
+          await uploadTournamentCommand({
+            tournament: local,
+            userId: "user-1",
+            localCollections: emptyCollections(),
+            baseline: { tournament: previous },
+            repository,
+            saveSyncedRecords: (_tournament, _collections, baseline) => { saved = baseline; },
+          });
+          return { saved, local };
+        };
+
+        const written = await upload(false);
+        expect(written.saved?.tournament).toEqual({ v: 2, h: syncContentHash(written.local) });
+        expect((await upload(true)).saved?.tournament).toEqual(previous);
+      });
+    });
+
+    describe("a data-entry assistant's projection", () => {
+      it("drops local records it no longer contains, unless edited here", () => {
+        const motion = { id: "m1", text: "Motion" } as CloudRecord;
+        const edited = { id: "m2", text: "Edited here" } as CloudRecord;
+        const local = emptyCollections();
+        local.motions = [motion, edited, { id: "m3", text: "Never synced" } as CloudRecord];
+
+        const merge = mergeCloudIntoWorkingCopy({
+          cloudCollections: emptyCollections(),
+          localCollections: local,
+          baseline: { motions: { m1: entry(motion), m2: entry({ id: "m2", text: "Before" } as CloudRecord) } },
+          cloudOmitsDeleted: true,
+        });
+
+        expect(merge.collections.motions.map((record) => record.id)).toEqual(["m2", "m3"]);
+      });
+
+      it("marks the records the server applied as synced, but not the rejected ones", () => {
+        const accepted = { id: "b1", confirmed: false, speakerScores: [75] } as CloudRecord;
+        const rejected = { id: "b2", confirmed: false } as CloudRecord;
+        const debate = { id: "d1", resultStatus: "draft" } as CloudRecord;
+
+        const baseline = baselineAfterDataEntrySync({
+          baseline: { ballots: { b2: { v: 1, h: "before" } }, venues: { v1: { v: 1, h: "untouched" } } },
+          sentCollections: { ballots: [accepted, rejected], debates: [debate] },
+          rejected: [{ collectionName: "ballots", recordId: "b2" }],
+        });
+
+        expect(baseline.ballots).toEqual({ b1: entry(accepted), b2: { v: 1, h: "before" } });
+        expect(baseline.debates).toEqual({ d1: entry(debate) });
+        expect(baseline.venues).toEqual({ v1: { v: 1, h: "untouched" } });
+      });
+    });
+
+    it("resolves only the chosen records, including the settings", () => {
+      const localCollections = emptyCollections();
+      localCollections.teams = [team({ name: "Mine", syncVersion: 1 }), { id: "t2", name: "Mine too", syncVersion: 1 } as CloudRecord];
+      const cloudSettings = { ...tournament, name: "Cloud name", syncVersion: 4 };
+      const divergedRecords = [
+        { collectionName: "tournament" as const, recordId: tournament.id, cloudRecord: cloudSettings },
+        { collectionName: "teams" as const, recordId: "t1", cloudRecord: team({ name: "Cloud", syncVersion: 2 }) },
+        { collectionName: "teams" as const, recordId: "t2", cloudRecord: { id: "t2", name: "Cloud too", syncVersion: 3 } as CloudRecord },
+      ];
+
+      const resolved = resolveDivergedRecords({
+        localTournament: { ...tournament, name: "My name", syncVersion: 3 },
+        localCollections,
+        baseline: {},
+        divergedRecords,
+        keys: ["tournament/tournament-1", "teams/t1"],
+        keep: "cloud",
+      });
+
+      expect(resolved.tournament).toEqual(cloudSettings);
+      expect(resolved.baseline.tournament).toEqual(entry(cloudSettings));
+      expect(resolved.collections.teams).toEqual([divergedRecords[1].cloudRecord, localCollections.teams[1]]);
+      expect(resolved.remaining).toEqual([divergedRecords[2]]);
+      expect(divergedRecordKey(divergedRecords[2])).toBe("teams/t2");
+    });
+
+    it("reads a stored settings entry and settings conflicts", () => {
+      expect(parseSyncBaseline({ tournament: { v: 3, h: "x" } })).toEqual({ tournament: { v: 3, h: "x" } });
+      expect(parseDivergedRecords([
+        { collectionName: "tournament", recordId: "tournament-1", cloudRecord: { id: "tournament-1" } },
+      ])).toHaveLength(1);
     });
   });
 });

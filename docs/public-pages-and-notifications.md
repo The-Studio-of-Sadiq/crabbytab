@@ -101,8 +101,9 @@ are refused for any other round.
 The server writes `roundAvailability[roundId]` and `roundAvailabilityAt[roundId]` and bumps
 `syncVersion`. A check-in reaches an organiser device when it downloads from the cloud or opens the
 tournament, provided that device has not edited the participant since it last synced it. If it
-has, the device keeps its own version and shows the participant as a sync conflict (account menu →
-**Use cloud versions…** or **Keep this device's versions…**); uploading that older local copy
+has, the device keeps its own version and lists the participant as a sync conflict (the
+**sync conflicts** warning in the top bar, or account menu → **Resolve sync conflicts**), where the
+organiser keeps either version; uploading that older local copy
 without choosing records a sync conflict in the cloud instead of silently overwriting the check-in.
 The public check-in counts update at the next publish.
 
