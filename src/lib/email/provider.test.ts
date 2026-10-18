@@ -4,6 +4,10 @@ import {
   EmailProviderConfigError,
 } from "./provider";
 
+function asEnv(values: Record<string, string>): NodeJS.ProcessEnv {
+  return values as NodeJS.ProcessEnv;
+}
+
 const validSmtpEnv = {
   SMTP_HOST: "smtp.example.com",
   SMTP_PORT: "587",
@@ -14,19 +18,19 @@ const validSmtpEnv = {
 
 describe("SMTP email provider configuration", () => {
   it("requires server-side SMTP credentials and sender", () => {
-    expect(() => createSmtpEmailProvider({})).toThrow(EmailProviderConfigError);
+    expect(() => createSmtpEmailProvider(asEnv({}))).toThrow(EmailProviderConfigError);
   });
 
   it("accepts a valid SMTP configuration without connecting until requested", () => {
-    expect(() => createSmtpEmailProvider(validSmtpEnv)).not.toThrow();
+    expect(() => createSmtpEmailProvider(asEnv(validSmtpEnv))).not.toThrow();
   });
 
   it("rejects invalid ports and TLS settings", () => {
     expect(() =>
-      createSmtpEmailProvider({ ...validSmtpEnv, SMTP_PORT: "70000" })
+      createSmtpEmailProvider(asEnv({ ...validSmtpEnv, SMTP_PORT: "70000" }))
     ).toThrow(EmailProviderConfigError);
     expect(() =>
-      createSmtpEmailProvider({ ...validSmtpEnv, SMTP_SECURE: "sometimes" })
+      createSmtpEmailProvider(asEnv({ ...validSmtpEnv, SMTP_SECURE: "sometimes" }))
     ).toThrow(EmailProviderConfigError);
   });
 });

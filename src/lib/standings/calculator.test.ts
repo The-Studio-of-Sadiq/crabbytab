@@ -80,7 +80,7 @@ describe("Standings Calculator (calculateStandings)", () => {
         OO: { teamId: "t2", teamName: "Team 2", side: "OO" },
         CG: { teamId: "t3", teamName: "Team 3", side: "CG" },
         CO: { teamId: "t4", teamName: "Team 4", side: "CO" },
-      },
+      } as Debate["teams"],
       adjudicators: { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
     };
 
@@ -99,13 +99,13 @@ describe("Standings Calculator (calculateStandings)", () => {
         OO: [{ speakerId: "s2a", speakerName: "Charlie", position: 1, score: 77 }, { speakerId: "s2b", speakerName: "David", position: 2, score: 76 }], // 153
         CG: [{ speakerId: "s3a", speakerName: "Eve", position: 1, score: 75 }, { speakerId: "s3b", speakerName: "Frank", position: 2, score: 75 }], // 150
         CO: [{ speakerId: "s4a", speakerName: "Grace", position: 1, score: 74 }, { speakerId: "s4b", speakerName: "Heidi", position: 2, score: 73 }], // 147
-      },
+      } as BallotSubmission["speakerScores"],
       teamScores: {
         OG: { side: "OG", teamId: "t1", points: 3, totalSpeakerScore: 157, rank: 1 },
         OO: { side: "OO", teamId: "t2", points: 2, totalSpeakerScore: 153, rank: 2 },
         CG: { side: "CG", teamId: "t3", points: 1, totalSpeakerScore: 150, rank: 3 },
         CO: { side: "CO", teamId: "t4", points: 0, totalSpeakerScore: 147, rank: 4 },
-      },
+      } as BallotSubmission["teamScores"],
     };
 
     const result = calculateStandings(tournament, [round1], teams, [debate], [ballot]);
@@ -296,7 +296,7 @@ describe("Standings Calculator (calculateStandings)", () => {
         OO: { teamId: "t2", teamName: "Team 2", side: "OO" },
         CG: { teamId: "t3", teamName: "Team 3", side: "CG" },
         CO: { teamId: "t4", teamName: "Team 4", side: "CO" },
-      },
+      } as Debate["teams"],
       adjudicators: { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
     };
     const byeDebate: Debate = {

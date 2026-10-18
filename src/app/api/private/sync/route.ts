@@ -10,9 +10,20 @@ import {
   Tournament,
 } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
-import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
+import {
+  checkPrivateApiRateLimit,
+  checkPrivateFailureLimit,
+  clientAddressFromHeaders,
+  recordPrivateFailure,
+} from "@/lib/privateTeamRateLimit";
+import { passcodesMatch } from "@/lib/passcode";
 import { buildPrivateBallot } from "@/lib/privateBallot";
-import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import {
+  filterTeamVisibleDebates,
+  getPrivatePortalBallots,
+  sanitizeTeamPrivateDebate,
+} from "@/lib/privatePortalBallots";
+import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -60,6 +71,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const firestore = getAdminFirestore();
+    const clientIdentity = `${tournamentId}:${clientAddressFromHeaders(request.headers)}`;
+    const failureLimit = await checkPrivateFailureLimit(firestore, clientIdentity, "sync");
+    if (!failureLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many private sync requests. Try again later." },
+        { status: 429, headers: { "Retry-After": String(failureLimit.retryAfterSeconds) } }
+      );
+    }
+    const noteFailedAttempt = () => recordPrivateFailure(firestore, clientIdentity, "sync").catch((error) => {
+      console.error("Could not record failed private sync attempt:", error);
+    });
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
     const tournamentSnapshot = await tournamentRef.get();
     if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
@@ -81,6 +103,7 @@ export async function POST(request: NextRequest) {
     );
     const team = teamDocument?.data();
     if (!adjudicatorDocument && !teamDocument) {
+      await noteFailedAttempt();
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
@@ -105,14 +128,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const actorType = adjudicator?.privatePasscode === passcode
+    const actorType = passcodesMatch(adjudicator?.privatePasscode, passcode)
       ? "adjudicator"
-      : team?.privatePasscode === passcode
+      : passcodesMatch(team?.privatePasscode, passcode)
         ? "team"
         : null;
     const actorDocument = actorType === "adjudicator" ? adjudicatorDocument : teamDocument;
     const actor = actorType === "adjudicator" ? adjudicator : team;
     if (!actorType || !actorDocument || !actor) {
+      await noteFailedAttempt();
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
@@ -142,15 +166,11 @@ export async function POST(request: NextRequest) {
           { ...document.data(), id: document.id } as Team,
         ] as const)
     );
-    const assignedDebates = new Map(
-      debatesSnapshot.docs
-        .map((document) => [document.id, allDebates.get(document.id)!] as const)
-        .filter(([, debate]) => actorType === "adjudicator"
-          ? debate.adjudicators?.chairId === actorDocument.id ||
-            debate.adjudicators?.panellistIds?.includes(actorDocument.id) ||
-            debate.adjudicators?.traineeIds?.includes(actorDocument.id)
-          : Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id))
-    );
+    const actorDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
+    // Teams never see (or act on) debates from unpublished draws.
+    const assignedDebates = actorType === "team"
+      ? new Map(filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate]))
+      : actorDebates;
 
     const batch = firestore.batch();
     let uploadedCount = 0;
@@ -230,8 +250,10 @@ export async function POST(request: NextRequest) {
           record.sourceType === actorType &&
           record.sourceId === actorDocument.id &&
           (actorType === "adjudicator" || Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id));
+        const panelVisibleToActor =
+          actorType === "adjudicator" || roundById.get(debate.roundId)?.adjudicatorsRevealed === true;
         const targetIsAuthorized = targetType === "adjudicator"
-          ? targetAdjudicatorIsAssigned && targetAdjudicatorId !== actorDocument.id
+          ? targetAdjudicatorIsAssigned && panelVisibleToActor && targetAdjudicatorId !== actorDocument.id
           : targetType === "team" && Boolean(targetTeamSlot) &&
             (actorType !== "team" || targetTeamId !== actorDocument.id);
         const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;
@@ -339,45 +361,24 @@ export async function POST(request: NextRequest) {
           return false;
         }
 
-        const pendingIdsToDiscard = new Set<string>();
-        for (const debateId of debateIds) {
-          const group = ballotSubmissions.filter((ballot) => ballot.debateId === debateId);
-          const finalChairIndex = group.reduce(
-            (lastIndex, ballot, index) => ballot.confirmed ? index : lastIndex,
-            -1
-          );
-          if (finalChairIndex >= 0) {
-            group.slice(0, finalChairIndex).forEach((ballot) => pendingIdsToDiscard.add(ballot.id));
-            for (const existing of existingBallotsByDebate.get(debateId)!.docs) {
-              if (existing.data().discarded !== true) {
-                transaction.update(existing.ref, {
-                  confirmed: false,
-                  discarded: true,
-                });
-              }
-            }
-          }
-        }
-
-        const nextVersionByDebate = new Map<string, number>();
-        for (const debateId of debateIds) {
-          const currentVersion = existingBallotsByDebate.get(debateId)!.docs.reduce(
-            (version, document) =>
-              Math.max(version, Number(document.data().version) || 0),
-            0
-          );
-          nextVersionByDebate.set(debateId, currentVersion);
-        }
-        for (const ballot of ballotSubmissions) {
-          const version = (nextVersionByDebate.get(ballot.debateId) || 0) + 1;
-          nextVersionByDebate.set(ballot.debateId, version);
-          const discarded = pendingIdsToDiscard.has(ballot.id);
-          transaction.set(ballotCollection.doc(ballot.id), {
-            ...ballot,
-            version,
-            confirmed: ballot.confirmed && !discarded,
-            discarded,
+        const plan = planPrivateBallotWrites(
+          ballotSubmissions,
+          new Map(debateIds.map((debateId) => [
+            debateId,
+            existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
+              id: document.id,
+              data: document.data() as Partial<BallotSubmission>,
+            })),
+          ]))
+        );
+        for (const id of plan.discardExistingIds) {
+          transaction.update(ballotCollection.doc(id), {
+            confirmed: false,
+            discarded: true,
           });
+        }
+        for (const ballot of plan.writes) {
+          transaction.set(ballotCollection.doc(ballot.id), ballot);
         }
         return true;
       });

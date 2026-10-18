@@ -11,7 +11,7 @@ const tournament = {
 } as Tournament;
 
 function emptyCollections(): Record<CloudCollectionName, CloudRecord[]> {
-  return Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [name, []])) as Record<CloudCollectionName, CloudRecord[]>;
+  return Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [name, []])) as unknown as Record<CloudCollectionName, CloudRecord[]>;
 }
 
 describe("tournament file backup", () => {
@@ -29,26 +29,26 @@ describe("tournament file backup", () => {
   it("merges backup-only records without replacing local conflicts or deleting either copy", () => {
     const current = emptyCollections();
     const backupCollections = emptyCollections();
-    current.teams = [{ id: "shared", name: "Current" }];
+    current.teams = [{ id: "shared", name: "Current" } as CloudRecord];
     backupCollections.teams = [
-      { id: "shared", name: "Backup" },
-      { id: "backup-only", name: "Backup only" },
+      { id: "shared", name: "Backup" } as CloudRecord,
+      { id: "backup-only", name: "Backup only" } as CloudRecord,
     ];
-    current.auditEvents = [{ id: "event-1", summary: "Current" }];
+    current.auditEvents = [{ id: "event-1", summary: "Current" } as CloudRecord];
     backupCollections.auditEvents = [
-      { id: "event-1", summary: "Backup duplicate" },
-      { id: "event-2", summary: "Backup event" },
+      { id: "event-1", summary: "Backup duplicate" } as CloudRecord,
+      { id: "event-2", summary: "Backup event" } as CloudRecord,
     ];
 
     const merged = mergeTournamentBackup({ current, backup: backupCollections });
 
     expect(merged.teams).toEqual([
-      { id: "shared", name: "Current" },
-      { id: "backup-only", name: "Backup only" },
+      { id: "shared", name: "Current" } as CloudRecord,
+      { id: "backup-only", name: "Backup only" } as CloudRecord,
     ]);
     expect(merged.auditEvents).toEqual([
-      { id: "event-1", summary: "Current" },
-      { id: "event-2", summary: "Backup event" },
+      { id: "event-1", summary: "Current" } as CloudRecord,
+      { id: "event-2", summary: "Backup event" } as CloudRecord,
     ]);
   });
 });

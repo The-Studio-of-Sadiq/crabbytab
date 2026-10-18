@@ -1,45 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
+import type { DocumentSnapshot } from "firebase-admin/firestore";
+import type { Debate, Tournament } from "@/types";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import {
+  DATA_ENTRY_FIELDS,
+  type DataEntryCollection,
+  canAssistantOverwriteBallot,
+  isRecord,
+  nextAssistantResultStatus,
+  prepareAssistantBallot,
+  sanitizeDataEntryRecord,
+  validDataEntryId as validId,
+  validateAssistantFeedback,
+} from "@/lib/dataEntrySync";
 
 export const runtime = "nodejs";
-
-const collectionFields = {
-  teams: [
-    "id", "tournamentId", "name", "breakStatus", "breakCategoryIds", "eliminatedInRoundId",
-    "codeName", "institutionId", "institutionName", "speakers", "breakCategories",
-    "speakerCategories", "seed", "emoji", "checkedIn", "roundAvailability",
-  ],
-  adjudicators: [
-    "id", "tournamentId", "name", "email", "institutionId", "institutionName", "baseScore",
-    "testScore", "trainee", "independent", "checkedIn", "roundAvailability", "gender",
-  ],
-  institutions: ["id", "tournamentId", "name", "code", "region"],
-  ballots: [
-    "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType",
-    "submitterId", "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
-    "confirmedBy", "confirmedTimestamp",
-  ],
-  feedback: [
-    "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
-    "targetAdjudicatorName", "targetTeamId", "targetTeamName", "sourceType", "sourceId", "sourceName", "score",
-    "agreeWithDecision", "comments", "answers", "confirmed", "timestamp",
-  ],
-} as const;
-
-const sides = ["OG", "OO", "CG", "CO", "AFF", "NEG"] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function validId(value: unknown): value is string {
-  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
-}
-
-function pickFields(value: Record<string, unknown>, fields: readonly string[]) {
-  return Object.fromEntries(fields.filter((field) => value[field] !== undefined).map((field) => [field, value[field]]));
-}
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -69,23 +45,6 @@ function generatePrivateKey(prefix = "") {
   return key;
 }
 
-function safeRecord(
-  collectionName: keyof typeof collectionFields,
-  value: unknown,
-  tournamentId: string
-): Record<string, unknown> {
-  if (!isRecord(value) || !validId(value.id) || value.tournamentId !== tournamentId) {
-    throw new Error(`Invalid ${collectionName} record.`);
-  }
-  const record = pickFields(value, collectionFields[collectionName]);
-  if (collectionName === "teams") {
-    record.speakers = Array.isArray(value.speakers)
-      ? value.speakers.filter(isRecord).map((speaker) => pickFields(speaker, ["id", "name", "categories"]))
-      : [];
-  }
-  return record;
-}
-
 async function resolveStaffSync(request: NextRequest, tournamentId: string) {
   const token = request.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/)?.[1];
   if (!token) return { error: "Sign in as a data-entry assistant.", status: 401 as const };
@@ -113,8 +72,19 @@ async function resolveStaffSync(request: NextRequest, tournamentId: string) {
   if (staffSnapshot.data()?.role !== "dataEntry") {
     return { error: "Data-entry access is not assigned to this account.", status: 403 as const };
   }
-  return { firestore, tournamentRef, staffRef, user };
+  const tournament = { ...tournamentSnapshot.data(), id: tournamentSnapshot.id } as Tournament;
+  const staffName = staffSnapshot.data()?.name;
+  const actorName = typeof staffName === "string" && staffName
+    ? staffName
+    : user.email || "Data-entry assistant";
+  return { firestore, tournamentRef, staffRef, user, tournament, actorName };
 }
+
+type SyncRecord = {
+  collectionName: DataEntryCollection;
+  record: Record<string, unknown>;
+  createOnly: Record<string, unknown>;
+};
 
 export async function POST(
   request: NextRequest,
@@ -141,13 +111,16 @@ export async function POST(
     return NextResponse.json({ error: "Sync payload is too large. Upload fewer records at a time." }, { status: 413 });
   }
 
-  let records: Array<{ collectionName: keyof typeof collectionFields; record: Record<string, unknown> }>;
+  let records: SyncRecord[];
   try {
-    records = (Object.keys(collectionFields) as Array<keyof typeof collectionFields>).flatMap((collectionName) => {
+    records = (Object.keys(DATA_ENTRY_FIELDS) as DataEntryCollection[]).flatMap((collectionName) => {
       const values = collectionsInput[collectionName];
       if (values === undefined) return [];
       if (!Array.isArray(values) || values.length > 5000) throw new Error(`Invalid ${collectionName} collection.`);
-      return values.map((value) => ({ collectionName, record: safeRecord(collectionName, value, tournamentId) }));
+      return values.map((value) => ({
+        collectionName,
+        ...sanitizeDataEntryRecord(collectionName, value, tournamentId),
+      }));
     });
     if (body.debates.length > 5000) throw new Error("Too many debate results in one sync.");
     if (!body.debates.every((debate) => isRecord(debate) && validId(debate.id))) {
@@ -159,7 +132,24 @@ export async function POST(
 
   try {
     let archivedConflictCount = 0;
-    for (const { collectionName, record } of records) {
+    const { tournament, user } = authorization;
+    const actor = { uid: user.uid, name: authorization.actorName };
+    const referencedDebateIds = [...new Set(records
+      .filter(({ collectionName }) => collectionName === "ballots" || collectionName === "feedback")
+      .map(({ record }) => record.debateId)
+      .filter(validId))];
+    const debateSnapshots: DocumentSnapshot[] = referencedDebateIds.length > 0
+      ? await authorization.firestore.getAll(
+          ...referencedDebateIds.map((id) => authorization.tournamentRef.collection("debates").doc(id))
+        )
+      : [];
+    const debatesById = new Map<string, Debate & { deletedAt?: unknown }>(
+      debateSnapshots
+        .filter((snapshot) => snapshot.exists)
+        .map((snapshot) => [snapshot.id, { ...snapshot.data(), id: snapshot.id } as Debate])
+    );
+
+    for (const { collectionName, record, createOnly } of records) {
       const recordRef = authorization.tournamentRef.collection(collectionName).doc(record.id as string);
       const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
       const archived = await authorization.firestore.runTransaction(async (transaction) => {
@@ -169,20 +159,41 @@ export async function POST(
         const current: Record<string, unknown> | null = snapshot.exists
           ? { ...snapshot.data(), id: snapshot.id }
           : null;
-        if (current && typeof current.deletedAt === "string") {
+        // Records the assistant did not change (including ones pulled from the cloud) are left alone.
+        if (current && Object.keys(record).every((key) => recordsEqual(current[key], record[key]))) {
+          return false;
+        }
+        const archiveIncoming = (resolution: "deleted" | "rejected") => {
           transaction.create(conflictRef, {
             id: conflictRef.id,
             collectionName,
             recordId: record.id,
             record: current,
             incomingRecord: record,
-            resolution: "deleted",
+            resolution,
             archivedAt: new Date().toISOString(),
-            archivedBy: authorization.user.uid,
+            archivedBy: user.uid,
           });
           return true;
+        };
+        if (current && typeof current.deletedAt === "string") return archiveIncoming("deleted");
+
+        let next: Record<string, unknown>;
+        if (collectionName === "ballots") {
+          // Confirmed ballots and ballots entered by someone else are kept for tab review instead.
+          if (current && !canAssistantOverwriteBallot(current, user.uid)) return archiveIncoming("rejected");
+          next = { ...prepareAssistantBallot(record, {
+            debate: debatesById.get(String(record.debateId)),
+            preferences: tournament.preferences,
+            actor,
+          }) };
+        } else if (collectionName === "feedback") {
+          validateAssistantFeedback(record, debatesById.get(String(record.debateId)), tournament.preferences);
+          next = current ? { ...current, ...record } : { ...record, confirmed: false };
+        } else {
+          next = current ? { ...current, ...record } : { ...createOnly, ...record };
         }
-        const merged: Record<string, unknown> = current ? { ...current, ...record } : record;
+
         if (collectionName === "teams") {
           const currentSpeakers = current?.speakers;
           const incomingSpeakers = record.speakers;
@@ -190,7 +201,7 @@ export async function POST(
             const cloudSpeakersById = new Map(
               currentSpeakers.filter(isRecord).map((speaker) => [speaker.id, speaker])
             );
-            merged.speakers = [
+            next.speakers = [
               ...currentSpeakers.filter(isRecord).map((speaker) => speaker.id),
               ...incomingSpeakers.filter(isRecord).map((speaker) => speaker.id),
             ].filter((id, index, all) => all.indexOf(id) === index).map((id) => {
@@ -199,14 +210,14 @@ export async function POST(
               return { ...(existingSpeaker || {}), ...(isRecord(incomingSpeaker) ? incomingSpeaker : {}) };
             });
           }
-          merged.privateUrlKey = typeof merged.privateUrlKey === "string" ? merged.privateUrlKey : generatePrivateKey("team");
-          merged.privatePasscode = typeof merged.privatePasscode === "string" ? merged.privatePasscode : generatePrivateKey();
+          next.privateUrlKey = typeof next.privateUrlKey === "string" ? next.privateUrlKey : generatePrivateKey("team");
+          next.privatePasscode = typeof next.privatePasscode === "string" ? next.privatePasscode : generatePrivateKey();
         }
         if (collectionName === "adjudicators") {
-          merged.privateUrlKey = typeof merged.privateUrlKey === "string" ? merged.privateUrlKey : generatePrivateKey("adj");
-          merged.privatePasscode = typeof merged.privatePasscode === "string" ? merged.privatePasscode : generatePrivateKey();
+          next.privateUrlKey = typeof next.privateUrlKey === "string" ? next.privateUrlKey : generatePrivateKey("adj");
+          next.privatePasscode = typeof next.privatePasscode === "string" ? next.privatePasscode : generatePrivateKey();
         }
-        if (current && recordsEqual(current, merged)) return false;
+        if (current && recordsEqual(current, next)) return false;
         if (current) {
           transaction.create(conflictRef, {
             id: conflictRef.id,
@@ -214,10 +225,10 @@ export async function POST(
             recordId: record.id,
             record: current,
             archivedAt: new Date().toISOString(),
-            archivedBy: authorization.user.uid,
+            archivedBy: user.uid,
           });
         }
-        transaction.set(recordRef, merged);
+        transaction.set(recordRef, next);
         return Boolean(current);
       });
       archivedConflictCount += Number(archived);
@@ -230,42 +241,22 @@ export async function POST(
         const staffSnapshot = await transaction.get(authorization.staffRef);
         if (staffSnapshot.data()?.role !== "dataEntry") throw new Error("Data-entry access was revoked.");
         const snapshot = await transaction.get(debateRef);
-        if (!snapshot.exists) throw new Error(`Debate ${debate.id} no longer exists.`);
+        if (!snapshot.exists) return false;
         const current: Record<string, unknown> = { ...snapshot.data(), id: snapshot.id };
-        if (typeof current.deletedAt === "string") {
-          throw new Error(`Debate ${debate.id} has been deleted and cannot receive new results.`);
-        }
-        const currentTeams = current.teams;
-        const localTeams = debate.teams;
-        if (!isRecord(currentTeams) || !isRecord(localTeams)) throw new Error(`Debate ${debate.id} has invalid result data.`);
-        const teams = { ...currentTeams };
-        for (const side of sides) {
-          const currentSlot = currentTeams[side];
-          const localSlot = localTeams[side];
-          if (currentSlot === undefined && localSlot === undefined) continue;
-          if (!isRecord(currentSlot) || !isRecord(localSlot) || currentSlot.teamId !== localSlot.teamId) {
-            throw new Error(`Debate ${debate.id} team assignments changed; only administrators can sync them.`);
-          }
-          const updatedSlot = { ...currentSlot };
-          for (const field of ["points", "speakerScoreTotal"] as const) {
-            if (localSlot[field] !== undefined) updatedSlot[field] = localSlot[field];
-          }
-          teams[side] = updatedSlot;
-        }
-        if (!["none", "draft", "confirmed"].includes(String(debate.resultStatus))) {
-          throw new Error(`Debate ${debate.id} has an invalid result status.`);
-        }
-        const updated = { ...current, resultStatus: debate.resultStatus, teams };
-        if (recordsEqual(current, updated)) return false;
+        if (typeof current.deletedAt === "string") return false;
+        // Assistants may only flag that a ballot was entered; result points and
+        // confirmation are written by the tab room when it confirms a ballot.
+        const resultStatus = nextAssistantResultStatus(current.resultStatus, debate.resultStatus);
+        if (resultStatus === current.resultStatus) return false;
         transaction.create(conflictRef, {
           id: conflictRef.id,
           collectionName: "debates",
           recordId: debate.id,
           record: current,
           archivedAt: new Date().toISOString(),
-          archivedBy: authorization.user.uid,
+          archivedBy: user.uid,
         });
-        transaction.update(debateRef, { resultStatus: debate.resultStatus, teams });
+        transaction.update(debateRef, { resultStatus });
         return true;
       });
       archivedConflictCount += Number(archived);

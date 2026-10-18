@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BallotSubmission, Debate } from "@/types";
 import type { DebateXmlArchiveInput } from "./debateXml";
 import { createDebateXmlArchive } from "./debateXml";
 
@@ -100,7 +101,7 @@ function archiveInput(): DebateXmlArchiveInput {
     teams: {
       AFF: { teamId: "team-a", teamName: "A & B", side: "AFF" },
       NEG: { teamId: "team-b", teamName: "Team B", side: "NEG" },
-    },
+    } as Debate["teams"],
     adjudicators: {
       chairId: "adj-1",
       chairName: "Judge One",
@@ -142,11 +143,11 @@ function archiveInput(): DebateXmlArchiveInput {
       speakerScores: {
         AFF: [{ speakerId: "speaker-a", speakerName: "Speaker <One>", position: 1, score: 75 }],
         NEG: [],
-      },
+      } as Partial<BallotSubmission["speakerScores"]> as BallotSubmission["speakerScores"],
       teamScores: {
         AFF: { side: "AFF", teamId: "team-a", points: 1, totalSpeakerScore: 75, win: true, rank: 1 },
         NEG: { side: "NEG", teamId: "team-b", points: 0, totalSpeakerScore: 70, win: false, rank: 2 },
-      },
+      } as BallotSubmission["teamScores"],
       chairId: "adj-1",
       timestamp: "",
     }],

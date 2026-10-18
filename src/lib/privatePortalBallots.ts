@@ -1,4 +1,31 @@
-import type { BallotSubmission, Debate, Round } from "@/types";
+import type { BallotSubmission, Debate, DebateAdjudicatorSlot, Round } from "@/types";
+
+const HIDDEN_PANEL: DebateAdjudicatorSlot = {
+  panellistIds: [],
+  panellistNames: [],
+  traineeIds: [],
+  traineeNames: [],
+};
+
+/**
+ * Whether a round's draw may be shown to teams. Mirrors the public page,
+ * which treats `confirmed` and `released` draws as published (see 0.11).
+ */
+export function isDrawVisibleToTeams(round: Round | undefined): round is Round {
+  return (
+    round !== undefined &&
+    round.cancelled !== true &&
+    (round.drawStatus === "confirmed" || round.drawStatus === "released")
+  );
+}
+
+/** Drops debates whose round draw has not been published to teams. */
+export function filterTeamVisibleDebates<T extends Pick<Debate, "roundId">>(
+  debates: Iterable<T>,
+  roundsById: ReadonlyMap<string, Round>
+): T[] {
+  return [...debates].filter((debate) => isDrawVisibleToTeams(roundsById.get(debate.roundId)));
+}
 
 export function sanitizeTeamPrivateDebate(
   debate: Debate,
@@ -8,11 +35,16 @@ export function sanitizeTeamPrivateDebate(
   const showResults =
     resultsEnabled && round?.resultsReleased === true && round.silent !== true;
   const showSpeakerScores = showResults && round?.teamSpeaksReleased === true;
-  const { byeResult, ...safeDebate } = debate;
+  const showAdjudicators = isDrawVisibleToTeams(round) && round.adjudicatorsRevealed === true;
+  const showMotion = round?.motionsReleased === true;
+  const { byeResult, motionId, motionText, adjudicators, ...safeDebate } = debate;
 
   return {
     ...safeDebate,
     ...(showResults && byeResult !== undefined ? { byeResult } : {}),
+    ...(showMotion && motionId !== undefined ? { motionId } : {}),
+    ...(showMotion && motionText !== undefined ? { motionText } : {}),
+    adjudicators: showAdjudicators && adjudicators ? adjudicators : { ...HIDDEN_PANEL },
     resultStatus: showResults ? debate.resultStatus : "none",
     teams: Object.fromEntries(
       Object.entries(debate.teams || {}).map(([side, slot]) => {

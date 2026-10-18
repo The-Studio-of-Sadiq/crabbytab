@@ -68,7 +68,7 @@ const debate: Debate = {
   teams: {
     AFF: { teamId: team.id, teamName: team.name, side: "AFF" },
     NEG: { teamId: "team-2", teamName: "Team Two", side: "NEG" },
-  },
+  } as Debate["teams"],
   adjudicators: {
     chairId: adjudicator.id,
     chairName: adjudicator.name,

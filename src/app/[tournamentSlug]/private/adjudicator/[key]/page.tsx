@@ -24,7 +24,8 @@ import {
   Lock,
   RefreshCw,
 } from "lucide-react";
-import { DebateSide, Debate, BallotSubmission, FeedbackAnswer } from "@/types";
+import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
+import { consensusTeamScores } from "@/lib/ballots/result";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
@@ -393,9 +394,10 @@ export default function AdjudicatorPrivatePortalPage() {
         initScores[side] = spks;
 
         if (replyEnabled) {
+          const replySpeaker = team?.speakers?.[0];
           initReplyScores[side] = {
-            speakerId: `reply-${side}`,
-            speakerName: `${team?.name || side} Reply`,
+            speakerId: replySpeaker?.id || "",
+            speakerName: replySpeaker?.name || `${team?.name || side} Reply`,
             score: Math.round(((tournament?.preferences?.minReplyScore || 34) + (tournament?.preferences?.maxReplyScore || 42)) / 2),
           };
         }
@@ -434,8 +436,7 @@ export default function AdjudicatorPrivatePortalPage() {
 
     setBallotSubmitting(true);
     try {
-      const speakerScoresRecord: Record<string, any[]> = {};
-      const teamScoresRecord: Record<string, any> = {};
+      const speakerScoresRecord = {} as Record<DebateSide, SpeakerScoreEntry[]>;
 
       sides.forEach((side) => {
         const teamSlot = ballotDebate.teams[side];
@@ -458,34 +459,13 @@ export default function AdjudicatorPrivatePortalPage() {
         }
 
         speakerScoresRecord[side] = allSpkList;
-
-        const includeGhosts = tournament?.preferences?.teamScoreIncludesGhosts ?? false;
-        let substantiveList = ballotScores[side] || [];
-        if (!includeGhosts) {
-          const seen = new Set<string>();
-          substantiveList = substantiveList.filter((s) => {
-            if (!s.speakerId) return true;
-            if (seen.has(s.speakerId)) return false;
-            seen.add(s.speakerId);
-            return true;
-          });
-        }
-        const substantiveTotal = substantiveList.reduce((sum, s) => sum + s.score, 0);
-        const replyTotal = replyEnabled && ballotReplyScores[side] ? ballotReplyScores[side].score : 0;
-        const total = substantiveTotal + replyTotal;
-        const rank = ballotRanks[side] || 1;
-        const pts = isBP ? (rank === 1 ? 3 : rank === 2 ? 2 : rank === 3 ? 1 : 0) : rank === 1 ? 1 : 0;
-
-        teamScoresRecord[side] = {
-          side,
-          teamId: teamSlot.teamId,
-          points: pts,
-          totalSpeakerScore: total,
-          rank,
-          win: pts === 1 || pts === 3,
-          margin: isBP ? 0 : rank === 1 ? 2 : -2,
-        };
       });
+      const teamScoresRecord = consensusTeamScores(
+        speakerScoresRecord,
+        ballotRanks,
+        Object.fromEntries(sides.map((side) => [side, ballotDebate.teams[side]?.teamId || ""])),
+        { format: tournament?.format || "bp", preferences: tournament?.preferences }
+      );
 
       const candidateBallot: BallotSubmission = {
         id: `ballot-${ballotDebate.id}-adj-${adjudicator.id}-${crypto.randomUUID()}`,
@@ -1317,9 +1297,24 @@ export default function AdjudicatorPrivatePortalPage() {
 
                       {replyEnabled && reply && (
                         <div className="bg-amber-50 p-2 rounded border border-amber-200 flex items-center justify-between gap-2">
-                          <span className="font-semibold text-amber-900 truncate text-[11px]">
-                            Reply Speech
-                          </span>
+                          <label className="flex items-center gap-1.5 font-semibold text-amber-900 text-[11px]">
+                            <span>Reply</span>
+                            <select
+                              value={reply.speakerId}
+                              onChange={(e) => {
+                                const speaker = spks.find((candidate) => candidate.speakerId === e.target.value);
+                                setBallotReplyScores((prev) => ({
+                                  ...prev,
+                                  [side]: { ...prev[side], speakerId: e.target.value, speakerName: speaker?.speakerName || prev[side].speakerName },
+                                }));
+                              }}
+                              className="rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[11px]"
+                            >
+                              {spks.slice(0, Math.max(1, spks.length - 1)).map((candidate) => (
+                                <option key={candidate.speakerId} value={candidate.speakerId}>{candidate.speakerName}</option>
+                              ))}
+                            </select>
+                          </label>
                           <input
                             type="number"
                             step={0.5}
