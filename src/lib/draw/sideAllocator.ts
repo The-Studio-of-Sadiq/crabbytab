@@ -1,5 +1,5 @@
 import { Team, DebateSide, BPSide, TwoTeamSide, BPPositionCost } from "@/types";
-import { shuffle } from "./pairing";
+import { Rng, randomInt, shuffle } from "./rng";
 
 export interface TeamSideHistory {
   teamId: string;
@@ -11,172 +11,150 @@ export interface SideAllocationOptions {
   renyiOrder?: number;
   bpPositionCostExponent?: number;
   bpAssignmentMethod?: "hungarian" | "random";
-  sideBalancePenalty?: number;
   maxTimesPerSide?: number;
   maxAllowedSideImbalance?: number;
 }
 
-const BP_SIDES: BPSide[] = ["OG", "OO", "CG", "CO"];
-const TWO_TEAM_SIDES: TwoTeamSide[] = ["AFF", "NEG"];
+export const BP_SIDES: BPSide[] = ["OG", "OO", "CG", "CO"];
+export const TWO_TEAM_SIDES: TwoTeamSide[] = ["AFF", "NEG"];
+
+/** How many times the team has been in each of `sides`, in that order. */
+export function sideCounts(history: DebateSide[], sides: readonly DebateSide[]): number[] {
+  return sides.map((side) => history.filter((past) => past === side).length);
+}
 
 /**
- * Calculates BP position cost using Rényi entropy or a squared-deviation penalty.
- * The latter sums squared differences between each side count and the mean; it is
- * an optimization cost, not a statistical standard deviation. The selected base
- * cost is raised to bpPositionCostExponent and scaled before other penalties apply.
+ * Base BP position cost of placing a team in `side`, before the exponent,
+ * following Tabbycat's BPHungarianDrawGenerator:
+ *
+ * - renyi_entropy: C = n·[2 − H_α(p)], where p is the team's position
+ *   distribution *after* this round, n its number of rounds, and H_α the
+ *   Rényi entropy of order α in bits (α = 1 Shannon, α = 0 Hartley).
+ * - sum_squared_deviations: Σ (count − mean)² over the four positions after
+ *   this round (4 × Tabbycat's "variance" option, which only rescales it).
  */
+export function bpPositionBaseCost(
+  history: DebateSide[],
+  side: BPSide,
+  options: Pick<SideAllocationOptions, "bpPositionCost" | "renyiOrder"> = {}
+): number {
+  const counts = sideCounts(history, BP_SIDES);
+  counts[BP_SIDES.indexOf(side)] += 1;
+  const n = counts.reduce((sum, c) => sum + c, 0);
+
+  // "std_dev" is the pre-rename value of sum_squared_deviations in saved preferences.
+  const costFunction: string = options.bpPositionCost ?? "renyi_entropy";
+  if (costFunction === "sum_squared_deviations" || costFunction === "std_dev") {
+    const mean = n / 4;
+    return counts.reduce((sum, c) => sum + (c - mean) ** 2, 0);
+  }
+
+  const alpha = options.renyiOrder ?? 1;
+  if (!Number.isFinite(alpha) || alpha < 0) {
+    throw new Error(`The Rényi order can't be negative (it is ${alpha}).`);
+  }
+  const probs = counts.map((c) => c / n);
+  let entropy: number;
+  if (alpha === 1) {
+    entropy = -probs.reduce((sum, p) => (p > 0 ? sum + p * Math.log2(p) : sum), 0);
+  } else if (alpha === 0) {
+    entropy = Math.log2(probs.filter((p) => p > 0).length);
+  } else {
+    entropy = Math.log2(probs.reduce((sum, p) => sum + p ** alpha, 0)) / (1 - alpha);
+  }
+  // Clamp float noise (e.g. -1e-16) so exponentiation stays real.
+  return Math.max(0, (2 - entropy) * n);
+}
+
+/** Base cost raised to `bpPositionCostExponent` (default 4), as Tabbycat does. */
 export function computeBPSideCost(
   history: DebateSide[],
   candidateSide: BPSide,
-  options?: SideAllocationOptions
+  options: SideAllocationOptions = {}
 ): number {
-  let og = 0, oo = 0, cg = 0, co = 0;
-  for (const s of history) {
-    if (s === "OG") og++;
-    else if (s === "OO") oo++;
-    else if (s === "CG") cg++;
-    else if (s === "CO") co++;
-  }
-
-  if (candidateSide === "OG") og++;
-  else if (candidateSide === "OO") oo++;
-  else if (candidateSide === "CG") cg++;
-  else if (candidateSide === "CO") co++;
-
-  const counts = [og, oo, cg, co];
-  const total = og + oo + cg + co;
-  const balancePenaltyWeight = options?.sideBalancePenalty ?? 0;
-
-  // Base cost calculation
-  let baseCost = 0;
-  // Keep reading persisted preferences written with the former "std_dev" value.
-  const costFunction: string = options?.bpPositionCost ?? "renyi_entropy";
-
-  if (costFunction === "sum_squared_deviations" || costFunction === "std_dev") {
-    const mean = total / 4;
-    baseCost = counts.reduce((acc, c) => acc + Math.pow(c - mean, 2), 0);
-  } else {
-    // Rényi entropy: Shannon (alpha=1), Hartley (alpha=0), Collision (alpha=2), etc.
-    const alpha = options?.renyiOrder ?? 1.0;
-    const probs = counts.map((c) => c / total);
-
-    if (Math.abs(alpha - 1.0) < 0.001) {
-      let shannon = 0;
-      for (const p of probs) {
-        if (p > 0) shannon -= p * Math.log(p);
-      }
-      baseCost = Math.max(0, Math.log(4) - shannon);
-    } else if (alpha === 0) {
-      const nonZero = probs.filter((p) => p > 0).length;
-      const h0 = Math.log(Math.max(1, nonZero));
-      baseCost = Math.max(0, Math.log(4) - h0);
-    } else if (Math.abs(alpha - 2.0) < 0.001) {
-      const sumP2 = probs.reduce((acc, p) => acc + p * p, 0);
-      const h2 = -Math.log(Math.max(1e-9, sumP2));
-      baseCost = Math.max(0, Math.log(4) - h2);
-    } else {
-      const sumPAlpha = probs.reduce((acc, p) => acc + Math.pow(p, alpha), 0);
-      const hAlpha = (1 / (1 - alpha)) * Math.log(Math.max(1e-9, sumPAlpha));
-      baseCost = Math.max(0, Math.log(4) - hAlpha);
-    }
-  }
-
-  const exponent = options?.bpPositionCostExponent ?? 4.0;
-  // Exponent and scale control optimization weight; this is not a reported statistic.
-  let cost = Math.pow(baseCost, exponent) * 1000;
-
-  if (balancePenaltyWeight > 0) {
-    const gov = og + cg;
-    const opp = oo + co;
-    cost += Math.abs(gov - opp) * balancePenaltyWeight;
-  }
-
-  // Consecutive side repetition penalty
-  if (history.length > 0 && history[history.length - 1] === candidateSide) {
-    cost += 15;
-  }
-
-  return cost;
+  return bpPositionBaseCost(history, candidateSide, options) ** (options.bpPositionCostExponent ?? 4);
 }
 
 /**
- * Calculates a penalty for assigning a team to a given side based on past side history.
- * Aims to balance Gov vs Opp and Opening vs Closing (or AFF vs NEG).
+ * Hard side limits: placing a team in `side` must not take it past
+ * `maxTimesPerSide`, nor leave its most- and least-used sides more than
+ * `maxAllowedSideImbalance` apart (0 disables that limit).
  */
-export function calculateSidePenalty(history: DebateSide[], candidateSide: DebateSide, format: "bp" | "uadc" | string): number {
-  if (format === "bp") {
-    let og = 0, oo = 0, cg = 0, co = 0;
-    for (const s of history) {
-      if (s === "OG") og++;
-      else if (s === "OO") oo++;
-      else if (s === "CG") cg++;
-      else if (s === "CO") co++;
-    }
+export function violatesSideLimits(
+  history: DebateSide[],
+  side: DebateSide,
+  sides: readonly DebateSide[],
+  options: Pick<SideAllocationOptions, "maxTimesPerSide" | "maxAllowedSideImbalance"> = {}
+): boolean {
+  const counts = sideCounts(history, sides);
+  counts[sides.indexOf(side)] += 1;
+  if (counts[sides.indexOf(side)] > (options.maxTimesPerSide ?? 5)) return true;
+  const maxImbalance = options.maxAllowedSideImbalance ?? 0;
+  return maxImbalance > 0 && Math.max(...counts) - Math.min(...counts) > maxImbalance;
+}
 
-    const gov = og + cg;
-    const opp = oo + co;
-    const opening = og + oo;
-    const closing = cg + co;
-
-    let penalty = 0;
-
-    // Penalize same side repetition
-    if (history.length > 0 && history[history.length - 1] === candidateSide) {
-      penalty += 15;
-    }
-
-    // Penalize exact side imbalance
-    if (candidateSide === "OG") {
-      penalty += og * 10;
-      if (gov > opp) penalty += 5;
-      if (opening > closing) penalty += 5;
-    } else if (candidateSide === "OO") {
-      penalty += oo * 10;
-      if (opp > gov) penalty += 5;
-      if (opening > closing) penalty += 5;
-    } else if (candidateSide === "CG") {
-      penalty += cg * 10;
-      if (gov > opp) penalty += 5;
-      if (closing > opening) penalty += 5;
-    } else if (candidateSide === "CO") {
-      penalty += co * 10;
-      if (opp > gov) penalty += 5;
-      if (closing > opening) penalty += 5;
-    }
-
-    return penalty;
-  } else {
-    // 2-team format (AFF / NEG)
-    let aff = 0, neg = 0;
-    for (const s of history) {
-      if (s === "AFF") aff++;
-      else if (s === "NEG") neg++;
-    }
-
-    let penalty = 0;
-    if (history.length > 0 && history[history.length - 1] === candidateSide) {
-      penalty += 10;
-    }
-    if (candidateSide === "AFF") {
-      penalty += aff * 15;
-      if (aff > neg) penalty += 10;
-    } else {
-      penalty += neg * 15;
-      if (neg > aff) penalty += 10;
-    }
-    return penalty;
+export function describeSideLimits(options: Pick<SideAllocationOptions, "maxTimesPerSide" | "maxAllowedSideImbalance">): string {
+  const parts = [`at most ${options.maxTimesPerSide ?? 5} times per side`];
+  if ((options.maxAllowedSideImbalance ?? 0) > 0) {
+    parts.push(`a side imbalance of at most ${options.maxAllowedSideImbalance}`);
   }
+  return parts.join(" and ");
 }
 
 /**
- * Assigns sides to a group of 4 teams (BP) or 2 teams (2-team format) minimizing cumulative side penalties.
+ * Two-team side balance, as Tabbycat's Pairing.balance_sides: the team that
+ * has been affirmative more often (relative to negative) goes negative; equal
+ * imbalances are decided at random. The hard side limits are then checked, and
+ * the other orientation is used only if the balanced one breaks a limit.
+ */
+function balanceTwoTeamSides(
+  teams: Team[],
+  teamHistories: Map<string, DebateSide[]>,
+  random: boolean,
+  options: SideAllocationOptions,
+  rng: Rng
+): Record<DebateSide, Team> {
+  const imbalance = (team: Team) => {
+    const [aff, neg] = sideCounts(teamHistories.get(team.id) ?? [], TWO_TEAM_SIDES);
+    return aff - neg;
+  };
+  let [affTeam, negTeam] = teams;
+  const firstImbalance = imbalance(teams[0]);
+  const secondImbalance = imbalance(teams[1]);
+  if (random || firstImbalance === secondImbalance) {
+    if (randomInt(rng, 2) === 1) [affTeam, negTeam] = [negTeam, affTeam];
+  } else if (secondImbalance < firstImbalance) {
+    [affTeam, negTeam] = [negTeam, affTeam];
+  }
+
+  const valid = (aff: Team, neg: Team) =>
+    !violatesSideLimits(teamHistories.get(aff.id) ?? [], "AFF", TWO_TEAM_SIDES, options) &&
+    !violatesSideLimits(teamHistories.get(neg.id) ?? [], "NEG", TWO_TEAM_SIDES, options);
+  if (!valid(affTeam, negTeam)) {
+    if (!valid(negTeam, affTeam)) {
+      throw new Error(
+        `No side assignment for ${teams[0].name} vs ${teams[1].name} satisfies the configured side limits (${describeSideLimits(options)}).`
+      );
+    }
+    [affTeam, negTeam] = [negTeam, affTeam];
+  }
+  return { AFF: affTeam, NEG: negTeam } as Record<DebateSide, Team>;
+}
+
+/**
+ * Assigns sides within one already-formed room. Two-team rooms use Tabbycat's
+ * balance rule; BP rooms (random-draw rounds only; power-paired BP assigns
+ * rooms and positions together in powerPaired.ts) take the cheapest of the 24
+ * position permutations under the configured position cost, with ties broken
+ * by `rng`. `rule: "random"` ignores history but still honours the side limits.
  */
 export function allocateSidesForDebate(
   teams: Team[],
   teamHistories: Map<string, DebateSide[]>,
   format: "bp" | "uadc" | string,
   rule: "balanced" | "random" = "balanced",
-  options?: SideAllocationOptions
+  options: SideAllocationOptions = {},
+  rng: Rng = Math.random
 ): Record<DebateSide, Team> {
   const isBP = format === "bp";
   const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
@@ -184,89 +162,46 @@ export function allocateSidesForDebate(
   if (teams.length !== sides.length) {
     throw new Error(`Expected ${sides.length} teams for side allocation, got ${teams.length}`);
   }
+  if (!isBP) return balanceTwoTeamSides(teams, teamHistories, rule === "random", options, rng);
 
-  const permutations = getPermutations(sides).filter((assignment) =>
-    isSideAssignmentValid(teams, assignment, teamHistories, options)
+  const permutations = shuffle(getPermutations(BP_SIDES), rng).filter((assignment) =>
+    teams.every((team, index) =>
+      !violatesSideLimits(teamHistories.get(team.id) ?? [], assignment[index], BP_SIDES, options)
+    )
   );
   if (permutations.length === 0) {
-    throw new Error("No side assignment satisfies the configured side limits.");
+    throw new Error(`No side assignment satisfies the configured side limits (${describeSideLimits(options)}).`);
+  }
+  if (rule === "random" || options.bpAssignmentMethod === "random") {
+    return makeSideAssignment(teams, permutations[0]);
   }
 
-  const randomAssignment = rule === "random" || (isBP && options?.bpAssignmentMethod === "random");
-  const candidates = shuffle(permutations);
-  if (randomAssignment) {
-    return makeSideAssignment(teams, candidates[0]);
-  }
-
-  let bestPermutation = candidates[0];
-  let minPenalty = Infinity;
-
-  for (const perm of candidates) {
-    let penalty = 0;
-    for (let i = 0; i < teams.length; i++) {
-      const history = teamHistories.get(teams[i].id) || [];
-      penalty += isBP
-        ? computeBPSideCost(history, perm[i] as BPSide, options)
-        : calculateSidePenalty(history, perm[i], format);
-    }
-    if (penalty < minPenalty) {
-      minPenalty = penalty;
-      bestPermutation = perm;
+  let best = permutations[0];
+  let bestCost = Infinity;
+  for (const permutation of permutations) {
+    const cost = teams.reduce(
+      (sum, team, index) => sum + computeBPSideCost(teamHistories.get(team.id) ?? [], permutation[index], options),
+      0
+    );
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = permutation;
     }
   }
-
-  return makeSideAssignment(teams, bestPermutation);
+  return makeSideAssignment(teams, best);
 }
 
-function isSideAssignmentValid(
-  teams: Team[],
-  assignment: DebateSide[],
-  teamHistories: Map<string, DebateSide[]>,
-  options?: SideAllocationOptions
-): boolean {
-  const maxTimes = options?.maxTimesPerSide ?? 5;
-  const maxAllowedImbalance = options?.maxAllowedSideImbalance ?? 0;
-
-  return teams.every((team, index) => {
-    const history = teamHistories.get(team.id) ?? [];
-    const side = assignment[index];
-    if (history.filter((pastSide) => pastSide === side).length + 1 > maxTimes) return false;
-    if (maxAllowedImbalance <= 0) return true;
-
-    const sideCounts = assignment.length === BP_SIDES.length
-      ? BP_SIDES.map((candidateSide) =>
-          history.filter((pastSide) => pastSide === candidateSide).length +
-          Number(candidateSide === side)
-        )
-      : TWO_TEAM_SIDES.map((candidateSide) =>
-          history.filter((pastSide) => pastSide === candidateSide).length +
-          Number(candidateSide === side)
-        );
-    return Math.max(...sideCounts) - Math.min(...sideCounts) <= maxAllowedImbalance;
-  });
-}
-
-function makeSideAssignment(
-  teams: Team[],
-  assignment: DebateSide[]
-): Record<DebateSide, Team> {
+function makeSideAssignment(teams: Team[], assignment: DebateSide[]): Record<DebateSide, Team> {
   const result: Partial<Record<DebateSide, Team>> = {};
-  for (let i = 0; i < teams.length; i++) {
-    result[assignment[i]] = teams[i];
-  }
+  teams.forEach((team, index) => {
+    result[assignment[index]] = team;
+  });
   return result as Record<DebateSide, Team>;
 }
 
 function getPermutations<T>(array: T[]): T[][] {
   if (array.length <= 1) return [array];
-  const result: T[][] = [];
-  for (let i = 0; i < array.length; i++) {
-    const current = array[i];
-    const remaining = [...array.slice(0, i), ...array.slice(i + 1)];
-    const perms = getPermutations(remaining);
-    for (const p of perms) {
-      result.push([current, ...p]);
-    }
-  }
-  return result;
+  return array.flatMap((current, i) =>
+    getPermutations([...array.slice(0, i), ...array.slice(i + 1)]).map((rest) => [current, ...rest])
+  );
 }

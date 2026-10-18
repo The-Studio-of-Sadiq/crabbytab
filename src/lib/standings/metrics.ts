@@ -46,7 +46,8 @@ export const TEAM_METRIC_DIRECTION: Record<TeamMetricId, 1 | -1> = {
   firsts: 1,
   seconds: 1,
   thirds: 1,
-  pullups: 1,
+  // Fewer pull-ups ranks higher, as in Tabbycat.
+  pullups: -1,
 };
 
 export const SPEAKER_METRIC_DIRECTION: Record<SpeakerMetricId, 1 | -1> = {
@@ -103,6 +104,8 @@ export interface TeamRoundAccum {
   margin: number;
   opponentTeamIds: string[];
   pulledUp: boolean;
+  /** A bye awarded as a win: counts for points and wins, but has no speaks or margin. */
+  bye?: boolean;
   /** 1..4 in BP (from points); undefined for two-team formats. */
   rankInRoom?: number;
 }
@@ -141,7 +144,7 @@ export function computeTeamMetrics(
     speaks_ind_avg: mean(individualScores),
     speaks_stddev: popStdDev(speaksValues),
     margin_sum: marginSum,
-    margin_avg: mean(rounds.map((r) => r.margin)),
+    margin_avg: mean(rounds.filter((r) => !r.bye).map((r) => r.margin)),
     draw_strength_wins: drawStrengthWins,
     draw_strength_speaks: drawStrengthSpeaks,
     firsts,

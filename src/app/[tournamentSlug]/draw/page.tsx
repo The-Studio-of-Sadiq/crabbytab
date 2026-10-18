@@ -28,6 +28,7 @@ import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/gene
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
+import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
 
 export default function DrawPage() {
   const {
@@ -40,6 +41,7 @@ export default function DrawPage() {
     venues,
     generateDraw,
     updateRound,
+    updateTeam,
     updateDebate,
     updateDebates,
   } = useTournament();
@@ -534,6 +536,16 @@ export default function DrawPage() {
           </button>
         </div>
       </div>
+
+      {tournament && activeRound && (
+        <DrawSetupPanel
+          tournament={tournament}
+          round={activeRound}
+          teams={teams}
+          updateRound={updateRound}
+          updateTeam={(team) => updateTeam(team)}
+        />
+      )}
 
       {venueAssignmentError && (
         <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
