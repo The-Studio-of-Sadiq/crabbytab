@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { BreakCategory, Round, Tournament } from "@/types";
+import type { BreakCategory, Round, Team, TeamStandingRow, Tournament } from "@/types";
+import { calculateBreaks } from "@/lib/breakqual/calculator";
 import { createRoundRecord } from "./rounds";
-import { proceedToNextEliminationRoundCommand, saveBreakCategoriesCommand, type BreakDependencies } from "./breaks";
+import {
+  generateBreakCommand,
+  proceedToNextEliminationRoundCommand,
+  saveBreakCategoriesCommand,
+  type BreakDependencies,
+} from "./breaks";
 
 const tournament: Tournament = {
   id: "tournament-1",
@@ -99,5 +105,62 @@ describe("break application commands", () => {
       .rejects.toThrow("Generate this elimination round's draw before proceeding.");
 
     expect(calls).toEqual([]);
+  });
+
+  it("generates one category's break without changing another category's teams", async () => {
+    const twoTeam: Tournament = {
+      ...tournament,
+      format: "uadc",
+      preferences: { ...tournament.preferences, teamsInDebate: 2 },
+    };
+    const open: BreakCategory = { ...openBreak, breakSize: 2, priority: 10 };
+    const esl: BreakCategory = { ...openBreak, id: "esl", slug: "esl", name: "ESL", breakSize: 2, isGeneral: false, priority: 1 };
+    const teams: Team[] = ["a", "b", "c", "d", "e"].map((id) => ({
+      id,
+      tournamentId: tournament.id,
+      name: id,
+      speakers: [],
+      breakCategories: id === "a" ? [] : ["esl"],
+      speakerCategories: [],
+    }));
+    const standings = teams.map((team, index) => ({
+      rank: index + 1,
+      teamId: team.id,
+      teamName: team.name,
+      points: 5 - index,
+      totalSpeakerScore: 0,
+      averageSpeakerScore: 0,
+      breakCategories: [],
+      roundResults: [],
+      metrics: {} as TeamStandingRow["metrics"],
+    }));
+    const rounds = ["SF", "GF"].map((abbr, index) => ({
+      ...createRoundRecord({ tournamentId: tournament.id, roundSeq: index + 1, name: abbr, abbr, stage: "elimination" }),
+      id: abbr,
+    }));
+    let savedTeams: Team[] = [];
+    let savedCategories: BreakCategory[] = [];
+    const { dependencies } = makeDependencies({
+      tournament: twoTeam,
+      teams,
+      rounds,
+      breakCategories: [open, esl],
+      breakResults: calculateBreaks([open, esl], teams, standings, "uadc"),
+    });
+    dependencies.localRepository.saveTeams = (items) => { savedTeams = items; };
+    dependencies.localRepository.saveBreakCategories = (items) => { savedCategories = items; };
+
+    await generateBreakCommand("esl", dependencies);
+
+    expect(savedTeams.map((team) => [team.id, team.breakStatus, team.breakCategoryIds])).toEqual([
+      ["a", "eliminated", []],
+      ["b", "eliminated", []],
+      ["c", "breaking", ["esl"]],
+      ["d", "breaking", ["esl"]],
+      ["e", "eliminated", []],
+    ]);
+    expect(savedCategories.find((category) => category.id === "esl")?.generatedBreak?.breakingTeamIds)
+      .toEqual(["c", "d"]);
+    expect(savedCategories.find((category) => category.id === "open")?.generatedBreak).toBeUndefined();
   });
 });

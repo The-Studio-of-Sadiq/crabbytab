@@ -21,8 +21,8 @@ import {
   buildRounds,
   eliminationRoundCount,
   getFormatPreset,
-  isPowerOfTwo,
   slugify,
+  validateBreakSize,
   validateSlug,
 } from "@/lib/setup/presets";
 
@@ -96,7 +96,6 @@ const STEPS = [
   "Review",
 ] as const;
 
-const BREAK_SIZE_OPTIONS = [2, 4, 8, 16, 32, 64];
 
 /* -------------------------------------------------------------------------- */
 /* Small UI helpers                                                           */
@@ -287,8 +286,8 @@ export function TournamentWizard() {
           if (!n) return "Every break category needs a name.";
           if (names.has(n)) return `There are two break categories called "${b.name.trim()}".`;
           names.add(n);
-          if (!isPowerOfTwo(b.breakSize) || b.breakSize < teamsInDebate)
-            return `Break size for "${b.name.trim()}" must be a power of two and at least ${teamsInDebate}.`;
+          const breakSizeError = validateBreakSize(b.breakSize, teamsInDebate);
+          if (breakSizeError) return `"${b.name.trim()}": ${breakSizeError}`;
           if (!Number.isInteger(b.reserveSize) || b.reserveSize < 0)
             return `Reserve size for "${b.name.trim()}" must be 0 or more.`;
         }
@@ -664,17 +663,12 @@ export function TournamentWizard() {
                       />
                     </Field>
                     <Field label="Teams that break">
-                      <select
-                        className={inputCls}
+                      <NumberInput
                         value={b.breakSize}
-                        onChange={(e) => updateBreak(b.key, { breakSize: Number(e.target.value) })}
-                      >
-                        {BREAK_SIZE_OPTIONS.filter((n) => n >= teamsInDebate).map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(n) => updateBreak(b.key, { breakSize: n })}
+                        min={teamsInDebate}
+                        step={teamsInDebate === 4 ? 2 : 1}
+                      />
                     </Field>
                     <Field label="Reserve size">
                       <NumberInput

@@ -12,6 +12,13 @@ import {
   Venue,
 } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import {
+  getPublicRelease,
+  isAnyTabReleased,
+  isInReleasedBreak,
+  isTabRound,
+  redactUnreleasedBreak,
+} from "@/lib/publicRelease";
 
 export const runtime = "nodejs";
 
@@ -99,8 +106,15 @@ export async function GET(
       ...document.data(),
       id: document.id,
     } as Round));
+    // Tournament-level releases: a released tab exposes every completed
+    // preliminary round's confirmed results (silent rounds included); an
+    // unreleased break category exposes nothing about who broke.
+    const release = getPublicRelease(preferences);
+    const tabReleased = isAnyTabReleased(release);
+    const inReleasedTab = (round: Round) => tabReleased && isTabRound(round);
     const visibleRounds = allRounds.filter((round) => {
       if (round.cancelled) return false;
+      if (inReleasedTab(round)) return true;
       const publishedDraw =
         preferences.publicDraw !== false &&
         (round.drawStatus === "confirmed" || round.drawStatus === "released");
@@ -149,15 +163,17 @@ export async function GET(
           ] as (keyof Debate)[]),
           id: debate.id,
           byeResult:
-            round.resultsReleased === true &&
-            round.silent !== true &&
-            preferences.publicResults !== false
+            (round.resultsReleased === true &&
+              round.silent !== true &&
+              preferences.publicResults !== false) ||
+            inReleasedTab(round)
               ? debate.byeResult
               : undefined,
           resultStatus:
-            round.resultsReleased === true &&
-            round.silent !== true &&
-            preferences.publicResults !== false
+            (round.resultsReleased === true &&
+              round.silent !== true &&
+              preferences.publicResults !== false) ||
+            inReleasedTab(round)
               ? debate.resultStatus
               : "none",
           motionId: debate.motionId && visibleMotionIds.has(debate.motionId) ? debate.motionId : undefined,
@@ -180,12 +196,12 @@ export async function GET(
         .filter((document) => {
           const ballot = document.data();
           const round = visibleRoundById.get(ballot.roundId);
+          if (!round || ballot.confirmed !== true || ballot.discarded === true) return false;
           return (
-            preferences.publicResults !== false &&
-            round?.resultsReleased === true &&
-            round.silent !== true &&
-            ballot.confirmed === true &&
-            ballot.discarded !== true
+            (preferences.publicResults !== false &&
+              round.resultsReleased === true &&
+              round.silent !== true) ||
+            inReleasedTab(round)
           );
         })
         .map((document) => document.id)
@@ -195,7 +211,7 @@ export async function GET(
       .map((document) => {
         const ballot = { ...document.data(), id: document.id } as BallotSubmission;
         const round = visibleRoundById.get(ballot.roundId)!;
-        const showSpeakerScores = round.teamSpeaksReleased === true;
+        const showSpeakerScores = round.teamSpeaksReleased === true || inReleasedTab(round);
         return {
           ...pick(ballot, [
             "tournamentId",
@@ -221,17 +237,24 @@ export async function GET(
         };
       });
 
-    const publicTeamIds = new Set(
-      debates.flatMap((debate) =>
+    const releasedBreakCategories = breakCategoryDocuments
+      .filter((document) => release.breakCategoryIds.has(document.id))
+      .map((document) => document.data() as BreakCategory);
+    const publicTeamIds = new Set([
+      ...debates.flatMap((debate) =>
         Object.values(debate.teams || {}).map((slot: { teamId?: string }) => slot.teamId).filter(Boolean)
-      )
-    );
+      ),
+      ...releasedBreakCategories.flatMap((category) => category.generatedBreak?.breakingTeamIds ?? []),
+      ...teamDocuments
+        .filter((document) => isInReleasedBreak(document.data() as Team, release))
+        .map((document) => document.id),
+    ]);
     const teams = teamDocuments
       .filter((document) => publicTeamIds.has(document.id))
       .map((document) => {
         const team = document.data() as Team;
         return {
-          ...pick(team, [
+          ...redactUnreleasedBreak(pick(team, [
             "tournamentId",
             "name",
             "breakStatus",
@@ -244,7 +267,7 @@ export async function GET(
             "speakerCategories",
             "seed",
             "emoji",
-          ] as (keyof Team)[]),
+          ] as (keyof Team)[]), release),
           id: document.id,
           speakers: Array.isArray(team.speakers)
             ? team.speakers.map((speaker) =>
@@ -326,6 +349,9 @@ export async function GET(
         id: document.id,
       }));
     const breakCategories = breakCategoryDocuments.map((document) => ({
+      ...(release.breakCategoryIds.has(document.id)
+        ? pick(document.data() as BreakCategory, ["generatedBreak"])
+        : {}),
       ...pick(document.data() as BreakCategory, [
         "tournamentId",
         "name",
