@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { Badge, StatusPill, type Tone } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState, ProgressBar } from "@/components/ui/Feedback";
@@ -76,7 +76,7 @@ export default function TournamentDashboardPage() {
     debates,
     ballots,
     motions,
-    generateDraw,
+    isOwnerOrAdmin,
   } = useTournament();
 
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
@@ -156,10 +156,13 @@ export default function TournamentDashboardPage() {
             description="Current round"
             actions={
               roundDebates.length === 0 ? (
-                <Button variant="primary" onClick={() => generateDraw(activeRound.id)}>
-                  <Shuffle aria-hidden="true" />
-                  Generate draw
-                </Button>
+                // Drawing happens on the draw page, which runs the venue and rule checks first.
+                isOwnerOrAdmin ? (
+                  <Link href={`${base}/draw`} className={buttonClasses({ variant: "primary" })}>
+                    <Shuffle aria-hidden="true" />
+                    Generate draw
+                  </Link>
+                ) : null
               ) : (
                 <>
                   <Link href={`${base}/draw`} className={buttonClasses({ variant: "secondary" })}>

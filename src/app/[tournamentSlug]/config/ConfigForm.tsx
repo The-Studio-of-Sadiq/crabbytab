@@ -42,6 +42,7 @@ import {
   TWO_TEAM_ONLY_TEAM_METRICS,
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
+import { lockedSettingsFields } from "@/features/tournament/application/stateGuards";
 import { validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { LOCALES } from "@/lib/i18n/config";
 
@@ -146,6 +147,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  // Once ballots exist, the fields that shape a ballot are fixed (enforced by saveTournament too).
+  const ballotShapeLocked = lockedSettingsFields(ballots).length > 0;
   const [questionnaireSource, setQuestionnaireSource] = useState<"team" | "adjudicator">("team");
   const currentFeedbackQuestions = questionnaireSource === "team"
     ? prefs.teamFeedbackQuestions ?? prefs.feedbackQuestions ?? []
@@ -179,8 +183,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     setRoundCountError("");
     try {
       await setPreliminaryRoundCount(prelimRoundCount);
-    } catch {
-      setRoundCountError("Could not update the preliminary round count.");
+    } catch (error) {
+      setRoundCountError(error instanceof Error ? error.message : "Could not update the preliminary round count.");
     } finally {
       setIsSavingRoundCount(false);
     }
@@ -194,8 +198,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
       await deleteRound(roundToDelete.id);
       setRoundToDeleteId("");
       setShowDeleteRoundConfirm(false);
-    } catch {
-      setDeleteRoundError("The round could not be deleted from the database. Please try again.");
+    } catch (error) {
+      setDeleteRoundError(
+        error instanceof Error ? error.message : "The round could not be deleted from the database. Please try again."
+      );
     } finally {
       setIsDeletingRound(false);
     }
@@ -213,13 +219,19 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
       }
     }
     setFeedbackQuestionError("");
+    setSaveError("");
 
-    await saveTournament({
-      ...tournament,
-      format,
-      preferences: prefs,
-      updatedAt: new Date().toISOString(),
-    });
+    try {
+      await saveTournament({
+        ...tournament,
+        format,
+        preferences: prefs,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "The settings could not be saved.");
+      return;
+    }
 
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
@@ -268,6 +280,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
           </h1>
         </div>
 
+        {saveError && (
+          <p role="alert" className="max-w-xl text-xs font-medium text-red-700">
+            {saveError}
+          </p>
+        )}
         {savedSuccess && (
           <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -1063,6 +1080,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 </label>
                 <select
                   value={format}
+                  disabled={ballotShapeLocked}
+                  aria-describedby={ballotShapeLocked ? "ballot-shape-locked" : undefined}
                   onChange={(e) => {
                     const newFmt = e.target.value as TournamentFormat;
                     setFormat(newFmt);
@@ -1089,6 +1108,12 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <option value="australs">Australs — 2 Teams, 3 Speakers + Reply</option>
                   <option value="wsdc">World Schools (WSDC) — 2 Teams, 3 Speakers + Reply</option>
                 </select>
+                {ballotShapeLocked && (
+                  <p id="ballot-shape-locked" className="mt-1 text-[11px] text-gray-600">
+                    Ballots have been entered, so the format, speakers per team, reply speeches and ballot mode
+                    are locked.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1100,6 +1125,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   min="1"
                   max="5"
                   value={prefs.substantiveSpeakers}
+                  disabled={ballotShapeLocked}
                   onChange={(e) =>
                     setPrefs((p) => ({
                       ...p,
@@ -1115,6 +1141,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <input
                     type="checkbox"
                     checked={Boolean(prefs.replyScoresEnabled)}
+                    disabled={ballotShapeLocked}
                     onChange={(e) => setPrefs((p) => ({ ...p, replyScoresEnabled: e.target.checked }))}
                     className="rounded border-gray-300 text-blue-600"
                   />
@@ -1320,6 +1347,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <span className="font-semibold text-gray-800 block mb-1">Ballots per debate</span>
                     <select
                       value={prefs.ballotMode ?? "consensus"}
+                      disabled={ballotShapeLocked}
                       onChange={(e) => setPrefs((p) => ({ ...p, ballotMode: e.target.value as "consensus" | "voting" }))}
                       className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
                     >

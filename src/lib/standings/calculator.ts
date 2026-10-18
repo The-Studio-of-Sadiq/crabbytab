@@ -69,11 +69,12 @@ export function calculateStandings(
 
   const debateById = new Map(debates.map((debate) => [debate.id, debate]));
   // A ballot only counts for the debate it was recorded for: if the draw changed underneath it
-  // (different teams under the same debate id), it is ignored rather than credited to new teams.
+  // (different teams under the same debate id), it is ignored rather than credited to new teams,
+  // and a ballot whose debate no longer exists (or is excluded above) never counts.
   const validBallots = ballots.filter((b) => {
     if (!b.confirmed || b.discarded) return false;
     const debate = debateById.get(b.debateId);
-    return !debate || ballotMatchesDebate(b, debate);
+    return debate !== undefined && ballotMatchesDebate(b, debate);
   });
   const ballotMap = new Map<string, BallotSubmission>();
   validBallots.forEach((b) => ballotMap.set(b.debateId, b));

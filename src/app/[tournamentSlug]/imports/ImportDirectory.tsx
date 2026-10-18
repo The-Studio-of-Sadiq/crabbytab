@@ -556,7 +556,9 @@ export default function ImportDirectory({
                       {isOwnerOrAdmin && (
                         <button
                           onClick={() => {
-                            if (confirm(`Delete team "${team.name}"?`)) deleteTeam(team.id);
+                            if (confirm(`Delete team "${team.name}"?`)) {
+                              void deleteTeam(team.id).catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not delete it."));
+                            }
                           }}
                           className="p-1 text-gray-400 hover:text-red-600 rounded transition"
                           title="Delete Team"
@@ -663,7 +665,9 @@ export default function ImportDirectory({
                       {isOwnerOrAdmin && (
                         <button
                           onClick={() => {
-                            if (confirm(`Delete judge "${adj.name}"?`)) deleteAdjudicator(adj.id);
+                            if (confirm(`Delete judge "${adj.name}"?`)) {
+                              void deleteAdjudicator(adj.id).catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not delete it."));
+                            }
                           }}
                           className="p-1 text-gray-400 hover:text-red-600 rounded transition"
                           title="Delete Judge"
@@ -735,7 +739,7 @@ export default function ImportDirectory({
                         <button
                           onClick={() => {
                             if (confirm(`Delete institution "${inst.name}"? This will unlink associated teams and judges.`)) {
-                              deleteInstitution(inst.id);
+                              void deleteInstitution(inst.id).catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not delete it."));
                             }
                           }}
                           className="p-1 text-gray-400 hover:text-red-600 rounded transition"
