@@ -505,6 +505,29 @@ export interface BreakCategory {
   /** Maximum breaking and reserve teams selected from one institution. */
   maxPerInstitution?: number;
   qualificationRule?: BreakQualificationRule;
+  /** Manual break decisions for this category, keyed by team id. */
+  teamOverrides?: Record<string, BreakTeamOverride>;
+  /** The break as it was when it was last generated for this category. */
+  generatedBreak?: GeneratedBreak;
+}
+
+/**
+ * "include" forces a team into the break (it still cannot break in two
+ * categories); every other value excludes the team, like Tabbycat's remarks.
+ */
+export type BreakTeamOverride =
+  | "include"
+  | "ineligible"
+  | "withdrawn"
+  | "different_break"
+  | "disqualified"
+  | "lost_coin_toss";
+
+export interface GeneratedBreak {
+  /** Breaking teams in seed order. */
+  breakingTeamIds: string[];
+  reserveTeamIds: string[];
+  generatedAt: string;
 }
 
 export interface TeamStandingRow {
