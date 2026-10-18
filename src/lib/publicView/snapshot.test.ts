@@ -185,3 +185,32 @@ describe("chunking and roots", () => {
     expect(assembleProjection(sections)).toEqual(buildPublicProjection(tournament, data));
   });
 });
+
+describe("tournament-level releases", () => {
+  const released = (preferences: Record<string, unknown>) => ({
+    ...tournament,
+    preferences: { ...(tournament.preferences as Record<string, unknown>), ...preferences },
+  });
+
+  it("exposes silent completed preliminary rounds only once a tab is released", () => {
+    const data = source();
+    data.rounds = [{ id: "r1", seq: 1, name: "Round 1", stage: "preliminary", completed: true, silent: true, drawStatus: "released", resultsReleased: false }];
+    expect(buildPublicProjection(tournament, data).collections.ballots).toEqual([]);
+    const projection = buildPublicProjection(released({ releaseTeamTab: true }), data);
+    expect(projection.collections.ballots.map((ballot) => ballot.id)).toEqual(["b1"]);
+    expect(projection.collections.ballots[0].speakerScores).not.toEqual({});
+  });
+
+  it("hides break results until the category is released", () => {
+    const data = source();
+    data.breakCategories = [{ id: "open", name: "Open", generatedBreak: { breakingTeamIds: ["team-hidden"] } }];
+    data.teams[2] = { ...data.teams[2], breakStatus: "breaking", breakCategoryIds: ["open"] };
+    const hidden = buildPublicProjection(tournament, data);
+    expect(hidden.collections.teams.map((team) => team.id)).not.toContain("team-hidden");
+    expect(hidden.collections.breakCategories[0]).not.toHaveProperty("generatedBreak");
+
+    const shown = buildPublicProjection(released({ releasedBreakCategoryIds: ["open"] }), data);
+    expect(shown.collections.teams.find((team) => team.id === "team-hidden")).toMatchObject({ breakStatus: "breaking" });
+    expect(shown.collections.breakCategories[0]).toHaveProperty("generatedBreak");
+  });
+});

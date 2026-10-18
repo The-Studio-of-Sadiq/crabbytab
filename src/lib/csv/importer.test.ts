@@ -2,6 +2,16 @@ import { describe, it, expect } from "vitest";
 import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv, parseVenuesCsv } from "./importer";
 
 describe("CSV Importer (csv/importer)", () => {
+  it("reads optional adjudicator gender and region columns", () => {
+    const [withFields, withoutFields] = parseAdjudicatorsCsv(
+      "name,gender,region\nJudge A, Female ,South Asia\nJudge B,,",
+      "t1"
+    );
+    expect(withFields).toMatchObject({ gender: "Female", region: "South Asia" });
+    expect(withoutFields.gender).toBeUndefined();
+    expect(withoutFields.region).toBeUndefined();
+  });
+
   it("parses teams with standard and alias headers", () => {
     const csvWithStandardHeaders = `name,institution,speaker1,speaker2,category
 Harvard A,Harvard,Alice,Bob,ESL

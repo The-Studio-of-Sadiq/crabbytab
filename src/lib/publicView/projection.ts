@@ -10,6 +10,13 @@ import type {
   Tournament,
   Venue,
 } from "@/types";
+import {
+  getPublicRelease,
+  isAnyTabReleased,
+  isInReleasedBreak,
+  isTabRound,
+  redactUnreleasedBreak,
+} from "@/lib/publicRelease";
 
 /** Collections the public projection is derived from. */
 export const PUBLIC_SOURCE_COLLECTIONS = [
@@ -114,8 +121,17 @@ export function buildPublicProjection(
   const areResultsPublished = (round: Round) =>
     preferences.publicResults !== false && round.resultsReleased === true && round.silent !== true;
 
+  // Tournament-level releases: a released tab exposes every completed preliminary round's
+  // confirmed results (silent rounds included); an unreleased break category exposes nothing about
+  // who broke.
+  const release = getPublicRelease(preferences);
+  const tabReleased = isAnyTabReleased(release);
+  const inReleasedTab = (round: Round) => tabReleased && isTabRound(round);
+  const resultsVisible = (round: Round) => areResultsPublished(round) || inReleasedTab(round);
+
   const visibleRounds = allRounds.filter(
-    (round) => !round.cancelled && (isDrawPublished(round) || areResultsPublished(round))
+    (round) =>
+      !round.cancelled && (inReleasedTab(round) || isDrawPublished(round) || areResultsPublished(round))
   );
   const visibleRoundById = new Map(visibleRounds.map((round) => [round.id, round]));
   const motionRecords = active(source.motions) as unknown as Motion[];
@@ -130,7 +146,7 @@ export function buildPublicProjection(
     .map((debate) => {
       const round = visibleRoundById.get(debate.roundId)!;
       const revealAdjudicators = preferences.publicDraw !== false && round.adjudicatorsRevealed === true;
-      const resultsPublished = areResultsPublished(round);
+      const resultsPublished = resultsVisible(round);
       const motionVisible = Boolean(debate.motionId && visibleMotionIds.has(debate.motionId));
       return {
         ...pick(debate, [
@@ -168,11 +184,11 @@ export function buildPublicProjection(
   const ballots = (active(source.ballots) as unknown as BallotSubmission[])
     .filter((ballot) => {
       const round = visibleRoundById.get(ballot.roundId);
-      return Boolean(round && areResultsPublished(round) && ballot.confirmed === true && ballot.discarded !== true);
+      return Boolean(round && resultsVisible(round) && ballot.confirmed === true && ballot.discarded !== true);
     })
     .map((ballot) => {
       const round = visibleRoundById.get(ballot.roundId)!;
-      const showSpeakerScores = round.teamSpeaksReleased === true;
+      const showSpeakerScores = round.teamSpeaksReleased === true || inReleasedTab(round);
       const motionVisible = visibleMotionIds.has(ballot.motionId || "");
       return {
         ...pick(ballot, ["tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "timestamp"]),
@@ -189,17 +205,23 @@ export function buildPublicProjection(
       };
     });
 
-  const publicTeamIds = new Set(
-    debates.flatMap((debate) =>
+  const breakCategoryRecords = active(source.breakCategories) as unknown as BreakCategory[];
+  const teamRecords = active(source.teams) as unknown as Team[];
+  const publicTeamIds = new Set([
+    ...debates.flatMap((debate) =>
       Object.values(debate.teams || {})
         .map((slot) => (slot as { teamId?: string } | undefined)?.teamId)
         .filter(Boolean)
-    )
-  );
-  const teams = (active(source.teams) as unknown as Team[])
+    ),
+    ...breakCategoryRecords
+      .filter((category) => release.breakCategoryIds.has(category.id))
+      .flatMap((category) => category.generatedBreak?.breakingTeamIds ?? []),
+    ...teamRecords.filter((team) => isInReleasedBreak(team, release)).map((team) => team.id),
+  ]);
+  const teams = teamRecords
     .filter((team) => publicTeamIds.has(team.id))
     .map((team) => ({
-      ...pick(team, [
+      ...redactUnreleasedBreak(pick(team, [
         "tournamentId",
         "name",
         "breakStatus",
@@ -212,7 +234,7 @@ export function buildPublicProjection(
         "speakerCategories",
         "seed",
         "emoji",
-      ]),
+      ]), release),
       id: team.id,
       speakers: Array.isArray(team.speakers)
         ? team.speakers.map((speaker) => pick(speaker, ["id", "name", "categories"]))
@@ -269,7 +291,8 @@ export function buildPublicProjection(
       ...pick(motion, ["tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released"]),
       id: motion.id,
     }));
-  const breakCategories = (active(source.breakCategories) as unknown as BreakCategory[]).map((category) => ({
+  const breakCategories = breakCategoryRecords.map((category) => ({
+    ...(release.breakCategoryIds.has(category.id) ? pick(category, ["generatedBreak"]) : {}),
     ...pick(category, ["tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority"]),
     id: category.id,
   }));

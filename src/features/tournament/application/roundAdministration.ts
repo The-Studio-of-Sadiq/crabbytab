@@ -241,3 +241,90 @@ export async function deleteRoundCommand(dependencies: DeleteRoundDependencies):
     },
   });
 }
+export type RoundCompletionBlockerReason =
+  | "no_draw"
+  | "postponed"
+  | "unconfirmed_ballot";
+
+export interface RoundCompletionBlocker {
+  reason: RoundCompletionBlockerReason;
+  debateId?: string;
+  message: string;
+}
+
+function debateLabel(debate: Debate): string {
+  const teamNames = Object.values(debate.teams)
+    .map((slot) => slot?.teamName)
+    .filter(Boolean)
+    .join(" vs ");
+  return debate.venueName || teamNames || debate.id;
+}
+
+/**
+ * Lists what prevents a preliminary round from being marked complete. A round
+ * is complete once every non-bye debate has a confirmed, non-discarded ballot
+ * (with several ballot versions, only the confirmed one counts).
+ */
+export function getRoundCompletionBlockers(
+  round: Round,
+  debates: Debate[],
+  ballots: BallotSubmission[]
+): RoundCompletionBlocker[] {
+  const roundDebates = debates.filter((debate) => debate.roundId === round.id);
+  if (roundDebates.length === 0) {
+    return [{ reason: "no_draw", message: `${round.name} has no draw yet.` }];
+  }
+  const confirmedDebateIds = new Set(
+    ballots
+      .filter((ballot) => ballot.roundId === round.id && ballot.confirmed && !ballot.discarded)
+      .map((ballot) => ballot.debateId)
+  );
+  const blockers: RoundCompletionBlocker[] = [];
+  for (const debate of [...roundDebates].sort((left, right) => left.roomRank - right.roomRank)) {
+    if (debate.byeTeamId) continue;
+    if (debate.postponed) {
+      blockers.push({
+        reason: "postponed",
+        debateId: debate.id,
+        message: `${debateLabel(debate)} is postponed.`,
+      });
+      continue;
+    }
+    if (!confirmedDebateIds.has(debate.id)) {
+      blockers.push({
+        reason: "unconfirmed_ballot",
+        debateId: debate.id,
+        message: `${debateLabel(debate)} has no confirmed ballot.`,
+      });
+    }
+  }
+  return blockers;
+}
+
+/**
+ * Returns the round with `completed` set. Completing is guarded by
+ * getRoundCompletionBlockers; reopening is always allowed. Elimination rounds
+ * are completed by advancement, so they are rejected here.
+ */
+export function setRoundCompletion(
+  round: Round,
+  completed: boolean,
+  debates: Debate[],
+  ballots: BallotSubmission[]
+): Round {
+  if (round.stage !== "preliminary") {
+    throw new Error("Elimination rounds are completed by advancing teams to the next round.");
+  }
+  if (round.cancelled) {
+    throw new Error(`${round.name} is cancelled.`);
+  }
+  if (completed) {
+    const blockers = getRoundCompletionBlockers(round, debates, ballots);
+    if (blockers.length > 0) {
+      throw new Error(
+        `${round.name} cannot be completed: ${blockers.map((blocker) => blocker.message).join(" ")}`
+      );
+    }
+  }
+  return { ...round, completed };
+}
