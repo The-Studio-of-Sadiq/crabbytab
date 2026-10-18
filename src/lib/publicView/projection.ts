@@ -147,6 +147,7 @@ export function buildPublicProjection(
       const round = visibleRoundById.get(debate.roundId)!;
       const revealAdjudicators = preferences.publicDraw !== false && round.adjudicatorsRevealed === true;
       const resultsPublished = resultsVisible(round);
+      const speakerScoresPublished = resultsPublished && (round.teamSpeaksReleased === true || inReleasedTab(round));
       const motionVisible = Boolean(debate.motionId && visibleMotionIds.has(debate.motionId));
       return {
         ...pick(debate, [
@@ -161,8 +162,20 @@ export function buildPublicProjection(
           "roomRank",
           "importance",
           "sidesConfirmed",
-          "teams",
         ]),
+        // Confirming a ballot copies its points and speaker total onto the team slots, so they are
+        // released on the same terms as the ballot itself.
+        teams: Object.fromEntries(
+          Object.entries(debate.teams || {}).map(([side, slot]) => {
+            if (!slot) return [side, slot];
+            const { points, speakerScoreTotal, ...rest } = slot;
+            return [side, {
+              ...rest,
+              ...(resultsPublished && points !== undefined ? { points } : {}),
+              ...(speakerScoresPublished && speakerScoreTotal !== undefined ? { speakerScoreTotal } : {}),
+            }];
+          })
+        ),
         id: debate.id,
         byeResult: resultsPublished ? debate.byeResult : undefined,
         resultStatus: resultsPublished ? debate.resultStatus : "none",
