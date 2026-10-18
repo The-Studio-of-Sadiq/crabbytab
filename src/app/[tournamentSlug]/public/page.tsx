@@ -12,7 +12,9 @@ import {
   Award,
   ArrowLeft,
   Sparkles,
-  ExternalLink,
+  ListOrdered,
+  Mic,
+  MessageSquareQuote,
   FileCheck2,
   Lock,
   Presentation,
@@ -24,9 +26,16 @@ import {
 } from "lucide-react";
 import { DebateSide } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
-import { calculateBreaks } from "@/lib/breakqual/calculator";
+import {
+  buildPublicBreak,
+  getPublicRelease,
+  isAnyTabReleased,
+  isTabRound,
+} from "@/lib/publicRelease";
 import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
+
+type PublicTab = "draw" | "results" | "standings" | "teamTab" | "speakerTab" | "repliesTab" | "motions" | "break";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -91,19 +100,38 @@ export default function PublicTournamentPage() {
   );
   const showPublicStandings = prefs?.publicStandings !== false && hasPublicTeamSpeaks;
   const showPublicMotions = prefs?.publicMotions !== false;
-  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
+  // Tournament-level releases (team/speaker/replies tab, break per category).
+  const release = getPublicRelease(prefs);
+  const tabRounds = isAnyTabReleased(release) ? rounds.filter(isTabRound) : [];
+  const tabRoundIds = new Set(tabRounds.map((round) => round.id));
+  const tabStandings = tournament && tabRounds.length > 0
+    ? calculateStandings(
+        tournament,
+        tabRounds,
+        teams,
+        debates.filter((debate) => tabRoundIds.has(debate.roundId)),
+        ballots.filter((ballot) => ballot.confirmed && !ballot.discarded && tabRoundIds.has(ballot.roundId))
+      )
+    : { teams: [], speakers: [], replies: [] };
+  const showTeamTab = release.teamTab && tabRounds.length > 0;
+  const showSpeakerTab = release.speakerTab && tabRounds.length > 0;
+  const showRepliesTab = release.repliesTab && tabRounds.length > 0;
+  const tabRankByTeamId = new Map(tabStandings.teams.map((row) => [row.teamId, row.rank]));
+  const publicBreak = buildPublicBreak(breakCategories, teams, release, (teamId) => tabRankByTeamId.get(teamId));
+  const showPublicBreak = publicBreak.length > 0;
 
   // Available tabs based on preferences
-  const availableTabs: ("draw" | "results" | "standings" | "motions" | "break")[] = [];
+  const availableTabs: PublicTab[] = [];
   if (showPublicDraw) availableTabs.push("draw");
   if (showPublicResults) availableTabs.push("results");
   if (showPublicStandings) availableTabs.push("standings");
+  if (showTeamTab) availableTabs.push("teamTab");
+  if (showSpeakerTab) availableTabs.push("speakerTab");
+  if (showRepliesTab) availableTabs.push("repliesTab");
   if (showPublicMotions) availableTabs.push("motions");
-  if (breakHasBeenGenerated) availableTabs.push("break");
+  if (showPublicBreak) availableTabs.push("break");
 
-  const [activeTab, setActiveTab] = useState<"draw" | "results" | "standings" | "motions" | "break">(
-    availableTabs[0] || "draw"
-  );
+  const [activeTab, setActiveTab] = useState<PublicTab>(availableTabs[0] || "draw");
   const [searchQuery, setSearchQuery] = useState("");
   const [isMotionPresentation, setIsMotionPresentation] = useState(false);
   const [motionSlideIndex, setMotionSlideIndex] = useState(0);
@@ -135,12 +163,6 @@ export default function PublicTournamentPage() {
   const publicStandings = tournament
     ? calculateStandings(tournament, publicRounds, teams, publicDebates, publicBallots)
     : { teams: [], speakers: [], replies: [] };
-  const publicBreakResults = calculateBreaks(
-    breakCategories,
-    teams,
-    publicStandings.teams,
-    tournament?.format
-  );
 
   const ballotMap = new Map<string, any>();
   publicBallots.forEach((ballot) => ballotMap.set(ballot.debateId, ballot));
@@ -149,28 +171,11 @@ export default function PublicTournamentPage() {
     setMotionSlideIndex((index) => Math.min(index, Math.max(0, releasedMotions.length - 1)));
   }, [releasedMotions.length]);
 
+  const availableTabsKey = availableTabs.join("|");
   useEffect(() => {
-    if (activeTab === "standings" && !showPublicStandings) {
-      setActiveTab(
-        showPublicDraw
-          ? "draw"
-          : showPublicResults
-            ? "results"
-            : showPublicMotions
-              ? "motions"
-              : breakHasBeenGenerated
-                ? "break"
-                : "draw"
-      );
-    }
-  }, [
-    activeTab,
-    breakHasBeenGenerated,
-    showPublicDraw,
-    showPublicMotions,
-    showPublicResults,
-    showPublicStandings,
-  ]);
+    const tabs = availableTabsKey.split("|") as PublicTab[];
+    if (!tabs.includes(activeTab)) setActiveTab(tabs[0] || "draw");
+  }, [activeTab, availableTabsKey]);
 
   useEffect(() => {
     if (!isMotionPresentation) return;
@@ -228,14 +233,6 @@ export default function PublicTournamentPage() {
               </span>
             </div>
           </div>
-
-          <Link
-            href={`/${tournamentSlug}`}
-            className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
-          >
-            <span>Admin Tab Room</span>
-            <ExternalLink className="w-3 h-3 ml-1" />
-          </Link>
         </div>
       </header>
 
@@ -280,7 +277,49 @@ export default function PublicTournamentPage() {
               }`}
             >
               <Trophy className="w-3.5 h-3.5" />
-              <span>Standings Tab</span>
+              <span>Standings</span>
+            </button>
+          )}
+
+          {showTeamTab && (
+            <button
+              onClick={() => setActiveTab("teamTab")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "teamTab"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+              <span>Team Tab</span>
+            </button>
+          )}
+
+          {showSpeakerTab && (
+            <button
+              onClick={() => setActiveTab("speakerTab")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "speakerTab"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>Speaker Tab</span>
+            </button>
+          )}
+
+          {showRepliesTab && (
+            <button
+              onClick={() => setActiveTab("repliesTab")}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+                activeTab === "repliesTab"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <MessageSquareQuote className="w-3.5 h-3.5" />
+              <span>Replies Tab</span>
             </button>
           )}
 
@@ -298,7 +337,7 @@ export default function PublicTournamentPage() {
             </button>
           )}
 
-          {breakHasBeenGenerated && (
+          {showPublicBreak && (
             <button
               onClick={() => setActiveTab("break")}
               className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
@@ -578,7 +617,7 @@ export default function PublicTournamentPage() {
         {showPublicStandings && activeTab === "standings" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
-              Team Standings Tab
+              Team Standings
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left tabby-table">
@@ -609,6 +648,81 @@ export default function PublicTournamentPage() {
                           {t.averageSpeakerScore.toFixed(2)}
                         </td>
                       )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 3b. Released Team Tab */}
+        {showTeamTab && activeTab === "teamTab" && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
+            <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
+              Team Tab &middot; {tabRounds.length} completed preliminary round{tabRounds.length === 1 ? "" : "s"}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left tabby-table">
+                <thead>
+                  <tr>
+                    <th className="w-12 text-center">#</th>
+                    <th>Team</th>
+                    <th>Institution</th>
+                    <th className="text-right">{isBP ? "Points" : "Wins"}</th>
+                    <th className="text-right">Total Speaks</th>
+                    <th className="text-right">Avg Speaks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tabStandings.teams.map((row) => (
+                    <tr key={row.teamId} className="hover:bg-gray-50">
+                      <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
+                      <td className="font-bold text-gray-900 text-xs">{row.teamName}</td>
+                      <td className="text-xs text-gray-600">{row.institutionCode || "—"}</td>
+                      <td className="text-right font-mono font-bold text-sm text-blue-600">
+                        {isBP ? row.points : row.wins ?? row.points}
+                      </td>
+                      <td className="text-right font-mono font-semibold text-xs text-gray-800">
+                        {row.totalSpeakerScore.toFixed(1)}
+                      </td>
+                      <td className="text-right font-mono text-xs text-gray-600">{row.averageSpeakerScore.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 3c. Released Speaker / Replies Tabs */}
+        {((showSpeakerTab && activeTab === "speakerTab") || (showRepliesTab && activeTab === "repliesTab")) && (
+          <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
+            <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
+              {activeTab === "repliesTab" ? "Replies Tab" : "Speaker Tab"} &middot; {tabRounds.length} completed preliminary
+              round{tabRounds.length === 1 ? "" : "s"}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left tabby-table">
+                <thead>
+                  <tr>
+                    <th className="w-12 text-center">#</th>
+                    <th>Speaker</th>
+                    <th>Team</th>
+                    <th className="text-right">Total</th>
+                    <th className="text-right">Average</th>
+                    <th className="text-right">Speeches</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(activeTab === "repliesTab" ? tabStandings.replies : tabStandings.speakers).map((row) => (
+                    <tr key={`${row.teamId}-${row.speakerId}`} className="hover:bg-gray-50">
+                      <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
+                      <td className="font-bold text-gray-900 text-xs">{row.speakerName}</td>
+                      <td className="text-xs text-gray-600">{row.teamName}</td>
+                      <td className="text-right font-mono font-semibold text-xs text-gray-800">{row.totalScore.toFixed(1)}</td>
+                      <td className="text-right font-mono text-xs text-gray-600">{row.averageScore.toFixed(2)}</td>
+                      <td className="text-right font-mono text-xs text-gray-600">{row.speechesCount}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -681,9 +795,9 @@ export default function PublicTournamentPage() {
         )}
 
         {/* 5. Break View */}
-        {breakHasBeenGenerated && activeTab === "break" && (
+        {showPublicBreak && activeTab === "break" && (
           <div className="space-y-6">
-            {publicBreakResults.map((res) => (
+            {publicBreak.map((res) => (
               <div
                 key={res.category.id}
                 className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden"
@@ -698,28 +812,16 @@ export default function PublicTournamentPage() {
                         <th className="w-16 text-center">Seed</th>
                         <th>Team</th>
                         <th>Institution</th>
-                        {showAggregateTeamScores && <th className="text-right">Points</th>}
-                        {showAggregateTeamScores && <th className="text-right">Total Speaks</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {res.breakingTeams.map((b) => (
+                      {res.teams.map((b) => (
                         <tr key={b.team.id} className="hover:bg-purple-50/30">
                           <td className="text-center font-mono font-bold text-xs text-purple-700">
                             {b.seed}
                           </td>
                           <td className="font-bold text-gray-900 text-xs">{b.team.name}</td>
                           <td className="text-xs text-gray-600">{b.team.institutionName || "—"}</td>
-                          {showAggregateTeamScores && (
-                            <td className="text-right font-mono font-bold text-xs text-blue-600">
-                              {b.standing.points} pts
-                            </td>
-                          )}
-                          {showAggregateTeamScores && (
-                            <td className="text-right font-mono text-xs text-gray-800">
-                              {b.standing.totalSpeakerScore.toFixed(1)}
-                            </td>
-                          )}
                         </tr>
                       ))}
                     </tbody>

@@ -156,6 +156,13 @@ export interface TournamentPreferences {
   enableMotionVetoes?: boolean;
   /** Allow two-team debates to be recorded as forfeits. */
   enableForfeits?: boolean;
+
+  /** Public tab releases: full standings over completed preliminary rounds. Absent = unreleased. */
+  releaseTeamTab?: boolean;
+  releaseSpeakerTab?: boolean;
+  releaseRepliesTab?: boolean;
+  /** Break categories whose generated break is shown on the public page. */
+  releasedBreakCategoryIds?: string[];
 }
 
 export interface Tournament {
