@@ -478,7 +478,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   />
                   <div>
                     <span className="font-semibold text-gray-800 block">Avoid same institution</span>
-                    <span className="text-[11px] text-gray-500">If checked, the draw will try to avoid pairing teams against their own institution</span>
+                    <span className="text-[11px] text-gray-500">Two-team draws try to avoid pairing teams from the same institution. BP power-paired draws ignore institutions, as Tabbycat and WUDC rules do.</span>
                   </div>
                 </label>
 
@@ -491,7 +491,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   />
                   <div>
                     <span className="font-semibold text-gray-800 block">Avoid team history</span>
-                    <span className="text-[11px] text-gray-500">If checked, the draw will try to avoid having teams see each other twice</span>
+                    <span className="text-[11px] text-gray-500">Two-team draws (including later random rounds) try to avoid rematches. BP power-paired draws ignore history.</span>
                   </div>
                 </label>
               </div>
@@ -511,7 +511,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by conflict avoidance method for teams seeing their own institution
+                    Cost of a same-institution room for one-up-one-down and minimum-cost conflict avoidance (two-team draws)
                   </p>
                 </div>
 
@@ -529,7 +529,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by conflict avoidance method for teams seeing each other twice or more
+                    Cost per previous meeting for one-up-one-down and minimum-cost conflict avoidance (two-team draws)
                   </p>
                 </div>
 
@@ -547,7 +547,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by conflict avoidance method for teams being in a pullup many times. Leave 0 for no penalty.
+                    Minimum-cost conflict avoidance only: a room mixing teams from different brackets costs this much per earlier debate either team had with a pull-up in it. Leave 0 for no penalty.
                   </p>
                 </div>
               </div>
@@ -569,14 +569,15 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
                     value={prefs.sideAllocationRule || "balanced"}
                     onChange={(e) =>
-                      setPrefs((p) => ({ ...p, sideAllocationRule: e.target.value as "balanced" | "random" }))
+                      setPrefs((p) => ({ ...p, sideAllocationRule: e.target.value as TournamentPreferences["sideAllocationRule"] }))
                     }
                   >
                     <option value="balanced">Balanced (prefer equalizing sides across rounds)</option>
                     <option value="random">Random</option>
+                    <option value="preallocated">Preallocated (two-team; set per round on the Draw page)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    How affirmative/negative (or Gov/Opp) positions are assigned
+                    Balanced: in two-team draws, the team that has been affirmative more often goes negative (ties at random); in BP, positions minimise the position cost below. Preallocated sides fix each team&apos;s side before the draw is made.
                   </p>
                 </div>
 
@@ -630,7 +631,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by minimum cost matching to prefer pairings that balance sides.
+                    Minimum-cost conflict avoidance only (two-team, balanced sides): cost per unit of shared imbalance when both teams have been on the same side more often.
                   </p>
                 </div>
 
@@ -648,7 +649,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Retained for saved preferences; current draw generation does not apply this setting.
+                    Minimum-cost conflict avoidance only: weight for deviating from the pairing method. At 0, the pairing method only decides between equally clash-free pairings.
                   </p>
                 </div>
               </div>
@@ -687,12 +688,12 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     value={prefs.conflictAvoidance ?? "one_up_one_down"}
                     onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
                   >
-                    <option value="one_up_one_down">One-up-one-down (local swaps may change matchups)</option>
-                    <option value="min_cost">Minimum cost (legacy; preserves configured matchups)</option>
+                    <option value="one_up_one_down">One-up-one-down (swap with the room above or below)</option>
+                    <option value="min_cost">Minimum-cost matching (whole bracket)</option>
                     <option value="off">Off</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    One-up-one-down can change the selected pairing method&apos;s matchups to avoid clashes. Minimum cost is retained for saved preferences but preserves the selected method&apos;s exact matchups.
+                    One-up-one-down swaps opponents between adjacent rooms where that removes a clash. Minimum-cost matching pairs each bracket to minimise clashes plus the penalties above, keeping to the pairing method where it can. Random rounds avoid clashes unless this is off.
                   </p>
                 </div>
 
@@ -704,14 +705,16 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
                   >
                     <option value="intermediate_bubble">Intermediate brackets with bubble-up-bubble-down</option>
-                    <option value="intermediate">Intermediate bubble room (top team)</option>
+                    <option value="intermediate">Intermediate brackets</option>
+                    <option value="intermediate1">Intermediate brackets 1 (preallocated sides)</option>
+                    <option value="intermediate2">Intermediate brackets 2 (preallocated sides)</option>
                     <option value="pullup_top">Pull up the top team from below</option>
                     <option value="pullup_bottom">Pull up the bottom team from below</option>
                     <option value="pullup_middle">Pull up the middle team from below</option>
                     <option value="pullup_random">Pull up a random team from below</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    How odd brackets are resolved (see documentation for further details)
+                    Pull-ups move a team from the bracket below into an odd bracket. Intermediate brackets pair the bottom team of an odd bracket with the top team below; bubble-up-bubble-down swaps them with a neighbour if they clash. With preallocated sides, use pull-up top/bottom/random or intermediate brackets 1/2.
                   </p>
                 </div>
 
@@ -728,7 +731,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    If using pull-ups, restrict which teams can be pulled up. Two-team formats only. Has no effect on BP or intermediate brackets.
+                    Restricts which teams the pull-up methods may choose. Two-team formats only; has no effect on intermediate brackets or BP.
                   </p>
                 </div>
 
@@ -744,7 +747,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full sm:w-64 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied when determining which teams to pull up (for minimum cost matching). In BP, added to position costs when a team is placed above its points bracket; teams with fewer prior pull-ups are preferred. Set high enough to take precedence over side balance (e.g. 100000 with the default position cost exponent). Leave 0 for no preference.
+                    BP only: added once per previous pull-up when a team is placed above its points bracket, so teams pulled up less often are preferred. Set high enough to outweigh position costs (e.g. 100000 with the default exponent). Leave 0 for no preference.
                   </p>
                 </div>
               </div>
@@ -757,7 +760,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 <span>British Parliamentary (BP) Draw Rules</span>
               </h3>
               <p className="text-xs text-gray-600">
-                WUDC and standard BP position cost optimization, Hungarian assignment, and pullup distributions.
+                Power-paired BP rounds assign every team to a room and position in one Hungarian assignment, as Tabbycat does: brackets by points, pull-ups from the bracket below, and position costs from each team&apos;s history. Institution and history clashes are not considered.
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -773,8 +776,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     }
                   >
                     <option value="anywhere">Anywhere in bracket (WUDC-compliant)</option>
-                    <option value="top">Top of bracket</option>
-                    <option value="bottom">Bottom of bracket</option>
+                    <option value="top">Top room(s) of bracket</option>
+                    <option value="bottom">Bottom room(s) of bracket</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     In BP, how pullups are distributed. Only &quot;Anywhere&quot; is WUDC-compliant.
@@ -850,40 +853,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     }
                   >
                     <option value="hungarian">Hungarian algorithm with preshuffling (WUDC-compliant)</option>
-                    <option value="random">Random assignment</option>
+                    <option value="random">Random positions within brackets</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    In BP, which method to use to solve the assignment problem. Only Hungarian with preshuffling is WUDC-compliant.
+                    Hungarian minimises total position cost, choosing at random among equally good draws. Random keeps the brackets but ignores position history.
                   </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Repeat matchup penalty</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                    value={prefs.repeatMatchupPenalty ?? 1000}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, repeatMatchupPenalty: Math.max(0, Number(e.target.value) || 0) }))
-                    }
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">Clash penalty for 4-team BP room rematches</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Institution clash penalty</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                    value={prefs.institutionClashPenalty ?? 200}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, institutionClashPenalty: Math.max(0, Number(e.target.value) || 0) }))
-                    }
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">Clash penalty for placing same-institution teams in a BP room</p>
-                </div>
               </div>
             </div>
 
@@ -928,7 +904,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     }
                   >
                     <option value="absent">Treat bye teams as absent</option>
-                    <option value="win">Award win and average speaker score</option>
+                    <option value="win">Award a win (no speaker scores)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     How to handle teams who were marked available yet excluded from a round (a bye)
