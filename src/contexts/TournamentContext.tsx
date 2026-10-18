@@ -57,6 +57,13 @@ import {
   parseTournamentBackup,
 } from "@/features/tournament/application/tournamentBackup";
 import { createDebateXmlArchive } from "@/features/tournament/application/debateXml";
+import {
+  fetchPublicProjection,
+  fetchPublicViewVersion,
+  PUBLIC_VIEW_POLL_MILLISECONDS,
+  publishPublicViewCommand,
+  type PublicProjectionResponse,
+} from "@/features/tournament/application/publicView";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
 import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
@@ -96,6 +103,8 @@ export interface TournamentContextType {
   privateSyncMessage: string;
   localSaveError: string;
   uploadToCloud: () => Promise<void>;
+  /** Rebuilds the cached public view from the cloud copy; `force` skips the unchanged check. */
+  publishPublicView: (force?: boolean) => Promise<void>;
   downloadFromCloud: () => Promise<void>;
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
@@ -277,6 +286,64 @@ export function TournamentProvider({
     [persistLocal]
   );
 
+  const publicVersionRef = useRef<string | null>(null);
+  const applyPublicProjection = useCallback(
+    (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
+      const publicRounds = (result.collections.rounds || []) as Round[];
+      const latestRound =
+        [...publicRounds].filter((round) => !round.cancelled).sort((a, b) => b.seq - a.seq)[0] || null;
+      publicVersionRef.current = result.version ?? null;
+      setTournament(result.tournament);
+      setRounds(publicRounds);
+      setActiveRound((current) =>
+        preserveActiveRound && current
+          ? publicRounds.find((round) => round.id === current.id) || latestRound
+          : latestRound
+      );
+      setTeams((result.collections.teams || []) as Team[]);
+      setAdjudicators((result.collections.adjudicators || []) as Adjudicator[]);
+      setVenues((result.collections.venues || []) as Venue[]);
+      setMotions((result.collections.motions || []) as Motion[]);
+      setBreakCategories((result.collections.breakCategories || []) as BreakCategory[]);
+      setDebates((result.collections.debates || []) as Debate[]);
+      setBallots((result.collections.ballots || []) as BallotSubmission[]);
+      setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
+      setInstitutions((result.collections.institutions || []) as Institution[]);
+      auditEventsRef.current = [];
+      setAuditEvents([]);
+    },
+    []
+  );
+
+  // Public and projector pages poll a tiny cached version marker and refetch the (CDN-cached)
+  // projection only when something was published. Private portals are excluded because they merge
+  // participant-specific data into state.
+  const isPollingPublicView =
+    Boolean(db) &&
+    !pathname?.includes("/private/") &&
+    Boolean(pathname?.includes("/public") || pathname?.includes("/display"));
+  useEffect(() => {
+    if (!isPollingPublicView || !tournamentSlug) return;
+    let cancelled = false;
+    const refresh = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const version = await fetchPublicViewVersion(tournamentSlug);
+        if (cancelled || !version || version === publicVersionRef.current) return;
+        const result = await fetchPublicProjection(tournamentSlug);
+        if (!cancelled) applyPublicProjection(result, true);
+      } catch (error) {
+        // Keep showing the last good data; the next poll retries.
+        console.warn("Could not refresh public tournament data:", error);
+      }
+    };
+    const timer = window.setInterval(() => void refresh(), PUBLIC_VIEW_POLL_MILLISECONDS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isPollingPublicView, tournamentSlug, applyPublicProjection]);
+
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
   useEffect(() => {
     let isMounted = true;
@@ -312,39 +379,9 @@ export function TournamentProvider({
           safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
         const loadPublicProjection = async () => {
-          const response = await fetch(`/api/public/tournaments/${encodeURIComponent(tournamentSlug)}`);
-          const result = await response.json() as {
-            error?: string;
-            tournament: Tournament;
-            collections: Record<string, unknown[]>;
-          };
-          if (!response.ok) {
-            throw new Error(
-              typeof result.error === "string"
-                ? result.error
-                : "Could not load public tournament data."
-            );
-          }
+          const result = await fetchPublicProjection(tournamentSlug);
           if (!isMounted) return;
-          const publicRounds = (result.collections.rounds || []) as Round[];
-          setTournament(result.tournament);
-          setRounds(publicRounds);
-          setActiveRound(
-            [...publicRounds]
-              .filter((round) => !round.cancelled)
-              .sort((a, b) => b.seq - a.seq)[0] || null
-          );
-          setTeams((result.collections.teams || []) as Team[]);
-          setAdjudicators((result.collections.adjudicators || []) as Adjudicator[]);
-          setVenues((result.collections.venues || []) as Venue[]);
-          setMotions((result.collections.motions || []) as Motion[]);
-          setBreakCategories((result.collections.breakCategories || []) as BreakCategory[]);
-          setDebates((result.collections.debates || []) as Debate[]);
-          setBallots((result.collections.ballots || []) as BallotSubmission[]);
-          setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
-          setInstitutions((result.collections.institutions || []) as Institution[]);
-          auditEventsRef.current = [];
-          setAuditEvents([]);
+          applyPublicProjection(result, false);
           setLoading(false);
         };
 
@@ -633,7 +670,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user, authLoading]);
+  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user, authLoading, applyPublicProjection]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
@@ -1632,14 +1669,57 @@ export function TournamentProvider({
       persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
       persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
       persistLocal("auditEvents", localCollections.auditEvents);
-      setCloudSyncState("success");
-      setCloudSyncMessage(
+      const syncSummary =
         archivedConflictCount > 0
           ? `Synced records. Preserved ${archivedConflictCount} unresolved cloud conflict(s) for recovery.`
-          : `Synced records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`
-      );
+          : `Synced records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`;
+      let publishSummary: string;
+      try {
+        const published = await publishPublicViewCommand({
+          tournament,
+          collections: localCollections,
+          idToken: await user.getIdToken(),
+        });
+        publishSummary = published.status === "published"
+          ? " Public pages updated."
+          : " Public pages already up to date.";
+      } catch (publishError) {
+        // The upload itself succeeded; public pages keep serving the previous published view.
+        publishSummary = ` Public pages were not updated: ${
+          publishError instanceof Error ? publishError.message : "publish failed"
+        }`;
+      }
+      setCloudSyncState("success");
+      setCloudSyncMessage(syncSummary + publishSummary);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud upload failed.";
+      setCloudSyncState("error");
+      setCloudSyncMessage(message);
+      throw error;
+    }
+  };
+
+  const publishPublicView = async (force = false) => {
+    if (!user || !tournament || !isOwnerOrAdmin) {
+      throw new Error("Sign in as a tournament administrator to publish public pages.");
+    }
+    setCloudSyncState("syncing");
+    setCloudSyncMessage("Publishing public pages from the cloud copy…");
+    try {
+      const published = await publishPublicViewCommand({
+        tournament,
+        collections: getLocalCollections(),
+        idToken: await user.getIdToken(),
+        force,
+      });
+      setCloudSyncState("success");
+      setCloudSyncMessage(
+        published.status === "published"
+          ? `Public pages updated at ${new Date().toLocaleTimeString()}.`
+          : "Public pages are already up to date."
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not publish public pages.";
       setCloudSyncState("error");
       setCloudSyncMessage(message);
       throw error;
@@ -1850,6 +1930,7 @@ export function TournamentProvider({
         privateSyncMessage,
         localSaveError,
         uploadToCloud,
+        publishPublicView,
         downloadFromCloud,
         syncDataEntry,
         exportSyncRecovery,

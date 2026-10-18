@@ -17,6 +17,7 @@ import {
   CloudOff,
   Upload,
   CloudDownload,
+  CloudUpload,
   Download,
   KeyRound,
 } from "lucide-react";
@@ -35,6 +36,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     isOwnerOrAdmin,
     isDataEntryAssistant,
     uploadToCloud,
+    publishPublicView,
     downloadFromCloud,
     exportSyncRecovery,
     exportTournamentBackup,
@@ -86,6 +88,15 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     }
     try {
       await downloadFromCloud();
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
+
+  const handleRepublish = async () => {
+    setShowUserMenu(false);
+    try {
+      await publishPublicView(true);
     } catch {
       // The sync state displays the specific failure.
     }
@@ -389,6 +400,15 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Export Sync Recovery</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRepublish}
+                        disabled={!isOnline || cloudSyncState === "syncing"}
+                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
+                      >
+                        <CloudUpload className="w-3.5 h-3.5" />
+                        <span>Republish Public Pages</span>
                       </button>
                     </>
                   )}
