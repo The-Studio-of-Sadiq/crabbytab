@@ -43,6 +43,7 @@ import {
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
 import { validateFeedbackQuestions } from "@/lib/feedback/questions";
+import { LOCALES } from "@/lib/i18n/config";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -1749,6 +1750,32 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               />
               <span className="mt-1 block text-[11px] font-normal text-gray-500">
                 Applies to timestamped check-ins. Legacy records without check-in timestamps remain unchanged.
+              </span>
+            </label>
+
+            <label className="block max-w-xs text-xs font-semibold text-gray-700">
+              Public pages and portals language
+              <select
+                value={prefs.publicLanguage ?? ""}
+                onChange={(event) => setPrefs((current) => {
+                  // Drop the key rather than store undefined, which Firestore rejects.
+                  const next = { ...current };
+                  if (event.target.value) next.publicLanguage = event.target.value;
+                  else delete next.publicLanguage;
+                  return next;
+                })}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
+              >
+                <option value="">Each viewer&apos;s browser language</option>
+                {LOCALES.map((locale) => (
+                  <option key={locale.code} value={locale.code}>
+                    {locale.englishName}
+                    {"machineDrafted" in locale && locale.machineDrafted ? " (machine-drafted)" : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                Default for public pages, team and adjudicator portals. Viewers can still pick their own language.
               </span>
             </label>
           </div>

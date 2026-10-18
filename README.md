@@ -14,6 +14,10 @@ has installation and deployment guides, an organiser guide for running a
 tournament, a settings reference, a comparison with Tabbycat and developer
 notes. Algorithm details live in [`docs/`](./docs).
 
+The public pages and private portals can be shown in other languages (English
+and a machine-drafted Bengali today). [`docs/internationalization.md`](./docs/internationalization.md)
+explains how to translate a string or add a language.
+
 ## What it can do
 
 - Create tournaments with a guided setup wizard and configurable formats,

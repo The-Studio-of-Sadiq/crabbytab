@@ -24,6 +24,10 @@ import { Debate, DebateSide, FeedbackAnswer } from "@/types";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+
+type PanelRole = "chair" | "panellist" | "trainee";
 
 export default function TeamPrivatePortalPage() {
   const params = useParams();
@@ -44,6 +48,7 @@ export default function TeamPrivatePortalPage() {
     syncPrivatePortal,
     loadPrivateTeamPortal,
   } = useTournament();
+  const { t, plural, rich } = useI18n();
   const loadPrivateTeamPortalRef = useRef(loadPrivateTeamPortal);
   loadPrivateTeamPortalRef.current = loadPrivateTeamPortal;
   const syncPrivatePortalRef = useRef(syncPrivatePortal);
@@ -100,7 +105,7 @@ export default function TeamPrivatePortalPage() {
     event.preventDefault();
     const passcode = enteredPasscode.trim();
     if (!passcode) {
-      setPasscodeError("Enter the personal passcode provided by the tournament tabroom.");
+      setPasscodeError(t("portal.passcodeMissing"));
       return;
     }
     setPasscodeError("");
@@ -116,7 +121,7 @@ export default function TeamPrivatePortalPage() {
         localStorage.removeItem(rememberedPasscodeKey);
       }
     } catch (error) {
-      setPasscodeError(error instanceof Error ? error.message : "Could not verify this passcode.");
+      setPasscodeError(error instanceof Error ? error.message : t("portal.passcodeError"));
     } finally {
       setTeamPortalLoading(false);
     }
@@ -141,7 +146,7 @@ export default function TeamPrivatePortalPage() {
   const [feedbackTargetType, setFeedbackTargetType] = useState<"adjudicator" | "team">("adjudicator");
   const [feedbackTargetAdjId, setFeedbackTargetAdjId] = useState("");
   const [feedbackTargetAdjName, setFeedbackTargetAdjName] = useState("");
-  const [feedbackTargetAdjRole, setFeedbackTargetAdjRole] = useState("");
+  const [feedbackTargetAdjRole, setFeedbackTargetAdjRole] = useState<PanelRole>("chair");
   const [feedbackTargetTeamId, setFeedbackTargetTeamId] = useState("");
   const [feedbackTargetTeamName, setFeedbackTargetTeamName] = useState("");
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
@@ -229,7 +234,7 @@ export default function TeamPrivatePortalPage() {
 
   // Open feedback modal pre-filled
   const handleOpenFeedbackModal = (
-    targetAdj: { id: string; name: string; role: string },
+    targetAdj: { id: string; name: string; role: PanelRole },
     debate: Debate
   ) => {
     setFeedbackTargetType("adjudicator");
@@ -299,12 +304,14 @@ export default function TeamPrivatePortalPage() {
         confirmed: true,
       }, activePasscode, privateKey);
       setShowFeedbackModal(false);
-      const targetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
-      const targetRole = feedbackTargetType === "adjudicator" ? ` (${feedbackTargetAdjRole})` : "";
-      setFeedbackSuccessNotice(`Feedback for ${targetName}${targetRole} was recorded successfully.`);
+      setFeedbackSuccessNotice(
+        feedbackTargetType === "adjudicator"
+          ? t("portal.feedback.recordedWithRole", { target: feedbackTargetAdjName, role: t(`role.${feedbackTargetAdjRole}`) })
+          : t("portal.feedback.recorded", { target: feedbackTargetTeamName })
+      );
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
     } catch (error) {
-      setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
+      setFeedbackError(error instanceof Error ? error.message : t("portal.feedback.failed"));
     } finally {
       setFeedbackSubmitting(false);
     }
@@ -315,7 +322,7 @@ export default function TeamPrivatePortalPage() {
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="text-center space-y-2">
           <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-500">Loading your team portal...</p>
+          <p role="status" className="text-xs text-gray-500">{t("teamPortal.loading")}</p>
         </div>
       </div>
     );
@@ -328,13 +335,13 @@ export default function TeamPrivatePortalPage() {
           <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Tournament data unavailable</h1>
+          <h1 className="text-lg font-bold text-gray-900">{t("portal.unavailableTitle")}</h1>
           <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
           <Link
             href={`/${tournamentSlug}/public`}
             className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
           >
-            Visit Public Tournament Page
+            {t("portal.visitPublic")}
           </Link>
         </div>
       </div>
@@ -343,7 +350,8 @@ export default function TeamPrivatePortalPage() {
 
   if (verifiedPasscodeFor !== privateKey) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+      <div className="relative min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <LanguageSwitcher className="absolute end-4 top-4" />
         <form
           onSubmit={handlePasscodeSubmit}
           className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 shadow-sm space-y-5"
@@ -352,13 +360,11 @@ export default function TeamPrivatePortalPage() {
             <Lock className="w-6 h-6" />
           </div>
           <div className="text-center space-y-2">
-            <h1 className="text-lg font-bold text-gray-900">Team passcode required</h1>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Enter the personal passcode provided by the tournament tabroom to open your private portal.
-            </p>
+            <h1 className="text-lg font-bold text-gray-900">{t("teamPortal.passcodeTitle")}</h1>
+            <p className="text-xs text-gray-600 leading-relaxed">{t("portal.passcodeIntro")}</p>
           </div>
           <label className="block text-xs font-semibold text-gray-700">
-            Personal passcode
+            {t("portal.passcodeLabel")}
             <input
               type="password"
               autoComplete="current-password"
@@ -379,7 +385,7 @@ export default function TeamPrivatePortalPage() {
               onChange={(event) => setRememberMe(event.target.checked)}
               className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
             />
-            Remember me on this device
+            {t("portal.rememberMe")}
           </label>
           {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
           <button
@@ -387,10 +393,10 @@ export default function TeamPrivatePortalPage() {
             disabled={teamPortalLoading}
             className="w-full px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-md hover:bg-emerald-700 transition disabled:opacity-50"
           >
-            {teamPortalLoading ? "Verifying…" : "Open private portal"}
+            {teamPortalLoading ? t("portal.verifying") : t("portal.open")}
           </button>
           <p className="text-center text-[11px] text-gray-500">
-            {tournament?.shortName || tournament?.name || "Tournament"}
+            {tournament?.shortName || tournament?.name || t("common.tournament")}
           </p>
         </form>
       </div>
@@ -404,16 +410,13 @@ export default function TeamPrivatePortalPage() {
           <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Private Team Link Invalid</h1>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The private URL you visited is not associated with a registered team in this tournament.
-            Please contact the tournament tabroom / organizing committee for your team&apos;s personal link.
-          </p>
+          <h1 className="text-lg font-bold text-gray-900">{t("teamPortal.invalidTitle")}</h1>
+          <p className="text-xs text-gray-600 leading-relaxed">{t("teamPortal.invalidBody")}</p>
           <Link
             href={`/${tournamentSlug}/public`}
             className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
           >
-            Visit Public Tournament Page
+            {t("portal.visitPublic")}
           </Link>
         </div>
       </div>
@@ -428,20 +431,20 @@ export default function TeamPrivatePortalPage() {
       {/* Top Header / Identity Bar */}
       <header className="bg-white border-b border-[#d0d7de] sticky top-0 z-30 shadow-2xs">
         <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-base shadow-xs">
               👥
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-emerald-700 uppercase tracking-wide">
-                  {tournament?.shortName || tournament?.name || "Tournament"} &bull; Team Portal
+                  {t("teamPortal.label", { tournament: tournament?.shortName || tournament?.name || t("common.tournament") })}
                 </span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                  Private Link
+                  {t("portal.privateLink")}
                 </span>
               </div>
-              <h1 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
+              <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                 <span>{team.name}</span>
                 {team.institutionName && (
                   <span className="text-xs font-normal text-gray-500">
@@ -452,14 +455,15 @@ export default function TeamPrivatePortalPage() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher />
             <Link
               href={`/${tournamentSlug}/public`}
-              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center space-x-1"
-              title="View Public Draw & Standings"
+              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center gap-1"
+              title={t("portal.publicHubTitle")}
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Public Hub</span>
+              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{t("portal.publicHub")}</span>
             </Link>
           </div>
         </div>
@@ -470,7 +474,7 @@ export default function TeamPrivatePortalPage() {
         <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
         {/* Success Notices */}
         {feedbackSuccessNotice && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2 shadow-2xs">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{feedbackSuccessNotice}</span>
           </div>
@@ -480,7 +484,7 @@ export default function TeamPrivatePortalPage() {
         <div className="bg-white border border-[#d0d7de] rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Speakers:</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{t("teamPortal.speakers")}</span>
               {team.speakers && team.speakers.length > 0 ? (
                 team.speakers.map((spk, idx) => (
                   <span
@@ -491,45 +495,40 @@ export default function TeamPrivatePortalPage() {
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-gray-500 italic">No speakers listed</span>
+                <span className="text-xs text-gray-500 italic">{t("teamPortal.noSpeakers")}</span>
               )}
             </div>
             <p className="text-xs text-gray-600 leading-relaxed">
-              Welcome to your private team dashboard. Here you can check your debate venues, track assigned
-              judges, and <strong>submit constructive feedback on adjudicators</strong> who judged your debates.
+              {rich("teamPortal.welcome", { b: (text) => <strong>{text}</strong> })}
             </p>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 text-xs">
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-center min-w-[90px]">
               <span className="block text-lg font-extrabold text-emerald-700">{teamDebates.length}</span>
-              <span className="text-[10px] text-emerald-800 font-medium">Debates Found</span>
+              <span className="text-[10px] text-emerald-800 font-medium">{t("teamPortal.debatesFound")}</span>
             </div>
             <div className="bg-pink-50 border border-pink-200 rounded-lg p-2.5 text-center min-w-[90px]">
               <span className="block text-lg font-extrabold text-pink-700">{teamFeedbackCount}</span>
-              <span className="text-[10px] text-pink-800 font-medium">Feedback Sent</span>
+              <span className="text-[10px] text-pink-800 font-medium">{t("teamPortal.feedbackSent")}</span>
             </div>
           </div>
         </div>
 
         {/* Feedback Requirement Notice */}
         {feedbackEnabled && (
-          <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-xl text-xs text-pink-950 flex items-start space-x-3">
+          <div className="p-4 bg-pink-50/70 border border-pink-200 rounded-xl text-xs text-pink-950 flex items-start gap-3">
             <MessageSquareHeart className="w-5 h-5 text-pink-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="font-bold block">Adjudicator Feedback (Feedback Only Portal)</span>
-              <p className="text-pink-900 leading-relaxed text-[11px]">
-                To maintain high adjudication quality, teams are encouraged to submit feedback for every
-                debate. Your ratings are kept strictly confidential by the Adjudication Core and are used
-                for judge tracking and allocation.
-              </p>
+              <span className="font-bold block">{t("teamPortal.feedbackNoticeTitle")}</span>
+              <p className="text-pink-900 leading-relaxed text-[11px]">{t("teamPortal.feedbackNoticeBody")}</p>
             </div>
           </div>
         )}
 
         {/* Tab Controls for Assigned Debates */}
         <div className="flex items-center justify-between border-b border-[#d0d7de] pb-2">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSelectedRoundTab("active")}
@@ -539,7 +538,7 @@ export default function TeamPrivatePortalPage() {
                   : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
               }`}
             >
-              Current Round {activeRound ? `(${activeRound.name})` : ""}
+              {activeRound ? t("portal.currentRoundNamed", { round: activeRound.name }) : t("portal.currentRound")}
             </button>
             <button
               type="button"
@@ -550,12 +549,12 @@ export default function TeamPrivatePortalPage() {
                   : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
               }`}
             >
-              All Rounds & History ({teamDebates.length})
+              {t("portal.allRounds", { count: teamDebates.length })}
             </button>
           </div>
 
           <span className="text-xs text-gray-500 font-medium hidden sm:inline">
-            Showing {displayedDebates.length} debate(s)
+            {plural("portal.showing", displayedDebates.length)}
           </span>
         </div>
 
@@ -563,10 +562,8 @@ export default function TeamPrivatePortalPage() {
         {displayedDebates.length === 0 ? (
           <div className="bg-white border border-[#d0d7de] rounded-xl p-10 text-center text-gray-500 text-xs shadow-xs space-y-2">
             <Clock className="w-8 h-8 text-gray-400 mx-auto" />
-            <p className="font-semibold text-gray-700">No debates available for this round view.</p>
-            <p className="text-[11px] text-gray-500">
-              When the round draw is published by the tabroom, your room, side, and adjudicators will appear here.
-            </p>
+            <p className="font-semibold text-gray-700">{t("teamPortal.emptyTitle")}</p>
+            <p className="text-[11px] text-gray-500">{t("teamPortal.emptyBody")}</p>
           </div>
         ) : (
           <div className="space-y-5">
@@ -583,26 +580,27 @@ export default function TeamPrivatePortalPage() {
               }
 
               // Collect panel of adjudicators who judged this debate
-              const panel: { id: string; name: string; role: string }[] = [];
+              // Fallback names are saved on feedback records, so they stay in the source language.
+              const panel: { id: string; name: string; role: PanelRole }[] = [];
               if (round?.adjudicatorsRevealed && debate.adjudicators?.chairId) {
                 panel.push({
                   id: debate.adjudicators.chairId,
                   name: debate.adjudicators.chairName || "Chair",
-                  role: "Chair",
+                  role: "chair",
                 });
               }
               if (round?.adjudicatorsRevealed) debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
                 panel.push({
                   id: pid,
                   name: debate.adjudicators?.panellistNames?.[idx] || "Panellist",
-                  role: "Panellist",
+                  role: "panellist",
                 });
               });
               if (round?.adjudicatorsRevealed) debate.adjudicators?.traineeIds?.forEach((tid, idx) => {
                 panel.push({
                   id: tid,
                   name: debate.adjudicators?.traineeNames?.[idx] || "Trainee",
-                  role: "Trainee",
+                  role: "trainee",
                 });
               });
 
@@ -621,21 +619,21 @@ export default function TeamPrivatePortalPage() {
                 >
                   {/* Debate Card Header */}
                   <div className="bg-[#f6f8fa] px-5 py-3.5 border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2.5">
+                    <div className="flex items-center gap-2.5">
                       <span className="font-bold text-gray-900 text-sm">
-                        {round ? round.name : `Round ${debate.roundSeq}`}
+                        {round ? round.name : t("portal.roundFallback", { number: debate.roundSeq })}
                       </span>
                       <span className="text-gray-400">&bull;</span>
-                      <div className="flex items-center space-x-1 text-xs text-gray-700 font-semibold">
+                      <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
                         <span>{debate.venueName}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-2">
                       {mySide && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 uppercase">
-                          Your Side: {mySide}
+                          {t("teamPortal.yourSide", { side: mySide })}
                         </span>
                       )}
                     </div>
@@ -645,19 +643,19 @@ export default function TeamPrivatePortalPage() {
                     {/* Motion if released */}
                     {debate.motionText ? (
                       <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
-                        <span className="font-bold text-amber-900 block mb-0.5">Motion:</span>
+                        <span className="font-bold text-amber-900 block mb-0.5">{t("portal.motion")}</span>
                         <p className="text-gray-800 italic">&ldquo;{debate.motionText}&rdquo;</p>
                       </div>
                     ) : (
                       <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-gray-500 italic">
-                        Motion will be announced before debate preparation.
+                        {t("teamPortal.motionPending")}
                       </div>
                     )}
 
                     {/* Room Matchup */}
                     <div>
                       <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                        Debate Matchup
+                        {t("teamPortal.matchup")}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
                         {isBP ? (
@@ -669,9 +667,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">OG &bull; Opening Gov</span>
-                              <span className="text-gray-900">{debate.teams.OG?.teamName || "TBD"}</span>
-                              {mySide === "OG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">OG &bull; {t("side.OG")}</span>
+                              <span className="text-gray-900">{debate.teams.OG?.teamName || t("common.tbd")}</span>
+                              {mySide === "OG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                             <div
                               className={`p-2.5 rounded border text-xs ${
@@ -680,9 +678,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">OO &bull; Opening Opp</span>
-                              <span className="text-gray-900">{debate.teams.OO?.teamName || "TBD"}</span>
-                              {mySide === "OO" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">OO &bull; {t("side.OO")}</span>
+                              <span className="text-gray-900">{debate.teams.OO?.teamName || t("common.tbd")}</span>
+                              {mySide === "OO" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                             <div
                               className={`p-2.5 rounded border text-xs ${
@@ -691,9 +689,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">CG &bull; Closing Gov</span>
-                              <span className="text-gray-900">{debate.teams.CG?.teamName || "TBD"}</span>
-                              {mySide === "CG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">CG &bull; {t("side.CG")}</span>
+                              <span className="text-gray-900">{debate.teams.CG?.teamName || t("common.tbd")}</span>
+                              {mySide === "CG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                             <div
                               className={`p-2.5 rounded border text-xs ${
@@ -702,9 +700,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">CO &bull; Closing Opp</span>
-                              <span className="text-gray-900">{debate.teams.CO?.teamName || "TBD"}</span>
-                              {mySide === "CO" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">CO &bull; {t("side.CO")}</span>
+                              <span className="text-gray-900">{debate.teams.CO?.teamName || t("common.tbd")}</span>
+                              {mySide === "CO" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                           </>
                         ) : (
@@ -716,9 +714,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; Affirmative</span>
-                              <span className="text-gray-900">{debate.teams.AFF?.teamName || "TBD"}</span>
-                              {mySide === "AFF" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; {t("side.AFF")}</span>
+                              <span className="text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
+                              {mySide === "AFF" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                             <div
                               className={`p-2.5 rounded border text-xs ${
@@ -727,9 +725,9 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; Negative</span>
-                              <span className="text-gray-900">{debate.teams.NEG?.teamName || "TBD"}</span>
-                              {mySide === "NEG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">(You)</span>}
+                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; {t("side.NEG")}</span>
+                              <span className="text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
+                              {mySide === "NEG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
                           </>
                         )}
@@ -740,22 +738,22 @@ export default function TeamPrivatePortalPage() {
                     {feedbackEnabled && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                          <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
                             <MessageSquareHeart className="w-4 h-4 text-pink-600" />
-                            <span>Adjudicators Assigned to Your Debate</span>
+                            <span>{t("teamPortal.adjudicatorsHeading")}</span>
                           </span>
                           <span className="text-[10px] text-gray-500 font-mono">
-                            Rating Scale: {minFeedbackScore}–{maxFeedbackScore}
+                            {t("portal.ratingScale", { min: minFeedbackScore, max: maxFeedbackScore })}
                           </span>
                         </div>
 
                         {!round?.adjudicatorsRevealed ? (
                           <p className="text-[11px] text-gray-500 italic">
-                            Adjudicators have not been revealed by the tournament organizers yet.
+                            {t("teamPortal.adjudicatorsHidden")}
                           </p>
                         ) : panel.length === 0 ? (
                           <p className="text-[11px] text-gray-500 italic">
-                            No adjudicators allocated to this room yet.
+                            {t("teamPortal.noAdjudicators")}
                           </p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
@@ -770,13 +768,13 @@ export default function TeamPrivatePortalPage() {
                                 >
                                   <div>
                                     <span className="font-bold text-gray-900 text-xs block">{adj.name}</span>
-                                    <span className="text-[10px] text-gray-500 font-medium">{adj.role}</span>
+                                    <span className="text-[10px] text-gray-500 font-medium">{t(`role.${adj.role}`)}</span>
                                   </div>
 
                                   {submitted ? (
-                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded flex items-center space-x-1">
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded flex items-center gap-1">
                                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                      <span>Done ({pastFb?.score})</span>
+                                      <span>{t("portal.done", { score: pastFb?.score ?? "" })}</span>
                                     </span>
                                   ) : (
                                     <button
@@ -784,7 +782,7 @@ export default function TeamPrivatePortalPage() {
                                       onClick={() => handleOpenFeedbackModal(adj, debate)}
                                       className="px-3 py-1 bg-pink-600 text-white hover:bg-pink-700 rounded text-xs font-semibold transition shadow-2xs"
                                     >
-                                      Submit Feedback
+                                      {t("portal.feedback.submit")}
                                     </button>
                                   )}
                                 </div>
@@ -798,16 +796,16 @@ export default function TeamPrivatePortalPage() {
                     {feedbackEnabled && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                          <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
                             <Users className="w-4 h-4 text-emerald-600" />
-                            <span>Feedback on Opponent Teams</span>
+                            <span>{t("teamPortal.opponentsHeading")}</span>
                           </span>
                           <span className="text-[10px] text-gray-500 font-mono">
-                            Rating Scale: {minFeedbackScore}–{maxFeedbackScore}
+                            {t("portal.ratingScale", { min: minFeedbackScore, max: maxFeedbackScore })}
                           </span>
                         </div>
                         {opposingTeams.length === 0 ? (
-                          <p className="text-[11px] text-gray-500 italic">No opponent teams are assigned to this debate.</p>
+                          <p className="text-[11px] text-gray-500 italic">{t("teamPortal.noOpponents")}</p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                             {opposingTeams.map((opponent) => {
@@ -818,10 +816,10 @@ export default function TeamPrivatePortalPage() {
                                   key={opponent.teamId}
                                   className="p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between gap-2"
                                 >
-                                  <span className="font-bold text-gray-900 text-xs">{opponent.teamName || "Opponent team"}</span>
+                                  <span className="font-bold text-gray-900 text-xs">{opponent.teamName || t("teamPortal.opponentFallback")}</span>
                                   {submitted ? (
                                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded">
-                                      Done ({pastFeedback?.score})
+                                      {t("portal.done", { score: pastFeedback?.score ?? "" })}
                                     </span>
                                   ) : (
                                     <button
@@ -832,7 +830,7 @@ export default function TeamPrivatePortalPage() {
                                       }, debate)}
                                       className="px-3 py-1 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold transition"
                                     >
-                                      Submit Feedback
+                                      {t("portal.feedback.submit")}
                                     </button>
                                   )}
                                 </div>
@@ -855,23 +853,24 @@ export default function TeamPrivatePortalPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
           <div className="bg-white max-h-[90vh] rounded-xl max-w-md w-full overflow-y-auto p-6 shadow-xl border border-gray-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <MessageSquareHeart className="w-5 h-5 text-pink-600" />
                 <h3 className="font-bold text-gray-900 text-sm">
-                  {feedbackTargetType === "adjudicator" ? "Adjudicator Feedback" : "Opponent Team Feedback"}
+                  {feedbackTargetType === "adjudicator" ? t("teamPortal.modalAdjudicatorTitle") : t("teamPortal.modalTeamTitle")}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowFeedbackModal(false)}
+                aria-label={t("common.close")}
                 className="text-gray-400 hover:text-gray-600 p-1"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
 
             {feedbackError && (
-              <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-1.5">
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{feedbackError}</span>
               </div>
@@ -881,7 +880,7 @@ export default function TeamPrivatePortalPage() {
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold uppercase block">
-                    Target {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Opponent Team"}
+                    {feedbackTargetType === "adjudicator" ? t("teamPortal.targetAdjudicator") : t("teamPortal.targetTeam")}
                   </span>
                   <span className="text-sm font-bold text-gray-900">
                     {feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName}
@@ -889,7 +888,7 @@ export default function TeamPrivatePortalPage() {
                 </div>
                 {feedbackTargetType === "adjudicator" && (
                   <span className="text-[11px] font-semibold text-gray-600 px-2 py-0.5 rounded bg-white border border-gray-200">
-                    {feedbackTargetAdjRole}
+                    {t(`role.${feedbackTargetAdjRole}`)}
                   </span>
                 )}
               </div>
@@ -897,9 +896,9 @@ export default function TeamPrivatePortalPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-semibold text-gray-700">
-                    Feedback Score ({minFeedbackScore}–{maxFeedbackScore})
+                    {t("portal.feedback.score", { min: minFeedbackScore, max: maxFeedbackScore })}
                   </label>
-                  <span className="text-sm font-bold text-emerald-600">{feedbackScore} / {maxFeedbackScore}</span>
+                  <span className="text-sm font-bold text-emerald-600">{t("portal.feedback.scoreValue", { score: feedbackScore, max: maxFeedbackScore })}</span>
                 </div>
                 <input
                   type="range"
@@ -914,47 +913,48 @@ export default function TeamPrivatePortalPage() {
 
               {feedbackTargetType === "adjudicator" && <div>
                 <label className="font-semibold text-gray-700 block mb-1.5">
-                  Did you agree with this adjudicator&apos;s decision/call?
+                  {t("teamPortal.agreeQuestion")}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setFeedbackAgree(true)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
+                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 border transition ${
                       feedbackAgree
                         ? "bg-emerald-50 border-emerald-500 text-emerald-800 font-bold"
                         : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                     }`}
                   >
                     <ThumbsUp className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Yes, Agreed</span>
+                    <span>{t("portal.feedback.agreeYes")}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setFeedbackAgree(false)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
+                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 border transition ${
                       !feedbackAgree
                         ? "bg-amber-50 border-amber-500 text-amber-800 font-bold"
                         : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                     }`}
                   >
                     <ThumbsDown className="w-3.5 h-3.5 text-amber-600" />
-                    <span>No, Disagreed</span>
+                    <span>{t("portal.feedback.agreeNo")}</span>
                   </button>
                 </div>
               </div>}
 
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">
-                  {feedbackTargetType === "adjudicator" ? "Constructive Feedback & Justification" : "Constructive Feedback on Team Performance"} (Confidential to Adjudication Core)
+                  {feedbackTargetType === "adjudicator" ? t("teamPortal.adjudicatorComments") : t("portal.feedback.teamComments")}{" "}
+                  {t("portal.feedback.confidential")}
                 </label>
                 <textarea
                   rows={3}
                   value={feedbackComments}
                   onChange={(e) => setFeedbackComments(e.target.value)}
                   placeholder={feedbackTargetType === "adjudicator"
-                    ? "Explain constructive points: quality of oral adjudication, tracking of clash, fairness..."
-                    : "Comment on the team’s engagement, argumentation, and conduct..."}
+                    ? t("teamPortal.adjudicatorPlaceholder")
+                    : t("portal.feedback.teamPlaceholder")}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 />
               </div>
@@ -967,20 +967,20 @@ export default function TeamPrivatePortalPage() {
                 }
               />
 
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowFeedbackModal(false)}
                   className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={feedbackSubmitting}
                   className="px-4 py-1.5 bg-emerald-600 text-white rounded-md font-semibold hover:bg-emerald-700 transition disabled:opacity-50"
                 >
-                  {feedbackSubmitting ? "Submitting..." : "Submit Feedback"}
+                  {feedbackSubmitting ? t("portal.feedback.submitting") : t("portal.feedback.submit")}
                 </button>
               </div>
             </form>

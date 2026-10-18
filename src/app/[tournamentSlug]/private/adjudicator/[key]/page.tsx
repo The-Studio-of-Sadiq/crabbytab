@@ -29,6 +29,10 @@ import { consensusTeamScores } from "@/lib/ballots/result";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+
+type PanelRole = "chair" | "panellist" | "trainee";
 
 export default function AdjudicatorPrivatePortalPage() {
   const params = useParams();
@@ -53,6 +57,7 @@ export default function AdjudicatorPrivatePortalPage() {
     submitBallot,
     addFeedback,
   } = useTournament();
+  const { t, plural, rich } = useI18n();
 
   // The URL key identifies the adjudicator; a separate passcode gates access.
   const adjudicator = useMemo(() => {
@@ -121,7 +126,7 @@ export default function AdjudicatorPrivatePortalPage() {
     event.preventDefault();
     const passcode = enteredPasscode.trim();
     if (!passcode) {
-      setPasscodeError("Enter the personal passcode provided by the tournament tabroom.");
+      setPasscodeError(t("portal.passcodeMissing"));
       return;
     }
     setPasscodeError("");
@@ -136,7 +141,7 @@ export default function AdjudicatorPrivatePortalPage() {
         localStorage.removeItem(rememberedPasscodeKey);
       }
     } catch (error) {
-      setPasscodeError(error instanceof Error ? error.message : "Could not verify this passcode.");
+      setPasscodeError(error instanceof Error ? error.message : t("portal.passcodeError"));
     }
   };
 
@@ -329,10 +334,10 @@ export default function AdjudicatorPrivatePortalPage() {
       }, activePasscode, privateKey);
       setShowFeedbackModal(false);
       const targetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
-      setFeedbackSuccessNotice(`Feedback for ${targetName} was recorded successfully.`);
+      setFeedbackSuccessNotice(t("portal.feedback.recorded", { target: targetName }));
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
     } catch (error) {
-      setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
+      setFeedbackError(error instanceof Error ? error.message : t("portal.feedback.failed"));
     } finally {
       setFeedbackSubmitting(false);
     }
@@ -402,14 +407,14 @@ export default function AdjudicatorPrivatePortalPage() {
       for (const spk of ballotScores[side] || []) {
         const check = validateSpeakerScore(spk.score, tournament?.preferences);
         if (!check.valid && check.error) {
-          setBallotError(`${side} ${spk.speakerName}: ${check.error}`);
+          setBallotError(t("adjPortal.ballot.speakerError", { side, speaker: spk.speakerName, error: check.error }));
           return;
         }
       }
       if (replyEnabled && ballotReplyScores[side]) {
         const check = validateReplyScore(ballotReplyScores[side].score, tournament?.preferences);
         if (!check.valid && check.error) {
-          setBallotError(`${side} Reply: ${check.error}`);
+          setBallotError(t("adjPortal.ballot.replyError", { side, error: check.error }));
           return;
         }
       }
@@ -471,10 +476,10 @@ export default function AdjudicatorPrivatePortalPage() {
 
       await submitBallot(candidateBallot, activePasscode);
       setShowBallotModal(false);
-      setBallotSuccessNotice(`Ballot for ${ballotDebate.venueName} successfully submitted!`);
+      setBallotSuccessNotice(t("adjPortal.ballot.success", { venue: ballotDebate.venueName ?? "" }));
       setTimeout(() => setBallotSuccessNotice(""), 6000);
     } catch (error) {
-      setBallotError(error instanceof Error ? error.message : "Failed to save ballot.");
+      setBallotError(error instanceof Error ? error.message : t("adjPortal.ballot.failed"));
     } finally {
       setBallotSubmitting(false);
     }
@@ -485,7 +490,7 @@ export default function AdjudicatorPrivatePortalPage() {
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="text-center space-y-2">
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-500">Loading your adjudicator portal...</p>
+          <p role="status" className="text-xs text-gray-500">{t("adjPortal.loading")}</p>
         </div>
       </div>
     );
@@ -498,13 +503,13 @@ export default function AdjudicatorPrivatePortalPage() {
           <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Tournament data unavailable</h1>
+          <h1 className="text-lg font-bold text-gray-900">{t("portal.unavailableTitle")}</h1>
           <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
           <Link
             href={`/${tournamentSlug}/public`}
             className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
           >
-            Visit Public Tournament Page
+            {t("portal.visitPublic")}
           </Link>
         </div>
       </div>
@@ -513,7 +518,8 @@ export default function AdjudicatorPrivatePortalPage() {
 
   if (verifiedPasscodeFor !== privateKey) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+      <div className="relative min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
+        <LanguageSwitcher className="absolute end-4 top-4" />
         <form
           onSubmit={handlePasscodeSubmit}
           className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 shadow-sm space-y-5"
@@ -522,13 +528,11 @@ export default function AdjudicatorPrivatePortalPage() {
             <Lock className="w-6 h-6" />
           </div>
           <div className="text-center space-y-2">
-            <h1 className="text-lg font-bold text-gray-900">Adjudicator passcode required</h1>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Enter the personal passcode provided by the tournament tabroom to open your private portal.
-            </p>
+            <h1 className="text-lg font-bold text-gray-900">{t("adjPortal.passcodeTitle")}</h1>
+            <p className="text-xs text-gray-600 leading-relaxed">{t("portal.passcodeIntro")}</p>
           </div>
           <label className="block text-xs font-semibold text-gray-700">
-            Personal passcode
+            {t("portal.passcodeLabel")}
             <input
               type="password"
               autoComplete="current-password"
@@ -549,17 +553,17 @@ export default function AdjudicatorPrivatePortalPage() {
             onChange={(event) => setRememberMe(event.target.checked)}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          Remember me on this device
+          {t("portal.rememberMe")}
           </label>
           {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
           <button
             type="submit"
             className="w-full px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
           >
-            Open private portal
+            {t("portal.open")}
           </button>
           <p className="text-center text-[11px] text-gray-500">
-            {tournament?.shortName || tournament?.name || "Tournament"}
+            {tournament?.shortName || tournament?.name || t("common.tournament")}
           </p>
         </form>
       </div>
@@ -573,16 +577,13 @@ export default function AdjudicatorPrivatePortalPage() {
           <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Private Adjudicator Link Invalid</h1>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The private URL you visited is not associated with an adjudicator in this tournament. Please
-            contact the tournament tabroom / adjudication core to obtain your valid personal link.
-          </p>
+          <h1 className="text-lg font-bold text-gray-900">{t("adjPortal.invalidTitle")}</h1>
+          <p className="text-xs text-gray-600 leading-relaxed">{t("adjPortal.invalidBody")}</p>
           <Link
             href={`/${tournamentSlug}/public`}
             className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
           >
-            Visit Public Tournament Page
+            {t("portal.visitPublic")}
           </Link>
         </div>
       </div>
@@ -594,20 +595,20 @@ export default function AdjudicatorPrivatePortalPage() {
       {/* Top Header / Identity Bar */}
       <header className="bg-white border-b border-[#d0d7de] sticky top-0 z-30 shadow-2xs">
         <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-base shadow-xs">
               ⚖️
             </div>
             <div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-blue-600 uppercase tracking-wide">
-                  {tournament?.shortName || tournament?.name || "Tournament"} &bull; Adjudicator Portal
+                  {t("adjPortal.label", { tournament: tournament?.shortName || tournament?.name || t("common.tournament") })}
                 </span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  Private Link
+                  {t("portal.privateLink")}
                 </span>
               </div>
-              <h1 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
+              <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                 <span>{adjudicator.name}</span>
                 {adjudicator.institutionName && (
                   <span className="text-xs font-normal text-gray-500">
@@ -618,7 +619,7 @@ export default function AdjudicatorPrivatePortalPage() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => void syncPrivatePortal(privateKey, activePasscode).catch((error) => {
@@ -627,16 +628,17 @@ export default function AdjudicatorPrivatePortalPage() {
               disabled={privateSyncState === "syncing"}
               className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${privateSyncState === "syncing" ? "animate-spin" : ""}`} />
-              Sync / Download
+              <RefreshCw className={`h-3.5 w-3.5 ${privateSyncState === "syncing" ? "animate-spin" : ""}`} aria-hidden="true" />
+              {t("adjPortal.sync")}
             </button>
+            <LanguageSwitcher />
             <Link
               href={`/${tournamentSlug}/public`}
-              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center space-x-1"
-              title="View Public Draw & Standings"
+              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center gap-1"
+              title={t("portal.publicHubTitle")}
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Public Hub</span>
+              <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{t("portal.publicHub")}</span>
             </Link>
           </div>
         </div>
@@ -659,14 +661,14 @@ export default function AdjudicatorPrivatePortalPage() {
         )}
         {/* Success Notices */}
         {feedbackSuccessNotice && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2 shadow-2xs">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{feedbackSuccessNotice}</span>
           </div>
         )}
 
         {ballotSuccessNotice && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center gap-2 shadow-2xs">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{ballotSuccessNotice}</span>
           </div>
@@ -675,49 +677,48 @@ export default function AdjudicatorPrivatePortalPage() {
         {/* Adjudicator Status & Responsibilities Card */}
         <div className="bg-white border border-[#d0d7de] rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Accreditation</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{t("adjPortal.accreditation")}</span>
               <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-800 border border-gray-200">
-                Score: {adjudicator.baseScore}
+                {t("adjPortal.score", { score: adjudicator.baseScore })}
               </span>
               {adjudicator.trainee ? (
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                  Trainee
+                  {t("role.trainee")}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                  Voting Adjudicator
+                  {t("adjPortal.voting")}
                 </span>
               )}
               {adjudicator.independent && (
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                  Independent
+                  {t("common.independent")}
                 </span>
               )}
             </div>
             <p className="text-xs text-gray-600 leading-relaxed">
-              Use this private portal to <strong>submit ballots</strong> for debates where you chair, and{" "}
-              <strong>submit confidential feedback</strong> on co-panellists, chairs, and trainees.
+              {rich("adjPortal.intro", { b: (text) => <strong>{text}</strong> })}
             </p>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 text-xs">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-center min-w-[90px]">
               <span className="block text-lg font-extrabold text-blue-700">{assignedDebates.length}</span>
-              <span className="text-[10px] text-blue-800 font-medium">Debates Assigned</span>
+              <span className="text-[10px] text-blue-800 font-medium">{t("adjPortal.debatesAssigned")}</span>
             </div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-center min-w-[90px]">
               <span className="block text-lg font-extrabold text-emerald-700">
                 {feedback.filter((f) => f.sourceId === adjudicator.id).length}
               </span>
-              <span className="text-[10px] text-emerald-800 font-medium">Feedback Given</span>
+              <span className="text-[10px] text-emerald-800 font-medium">{t("adjPortal.feedbackGiven")}</span>
             </div>
           </div>
         </div>
 
         {/* Tab Controls for Assigned Debates */}
         <div className="flex items-center justify-between border-b border-[#d0d7de] pb-2">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSelectedRoundTab("active")}
@@ -727,7 +728,7 @@ export default function AdjudicatorPrivatePortalPage() {
                   : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
               }`}
             >
-              Current Round {activeRound ? `(${activeRound.name})` : ""}
+              {activeRound ? t("portal.currentRoundNamed", { round: activeRound.name }) : t("portal.currentRound")}
             </button>
             <button
               type="button"
@@ -738,12 +739,12 @@ export default function AdjudicatorPrivatePortalPage() {
                   : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
               }`}
             >
-              All Rounds & History ({assignedDebates.length})
+              {t("portal.allRounds", { count: assignedDebates.length })}
             </button>
           </div>
 
           <span className="text-xs text-gray-500 font-medium hidden sm:inline">
-            Showing {displayedDebates.length} debate(s)
+            {plural("portal.showing", displayedDebates.length)}
           </span>
         </div>
 
@@ -751,10 +752,8 @@ export default function AdjudicatorPrivatePortalPage() {
         {displayedDebates.length === 0 ? (
           <div className="bg-white border border-[#d0d7de] rounded-xl p-10 text-center text-gray-500 text-xs shadow-xs space-y-2">
             <Clock className="w-8 h-8 text-gray-400 mx-auto" />
-            <p className="font-semibold text-gray-700">No debates assigned for this view.</p>
-            <p className="text-[11px] text-gray-500">
-              When the tabroom generates and confirms the draw, your assigned room, panel, and ballot will appear here.
-            </p>
+            <p className="font-semibold text-gray-700">{t("adjPortal.emptyTitle")}</p>
+            <p className="text-[11px] text-gray-500">{t("adjPortal.emptyBody")}</p>
           </div>
         ) : (
           <div className="space-y-5">
@@ -766,19 +765,20 @@ export default function AdjudicatorPrivatePortalPage() {
               const canSubmitBallot =
                 !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
 
-              const roleLabel = isChair ? "Chair" : isPanellist ? "Panellist" : isTrainee ? "Trainee" : "Judge";
+              const roleLabel = t(isChair ? "role.chair" : isPanellist ? "role.panellist" : isTrainee ? "role.trainee" : "role.judge");
               const debateBallots = ballots.filter((b) => b.debateId === debate.id && !b.discarded);
               const confirmedBallot = debateBallots.find((b) => b.confirmed);
               const draftBallot = debateBallots.find((b) => !b.confirmed);
               const existingBallot = confirmedBallot || draftBallot;
 
               // Build list of co-judges for feedback
-              const coJudges: { id: string; name: string; role: string }[] = [];
+              // Fallback names are saved on feedback records, so they stay in the source language.
+              const coJudges: { id: string; name: string; role: PanelRole }[] = [];
               if (debate.adjudicators?.chairId && debate.adjudicators.chairId !== adjudicator.id) {
                 coJudges.push({
                   id: debate.adjudicators.chairId,
                   name: debate.adjudicators.chairName || "Chair",
-                  role: "Chair",
+                  role: "chair",
                 });
               }
               debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
@@ -786,7 +786,7 @@ export default function AdjudicatorPrivatePortalPage() {
                   coJudges.push({
                     id: pid,
                     name: debate.adjudicators?.panellistNames?.[idx] || "Panellist",
-                    role: "Panellist",
+                    role: "panellist",
                   });
                 }
               });
@@ -795,7 +795,7 @@ export default function AdjudicatorPrivatePortalPage() {
                   coJudges.push({
                     id: tid,
                     name: debate.adjudicators?.traineeNames?.[idx] || "Trainee",
-                    role: "Trainee",
+                    role: "trainee",
                   });
                 }
               });
@@ -807,18 +807,18 @@ export default function AdjudicatorPrivatePortalPage() {
                 >
                   {/* Debate Card Header */}
                   <div className="bg-[#f6f8fa] px-5 py-3.5 border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2.5">
+                    <div className="flex items-center gap-2.5">
                       <span className="font-bold text-gray-900 text-sm">
-                        {round ? round.name : `Round ${debate.roundSeq}`}
+                        {round ? round.name : t("portal.roundFallback", { number: debate.roundSeq })}
                       </span>
                       <span className="text-gray-400">&bull;</span>
-                      <div className="flex items-center space-x-1 text-xs text-gray-700 font-semibold">
+                      <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
                         <span>{debate.venueName}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-2">
                       <span
                         className={`text-[11px] font-bold px-2 py-0.5 rounded uppercase ${
                           isChair
@@ -828,20 +828,20 @@ export default function AdjudicatorPrivatePortalPage() {
                             : "bg-amber-100 text-amber-800 border border-amber-300"
                         }`}
                       >
-                        Your Role: {roleLabel}
+                        {t("adjPortal.yourRole", { role: roleLabel })}
                       </span>
 
                       {existingBallot?.confirmed ? (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 uppercase">
-                          Ballot Confirmed ✓
+                          {t("adjPortal.ballotConfirmed")}
                         </span>
                       ) : existingBallot ? (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 uppercase">
-                          Ballot Draft
+                          {t("adjPortal.ballotDraft")}
                         </span>
                       ) : (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-300 uppercase">
-                          Ballot Pending
+                          {t("adjPortal.ballotPending")}
                         </span>
                       )}
                     </div>
@@ -850,7 +850,7 @@ export default function AdjudicatorPrivatePortalPage() {
                   <div className="p-5 space-y-4">
                     {debate.motionText && (
                       <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
-                        <span className="font-bold text-amber-900 block mb-0.5">Motion:</span>
+                        <span className="font-bold text-amber-900 block mb-0.5">{t("portal.motion")}</span>
                         <p className="text-gray-800 italic">&ldquo;{debate.motionText}&rdquo;</p>
                       </div>
                     )}
@@ -858,37 +858,37 @@ export default function AdjudicatorPrivatePortalPage() {
                     {/* Matchup & Teams in Debate */}
                     <div>
                       <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                        Teams & Positions
+                        {t("adjPortal.teamsPositions")}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
                         {isBP ? (
                           <>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">OG &bull; Opening Gov</span>
-                              <span className="font-bold text-gray-900">{debate.teams.OG?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">OG &bull; {t("side.OG")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.OG?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">OO &bull; Opening Opp</span>
-                              <span className="font-bold text-gray-900">{debate.teams.OO?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">OO &bull; {t("side.OO")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.OO?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">CG &bull; Closing Gov</span>
-                              <span className="font-bold text-gray-900">{debate.teams.CG?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">CG &bull; {t("side.CG")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.CG?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">CO &bull; Closing Opp</span>
-                              <span className="font-bold text-gray-900">{debate.teams.CO?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">CO &bull; {t("side.CO")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.CO?.teamName || t("common.tbd")}</span>
                             </div>
                           </>
                         ) : (
                           <>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; Affirmative</span>
-                              <span className="font-bold text-gray-900">{debate.teams.AFF?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; {t("side.AFF")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; Negative</span>
-                              <span className="font-bold text-gray-900">{debate.teams.NEG?.teamName || "TBD"}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; {t("side.NEG")}</span>
+                              <span className="font-bold text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                             </div>
                           </>
                         )}
@@ -898,29 +898,27 @@ export default function AdjudicatorPrivatePortalPage() {
                     {/* Section: Action 1 - Ballot Entry */}
                     <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                        <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
                           <FileCheck2 className="w-4 h-4 text-blue-600" />
-                          <span>Debate Ballot Entry</span>
+                          <span>{t("adjPortal.ballotEntry")}</span>
                         </span>
                         <p className="text-[11px] text-gray-500">
-                          {isChair
-                            ? "As Chair, you are responsible for entering the official panel decision and scores."
-                            : "Voting panellists and chairs can enter or verify ballot scores."}
+                          {isChair ? t("adjPortal.chairDuty") : t("adjPortal.panelDuty")}
                         </p>
                       </div>
 
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2">
                         {canSubmitBallot ? (
                           <button
                             type="button"
                             onClick={() => handleOpenBallotModal(debate)}
-                            className="px-3.5 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition flex items-center space-x-1.5 shadow-2xs"
+                            className="px-3.5 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition flex items-center gap-1.5 shadow-2xs"
                           >
                             <FileCheck2 className="w-3.5 h-3.5" />
-                            <span>{existingBallot?.confirmed ? "Edit / Re-enter Ballot" : "Enter Ballot"}</span>
+                            <span>{existingBallot?.confirmed ? t("adjPortal.editBallot") : t("adjPortal.enterBallot")}</span>
                           </button>
                         ) : (
-                          <span className="text-xs text-gray-500">Trainees may observe but cannot submit ballots.</span>
+                          <span className="text-xs text-gray-500">{t("adjPortal.traineeNoBallot")}</span>
                         )}
                       </div>
                     </div>
@@ -929,18 +927,18 @@ export default function AdjudicatorPrivatePortalPage() {
                     {feedbackEnabled && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                          <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
                             <MessageSquareHeart className="w-4 h-4 text-pink-600" />
-                            <span>Submit Feedback on Other Adjudicators</span>
+                            <span>{t("adjPortal.feedbackOnAdjudicators")}</span>
                           </span>
                           <span className="text-[10px] text-gray-500 font-mono">
-                            Scale: {minFeedbackScore}–{maxFeedbackScore}
+                            {t("portal.scale", { min: minFeedbackScore, max: maxFeedbackScore })}
                           </span>
                         </div>
 
                         {coJudges.length === 0 ? (
                           <p className="text-[11px] text-gray-500 italic">
-                            No other adjudicators on this panel (solo adjudication).
+                            {t("adjPortal.solo")}
                           </p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
@@ -955,13 +953,13 @@ export default function AdjudicatorPrivatePortalPage() {
                                 >
                                   <div>
                                     <span className="font-bold text-gray-900 text-xs block">{target.name}</span>
-                                    <span className="text-[10px] text-gray-500 font-medium">{target.role}</span>
+                                    <span className="text-[10px] text-gray-500 font-medium">{t(`role.${target.role}`)}</span>
                                   </div>
 
                                   {submitted ? (
-                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded flex items-center space-x-1">
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded flex items-center gap-1">
                                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                      <span>Done ({pastFb?.score})</span>
+                                      <span>{t("portal.done", { score: pastFb?.score ?? "" })}</span>
                                     </span>
                                   ) : (
                                     <button
@@ -969,7 +967,7 @@ export default function AdjudicatorPrivatePortalPage() {
                                       onClick={() => handleOpenFeedbackModal(target, debate)}
                                       className="px-2.5 py-1 bg-white border border-pink-300 text-pink-700 hover:bg-pink-50 rounded text-xs font-semibold transition"
                                     >
-                                      Rate
+                                      {t("adjPortal.rate")}
                                     </button>
                                   )}
                                 </div>
@@ -980,12 +978,12 @@ export default function AdjudicatorPrivatePortalPage() {
 
                         <div className="pt-3 border-t border-gray-100 space-y-2.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                            <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
                               <Users className="w-4 h-4 text-emerald-600" />
-                              <span>Submit Feedback on Teams</span>
+                              <span>{t("adjPortal.feedbackOnTeams")}</span>
                             </span>
                             <span className="text-[10px] text-gray-500 font-mono">
-                              Scale: {minFeedbackScore}–{maxFeedbackScore}
+                              {t("portal.scale", { min: minFeedbackScore, max: maxFeedbackScore })}
                             </span>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
@@ -1002,7 +1000,7 @@ export default function AdjudicatorPrivatePortalPage() {
                                   <span className="font-bold text-gray-900 text-xs">{targetName}</span>
                                   {submitted ? (
                                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded">
-                                      Done ({pastFeedback?.score})
+                                      {t("portal.done", { score: pastFeedback?.score ?? "" })}
                                     </span>
                                   ) : (
                                     <button
@@ -1010,7 +1008,7 @@ export default function AdjudicatorPrivatePortalPage() {
                                       onClick={() => handleOpenTeamFeedbackModal({ id: targetId, name: targetName }, debate)}
                                       className="px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold transition"
                                     >
-                                      Rate
+                                      {t("adjPortal.rate")}
                                     </button>
                                   )}
                                 </div>
@@ -1033,23 +1031,24 @@ export default function AdjudicatorPrivatePortalPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
           <div className="bg-white max-h-[90vh] rounded-xl max-w-md w-full overflow-y-auto p-6 shadow-xl border border-gray-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <MessageSquareHeart className="w-5 h-5 text-pink-600" />
                 <h3 className="font-bold text-gray-900 text-sm">
-                  Submit {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"} Feedback
+                  {feedbackTargetType === "adjudicator" ? t("adjPortal.modalAdjudicatorTitle") : t("adjPortal.modalTeamTitle")}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowFeedbackModal(false)}
+                aria-label={t("common.close")}
                 className="text-gray-400 hover:text-gray-600 p-1"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
 
             {feedbackError && (
-              <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-1.5">
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{feedbackError}</span>
               </div>
@@ -1058,7 +1057,7 @@ export default function AdjudicatorPrivatePortalPage() {
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200">
                 <span className="text-[10px] text-gray-500 font-bold uppercase block">
-                  Target {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"}
+                  {feedbackTargetType === "adjudicator" ? t("adjPortal.targetAdjudicator") : t("adjPortal.targetTeam")}
                 </span>
                 <span className="text-sm font-bold text-gray-900">
                   {feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName}
@@ -1068,9 +1067,9 @@ export default function AdjudicatorPrivatePortalPage() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-semibold text-gray-700">
-                    Feedback Score ({minFeedbackScore}–{maxFeedbackScore})
+                    {t("portal.feedback.score", { min: minFeedbackScore, max: maxFeedbackScore })}
                   </label>
-                  <span className="text-sm font-bold text-blue-600">{feedbackScore} / {maxFeedbackScore}</span>
+                  <span className="text-sm font-bold text-blue-600">{t("portal.feedback.scoreValue", { score: feedbackScore, max: maxFeedbackScore })}</span>
                 </div>
                 <input
                   type="range"
@@ -1085,47 +1084,48 @@ export default function AdjudicatorPrivatePortalPage() {
 
               {feedbackTargetType === "adjudicator" && <div>
                 <label className="font-semibold text-gray-700 block mb-1.5">
-                  Did you agree with this adjudicator&apos;s decision/contribution?
+                  {t("adjPortal.agreeQuestion")}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setFeedbackAgree(true)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
+                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 border transition ${
                       feedbackAgree
                         ? "bg-emerald-50 border-emerald-500 text-emerald-800 font-bold"
                         : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                     }`}
                   >
                     <ThumbsUp className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Yes, Agreed</span>
+                    <span>{t("portal.feedback.agreeYes")}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setFeedbackAgree(false)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
+                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center gap-1.5 border transition ${
                       !feedbackAgree
                         ? "bg-amber-50 border-amber-500 text-amber-800 font-bold"
                         : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
                     }`}
                   >
                     <ThumbsDown className="w-3.5 h-3.5 text-amber-600" />
-                    <span>No, Disagreed</span>
+                    <span>{t("portal.feedback.agreeNo")}</span>
                   </button>
                 </div>
               </div>}
 
               <div>
                 <label className="font-semibold text-gray-700 block mb-1">
-                  {feedbackTargetType === "adjudicator" ? "Constructive Feedback & Notes" : "Constructive Feedback on Team Performance"} (Confidential to Adjudication Core)
+                  {feedbackTargetType === "adjudicator" ? t("adjPortal.adjudicatorComments") : t("portal.feedback.teamComments")}{" "}
+                  {t("portal.feedback.confidential")}
                 </label>
                 <textarea
                   rows={3}
                   value={feedbackComments}
                   onChange={(e) => setFeedbackComments(e.target.value)}
                   placeholder={feedbackTargetType === "adjudicator"
-                    ? "Detail tracking of arguments, clarity of oral adjudication, engagement..."
-                    : "Comment on the team’s engagement, argumentation, and conduct..."}
+                    ? t("adjPortal.adjudicatorPlaceholder")
+                    : t("portal.feedback.teamPlaceholder")}
                   className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -1138,20 +1138,20 @@ export default function AdjudicatorPrivatePortalPage() {
                 }
               />
 
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowFeedbackModal(false)}
                   className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="submit"
                   disabled={feedbackSubmitting}
                   className="px-4 py-1.5 bg-pink-600 text-white rounded-md font-semibold hover:bg-pink-700 transition disabled:opacity-50"
                 >
-                  {feedbackSubmitting ? "Submitting..." : "Submit Feedback"}
+                  {feedbackSubmitting ? t("portal.feedback.submitting") : t("portal.feedback.submit")}
                 </button>
               </div>
             </form>
@@ -1165,25 +1165,26 @@ export default function AdjudicatorPrivatePortalPage() {
           <div className="bg-white rounded-xl max-w-2xl w-full my-8 p-6 shadow-xl border border-gray-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
-                <h3 className="font-bold text-gray-900 text-base flex items-center space-x-2">
+                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
                   <FileCheck2 className="w-5 h-5 text-blue-600" />
-                  <span>Enter Debate Ballot &bull; {ballotDebate.venueName}</span>
+                  <span>{t("adjPortal.ballot.title", { venue: ballotDebate.venueName ?? "" })}</span>
                 </h3>
                 <p className="text-[11px] text-gray-500">
-                  Submit panel ranking and speaker scores directly from your private adjudicator portal.
+                  {t("adjPortal.ballot.description")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowBallotModal(false)}
+                aria-label={t("common.close")}
                 className="text-gray-400 hover:text-gray-600 p-1"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
             {ballotError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{ballotError}</span>
               </div>
@@ -1199,18 +1200,19 @@ export default function AdjudicatorPrivatePortalPage() {
                 return (
                   <div key={side} className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
                     <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-xs bg-white px-2 py-0.5 rounded border border-gray-300">
                           {side}
                         </span>
                         <span className="font-bold text-gray-900 text-sm">
-                          {teamSlot?.teamName || "Unassigned"}
+                          {teamSlot?.teamName || t("adjPortal.ballot.unassigned")}
                         </span>
                       </div>
 
-                      <div className="flex items-center space-x-1.5">
-                        <label className="text-[11px] font-semibold text-gray-600">Rank / Place:</label>
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor={`ballot-rank-${side}`} className="text-[11px] font-semibold text-gray-600">{t("adjPortal.ballot.rank")}</label>
                         <select
+                          id={`ballot-rank-${side}`}
                           value={rank}
                           onChange={(e) =>
                             setBallotRanks((prev) => ({
@@ -1222,15 +1224,15 @@ export default function AdjudicatorPrivatePortalPage() {
                         >
                           {isBP ? (
                             <>
-                              <option value={1}>1st Place (3 pts)</option>
-                              <option value={2}>2nd Place (2 pts)</option>
-                              <option value={3}>3rd Place (1 pt)</option>
-                              <option value={4}>4th Place (0 pts)</option>
+                              <option value={1}>{t("adjPortal.ballot.bpFirst")}</option>
+                              <option value={2}>{t("adjPortal.ballot.bpSecond")}</option>
+                              <option value={3}>{t("adjPortal.ballot.bpThird")}</option>
+                              <option value={4}>{t("adjPortal.ballot.bpFourth")}</option>
                             </>
                           ) : (
                             <>
-                              <option value={1}>1st - Win (1 pt)</option>
-                              <option value={2}>2nd - Loss (0 pts)</option>
+                              <option value={1}>{t("adjPortal.ballot.win")}</option>
+                              <option value={2}>{t("adjPortal.ballot.loss")}</option>
                             </>
                           )}
                         </select>
@@ -1242,7 +1244,7 @@ export default function AdjudicatorPrivatePortalPage() {
                       {spks.map((spk, idx) => (
                         <div key={idx} className="bg-white p-2 rounded border border-gray-200 flex items-center justify-between gap-2">
                           <span className="font-semibold text-gray-800 truncate text-[11px]">
-                            {spk.speakerName} (Spk {idx + 1})
+                            {t("adjPortal.ballot.speakerSlot", { name: spk.speakerName, position: idx + 1 })}
                           </span>
                           <input
                             type="number"
@@ -1263,7 +1265,7 @@ export default function AdjudicatorPrivatePortalPage() {
                       {replyEnabled && reply && (
                         <div className="bg-amber-50 p-2 rounded border border-amber-200 flex items-center justify-between gap-2">
                           <label className="flex items-center gap-1.5 font-semibold text-amber-900 text-[11px]">
-                            <span>Reply</span>
+                            <span>{t("adjPortal.ballot.reply")}</span>
                             <select
                               value={reply.speakerId}
                               onChange={(e) => {
@@ -1302,22 +1304,22 @@ export default function AdjudicatorPrivatePortalPage() {
 
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                 <span className="text-[11px] text-gray-500">
-                  Submitting will mark this ballot confirmed by {adjudicator.name}.
+                  {t("adjPortal.ballot.confirmNote", { name: adjudicator.name })}
                 </span>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setShowBallotModal(false)}
                     className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                   <button
                     type="submit"
                     disabled={ballotSubmitting}
                     className="px-4 py-1.5 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition disabled:opacity-50"
                   >
-                    {ballotSubmitting ? "Submitting Ballot..." : "Submit Ballot"}
+                    {ballotSubmitting ? t("adjPortal.ballot.submitting") : t("adjPortal.ballot.submit")}
                   </button>
                 </div>
               </div>

@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/DropdownMenu";
 import { ThemeMenuItems, ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
+import { LanguageMenuItems } from "@/components/ui/LanguageSwitcher";
 import { describeRoundStatus } from "@/components/layout/roundStatus";
 import {
   AlertTriangle,
@@ -469,6 +470,8 @@ export function Navbar({
             )}
             <DropdownMenuSeparator />
             <ThemeMenuItems preference={preference} onChange={setPreference} />
+            <DropdownMenuSeparator />
+            <LanguageMenuItems />
             <DropdownMenuSeparator />
             <DropdownMenuItem
               tone="danger"

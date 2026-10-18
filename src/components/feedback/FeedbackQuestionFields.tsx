@@ -1,6 +1,7 @@
 "use client";
 
 import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export function FeedbackQuestionFields({
   questions,
@@ -11,11 +12,12 @@ export function FeedbackQuestionFields({
   answers: Record<string, FeedbackAnswer>;
   onChange: (questionId: string, value: FeedbackAnswer) => void;
 }) {
+  const { t } = useI18n();
   if (questions.length === 0) return null;
 
   return (
     <fieldset className="space-y-3 border-t border-gray-100 pt-3">
-      <legend className="text-xs font-bold text-gray-800">Tournament questions</legend>
+      <legend className="text-xs font-bold text-gray-800">{t("feedbackQuestions.legend")}</legend>
       {questions.map((question) => (
         <div key={question.id} className="space-y-1">
           <label htmlFor={`feedback-question-${question.id}`} className="block text-xs font-semibold text-gray-700">
@@ -63,9 +65,9 @@ export function FeedbackQuestionFields({
               )}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
             >
-              <option value="">Choose…</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
+              <option value="">{t("feedbackQuestions.choose")}</option>
+              <option value="true">{t("feedbackQuestions.yes")}</option>
+              <option value="false">{t("feedbackQuestions.no")}</option>
             </select>
           )}
           {question.type === "select_one" && (
@@ -76,7 +78,7 @@ export function FeedbackQuestionFields({
               onChange={(event) => onChange(question.id, event.target.value)}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
             >
-              <option value="">Choose…</option>
+              <option value="">{t("feedbackQuestions.choose")}</option>
               {question.options?.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           )}
