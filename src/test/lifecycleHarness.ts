@@ -30,7 +30,7 @@ import {
   saveBreakCategoriesCommand,
   type BreakDependencies,
 } from "@/features/tournament/application/breaks";
-import { generateDrawCommand } from "@/features/tournament/application/draws";
+import { generateDrawCommand, type GenerateDrawDependencies } from "@/features/tournament/application/draws";
 import { setRoundCompletion } from "@/features/tournament/application/roundAdministration";
 import {
   createRoundCommand,
@@ -45,6 +45,7 @@ import { calculateStandings } from "@/lib/standings/calculator";
 
 export interface AuditRecord {
   action: string;
+  timestamp?: string;
   summary: string;
   roundId?: string;
   details?: Record<string, unknown>;
@@ -68,12 +69,18 @@ export class TournamentHarness {
   feedback: FeedbackSubmission[] = [];
   audit: AuditRecord[] = [];
   tombstones: CloudDeletionMap = {};
+  /** Records restored from a backup that the next upload writes over the cloud copy. */
+  overwrites: CloudDeletionMap = {};
   activeRound: Round | null = null;
+  /** The immediate cloud draw replacement (AUTOMATIC_CLOUD_WRITES); absent means local-only. */
+  drawCloudRepository?: GenerateDrawDependencies["cloudRepository"];
+  /** Distinguishes audit event ids recorded on different devices. */
+  deviceId = "device";
 
   constructor(public tournament: Tournament, private readonly drawSeed: (round: Round) => number) {}
 
   private recordAuditEvent = async (event: AuditRecord) => {
-    this.audit.push(event);
+    this.audit.push({ ...event, timestamp: new Date().toISOString() });
   };
 
   /* Queries ----------------------------------------------------------------- */
@@ -134,7 +141,7 @@ export class TournamentHarness {
       ballots: asRecords(this.ballots),
       feedback: asRecords(this.feedback),
       institutions: asRecords(this.institutions),
-      auditEvents: this.audit.map((event, index) => ({ id: `audit-${index}`, ...event })) as unknown as CloudRecord[],
+      auditEvents: this.audit.map((event, index) => ({ id: `audit-${this.deviceId}-${index}`, ...event })) as unknown as CloudRecord[],
     };
   }
 
@@ -224,6 +231,7 @@ export class TournamentHarness {
           this.activeRound = active;
         },
       },
+      cloudRepository: this.drawCloudRepository,
       recordAuditEvent: this.recordAuditEvent,
     }, options);
     return this.roundDebates(roundId);
