@@ -13,6 +13,7 @@ import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import { selectAssignedDebates } from "@/lib/privateSync";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -142,15 +143,7 @@ export async function POST(request: NextRequest) {
           { ...document.data(), id: document.id } as Team,
         ] as const)
     );
-    const assignedDebates = new Map(
-      debatesSnapshot.docs
-        .map((document) => [document.id, allDebates.get(document.id)!] as const)
-        .filter(([, debate]) => actorType === "adjudicator"
-          ? debate.adjudicators?.chairId === actorDocument.id ||
-            debate.adjudicators?.panellistIds?.includes(actorDocument.id) ||
-            debate.adjudicators?.traineeIds?.includes(actorDocument.id)
-          : Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id))
-    );
+    const assignedDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
 
     const batch = firestore.batch();
     let uploadedCount = 0;
