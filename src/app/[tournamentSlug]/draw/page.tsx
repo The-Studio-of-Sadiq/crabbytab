@@ -29,6 +29,7 @@ import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/v
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
+import { DrawCheckPanel } from "@/features/tournament/components/DrawCheckPanel";
 import { roundResults } from "@/features/tournament/application/draws";
 
 export default function DrawPage() {
@@ -40,6 +41,7 @@ export default function DrawPage() {
     debates,
     ballots,
     teams,
+    adjudicators,
     venues,
     generateDraw,
     updateRound,
@@ -556,6 +558,18 @@ export default function DrawPage() {
           teams={teams}
           updateRound={updateRound}
           updateTeam={(team) => updateTeam(team)}
+        />
+      )}
+
+      {tournament && activeRound && (
+        <DrawCheckPanel
+          tournament={tournament}
+          round={activeRound}
+          rounds={rounds}
+          debates={debates}
+          teams={teams}
+          adjudicators={adjudicators}
+          venues={venues}
         />
       )}
 

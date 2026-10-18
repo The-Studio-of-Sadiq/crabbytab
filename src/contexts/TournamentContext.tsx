@@ -270,41 +270,45 @@ export function TournamentProvider({
     [storagePrefix]
   );
 
-  const readSyncTombstones = (): CloudDeletionMap => {
+  // Per-device sync queues kept in localStorage: ids to delete from the cloud ("syncTombstones")
+  // and ids restored from a backup that must overwrite the cloud copy ("syncOverwrites").
+  type SyncIdQueue = "syncTombstones" | "syncOverwrites";
+
+  const readSyncIds = (queue: SyncIdQueue): CloudDeletionMap => {
     if (typeof window === "undefined") return {};
-    const raw = localStorage.getItem(`${storagePrefix}_syncTombstones`);
+    const raw = localStorage.getItem(`${storagePrefix}_${queue}`);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("Local sync deletion data is invalid. Export a backup before continuing.");
+      throw new Error("Local sync data is invalid. Export a backup before continuing.");
     }
-    const tombstones: CloudDeletionMap = {};
-    for (const [collectionName, ids] of Object.entries(parsed)) {
+    const ids: CloudDeletionMap = {};
+    for (const [collectionName, values] of Object.entries(parsed)) {
       if (
         !CLOUD_COLLECTIONS.includes(collectionName as (typeof CLOUD_COLLECTIONS)[number]) ||
-        !Array.isArray(ids) ||
-        !ids.every((id) => typeof id === "string")
+        !Array.isArray(values) ||
+        !values.every((id) => typeof id === "string")
       ) {
-        throw new Error("Local sync deletion data is invalid. Export a backup before continuing.");
+        throw new Error("Local sync data is invalid. Export a backup before continuing.");
       }
-      tombstones[collectionName as (typeof CLOUD_COLLECTIONS)[number]] = ids;
+      ids[collectionName as (typeof CLOUD_COLLECTIONS)[number]] = values;
     }
-    return tombstones;
+    return ids;
   };
 
-  const recordSyncTombstones = (deletions: CloudDeletionMap) => {
-    const current = readSyncTombstones();
-    for (const [collectionName, ids] of Object.entries(deletions)) {
+  const recordSyncIds = (queue: SyncIdQueue, additions: CloudDeletionMap) => {
+    const current = readSyncIds(queue);
+    for (const [collectionName, ids] of Object.entries(additions)) {
       if (!ids?.length) continue;
       current[collectionName as (typeof CLOUD_COLLECTIONS)[number]] = [
         ...new Set([...(current[collectionName as (typeof CLOUD_COLLECTIONS)[number]] || []), ...ids]),
       ];
     }
-    persistLocal("syncTombstones", current);
+    persistLocal(queue, current);
   };
 
-  const clearSyncedTombstones = (uploaded: CloudDeletionMap) => {
-    const remaining = readSyncTombstones();
+  const clearSyncIds = (queue: SyncIdQueue, uploaded: CloudDeletionMap) => {
+    const remaining = readSyncIds(queue);
     for (const [collectionName, ids] of Object.entries(uploaded)) {
       const uploadedIds = new Set(ids || []);
       remaining[collectionName as (typeof CLOUD_COLLECTIONS)[number]] =
@@ -312,12 +316,16 @@ export function TournamentProvider({
           .filter((id) => !uploadedIds.has(id));
     }
     persistLocal(
-      "syncTombstones",
+      queue,
       Object.fromEntries(
         Object.entries(remaining).filter(([, ids]) => ids && ids.length > 0)
       )
     );
   };
+
+  const readSyncTombstones = () => readSyncIds("syncTombstones");
+  const recordSyncTombstones = (deletions: CloudDeletionMap) => recordSyncIds("syncTombstones", deletions);
+  const clearSyncedTombstones = (uploaded: CloudDeletionMap) => clearSyncIds("syncTombstones", uploaded);
 
   const saveRoundsLocally = useCallback(
     (updatedRounds: Round[], nextActiveRound?: Round) => {
@@ -1716,37 +1724,48 @@ export function TournamentProvider({
     try {
       const localCollections = getLocalCollections();
       const deletions = readSyncTombstones();
+      const overwrites = readSyncIds("syncOverwrites");
+      // Runs after the records are sent, also when the upload stops part-way, so the sync
+      // versions of the records that were written are kept on this device.
+      const saveSyncedRecords = (
+        syncedTournament: Tournament,
+        syncedCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>
+      ) => {
+        setTournament({ ...syncedTournament });
+        persistLocal("meta", { ...syncedTournament });
+        const persistSyncedCollection = <T,>(
+          collectionName: (typeof CLOUD_COLLECTIONS)[number],
+          localName: string,
+          setter: (items: T[]) => void
+        ) => {
+          const items = syncedCollections[collectionName] as unknown as T[];
+          setter([...items]);
+          persistLocal(localName, items);
+        };
+        persistSyncedCollection<Round>("rounds", "rounds", setRounds);
+        persistSyncedCollection<Team>("teams", "teams", setTeams);
+        persistSyncedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
+        persistSyncedCollection<Venue>("venues", "venues", setVenues);
+        persistSyncedCollection<Motion>("motions", "motions", setMotions);
+        persistSyncedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
+        persistSyncedCollection<Debate>("debates", "debates", setDebates);
+        persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
+        persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
+        persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
+        persistLocal("auditEvents", syncedCollections.auditEvents);
+      };
       const archivedConflictCount = await uploadTournamentCommand({
         tournament,
         userId: user.uid,
         isGlobalAdmin,
         localCollections,
         deletions,
+        overwrites,
         repository: createFirestoreTournamentRepository(),
+        saveSyncedRecords,
       });
       clearSyncedTombstones(deletions);
-      setTournament({ ...tournament });
-      persistLocal("meta", { ...tournament });
-      const persistSyncedCollection = <T,>(
-        collectionName: (typeof CLOUD_COLLECTIONS)[number],
-        localName: string,
-        setter: (items: T[]) => void
-      ) => {
-        const items = localCollections[collectionName] as unknown as T[];
-        setter([...items]);
-        persistLocal(localName, items);
-      };
-      persistSyncedCollection<Round>("rounds", "rounds", setRounds);
-      persistSyncedCollection<Team>("teams", "teams", setTeams);
-      persistSyncedCollection<Adjudicator>("adjudicators", "adjudicators", setAdjudicators);
-      persistSyncedCollection<Venue>("venues", "venues", setVenues);
-      persistSyncedCollection<Motion>("motions", "motions", setMotions);
-      persistSyncedCollection<BreakCategory>("breakCategories", "breaks", setBreakCategories);
-      persistSyncedCollection<Debate>("debates", "debates", setDebates);
-      persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
-      persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
-      persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
-      persistLocal("auditEvents", localCollections.auditEvents);
+      clearSyncIds("syncOverwrites", overwrites);
       const syncSummary =
         archivedConflictCount > 0
           ? `Synced records. Preserved ${archivedConflictCount} unresolved cloud conflict(s) for recovery.`
@@ -1836,6 +1855,7 @@ export function TournamentProvider({
         localTournament: tournament,
         localCollections: getLocalCollections(),
         deletions: readSyncTombstones(),
+        overwrites: readSyncIds("syncOverwrites"),
         repository: createFirestoreTournamentRepository(),
       });
       const downloadedRounds = collections.rounds as unknown as Round[];
@@ -2026,9 +2046,11 @@ export function TournamentProvider({
     const plan = planTournamentBackupReplace({ currentTournament: tournament, current: getLocalCollections(), backup });
     applyCollectionsLocally(plan.tournament, plan.collections);
     // Removed records must also be deleted from the cloud copy on the next upload, and
-    // restored records must not be deleted by an older pending deletion.
+    // restored records must not be deleted by an older pending deletion; they overwrite the cloud
+    // copy even where it is newer or deleted.
     clearSyncedTombstones(plan.restoredIds);
     recordSyncTombstones(plan.removedIds);
+    recordSyncIds("syncOverwrites", plan.restoredIds);
     await recordAuditEvent({
       action: "backup.replaced",
       category: "tournament",

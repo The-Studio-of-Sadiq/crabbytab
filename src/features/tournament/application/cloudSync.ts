@@ -5,6 +5,12 @@ import { sanitizeAssistantAdjudicator, sanitizeAssistantTeam } from "@/lib/tourn
 export type { CloudCollectionName, CloudRecord } from "@/features/tournament/collections";
 
 export type CloudDeletionMap = Partial<Record<CloudCollectionName, string[]>>;
+/**
+ * Records this device restored from a backup. Their local version is authoritative: the next
+ * upload writes them over newer or deleted cloud versions (archiving what it replaces), and a
+ * download keeps them even if the cloud deleted them.
+ */
+export type CloudOverwriteMap = Partial<Record<CloudCollectionName, string[]>>;
 
 export function hasStaleSyncVersion(
   localVersion: number | undefined,
@@ -29,7 +35,8 @@ export interface TournamentCloudRepository {
   syncCollections(
     tournamentId: string,
     collections: Record<CloudCollectionName, CloudRecord[]>,
-    deletions?: CloudDeletionMap
+    deletions?: CloudDeletionMap,
+    overwrites?: CloudOverwriteMap
   ): Promise<number>;
   getSyncConflicts(tournamentId: string): Promise<SyncConflict[]>;
 }
@@ -70,9 +77,17 @@ export async function uploadTournamentCommand(input: {
   isGlobalAdmin?: boolean;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   deletions?: CloudDeletionMap;
+  overwrites?: CloudOverwriteMap;
   repository: TournamentCloudRepository;
+  /**
+   * Saves the tournament and records locally once the collections have been sent, whether or not
+   * every record was written. The repository stamps each record it saves with the cloud's new
+   * syncVersion, so keeping those after an interrupted upload lets the device edit the records
+   * already written without its next upload being read as a stale copy.
+   */
+  saveSyncedRecords?(tournament: Tournament, collections: Record<CloudCollectionName, CloudRecord[]>): void;
 }): Promise<number> {
-  const { tournament, userId, localCollections, deletions, repository } = input;
+  const { tournament, userId, localCollections, deletions, overwrites, repository } = input;
   const cloudTournament = await repository.getTournament(tournament.id);
   if (
     cloudTournament &&
@@ -106,11 +121,17 @@ export async function uploadTournamentCommand(input: {
   };
   const metadataConflict = await repository.saveTournament(tournament.id, metadata);
   if (!metadataConflict) tournament.syncVersion = metadata.syncVersion;
-  const collectionConflicts = await repository.syncCollections(
-    tournament.id,
-    localCollections,
-    deletions
-  );
+  let collectionConflicts: number;
+  try {
+    collectionConflicts = await repository.syncCollections(
+      tournament.id,
+      localCollections,
+      deletions,
+      overwrites
+    );
+  } finally {
+    input.saveSyncedRecords?.(tournament, localCollections);
+  }
   return collectionConflicts + Number(metadataConflict);
 }
 
@@ -122,6 +143,7 @@ export async function downloadTournamentCommand(input: {
   localTournament: Tournament;
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
   deletions?: CloudDeletionMap;
+  overwrites?: CloudOverwriteMap;
   repository: TournamentCloudRepository;
 }): Promise<{
   tournament: Tournament;
@@ -134,6 +156,7 @@ export async function downloadTournamentCommand(input: {
     localTournament,
     localCollections,
     deletions = {},
+    overwrites = {},
     repository,
   } = input;
   const snapshot = await repository.getTournament(tournamentId);
@@ -153,9 +176,10 @@ export async function downloadTournamentCommand(input: {
   const cloudCollections = await repository.getCollections(tournamentId);
   const collections = Object.fromEntries(
     CLOUD_COLLECTIONS.map((name) => {
+      const restoredIds = new Set(overwrites[name] || []);
       const deletedIds = new Set(
         cloudCollections[name]
-          .filter((record) => typeof record.deletedAt === "string")
+          .filter((record) => typeof record.deletedAt === "string" && !restoredIds.has(record.id))
           .map((record) => record.id)
       );
       for (const deletedId of deletions[name] || []) deletedIds.add(deletedId);

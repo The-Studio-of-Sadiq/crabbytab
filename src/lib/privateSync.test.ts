@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate } from "@/types";
-import { isTabRoomConfirmed, planPrivateBallotWrites, selectAssignedDebates } from "./privateSync";
+import { isTabRoomConfirmed, planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "./privateSync";
 
 function debate(id: string, overrides: Partial<Debate> = {}): Debate {
   return {
@@ -122,5 +122,12 @@ describe("planPrivateBallotWrites", () => {
     const plan = planPrivateBallotWrites([chairFinal], new Map([["d1", [{ id: "chair-ballot", data: confirmedChairBallot }]]]));
     expect(plan.discardExistingIds).toEqual([]);
     expect(plan.writes[0]).toMatchObject({ id: "chair-ballot-v2", version: 2, confirmed: false });
+  });
+});
+
+describe("supersededBallotUpdate", () => {
+  it("discards the earlier ballot and moves its sync version on", () => {
+    expect(supersededBallotUpdate({ confirmed: true, discarded: false })).toEqual({ confirmed: false, discarded: true, syncVersion: 1 });
+    expect(supersededBallotUpdate({ confirmed: true, syncVersion: 4 })).toEqual({ confirmed: false, discarded: true, syncVersion: 5 });
   });
 });

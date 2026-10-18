@@ -102,6 +102,34 @@ describe("buildPublicProjection", () => {
     });
   });
 
+  it("releases the results copied onto debate team slots only with the round's results", () => {
+    // Confirming a ballot writes points and speaker totals onto the debate's team slots.
+    const resulted = (round: Record<string, unknown>): PublicSourceData => {
+      const data = source();
+      data.rounds = [{ id: "r1", seq: 1, name: "Round 1", stage: "preliminary", drawStatus: "released", ...round }];
+      data.debates = [{
+        ...data.debates[0],
+        teams: {
+          AFF: { teamId: "team-a", side: "AFF", points: 1, speakerScoreTotal: 150 },
+          NEG: { teamId: "team-b", side: "NEG", points: 0, speakerScoreTotal: 148 },
+        },
+      }];
+      return data;
+    };
+    const slots = (data: PublicSourceData, preferences: Record<string, unknown> = {}) =>
+      buildPublicProjection({ ...tournament, preferences: { ...(tournament.preferences as object), ...preferences } }, data)
+        .collections.debates[0].teams as Record<string, Record<string, unknown>>;
+
+    expect(slots(resulted({ resultsReleased: false })).AFF).toEqual({ teamId: "team-a", side: "AFF" });
+    expect(slots(resulted({ resultsReleased: true, silent: true })).AFF).toEqual({ teamId: "team-a", side: "AFF" });
+    expect(slots(resulted({ resultsReleased: true })).AFF).toEqual({ teamId: "team-a", side: "AFF", points: 1 });
+    expect(slots(resulted({ resultsReleased: true, teamSpeaksReleased: true })).AFF)
+      .toEqual({ teamId: "team-a", side: "AFF", points: 1, speakerScoreTotal: 150 });
+    // A released tab covers completed silent rounds, speaks included.
+    expect(slots(resulted({ silent: true, completed: true }), { releaseTeamTab: true }).NEG)
+      .toEqual({ teamId: "team-b", side: "NEG", points: 0, speakerScoreTotal: 148 });
+  });
+
   it("ignores soft-deleted records", () => {
     const data = source();
     data.debates[0] = { ...data.debates[0], deletedAt: "2026-10-18T00:00:00.000Z" };

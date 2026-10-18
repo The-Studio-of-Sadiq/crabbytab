@@ -334,4 +334,31 @@ describe("tournament cloud synchronization", () => {
     const teamPayload = payload.collections.teams[0] as unknown as Record<string, unknown>;
     expect((teamPayload.speakers as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email");
   });
+
+  it("saves the records stamped before an interrupted upload stopped", async () => {
+    const localCollections = emptyCollections();
+    localCollections.teams = [{ id: "written" }, { id: "not-written" }];
+    let saved: Record<CloudCollectionName, CloudRecord[]> | undefined;
+    const repository: TournamentCloudRepository = {
+      async getTournament() { return { id: tournament.id, data: { ...tournament, ownerId: "user-1" } }; },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return emptyCollections(); },
+      async syncCollections(_id, collections) {
+        collections.teams[0].syncVersion = 3;
+        throw new Error("unavailable");
+      },
+      async getSyncConflicts() { return []; },
+    };
+
+    await expect(uploadTournamentCommand({
+      tournament,
+      userId: "user-1",
+      localCollections,
+      repository,
+      saveSyncedRecords: (_tournament, collections) => { saved = collections; },
+    })).rejects.toThrow("unavailable");
+
+    expect(saved?.teams).toEqual([{ id: "written", syncVersion: 3 }, { id: "not-written" }]);
+  });
 });
