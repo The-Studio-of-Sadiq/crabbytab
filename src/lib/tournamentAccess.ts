@@ -58,3 +58,18 @@ export function sanitizeAssistantAdjudicator(adjudicator: Adjudicator): Assistan
   } = adjudicator;
   return { ...safe, conflicts: [] };
 }
+/**
+ * Whether the current viewer gets administrator views of a tournament.
+ * A signed-out viewer is never an administrator, even for a device-local
+ * ("local"/"director") tournament: signed-out visitors only reach shared
+ * routes such as /display, /public and private URLs.
+ */
+export function isViewerTournamentAdmin(input: {
+  hasTournament: boolean;
+  signedIn: boolean;
+  isGlobalAdmin: boolean;
+  staffRole: unknown;
+}): boolean {
+  if (!input.hasTournament || !input.signedIn) return false;
+  return input.isGlobalAdmin || input.staffRole === "admin";
+}

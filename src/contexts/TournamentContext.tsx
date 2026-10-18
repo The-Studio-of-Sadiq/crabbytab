@@ -63,7 +63,11 @@ import { createFirestoreDrawRepository } from "@/features/tournament/infrastruct
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
-import { sanitizeAssistantAdjudicator, sanitizeAssistantTeam } from "@/lib/tournamentAccess";
+import {
+  isViewerTournamentAdmin,
+  sanitizeAssistantAdjudicator,
+  sanitizeAssistantTeam,
+} from "@/lib/tournamentAccess";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -838,11 +842,12 @@ export function TournamentProvider({
   };
 
   // Is the current user an owner or admin of this tournament?
-  const isOwnerOrAdmin = useMemo(() => {
-    if (!tournament) return false;
-    return isGlobalAdmin || cloudStaffRole === "admin" ||
-      (!authLoading && !user && (tournament.ownerId === "local" || tournament.ownerId === "director"));
-  }, [tournament, user, isGlobalAdmin, cloudStaffRole, authLoading]);
+  const isOwnerOrAdmin = useMemo(() => isViewerTournamentAdmin({
+    hasTournament: Boolean(tournament),
+    signedIn: Boolean(user),
+    isGlobalAdmin,
+    staffRole: cloudStaffRole,
+  }), [tournament, user, isGlobalAdmin, cloudStaffRole]);
   useEffect(() => {
     let active = true;
     setCloudStaffRole(null);
