@@ -13,6 +13,7 @@ import { auth, db } from "@/lib/firebase";
 import type { Tournament } from "@/types";
 import type {
   CloudDeletionMap,
+  CloudOverwriteMap,
   CloudCollectionName,
   CloudRecord,
   TournamentCloudRepository,
@@ -187,7 +188,8 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
     async syncCollections(
       tournamentId: string,
       localCollections: Record<CloudCollectionName, CloudRecord[]>,
-      deletions: CloudDeletionMap = {}
+      deletions: CloudDeletionMap = {},
+      overwrites: CloudOverwriteMap = {}
     ) {
       const firestoreDb = getFirestore();
       let archivedConflictCount = 0;
@@ -203,6 +205,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
           localItems
         );
         const deletedIds = new Set(deletions[collectionName] || []);
+        const restoredIds = new Set(overwrites[collectionName] || []);
         for (const recordId of deletedIds) {
           const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, recordId);
           const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
@@ -248,7 +251,9 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
             const current = { ...snapshot.data(), id: snapshot.id } as CloudRecord;
             const currentVersion = Number(current.syncVersion) || 0;
             const incomingVersion = Number(item.syncVersion) || 0;
-            if (typeof current.deletedAt === "string") {
+            // A record restored from a backup replaces whatever the cloud holds, deleted or newer.
+            const restored = restoredIds.has(item.id);
+            if (typeof current.deletedAt === "string" && !restored) {
               transaction.set(conflictRef, {
                 id: conflictRef.id,
                 collectionName,
@@ -263,7 +268,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
             if (recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(cleanRecord))) {
               return { conflict: false, syncVersion: currentVersion };
             }
-            if (hasStaleSyncVersion(incomingVersion, currentVersion)) {
+            if (!restored && hasStaleSyncVersion(incomingVersion, currentVersion)) {
               transaction.set(conflictRef, {
                 id: conflictRef.id,
                 collectionName,
@@ -281,7 +286,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
               recordId: item.id,
               record: current,
               incomingRecord: cleanRecord,
-              resolution: "superseded",
+              resolution: restored ? "restored" : "superseded",
               archivedAt: new Date().toISOString(),
             });
             const nextVersion = currentVersion + 1;
