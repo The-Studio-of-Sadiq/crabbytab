@@ -22,6 +22,16 @@ import {
   Key,
 } from "lucide-react";
 import { Team, Adjudicator, Institution } from "@/types";
+import {
+  adjudicatorConflictIds,
+  applyConflictSelection,
+  changeAdjudicatorInstitution,
+  extraInstitutionConflictIds,
+  teamConflictIds,
+  type ConflictSelection,
+} from "@/lib/adjudicators/conflicts";
+import { participantRegion } from "@/lib/adjudicators/diversity";
+import { AdjudicatorConflictsEditor } from "@/features/tournament/components/AdjudicatorConflictsEditor";
 
 export default function ImportDirectory({
   category,
@@ -43,7 +53,7 @@ export default function ImportDirectory({
     deleteTeam,
     addAdjudicator,
     addAdjudicators,
-    updateAdjudicator,
+    updateAdjudicators,
     deleteAdjudicator,
     addInstitution,
     addInstitutions,
@@ -61,6 +71,12 @@ export default function ImportDirectory({
 
   const [showAddAdjModal, setShowAddAdjModal] = useState(false);
   const [editingAdj, setEditingAdj] = useState<Adjudicator | null>(null);
+  const [editingAdjConflicts, setEditingAdjConflicts] = useState<ConflictSelection>({
+    teamIds: [],
+    adjudicatorIds: [],
+    institutionIds: [],
+  });
+  const [adjSaveError, setAdjSaveError] = useState("");
 
   const [showAddInstModal, setShowAddInstModal] = useState(false);
   const [editingInst, setEditingInst] = useState<Institution | null>(null);
@@ -262,11 +278,33 @@ export default function ImportDirectory({
     setShowAddAdjModal(false);
   };
 
+  const institutionsById = useMemo(
+    () => new Map(institutions.map((institution) => [institution.id, institution])),
+    [institutions]
+  );
+
+  const openAdjEditor = (adjudicator: Adjudicator) => {
+    setAdjSaveError("");
+    setEditingAdj(adjudicator);
+    setEditingAdjConflicts({
+      teamIds: teamConflictIds(adjudicator),
+      adjudicatorIds: adjudicatorConflictIds(adjudicator, adjudicators),
+      institutionIds: extraInstitutionConflictIds(adjudicator),
+    });
+  };
+
   const handleUpdateAdj = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAdj || !editingAdj.name.trim()) return;
 
-    await updateAdjudicator(editingAdj);
+    setAdjSaveError("");
+    try {
+      // Also saves anyone whose declaration of a removed adjudicator conflict was dropped.
+      await updateAdjudicators(applyConflictSelection(editingAdj, editingAdjConflicts, adjudicators));
+    } catch (error) {
+      setAdjSaveError(error instanceof Error ? error.message : "Could not save the adjudicator.");
+      return;
+    }
     setEditingAdj(null);
   };
 
@@ -542,6 +580,8 @@ export default function ImportDirectory({
                   <th>Judge Name</th>
                   <th>Institution / Affiliation</th>
                   <th className="text-center">Rating</th>
+                  <th>Gender / Region</th>
+                  <th className="text-center">Conflicts</th>
                   <th className="text-center">Role</th>
                   <th className="w-20 text-center">Status</th>
                   <th className="w-24 text-right">Actions</th>
@@ -566,6 +606,13 @@ export default function ImportDirectory({
                     </td>
                     <td className="text-center font-mono font-bold text-xs bg-gray-50 text-indigo-700">
                       {adj.baseScore?.toFixed(1) || "5.0"}
+                    </td>
+                    <td className="text-[11px] text-gray-700">
+                      {adj.gender?.trim() || "—"} · {participantRegion(adj, institutionsById) || "—"}
+                    </td>
+                    <td className="text-center font-mono text-[11px] text-gray-700">
+                      {teamConflictIds(adj).length + adjudicatorConflictIds(adj, adjudicators).length +
+                        extraInstitutionConflictIds(adj).length}
                     </td>
                     <td className="text-center">
                       {adj.trainee ? (
@@ -596,7 +643,7 @@ export default function ImportDirectory({
                         </Link>
                       )}
                       <button
-                        onClick={() => setEditingAdj(adj)}
+                        onClick={() => openAdjEditor(adj)}
                         className="p-1 text-gray-400 hover:text-indigo-600 rounded transition"
                         title="Edit Judge"
                       >
@@ -618,7 +665,7 @@ export default function ImportDirectory({
                 ))}
                 {filteredAdjs.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-xs text-gray-400">
+                    <td colSpan={9} className="text-center py-8 text-xs text-gray-400">
                       No adjudicators registered yet. Click &quot;Add Adjudicator&quot; or import via CSV.
                     </td>
                   </tr>
@@ -1217,7 +1264,7 @@ export default function ImportDirectory({
       {/* Edit Adj Modal */}
       {editingAdj && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
+          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 border border-gray-200">
             <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
               <Edit2 className="w-5 h-5 text-indigo-600" />
               <span>Edit Adjudicator</span>
@@ -1253,13 +1300,10 @@ export default function ImportDirectory({
                       checked={editingAdj.independent}
                       onChange={(e) => {
                         const isIndep = e.target.checked;
-                        setEditingAdj({
-                          ...editingAdj,
-                          independent: isIndep,
-                          institutionId: isIndep ? undefined : editingAdj.institutionId || institutions[0]?.id,
-                          institutionName: isIndep ? undefined : editingAdj.institutionName || institutions[0]?.name,
-                          conflicts: isIndep ? [] : editingAdj.conflicts,
-                        });
+                        const institution = isIndep
+                          ? undefined
+                          : institutions.find((item) => item.id === editingAdj.institutionId) ?? institutions[0];
+                        setEditingAdj(changeAdjudicatorInstitution(editingAdj, institution));
                       }}
                       className="rounded border-gray-300 text-indigo-600"
                     />
@@ -1272,15 +1316,11 @@ export default function ImportDirectory({
                     value={editingAdj.institutionId || ""}
                     onChange={(e) => {
                       const selected = institutions.find((i) => i.id === e.target.value);
-                      setEditingAdj({
-                        ...editingAdj,
-                        institutionId: selected?.id,
-                        institutionName: selected?.name,
-                        independent: !selected,
-                        conflicts: selected
-                          ? [{ institutionId: selected.id, type: "institution" }]
-                          : [],
-                      });
+                      setEditingAdj(changeAdjudicatorInstitution(editingAdj, selected));
+                      setEditingAdjConflicts((current) => ({
+                        ...current,
+                        institutionIds: current.institutionIds.filter((id) => id !== selected?.id),
+                      }));
                     }}
                     className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white"
                   >
@@ -1321,6 +1361,43 @@ export default function ImportDirectory({
                   </label>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs font-semibold text-gray-700">
+                  Gender
+                  <input
+                    type="text"
+                    value={editingAdj.gender || ""}
+                    onChange={(e) => setEditingAdj({ ...editingAdj, gender: e.target.value || undefined })}
+                    onBlur={(e) => setEditingAdj({ ...editingAdj, gender: e.target.value.trim() || undefined })}
+                    placeholder="Optional, self-described"
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-normal"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Region
+                  <input
+                    type="text"
+                    value={editingAdj.region || ""}
+                    onChange={(e) => setEditingAdj({ ...editingAdj, region: e.target.value || undefined })}
+                    onBlur={(e) => setEditingAdj({ ...editingAdj, region: e.target.value.trim() || undefined })}
+                    placeholder={participantRegion({ institutionId: editingAdj.institutionId }, institutionsById) || "Optional"}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-normal"
+                  />
+                  <span className="mt-0.5 block text-[10px] font-normal text-gray-500">Blank uses the institution region.</span>
+                </label>
+              </div>
+
+              <AdjudicatorConflictsEditor
+                adjudicator={editingAdj}
+                selection={editingAdjConflicts}
+                teams={teams}
+                adjudicators={adjudicators}
+                institutions={institutions}
+                onChange={setEditingAdjConflicts}
+              />
+
+              {adjSaveError && <p role="alert" className="text-xs text-red-700">{adjSaveError}</p>}
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
                 <button

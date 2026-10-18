@@ -143,6 +143,7 @@ export interface TournamentContextType {
   addAdjudicator: (adj: Omit<Adjudicator, "id" | "tournamentId">) => Promise<void>;
   addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<void>;
   updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
+  updateAdjudicators: (adjudicators: Adjudicator[]) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
   addVenue: (venue: Omit<Venue, "id" | "tournamentId">) => Promise<void>;
   addVenues: (venues: Omit<Venue, "id" | "tournamentId">[]) => Promise<void>;
@@ -995,6 +996,7 @@ export function TournamentProvider({
     deleteTeam: deleteTeamCommand,
     addAdjudicators: addAdjudicatorsCommand,
     updateAdjudicator: updateAdjudicatorCommand,
+    updateAdjudicators,
     deleteAdjudicator: deleteAdjudicatorCommand,
     addVenues: addVenuesCommand,
     updateVenue: updateVenueCommand,
@@ -1896,6 +1898,7 @@ export function TournamentProvider({
         addAdjudicator,
         addAdjudicators,
         updateAdjudicator,
+        updateAdjudicators,
         deleteAdjudicator,
         addVenue,
         addVenues,

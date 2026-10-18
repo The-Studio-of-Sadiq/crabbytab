@@ -29,6 +29,7 @@ import {
   Menu,
   X,
   Building2,
+  Users,
 } from "lucide-react";
 
 function NavLink({
@@ -247,6 +248,7 @@ export function Sidebar({ tournamentSlug }: { tournamentSlug: string }) {
             <NavLink nested href={`/${tournamentSlug}/imports/institutions`} icon={Building2} label="Institutions" />
             <NavLink nested href={`/${tournamentSlug}/imports/teams`} icon={Users2} label="Teams" />
             <NavLink nested href={`/${tournamentSlug}/imports/adjudicators`} icon={UserCheck} label="Adjudicators" />
+            <NavLink nested href={`/${tournamentSlug}/imports/diversity`} icon={Users} label="Diversity" />
             {isOwnerOrAdmin && (
               <NavLink nested href={`/${tournamentSlug}/imports/assistants`} icon={Shield} label="Assistants" />
             )}
