@@ -99,11 +99,17 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         throw new Error("Tournament slug must contain 1-40 lowercase letters, numbers, or hyphens.");
       }
       const slugRef = doc(firestoreDb, "tournamentSlugs", slug);
-      const matchingTournaments = await getDocs(
-        query(collection(firestoreDb, "tournaments"), where("slug", "==", slug), limit(2))
-      );
-      if (matchingTournaments.docs.some((document) => document.id !== tournamentId)) {
-        throw new Error("This tournament slug is already in use.");
+      try {
+        const matchingTournaments = await getDocs(
+          query(collection(firestoreDb, "tournaments"), where("slug", "==", slug), limit(2))
+        );
+        if (matchingTournaments.docs.some((document) => document.id !== tournamentId)) {
+          throw new Error("This tournament slug is already in use.");
+        }
+      } catch (error) {
+        // Only global admins may query every tournament; for other admins the
+        // tournamentSlugs reservation in the transaction below enforces uniqueness.
+        if ((error as { code?: unknown } | null)?.code !== "permission-denied") throw error;
       }
       const cleanTournament = cleanUndefined(tournament);
       return runTransaction(firestoreDb, async (transaction) => {

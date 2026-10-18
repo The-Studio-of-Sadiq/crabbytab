@@ -86,14 +86,16 @@ export async function uploadTournamentCommand(input: {
   const cloudAdmins = cloudTournament
     ? (cloudTournament.data.admins as Record<string, boolean> | undefined) || {}
     : tournament.admins;
-  const ownerId = cloudTournament && input.isGlobalAdmin
+  // Ownership and the admin list of an existing cloud tournament are never
+  // changed by an upload; Firestore rules reject such writes from non-owners.
+  const ownerId = cloudTournament
     ? typeof cloudTournament.data.ownerId === "string"
       ? cloudTournament.data.ownerId
       : tournament.ownerId
     : tournament.ownerId === "local" || tournament.ownerId === "director"
       ? userId
       : tournament.ownerId;
-  const admins = cloudTournament && input.isGlobalAdmin
+  const admins = cloudTournament
     ? cloudAdmins
     : { ...cloudAdmins, [userId]: true };
   const metadata = {

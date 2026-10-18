@@ -154,6 +154,30 @@ describe("tournament cloud synchronization", () => {
     expect(savedMetadata?.updatedAt).toEqual(expect.any(String));
   });
 
+  it("never rewrites ownership or admins of an existing cloud tournament", async () => {
+    let savedMetadata: Tournament | undefined;
+    const repository: TournamentCloudRepository = {
+      async getTournament() {
+        return { id: tournament.id, data: { ...tournament, ownerId: "owner", admins: { "user-1": true } } };
+      },
+      async findTournamentBySlug() { return null; },
+      async saveTournament(_id, metadata) { savedMetadata = metadata; return false; },
+      async getCollections() { return emptyCollections(); },
+      async syncCollections() { return 0; },
+      async getSyncConflicts() { return []; },
+    };
+
+    await uploadTournamentCommand({
+      tournament: { ...tournament, ownerId: "local", admins: { intruder: true } },
+      userId: "user-1",
+      localCollections: emptyCollections(),
+      repository,
+    });
+
+    expect(savedMetadata?.ownerId).toBe("owner");
+    expect(savedMetadata?.admins).toEqual({ "user-1": true });
+  });
+
   it("forwards local deletion tombstones with the upload", async () => {
     let receivedDeletions: Partial<Record<CloudCollectionName, string[]>> | undefined;
     const repository: TournamentCloudRepository = {
