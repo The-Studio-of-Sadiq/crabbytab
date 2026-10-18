@@ -1,5 +1,6 @@
 import type { AuditCategory, Debate, Institution, Motion, Round, Team, TeamStandingRow, Tournament, Venue } from "@/types";
 import type { generateRoundDraw } from "@/lib/draw/generator";
+import { randomSeed } from "@/lib/draw/rng";
 
 export interface DrawAuditEvent {
   action: string;
@@ -43,6 +44,8 @@ export async function generateDrawCommand(
       .map((item) => item.id)
   );
   const pastDebates = debates.filter((debate) => previousRoundIds.has(debate.roundId));
+  // Recorded on the round so this exact draw can be reproduced from the same inputs.
+  const seed = randomSeed();
   const generated = dependencies.generateRoundDraw({
     tournament,
     round,
@@ -51,6 +54,7 @@ export async function generateDrawCommand(
     venues,
     pastDebates,
     standings,
+    seed,
   });
 
   const roundMotion = motions.find((motion) => motion.rounds?.includes(round.id));
@@ -63,7 +67,7 @@ export async function generateDrawCommand(
 
   const removedDebates = debates.filter((debate) => debate.roundId === roundId);
   const updatedDebates = [...debates.filter((debate) => debate.roundId !== roundId), ...generated];
-  const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false };
+  const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false, drawSeed: seed };
   const updatedRounds = rounds.map((item) => item.id === round.id ? updatedRound : item);
 
   dependencies.localRepository.saveDebates(updatedDebates);
@@ -88,6 +92,7 @@ export async function generateDrawCommand(
       pairingMethod: tournament.preferences?.pairingMethod ?? tournament.preferences?.drawRule,
       conflictAvoidance: tournament.preferences?.conflictAvoidance,
       sideAllocationRule: tournament.preferences?.sideAllocationRule,
+      seed,
     },
   });
 }

@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { exportStandingsToCsv } from "@/lib/csv/importer";
+import { csvFileStem, speakerStandingsCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
 import { ReleasePanel } from "@/features/tournament/components/ReleasePanel";
 import {
   Trophy,
@@ -54,8 +56,13 @@ export default function StandingsPage() {
   });
 
   const handleExport = () => {
+    const name = tournament?.name || "Tournament";
     if (activeTab === "teams") {
-      exportStandingsToCsv(teamStandings, tournament?.name || "Tournament");
+      exportStandingsToCsv(teamStandings, name);
+    } else if (activeTab === "speakers") {
+      downloadCsv(`${csvFileStem(name)}_Speaker_Standings.csv`, speakerStandingsCsv(speakerStandings));
+    } else {
+      downloadCsv(`${csvFileStem(name)}_Reply_Standings.csv`, speakerStandingsCsv(replyStandings, { reply: true }));
     }
   };
 
@@ -76,6 +83,7 @@ export default function StandingsPage() {
         <div className="flex items-center space-x-2">
           <button
             onClick={handleExport}
+            title={`Download the ${activeTab === "teams" ? "team" : activeTab === "speakers" ? "speaker" : "reply"} standings as CSV`}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
           >
             <Download className="w-3.5 h-3.5 text-gray-500" />

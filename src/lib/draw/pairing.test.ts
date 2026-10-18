@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { pairTeams, shuffle } from "./pairing";
+import { pairAllocatedSides, pairTeams, shuffle } from "./pairing";
+import { createSeededRng } from "./rng";
 import { Team } from "@/types";
 
 function T(id: string): Team {
@@ -23,8 +24,15 @@ describe("pairTeams", () => {
     expect(ids(pairTeams(ranked8, "fold"))).toEqual(["1v8", "2v7", "3v6", "4v5"]);
   });
 
-  it("fold_top_adjacent_rest: top room folds, the rest pair adjacently", () => {
-    expect(ids(pairTeams(ranked8, "fold_top_adjacent_rest"))).toEqual(["1v8", "2v3", "4v5", "6v7"]);
+  it("fold_top_adjacent_rest: the top bracket folds, every other bracket pairs adjacently (Tabbycat)", () => {
+    expect(ids(pairTeams(ranked8, "fold_top_adjacent_rest"))).toEqual(["1v8", "2v7", "3v6", "4v5"]);
+    expect(ids(pairTeams(ranked8, "fold_top_adjacent_rest", { isTopBracket: false }))).toEqual(["1v2", "3v4", "5v6", "7v8"]);
+  });
+
+  it("random: the same seed gives the same rooms", () => {
+    const a = ids(pairTeams(ranked8, "random", { rng: createSeededRng(5) }));
+    const b = ids(pairTeams(ranked8, "random", { rng: createSeededRng(5) }));
+    expect(a).toEqual(b);
   });
 
   it("random: every team appears exactly once across the rooms", () => {
@@ -49,6 +57,27 @@ describe("pairTeams", () => {
     for (const method of ["adjacent", "slide", "fold", "fold_top_adjacent_rest"] as const) {
       expect(ids(pairTeams(pair, method))).toEqual(["1v2"]);
     }
+  });
+});
+
+describe("pairAllocatedSides", () => {
+  const aff = ["a1", "a2", "a3"].map(T);
+  const neg = ["n1", "n2", "n3"].map(T);
+
+  it("slide (and adjacent) pair the side lists in rank order", () => {
+    expect(ids(pairAllocatedSides(aff, neg, "slide"))).toEqual(["a1vn1", "a2vn2", "a3vn3"]);
+    expect(ids(pairAllocatedSides(aff, neg, "adjacent"))).toEqual(["a1vn1", "a2vn2", "a3vn3"]);
+  });
+
+  it("fold reverses the negative list; fold_top_adjacent_rest only in the top bracket", () => {
+    expect(ids(pairAllocatedSides(aff, neg, "fold"))).toEqual(["a1vn3", "a2vn2", "a3vn1"]);
+    expect(ids(pairAllocatedSides(aff, neg, "fold_top_adjacent_rest", { isTopBracket: false }))).toEqual(["a1vn1", "a2vn2", "a3vn3"]);
+  });
+
+  it("keeps every team on its side and rejects unbalanced lists", () => {
+    const rooms = pairAllocatedSides(aff, neg, "random", { rng: createSeededRng(1) });
+    expect(rooms.every(([a, n]) => a.id.startsWith("a") && n.id.startsWith("n"))).toBe(true);
+    expect(() => pairAllocatedSides(aff, neg.slice(1), "slide")).toThrow(/2 negative/);
   });
 });
 

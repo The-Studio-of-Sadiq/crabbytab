@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Round, Team, Tournament } from "@/types";
+import { Debate, Round, Team, Tournament } from "@/types";
 import {
   buildMatchupHistory,
   generateRoundDraw,
@@ -424,5 +424,159 @@ describe("Round draw eligibility", () => {
       "higher-priority",
       "lower-priority",
     ]);
+  });
+});
+describe("Draw generation parity (step 5)", () => {
+  const venues = Array.from({ length: 6 }, (_, index) => ({
+    id: `venue-${index}`,
+    tournamentId: "t1",
+    name: `Room ${index}`,
+    priority: 0,
+  }));
+  const fieldTeams = (count: number): Team[] =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `team-${index}`,
+      tournamentId: "t1",
+      name: `Team ${index}`,
+      seed: count - index,
+      speakers: [],
+      breakCategories: [],
+      speakerCategories: [],
+    }));
+  const tournamentFor = (format: "bp" | "uadc", preferences: Partial<Tournament["preferences"]> = {}) =>
+    ({ id: "t1", format, preferences: { teamsInDebate: format === "bp" ? 4 : 2, ...preferences } }) as Tournament;
+  const standingsFor = (draftTeams: Team[], winsOf: (index: number) => number) =>
+    draftTeams.map((team, index) => ({
+      rank: index + 1,
+      teamId: team.id,
+      teamName: team.name,
+      points: winsOf(index),
+      totalSpeakerScore: 100,
+      averageSpeakerScore: 50,
+      breakCategories: [],
+      roundResults: [],
+      metrics: { wins: winsOf(index), points: winsOf(index) } as never,
+    }));
+  const round2 = { ...makeRound("preliminary"), id: "r2", seq: 2, drawType: "power_paired" as const };
+  const pairsOf = (debates: ReturnType<typeof generateRoundDraw>) =>
+    debates.map((debate) => Object.entries(debate.teams).map(([side, slot]) => `${side}:${slot.teamId}`).join(","));
+
+  it("produces the same draw for the same seed", () => {
+    const drawTeams = fieldTeams(12);
+    const params = {
+      tournament: tournamentFor("uadc"),
+      round: round2,
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: standingsFor(drawTeams, (index) => (index < 5 ? 1 : 0)),
+    };
+    expect(pairsOf(generateRoundDraw({ ...params, seed: 123 }))).toEqual(pairsOf(generateRoundDraw({ ...params, seed: 123 })));
+    const bp = { ...params, tournament: tournamentFor("bp") };
+    expect(pairsOf(generateRoundDraw({ ...bp, seed: 9 }))).toEqual(pairsOf(generateRoundDraw({ ...bp, seed: 9 })));
+  });
+
+  it("persists pulled-up teams on their debate slots", () => {
+    const drawTeams = fieldTeams(8);
+    const debates = generateRoundDraw({
+      tournament: tournamentFor("uadc", { oddBracketMethod: "pullup_top", pairingMethod: "fold", conflictAvoidance: "off" }),
+      round: round2,
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: standingsFor(drawTeams, (index) => (index < 3 ? 1 : 0)),
+      seed: 1,
+    });
+    const pulled = debates.flatMap((debate) => Object.values(debate.teams).filter((slot) => slot.pulledUp).map((slot) => slot.teamId));
+    expect(pulled).toEqual(["team-3"]);
+
+    const bpTeams = fieldTeams(8);
+    const bpDebates = generateRoundDraw({
+      tournament: tournamentFor("bp"),
+      round: round2,
+      teams: bpTeams,
+      venues,
+      pastDebates: [],
+      standings: standingsFor(bpTeams, (index) => (index < 3 ? 3 : 1)),
+      seed: 1,
+    });
+    expect(bpDebates.flatMap((debate) => Object.values(debate.teams).filter((slot) => slot.pulledUp))).toHaveLength(1);
+  });
+
+  it("feeds recorded pull-ups back into the matchup history", () => {
+    const debate: Debate = {
+      id: "d1",
+      tournamentId: "t1",
+      roundId: "r1",
+      roundSeq: 1,
+      bracket: 1,
+      roomRank: 1,
+      importance: 0,
+      resultStatus: "confirmed" as const,
+      sidesConfirmed: true,
+      flags: [],
+      teams: {
+        AFF: { teamId: "a", teamName: "A", side: "AFF" as const },
+        NEG: { teamId: "b", teamName: "B", side: "NEG" as const, pulledUp: true },
+      } as Debate["teams"],
+      adjudicators: { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
+    };
+    const history = buildMatchupHistory([debate, { ...debate, id: "d2", roundId: "r2", roundSeq: 2 }]);
+    expect(history.pullups?.get("b")).toBe(2);
+    expect(history.pullups?.get("a")).toBeUndefined();
+    expect(history.pullupDebates?.get("a")).toBe(2);
+    expect(history.meetings?.get("a")?.get("b")).toBe(2);
+    expect(history.sides.get("b")).toEqual(["NEG", "NEG"]);
+  });
+
+  it("draws a seeded round from Team.seed and rejects it for BP", () => {
+    const drawTeams = fieldTeams(4);
+    const seededRound = { ...makeRound("preliminary"), drawType: "seeded" as const };
+    const debates = generateRoundDraw({
+      tournament: tournamentFor("uadc", { pairingMethod: "fold", conflictAvoidance: "off" }),
+      round: seededRound,
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: [],
+      seed: 4,
+    });
+    const roomsOf = debates.map((debate) => Object.values(debate.teams).map((slot) => slot.teamId).sort().join(" v "));
+    expect(roomsOf.sort()).toEqual(["team-0 v team-3", "team-1 v team-2"]);
+
+    expect(() => generateRoundDraw({
+      tournament: tournamentFor("bp"),
+      round: seededRound,
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: [],
+    })).toThrow(/only supported for two-team/);
+  });
+
+  it("uses the round's preallocated sides and rejects them for BP", () => {
+    const drawTeams = fieldTeams(4);
+    const preallocatedSides = { "team-0": "AFF", "team-1": "AFF", "team-2": "NEG", "team-3": "NEG" } as const;
+    const debates = generateRoundDraw({
+      tournament: tournamentFor("uadc", { sideAllocationRule: "preallocated" }),
+      round: { ...makeRound("preliminary"), drawType: "random", preallocatedSides },
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: [],
+      seed: 2,
+    });
+    for (const debate of debates) {
+      expect(preallocatedSides[debate.teams.AFF.teamId as keyof typeof preallocatedSides]).toBe("AFF");
+      expect(preallocatedSides[debate.teams.NEG.teamId as keyof typeof preallocatedSides]).toBe("NEG");
+    }
+    expect(() => generateRoundDraw({
+      tournament: tournamentFor("bp", { sideAllocationRule: "preallocated" }),
+      round: { ...makeRound("preliminary"), drawType: "random" },
+      teams: drawTeams,
+      venues,
+      pastDebates: [],
+      standings: [],
+    })).toThrow(/only supported for two-team formats/);
   });
 });

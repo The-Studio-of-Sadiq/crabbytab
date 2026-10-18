@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { BackupRestoreDialog } from "@/features/tournament/components/BackupRestoreDialog";
 import {
   ExternalLink,
   Plus,
@@ -41,7 +42,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     exportSyncRecovery,
     exportTournamentBackup,
     exportTournamentArchive,
-    importTournamentBackup,
     syncDataEntry,
   } = useTournament();
   const { user, logout } = useAuth();
@@ -52,7 +52,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   const [newRoundAbbr, setNewRoundAbbr] = useState("");
   const [newRoundStage, setNewRoundStage] = useState<"preliminary" | "elimination">("preliminary");
   const [isCreatingRound, setIsCreatingRound] = useState(false);
-  const backupInputRef = useRef<HTMLInputElement>(null);
+  const [showRestoreDialog, setShowRestoreDialog] = useState(false);
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -111,18 +111,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     }
   };
 
-  const handleImportBackup = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    setShowUserMenu(false);
-    if (!file) return;
-    try {
-      await importTournamentBackup(file);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Could not restore tournament backup.");
-    }
-  };
-
   const handleStaffSync = async () => {
     if (!window.confirm(
       "Upload participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
@@ -157,13 +145,7 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   return (
     <header className="bg-[#24292e] text-white border-b border-[#1b1f23] sticky top-0 z-50 select-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <input
-          ref={backupInputRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={handleImportBackup}
-        />
+        {showRestoreDialog && <BackupRestoreDialog onClose={() => setShowRestoreDialog(false)} />}
         <div className="flex items-center justify-between h-14 max-md:h-auto max-md:min-h-14 max-md:flex-wrap max-md:gap-y-2 max-md:py-2">
           {/* Brand & Tournament Name */}
           <div className="flex min-w-0 items-center space-x-2 sm:space-x-4">
@@ -386,11 +368,14 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
                       </button>
                       <button
                         type="button"
-                        onClick={() => backupInputRef.current?.click()}
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowRestoreDialog(true);
+                        }}
                         className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
                       >
                         <CloudDownload className="w-3.5 h-3.5" />
-                        <span>Merge Tournament Backup</span>
+                        <span>Restore Tournament Backup…</span>
                       </button>
                       <button
                         type="button"

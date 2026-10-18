@@ -41,6 +41,7 @@ const tournament: Tournament = {
 describe("generateDrawCommand", () => {
   it("saves locally before optional cloud persistence and audit", async () => {
     const calls: string[] = [];
+    let seedUsed: number | undefined;
     const round = createRoundRecord({
       tournamentId: tournament.id,
       roundSeq: 1,
@@ -56,8 +57,9 @@ describe("generateDrawCommand", () => {
       debates: [],
       motions: [],
       standings: [],
-      generateRoundDraw() {
+      generateRoundDraw(params) {
         calls.push("algorithm");
+        seedUsed = params.seed;
         return [];
       },
       localRepository: {
@@ -67,7 +69,8 @@ describe("generateDrawCommand", () => {
         },
         saveRounds(rounds, activeRound) {
           calls.push("local-rounds");
-          expect(rounds[0]).toMatchObject({ drawStatus: "draft", adjudicatorsRevealed: false });
+          expect(rounds[0]).toMatchObject({ drawStatus: "draft", adjudicatorsRevealed: false, drawSeed: seedUsed });
+          expect(typeof seedUsed).toBe("number");
           expect(activeRound.id).toBe(round.id);
         },
       },
@@ -82,7 +85,7 @@ describe("generateDrawCommand", () => {
       },
       async recordAuditEvent(event) {
         calls.push("audit");
-        expect(event).toMatchObject({ action: "draw.generated", roundId: round.id });
+        expect(event).toMatchObject({ action: "draw.generated", roundId: round.id, details: { seed: seedUsed } });
       },
     };
 

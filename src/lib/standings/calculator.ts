@@ -103,8 +103,6 @@ export function calculateStandings(
     teamRoundAccum.set(team.id, []);
   }
 
-  const byeSpeakerScores = new Map<string, Map<string, number>>();
-
   for (const debate of debates) {
     if (debate.postponed) continue;
     if (debate.byeTeamId) {
@@ -114,48 +112,12 @@ export function calculateStandings(
       const teamRow = teamRowsMap.get(debate.byeTeamId);
       if (!team || !teamRow) continue;
 
-      const priorScoresBySpeaker = new Map<string, number[]>();
-      const priorTeamScores: number[] = [];
-      const priorTournamentScores: number[] = [];
-      for (const priorDebate of debates) {
-        if (priorDebate.roundSeq >= debate.roundSeq || priorDebate.byeTeamId) continue;
-        const priorBallot = ballotMap.get(priorDebate.id);
-        if (!priorBallot) continue;
-
-        for (const scores of Object.values(priorBallot.speakerScores || {})) {
-          for (const entry of scores) {
-            if (!Number.isFinite(entry.score) || entry.score <= 0 || (isReplyPosition && entry.position === 4)) continue;
-            priorTournamentScores.push(entry.score);
-            if (team.speakers?.slice(0, substantiveSpeakersPerTeam).some((speaker) => speaker.id === entry.speakerId)) {
-              priorTeamScores.push(entry.score);
-              if (entry.speakerId) {
-                const speakerScores = priorScoresBySpeaker.get(entry.speakerId) ?? [];
-                speakerScores.push(entry.score);
-                priorScoresBySpeaker.set(entry.speakerId, speakerScores);
-              }
-            }
-          }
-        }
-      }
-
-      const average = (scores: number[]) =>
-        scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : undefined;
-      const fallbackScore = average(priorTeamScores)
-        ?? average(priorTournamentScores)
-        // Use the configured scale midpoint when the bye occurs before any scored round.
-        ?? ((tournament.preferences?.minSpeakerScore ?? 0) + (tournament.preferences?.maxSpeakerScore ?? 0)) / 2;
-      const speakerScores = new Map<string, number>();
-      for (const speaker of (team.speakers || []).slice(0, substantiveSpeakersPerTeam)) {
-        speakerScores.set(speaker.id, average(priorScoresBySpeaker.get(speaker.id) ?? []) ?? fallbackScore);
-      }
-      byeSpeakerScores.set(debate.id, speakerScores);
-
-      const speakerScoreTotal = Array.from(speakerScores.values()).reduce((sum, score) => sum + score, 0);
+      // Like Tabbycat's bye results, a bye win records the team result only:
+      // no speaker scores are invented, so speaks and speaker tabs are unaffected.
       const byePoints = isBP ? 3 : 1;
       const side = (Object.entries(debate.teams).find(([, slot]) => slot?.teamId === team.id)?.[0]
         ?? (isBP ? "OG" : "AFF")) as DebateSide;
       teamRow.points += byePoints;
-      teamRow.totalSpeakerScore += speakerScoreTotal;
       if (isBP) {
         teamRow.firstPlaces!++;
       } else {
@@ -164,18 +126,20 @@ export function calculateStandings(
       teamRoundAccum.get(team.id)!.push({
         points: byePoints,
         win: true,
-        speaksSum: speakerScoreTotal,
-        individualScores: Array.from(speakerScores.values()),
+        speaksSum: null,
+        individualScores: [],
         margin: 0,
         opponentTeamIds: [],
         pulledUp: false,
+        bye: true,
         rankInRoom: isBP ? 1 : undefined,
       });
       teamRow.roundResults.push({
         roundSeq: debate.roundSeq,
         side,
         points: byePoints,
-        speakerScore: speakerScoreTotal,
+        speakerScore: 0,
+        bye: true,
         rank: isBP ? 1 : undefined,
         win: true,
         opponentTeamIds: [],
@@ -315,21 +279,6 @@ export function calculateStandings(
         metrics: {} as any,
       });
       speakerScoresByRound.set(spk.id, { substantive: [], reply: [] });
-    }
-  }
-
-  for (const debate of debates) {
-    if (debate.postponed) continue;
-    const speakerScores = byeSpeakerScores.get(debate.id);
-    if (!speakerScores) continue;
-    for (const [speakerId, score] of speakerScores) {
-      const row = speakerRowsMap.get(speakerId);
-      if (!row) continue;
-      const position = row.speechesCount + 1;
-      row.totalScore += score;
-      row.speechesCount++;
-      row.scoresByRound.push({ roundSeq: debate.roundSeq, score, position });
-      speakerScoresByRound.get(speakerId)!.substantive.push(score);
     }
   }
 
