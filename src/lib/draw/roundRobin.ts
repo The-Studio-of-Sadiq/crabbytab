@@ -1,5 +1,6 @@
 import { Team, DebateSide } from "@/types";
 import { allocateSidesForDebate, SideAllocationOptions } from "./sideAllocator";
+import { Rng } from "./rng";
 
 export interface RoundRobinMatchup {
   bracket: number;
@@ -22,7 +23,8 @@ export function generateRoundRobinDraw(
   sideHistories: Map<string, DebateSide[]>,
   format: string,
   sideRule: "balanced" | "random" = "balanced",
-  sideOptions?: SideAllocationOptions
+  sideOptions?: SideAllocationOptions,
+  rng: Rng = Math.random
 ): RoundRobinMatchup[] {
   const n = teams.length;
   if (n % 2 !== 0) {
@@ -51,7 +53,7 @@ export function generateRoundRobinDraw(
   for (let i = 0; i < numMatches; i++) {
     const t1 = roundOrder[i];
     const t2 = roundOrder[n - 1 - i];
-    const teamsWithSides = allocateSidesForDebate([t1, t2], sideHistories, format, sideRule, sideOptions);
+    const teamsWithSides = allocateSidesForDebate([t1, t2], sideHistories, format, sideRule, sideOptions, rng);
     matchups.push({
       bracket: 0,
       teamsWithSides,

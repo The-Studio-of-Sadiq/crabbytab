@@ -256,7 +256,7 @@ describe("Standings Calculator (calculateStandings)", () => {
     expect(substantiveSpeakersWithScore[0].speakerId).toBe("g3"); // 77
   });
 
-  it("awards a BP bye win full points and each speaker's prior average", () => {
+  it("awards a BP bye win full points without inventing speaker scores", () => {
     const tournament = createMockTournament("bp", false);
     const teams: Team[] = [
       { id: "t1", tournamentId: "tourn-test", name: "Team 1", speakers: [{ id: "s1", name: "Speaker 1" }, { id: "s2", name: "Speaker 2" }], breakCategories: [], speakerCategories: [] },
@@ -341,14 +341,18 @@ describe("Standings Calculator (calculateStandings)", () => {
 
     expect(teamStanding.points).toBe(6);
     expect(teamStanding.firstPlaces).toBe(2);
-    expect(teamStanding.totalSpeakerScore).toBe(300);
+    // Speaks come only from the debate actually spoken; the bye is not a 0 either.
+    expect(teamStanding.totalSpeakerScore).toBe(150);
+    expect(teamStanding.metrics.speaks_avg).toBe(150);
+    expect(teamStanding.averageSpeakerScore).toBe(75);
+    expect(teamStanding.roundResults.find((r) => r.roundSeq === 2)).toMatchObject({ bye: true, points: 3 });
     expect(result.speakers.find((row) => row.speakerId === "s1")).toMatchObject({
-      totalScore: 160,
-      speechesCount: 2,
+      totalScore: 80,
+      speechesCount: 1,
     });
     expect(result.speakers.find((row) => row.speakerId === "s2")).toMatchObject({
-      totalScore: 140,
-      speechesCount: 2,
+      totalScore: 70,
+      speechesCount: 1,
     });
   });
 
@@ -384,7 +388,7 @@ describe("Standings Calculator (calculateStandings)", () => {
     expect(result.speakers[0]).toMatchObject({ totalScore: 0, speechesCount: 0 });
   });
 
-  it("awards a two-team bye win and uses the configured speaker-score midpoint without history", () => {
+  it("awards a two-team bye win with no speeches, speaks or margin", () => {
     const tournament = createMockTournament("uadc", true);
     const team: Team = {
       id: "t1",
@@ -417,9 +421,9 @@ describe("Standings Calculator (calculateStandings)", () => {
     };
 
     const result = calculateStandings(tournament, [], [team], [byeDebate], []);
-    expect(result.teams[0]).toMatchObject({ points: 1, wins: 1, totalSpeakerScore: 228 });
-    expect(result.speakers.filter((row) => row.speechesCount > 0)).toHaveLength(3);
-    expect(result.speakers.filter((row) => row.speechesCount > 0).every((row) => row.totalScore === 76)).toBe(true);
+    expect(result.teams[0]).toMatchObject({ points: 1, wins: 1, totalSpeakerScore: 0 });
+    expect(result.teams[0].metrics).toMatchObject({ wins: 1, speaks_sum: 0, speaks_avg: 0, margin_sum: 0, margin_avg: 0 });
+    expect(result.speakers.filter((row) => row.speechesCount > 0)).toHaveLength(0);
     expect(result.replies).toHaveLength(0);
   });
 

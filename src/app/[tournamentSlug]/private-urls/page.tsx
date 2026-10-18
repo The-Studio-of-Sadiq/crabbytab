@@ -18,8 +18,11 @@ import {
   AlertTriangle,
   Download,
   Share2,
+  Printer,
 } from "lucide-react";
+import { QrCode } from "@/components/ui/QrCode";
 import {
+  buildPrivateUrlSlips,
   generatePrivateKey,
   getAbsolutePrivateUrl,
   getAdjudicatorPrivatePath,
@@ -48,6 +51,17 @@ export default function PrivateUrlsManagementPage() {
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [copiedAllNotice, setCopiedAllNotice] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [includePasscodeOnSlips, setIncludePasscodeOnSlips] = useState(true);
+  // Slips (and their QR codes) are only rendered while printing, to keep the page light.
+  const [printingSlips, setPrintingSlips] = useState(false);
+
+  React.useEffect(() => {
+    if (!printingSlips) return;
+    const finish = () => setPrintingSlips(false);
+    window.addEventListener("afterprint", finish);
+    window.print();
+    return () => window.removeEventListener("afterprint", finish);
+  }, [printingSlips]);
 
   // Auto-generate keys on first visit if any are missing
   React.useEffect(() => {
@@ -152,6 +166,28 @@ export default function PrivateUrlsManagementPage() {
     }
   };
 
+  // Slips follow the current tab and search, like "Copy Current List".
+  const slipParticipants = activeTab === "adjudicators"
+    ? filteredAdjudicators.map((adjudicator) => ({
+        ...adjudicator,
+        detail: adjudicator.institutionName || "Independent",
+      }))
+    : filteredTeams.map((team) => ({
+        ...team,
+        detail: [team.institutionName, (team.speakers || []).map((speaker) => speaker.name).join(", ")]
+          .filter(Boolean)
+          .join(" · "),
+      }));
+  const slips = buildPrivateUrlSlips(
+    slipParticipants,
+    activeTab === "adjudicators" ? "adjudicator" : "team",
+    {
+      origin: typeof window === "undefined" ? "" : window.location.origin,
+      tournamentSlug,
+      includePasscode: includePasscodeOnSlips,
+    }
+  );
+
   return (
     <div className="space-y-6 max-w-5xl pb-16">
       {/* Header */}
@@ -166,7 +202,7 @@ export default function PrivateUrlsManagementPage() {
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleCopyAll}
@@ -183,6 +219,26 @@ export default function PrivateUrlsManagementPage() {
                 <span>Copy Current List</span>
               </>
             )}
+          </button>
+
+          <label className="flex items-center gap-1.5 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={includePasscodeOnSlips}
+              onChange={(event) => setIncludePasscodeOnSlips(event.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Passcodes on slips
+          </label>
+          <button
+            type="button"
+            onClick={() => setPrintingSlips(true)}
+            disabled={slips.length === 0 || printingSlips}
+            title="Print one slip with a QR code per participant in the current list"
+            className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition shadow-2xs disabled:opacity-50"
+          >
+            <Printer className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
+            <span>Print QR Slips ({slips.length})</span>
           </button>
 
           <button
@@ -561,6 +617,23 @@ export default function PrivateUrlsManagementPage() {
             </div>
           </div>
         </div>
+      )}
+      {printingSlips && (
+        <section className="print-only private-url-slips" aria-label="Printable private URL slips">
+          {slips.map((slip) => (
+            <article key={slip.id} className="private-url-slip">
+              <QrCode value={slip.url} label={`QR code for ${slip.name}'s private URL`} size={110} />
+              <div className="private-url-slip-text">
+                <strong>{slip.name}</strong>
+                {slip.detail && <span>{slip.detail}</span>}
+                <span>{tournament?.name} · {slip.type === "adjudicator" ? "Adjudicator" : "Team"} private URL</span>
+                <code>{slip.url}</code>
+                {slip.passcode && <span>Passcode: <code>{slip.passcode}</code></span>}
+                <em>Keep this slip private.</em>
+              </div>
+            </article>
+          ))}
+        </section>
       )}
     </div>
   );

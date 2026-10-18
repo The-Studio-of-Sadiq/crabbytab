@@ -6,6 +6,7 @@ import { SideBadge } from "@/components/ui/SideBadge";
 import {
   Shuffle,
   Printer,
+  Download,
   CheckCircle2,
   AlertTriangle,
   Lock,
@@ -20,11 +21,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
+import { csvFileStem, drawCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
+import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
 
 export default function DrawPage() {
   const {
@@ -37,6 +41,7 @@ export default function DrawPage() {
     venues,
     generateDraw,
     updateRound,
+    updateTeam,
     updateDebate,
     updateDebates,
   } = useTournament();
@@ -437,6 +442,14 @@ export default function DrawPage() {
     setDraggingItem(null);
   };
 
+  const handleExportDrawCsv = () => {
+    if (!tournament || !activeRound) return;
+    downloadCsv(
+      `${csvFileStem(tournament.name, activeRound.abbreviation || activeRound.name)}_Draw.csv`,
+      drawCsv(roundDebates, { format: tournament.format, includeAdjudicators: true, includeMotion: true })
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Action Controls */}
@@ -505,6 +518,16 @@ export default function DrawPage() {
           {drawReleaseError && <p role="alert" className="text-xs text-red-600">{drawReleaseError}</p>}
 
           <button
+            onClick={handleExportDrawCsv}
+            disabled={roundDebates.length === 0}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
+            title="Download this round's draw, with adjudicators and motion, as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
+
+          <button
             onClick={() => window.print()}
             className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded text-xs transition"
             title="Print Draw Sheet"
@@ -513,6 +536,16 @@ export default function DrawPage() {
           </button>
         </div>
       </div>
+
+      {tournament && activeRound && (
+        <DrawSetupPanel
+          tournament={tournament}
+          round={activeRound}
+          teams={teams}
+          updateRound={updateRound}
+          updateTeam={(team) => updateTeam(team)}
+        />
+      )}
 
       {venueAssignmentError && (
         <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

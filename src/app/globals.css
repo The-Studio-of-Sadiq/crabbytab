@@ -181,6 +181,35 @@ textarea {
     font-size: 9pt;
     margin-bottom: 2mm;
   }
+  .private-url-slips {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm;
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .private-url-slip {
+    display: flex;
+    gap: 3mm;
+    align-items: center;
+    break-inside: avoid;
+    border: 1px dashed #666;
+    padding: 3mm;
+  }
+  .private-url-slip-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1mm;
+    min-width: 0;
+    font-size: 8pt;
+  }
+  .private-url-slip-text strong {
+    font-size: 11pt;
+  }
+  .private-url-slip-text code {
+    font-size: 7pt;
+    word-break: break-all;
+  }
   .printable-ballots {
     color: black;
     font-family: Arial, sans-serif;

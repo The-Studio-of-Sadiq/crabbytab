@@ -109,6 +109,69 @@ describe("buildPublicProjection", () => {
   });
 });
 
+describe("participant lists", () => {
+  const withLists = (preferences: Record<string, unknown>): SourceRecord => ({
+    ...tournament,
+    preferences: { ...(tournament.preferences as Record<string, unknown>), ...preferences },
+  });
+  const listSource = () =>
+    source({
+      adjudicators: [
+        { id: "adj-1", name: "Judge", baseScore: 7, email: "j@example.com", privateUrlKey: "k", conflicts: [{ type: "institution" }] },
+        { id: "adj-core", name: "Core", baseScore: 9, testScore: 8, adjCore: true, breaking: true, conflicts: [] },
+        { id: "adj-break", name: "Breaker", baseScore: 8, breaking: true, conflicts: [] },
+      ],
+    });
+
+  it("keeps undrawn teams, unrevealed adjudicators and the core / breaking flags hidden by default", () => {
+    const projection = buildPublicProjection(tournament, listSource());
+    expect(projection.collections.teams.map((team) => team.id)).toEqual(["team-a", "team-b"]);
+    expect(projection.collections.adjudicators).toEqual([]);
+    expect(stableStringify(projection)).not.toContain("adjCore");
+    expect(stableStringify(projection)).not.toContain("breaking\":true");
+  });
+
+  it("lists every team and adjudicator when participants are released, without private fields", () => {
+    const projection = buildPublicProjection(withLists({ publicParticipants: true }), listSource());
+    expect(projection.collections.teams.map((team) => team.id)).toEqual(["team-a", "team-b", "team-hidden"]);
+    expect(projection.collections.adjudicators.map((adjudicator) => adjudicator.id)).toEqual([
+      "adj-1",
+      "adj-core",
+      "adj-break",
+    ]);
+    const json = stableStringify(projection.collections.adjudicators);
+    for (const secret of ["email", "privateUrlKey", "baseScore", "testScore", "conflicts", "adjCore", "breaking"]) {
+      expect(json).not.toContain(secret);
+    }
+  });
+
+  it("exposes only the released list's members and flag", () => {
+    const core = buildPublicProjection(withLists({ publicAdjudicatorCore: true }), listSource());
+    expect(core.collections.adjudicators).toEqual([
+      { id: "adj-core", name: "Core", adjCore: true },
+    ]);
+    const breaking = buildPublicProjection(withLists({ publicBreakingAdjudicators: true }), listSource());
+    expect(breaking.collections.adjudicators).toEqual([
+      { id: "adj-core", name: "Core", breaking: true },
+      { id: "adj-break", name: "Breaker", breaking: true },
+    ]);
+  });
+
+  it("does not reveal break results through the participants list", () => {
+    const data = source({
+      teams: [
+        { id: "team-a", name: "Alpha", speakers: [], breakStatus: "breaking", breakCategoryIds: ["open"] },
+        { id: "team-hidden", name: "Not drawn", speakers: [], breakStatus: "eliminated" },
+      ],
+    });
+    const projection = buildPublicProjection(withLists({ publicParticipants: true }), data);
+    for (const team of projection.collections.teams) {
+      expect(team).not.toHaveProperty("breakStatus");
+      expect(team).not.toHaveProperty("breakCategoryIds");
+    }
+  });
+});
+
 describe("check-in source", () => {
   it("stores no identities and counts availability (unset check-in counts as available)", () => {
     const checkins = buildPublicCheckinsSource(tournament, source());

@@ -42,3 +42,39 @@ export function getAbsolutePrivateUrl(
   }
   return path;
 }
+
+export interface PrivateUrlSlip {
+  id: string;
+  type: "adjudicator" | "team";
+  name: string;
+  detail?: string;
+  url: string;
+  passcode?: string;
+}
+
+/**
+ * Printable slips (name, link and, if wanted, passcode) for participants that have a private URL.
+ * Participants without a key are left out; the page reports how many were skipped.
+ */
+export function buildPrivateUrlSlips(
+  participants: { id: string; name: string; detail?: string; privateUrlKey?: string; privatePasscode?: string }[],
+  type: "adjudicator" | "team",
+  options: { origin: string; tournamentSlug: string; includePasscode: boolean }
+): PrivateUrlSlip[] {
+  return participants
+    .filter((participant) => Boolean(participant.privateUrlKey))
+    .map((participant) => {
+      const path =
+        type === "adjudicator"
+          ? getAdjudicatorPrivatePath(options.tournamentSlug, participant.privateUrlKey!)
+          : getTeamPrivatePath(options.tournamentSlug, participant.privateUrlKey!);
+      return {
+        id: participant.id,
+        type,
+        name: participant.name,
+        ...(participant.detail ? { detail: participant.detail } : {}),
+        url: `${options.origin}${path}`,
+        ...(options.includePasscode && participant.privatePasscode ? { passcode: participant.privatePasscode } : {}),
+      };
+    });
+}

@@ -12,12 +12,44 @@ export interface PublicRelease {
   speakerTab: boolean;
   repliesTab: boolean;
   breakCategoryIds: Set<string>;
+  /** Participant lists (Tabbycat's public participants / institutions / adjudication core pages). */
+  participants: boolean;
+  institutions: boolean;
+  adjudicatorCore: boolean;
+  breakingAdjudicators: boolean;
 }
 
 export type ReleasePreferences = Pick<
   TournamentPreferences,
-  "releaseTeamTab" | "releaseSpeakerTab" | "releaseRepliesTab" | "releasedBreakCategoryIds"
+  | "releaseTeamTab"
+  | "releaseSpeakerTab"
+  | "releaseRepliesTab"
+  | "releasedBreakCategoryIds"
+  | "publicParticipants"
+  | "publicInstitutionsList"
+  | "publicAdjudicatorCore"
+  | "publicBreakingAdjudicators"
 >;
+
+/** Release switches that map one-to-one onto a boolean preference. */
+export type BooleanReleaseKind =
+  | "teamTab"
+  | "speakerTab"
+  | "repliesTab"
+  | "participants"
+  | "institutions"
+  | "adjudicatorCore"
+  | "breakingAdjudicators";
+
+const RELEASE_PREFERENCE_KEYS = {
+  teamTab: "releaseTeamTab",
+  speakerTab: "releaseSpeakerTab",
+  repliesTab: "releaseRepliesTab",
+  participants: "publicParticipants",
+  institutions: "publicInstitutionsList",
+  adjudicatorCore: "publicAdjudicatorCore",
+  breakingAdjudicators: "publicBreakingAdjudicators",
+} as const satisfies Record<BooleanReleaseKind, keyof ReleasePreferences>;
 
 export function getPublicRelease(preferences?: Partial<TournamentPreferences> | null): PublicRelease {
   return {
@@ -27,6 +59,10 @@ export function getPublicRelease(preferences?: Partial<TournamentPreferences> | 
     breakCategoryIds: new Set(
       Array.isArray(preferences?.releasedBreakCategoryIds) ? preferences.releasedBreakCategoryIds : []
     ),
+    participants: preferences?.publicParticipants === true,
+    institutions: preferences?.publicInstitutionsList === true,
+    adjudicatorCore: preferences?.publicAdjudicatorCore === true,
+    breakingAdjudicators: preferences?.publicBreakingAdjudicators === true,
   };
 }
 
@@ -43,7 +79,7 @@ export function isTabRound(round: Pick<Round, "stage" | "cancelled" | "completed
 export function setRelease(
   preferences: TournamentPreferences,
   change:
-    | { kind: "teamTab" | "speakerTab" | "repliesTab"; released: boolean }
+    | { kind: BooleanReleaseKind; released: boolean }
     | { kind: "break"; categoryId: string; released: boolean }
 ): TournamentPreferences {
   if (change.kind === "break") {
@@ -52,12 +88,7 @@ export function setRelease(
     else current.delete(change.categoryId);
     return { ...preferences, releasedBreakCategoryIds: [...current].sort() };
   }
-  const key = ({
-    teamTab: "releaseTeamTab",
-    speakerTab: "releaseSpeakerTab",
-    repliesTab: "releaseRepliesTab",
-  } as const)[change.kind];
-  return { ...preferences, [key]: change.released };
+  return { ...preferences, [RELEASE_PREFERENCE_KEYS[change.kind]]: change.released };
 }
 
 /** True when the team broke in at least one released category. */

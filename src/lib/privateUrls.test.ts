@@ -4,6 +4,7 @@ import {
   getAdjudicatorPrivatePath,
   getTeamPrivatePath,
   getAbsolutePrivateUrl,
+  buildPrivateUrlSlips,
 } from "./privateUrls";
 
 describe("privateUrls utility", () => {
@@ -33,5 +34,33 @@ describe("privateUrls utility", () => {
   it("handles getAbsolutePrivateUrl fallback when window is not defined", () => {
     const url = getAbsolutePrivateUrl("australs-2026", "adjudicator", "adj_key123");
     expect(url).toBe("/australs-2026/private/adjudicator/adj_key123");
+  });
+});
+
+describe("buildPrivateUrlSlips", () => {
+  const participants = [
+    { id: "a", name: "Alpha", detail: "Uni", privateUrlKey: "key_a", privatePasscode: "pass-a" },
+    { id: "b", name: "No key" },
+  ];
+
+  it("skips participants without a key and builds absolute links", () => {
+    const slips = buildPrivateUrlSlips(participants, "team", {
+      origin: "https://crabbytab.example",
+      tournamentSlug: "cup",
+      includePasscode: false,
+    });
+    expect(slips).toEqual([
+      { id: "a", type: "team", name: "Alpha", detail: "Uni", url: "https://crabbytab.example/cup/private/team/key_a" },
+    ]);
+  });
+
+  it("adds the passcode only when asked", () => {
+    const [slip] = buildPrivateUrlSlips(participants, "adjudicator", {
+      origin: "https://crabbytab.example",
+      tournamentSlug: "cup",
+      includePasscode: true,
+    });
+    expect(slip.url).toBe("https://crabbytab.example/cup/private/adjudicator/key_a");
+    expect(slip.passcode).toBe("pass-a");
   });
 });

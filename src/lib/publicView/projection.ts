@@ -191,7 +191,16 @@ export function buildPublicProjection(
       const showSpeakerScores = round.teamSpeaksReleased === true || inReleasedTab(round);
       const motionVisible = visibleMotionIds.has(ballot.motionId || "");
       return {
-        ...pick(ballot, ["tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "timestamp"]),
+        ...pick(ballot, [
+          "tournamentId",
+          "roundId",
+          "debateId",
+          "version",
+          "confirmed",
+          "discarded",
+          "timestamp",
+          "forfeitSide",
+        ]),
         id: ballot.id,
         motionId: motionVisible ? ballot.motionId : undefined,
         motionText: motionVisible ? ballot.motionText : undefined,
@@ -217,6 +226,8 @@ export function buildPublicProjection(
       .filter((category) => release.breakCategoryIds.has(category.id))
       .flatMap((category) => category.generatedBreak?.breakingTeamIds ?? []),
     ...teamRecords.filter((team) => isInReleasedBreak(team, release)).map((team) => team.id),
+    // A released participants list names every registered team.
+    ...(release.participants ? teamRecords.map((team) => team.id) : []),
   ]);
   const teams = teamRecords
     .filter((team) => publicTeamIds.has(team.id))
@@ -247,10 +258,19 @@ export function buildPublicProjection(
       return [panel.chairId, ...(panel.panellistIds || []), ...(panel.traineeIds || [])].filter(Boolean);
     })
   );
+  // Adjudicators are public when they sit on a revealed panel or appear on a released list. The
+  // core / breaking flags are only sent once their list is released, so an unreleased breaking-adjudicator
+  // decision cannot be read from the projection.
+  const isListedAdjudicator = (adjudicator: Adjudicator) =>
+    release.participants ||
+    (release.adjudicatorCore && adjudicator.adjCore === true) ||
+    (release.breakingAdjudicators && adjudicator.breaking === true);
   const adjudicators = (active(source.adjudicators) as unknown as Adjudicator[])
-    .filter((adjudicator) => revealedAdjudicatorIds.has(adjudicator.id))
+    .filter((adjudicator) => revealedAdjudicatorIds.has(adjudicator.id) || isListedAdjudicator(adjudicator))
     .map((adjudicator) => ({
       ...pick(adjudicator, ["tournamentId", "name", "institutionId", "institutionName"]),
+      ...(release.adjudicatorCore && adjudicator.adjCore === true ? { adjCore: true } : {}),
+      ...(release.breakingAdjudicators && adjudicator.breaking === true ? { breaking: true } : {}),
       id: adjudicator.id,
     }));
 

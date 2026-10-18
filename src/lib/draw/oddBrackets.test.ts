@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { RankedTeamStats, WinBracket, applyPullupRestriction, resolveOddBrackets } from "./oddBrackets";
+import {
+  RankedTeamStats,
+  SidedBracket,
+  WinBracket,
+  applyPullupRestriction,
+  resolveOddBrackets,
+  resolveOddBracketsWithSides,
+} from "./oddBrackets";
 import { OddBracketMethod, PullupRestriction, Team } from "@/types";
+import { createSeededRng } from "./rng";
 
 function stats(id: string, opts: Partial<Omit<RankedTeamStats, "team">> = {}): RankedTeamStats {
   return {
@@ -12,8 +20,9 @@ function stats(id: string, opts: Partial<Omit<RankedTeamStats, "team">> = {}): R
   };
 }
 
-const names = (groups: { bracket: number; teams: Team[] }[]) =>
-  groups.map((g) => `${g.bracket}:${g.teams.map((t) => t.id).join(",")}`).join(" | ");
+const ids = (teams: Team[]) => teams.map((t) => t.id);
+const summary = (groups: { bracket: number; teams: Team[] }[]) =>
+  groups.map((g) => `${g.bracket}:${ids(g.teams).join(",")}`);
 
 describe("applyPullupRestriction", () => {
   const candidates = [
@@ -35,9 +44,8 @@ describe("applyPullupRestriction", () => {
   });
 });
 
-describe("resolveOddBrackets: exact selection per method", () => {
-  // Bracket of 3 wins has 3 teams (odd); bracket of 2 wins has 5 teams below it
-  // (5, not 4, so the total is even -- 3 + 5 = 8 -- matching a real tournament).
+describe("resolveOddBrackets: pull-up methods (golden)", () => {
+  // 3 teams on 3 wins (odd), 5 on 2 wins: 8 in total.
   const bracketsFor = (): WinBracket[] => [
     { wins: 3, teams: [stats("A1"), stats("A2"), stats("A3")] },
     {
@@ -55,55 +63,131 @@ describe("resolveOddBrackets: exact selection per method", () => {
   const cases: [OddBracketMethod, string][] = [
     ["pullup_top", "B1"],
     ["pullup_bottom", "B5"],
-    ["pullup_middle", "B3"], // index floor((5-1)/2) = 2 -> B3
+    ["pullup_middle", "B3"], // 5 eligible: the exact middle (index 2)
   ];
   for (const [method, expectedPick] of cases) {
-    it(`${method} pulls up ${expectedPick} (no restriction)`, () => {
+    it(`${method} pulls up ${expectedPick} and appends it to the bracket`, () => {
       const groups = resolveOddBrackets(bracketsFor(), method, "none");
-      const top = groups.find((g) => g.bracket === 3)!;
-      expect(top.teams.map((t) => t.id)).toEqual(["A1", "A2", "A3", expectedPick]);
-      expect(top.pulledUp).toEqual([expectedPick]);
-      const bottom = groups.find((g) => g.bracket === 2)!;
-      expect(bottom.teams).toHaveLength(4); // one of 5 pulled out, evenly resolved on its own
+      expect(summary(groups)[0]).toBe(`3:A1,A2,A3,${expectedPick}`);
+      expect(groups[0].pulledUp).toEqual([expectedPick]);
+      expect(groups[1].teams).toHaveLength(4);
     });
   }
 
-  it("pullup_top composed with least_pulled restriction picks the least-pulled team's top position", () => {
+  it("pullup_middle picks one of the two middle teams of an even candidate list", () => {
+    const picks = new Set<string>();
+    for (let seed = 0; seed < 40; seed++) {
+      const brackets: WinBracket[] = [
+        { wins: 2, teams: [stats("A1"), stats("A2"), stats("A3")] },
+        { wins: 1, teams: [stats("B1"), stats("B2"), stats("B3"), stats("B4")] },
+        { wins: 0, teams: [stats("C1")] },
+      ];
+      picks.add(resolveOddBrackets(brackets, "pullup_middle", "none", createSeededRng(seed))[0].pulledUp[0]);
+    }
+    expect([...picks].sort()).toEqual(["B2", "B3"]);
+  });
+
+  it("pullup_random is reproducible for a seed and covers every candidate across seeds", () => {
+    const pickFor = (seed: number) => resolveOddBrackets(bracketsFor(), "pullup_random", "none", createSeededRng(seed))[0].pulledUp[0];
+    expect(pickFor(7)).toBe(pickFor(7));
+    const picks = new Set(Array.from({ length: 60 }, (_, seed) => pickFor(seed)));
+    expect([...picks].sort()).toEqual(["B1", "B2", "B3", "B4", "B5"]);
+  });
+
+  it("pullup_top with least_pulled takes the top team among the least-pulled", () => {
     const groups = resolveOddBrackets(bracketsFor(), "pullup_top", "least_pulled");
-    // B2 and B3 both have 0 pullups (the minimum); "top" of that filtered pair is B2.
-    const top = groups.find((g) => g.bracket === 3)!;
-    expect(top.teams.map((t) => t.id)).toEqual(["A1", "A2", "A3", "B2"]);
+    expect(summary(groups)[0]).toBe("3:A1,A2,A3,B2");
   });
 
-  it("intermediate: leftover pairs with the top team of the bracket below, at bracket - 0.5", () => {
-    const groups = resolveOddBrackets(bracketsFor(), "intermediate", "none");
-    // A1, A2 form a normal room at bracket 3; the leftover (A3) is not in this group.
-    const top = groups.find((g) => g.bracket === 3)!;
-    expect(top.teams.map((t) => t.id)).toEqual(["A1", "A2"]);
-    const bubble = groups.find((g) => g.bracket === 2.5)!;
-    expect(bubble.teams.map((t) => t.id)).toEqual(["A3", "B1"]);
+  it("cascades: a bracket emptied or made odd by a pull-up is resolved in turn", () => {
+    const brackets: WinBracket[] = [
+      { wins: 2, teams: [stats("A1")] },
+      { wins: 1, teams: [stats("B1")] },
+      { wins: 0, teams: [stats("C1"), stats("C2")] },
+    ];
+    expect(summary(resolveOddBrackets(brackets, "pullup_top", "none"))).toEqual(["2:A1,B1", "0:C1,C2"]);
+    const brackets2: WinBracket[] = [
+      { wins: 2, teams: [stats("A1")] },
+      { wins: 1, teams: [stats("B1"), stats("B2")] },
+      { wins: 0, teams: [stats("C1"), stats("C2"), stats("C3")] },
+    ];
+    expect(summary(resolveOddBrackets(brackets2, "pullup_top", "none"))).toEqual(["2:A1,B1", "1:B2,C1", "0:C2,C3"]);
   });
 
-  it("intermediate_bubble uses the restriction to choose who joins the bubble room", () => {
-    const groups = resolveOddBrackets(bracketsFor(), "intermediate_bubble", "least_pulled");
-    const bubble = groups.find((g) => g.bracket === 2.5)!;
-    expect(bubble.teams.map((t) => t.id)).toEqual(["A3", "B2"]); // B2/B3 tie on 0 pullups, "top" of that pair is B2
-  });
-
-  it("throws for pullup_* when the bottom bracket is itself odd with nothing below", () => {
+  it("throws when the bottom bracket is odd with nothing below (odd field)", () => {
     const brackets: WinBracket[] = [{ wins: 1, teams: [stats("X1"), stats("X2"), stats("X3")] }];
     expect(() => resolveOddBrackets(brackets, "pullup_top", "none")).toThrow(/no bracket below/);
+    expect(() => resolveOddBrackets(brackets, "intermediate", "none")).toThrow(/no bracket below/);
   });
 
-  it("intermediate does not throw with nothing below: the leftover plays alone", () => {
-    const brackets: WinBracket[] = [{ wins: 1, teams: [stats("X1"), stats("X2"), stats("X3")] }];
-    const groups = resolveOddBrackets(brackets, "intermediate", "none");
-    const solo = groups.find((g) => g.teams.length === 1)!;
-    expect(solo.teams[0].id).toBe("X3");
+  it("intermediate1/2 require preallocated sides", () => {
+    expect(() => resolveOddBrackets([], "intermediate1", "none")).toThrow(/preallocated sides/);
+    expect(() => resolveOddBrackets([], "intermediate2", "none")).toThrow(/preallocated sides/);
   });
 });
 
-describe("resolveOddBrackets: cascading pull-ups never lose or duplicate a team", () => {
+describe("resolveOddBrackets: intermediate brackets (golden)", () => {
+  const brackets = (): WinBracket[] => [
+    { wins: 3, teams: [stats("A1"), stats("A2"), stats("A3")] },
+    { wins: 2, teams: [stats("B1"), stats("B2"), stats("B3"), stats("B4"), stats("B5")] },
+  ];
+
+  it("bottom of the odd bracket meets the top of the next, half a bracket below", () => {
+    expect(summary(resolveOddBrackets(brackets(), "intermediate", "least_pulled"))).toEqual([
+      "3:A1,A2",
+      "2.5:A3,B1",
+      "2:B2,B3,B4,B5",
+    ]);
+  });
+
+  it("chains: taking the top of a bracket can make it odd, creating the next intermediate bracket", () => {
+    const chained: WinBracket[] = [
+      { wins: 2, teams: [stats("A1")] },
+      { wins: 1, teams: [stats("B1"), stats("B2")] },
+      { wins: 0, teams: [stats("C1"), stats("C2"), stats("C3")] },
+    ];
+    expect(summary(resolveOddBrackets(chained, "intermediate", "none"))).toEqual([
+      "1.5:A1,B1",
+      "0.5:B2,C1",
+      "0:C2,C3",
+    ]);
+  });
+
+  it("intermediate_bubble: bubbles up when the intermediate pair conflicts", () => {
+    const conflict = (a: Team, b: Team) => [a.id, b.id].sort().join() === "A3,B1";
+    expect(summary(resolveOddBrackets(brackets(), "intermediate_bubble", "none", Math.random, conflict))).toEqual([
+      "3:A1,A3",
+      "2.5:A2,B1",
+      "2:B2,B3,B4,B5",
+    ]);
+  });
+
+  it("intermediate_bubble: bubbles down when bubbling up would still conflict", () => {
+    const pairs = new Set(["A3,B1", "A2,B1"]);
+    const conflict = (a: Team, b: Team) => pairs.has([a.id, b.id].sort().join());
+    expect(summary(resolveOddBrackets(brackets(), "intermediate_bubble", "none", Math.random, conflict))).toEqual([
+      "3:A1,A2",
+      "2.5:A3,B2",
+      "2:B1,B3,B4,B5",
+    ]);
+  });
+
+  it("intermediate_bubble: leaves the conflict when neither swap is clean", () => {
+    const conflict = () => true;
+    expect(summary(resolveOddBrackets(brackets(), "intermediate_bubble", "none", Math.random, conflict))).toEqual([
+      "3:A1,A2",
+      "2.5:A3,B1",
+      "2:B2,B3,B4,B5",
+    ]);
+  });
+
+  it("intermediate (without bubble) ignores conflicts", () => {
+    const conflict = () => true;
+    expect(summary(resolveOddBrackets(brackets(), "intermediate", "none", Math.random, conflict))[1]).toBe("2.5:A3,B1");
+  });
+});
+
+describe("resolveOddBrackets: property tests (every team exactly once, even groups)", () => {
   const methods: OddBracketMethod[] = [
     "pullup_top",
     "pullup_bottom",
@@ -112,60 +196,117 @@ describe("resolveOddBrackets: cascading pull-ups never lose or duplicate a team"
     "intermediate",
     "intermediate_bubble",
   ];
-  const restrictions: PullupRestriction[] = [
-    "none",
-    "least_pulled",
-    "lowest_draw_strength_speaks",
-    "lowest_draw_strength_wins",
-  ];
+  const restrictions: PullupRestriction[] = ["none", "least_pulled", "lowest_draw_strength_speaks", "lowest_draw_strength_wins"];
 
   for (const method of methods) {
     for (const restriction of restrictions) {
-      it(`${method} / ${restriction}: 300 random bracket shapes, every team exactly once, every group evenly sized`, () => {
-        let bad = 0;
+      it(`${method} / ${restriction}`, () => {
+        const rng = createSeededRng(method.length * 31 + restriction.length);
         for (let iter = 0; iter < 300; iter++) {
-          const numBrackets = 2 + Math.floor(Math.random() * 4);
-          const sizes = Array.from({ length: numBrackets }, () => Math.floor(Math.random() * 5));
-          const total = sizes.reduce((a, b) => a + b, 0);
-          if (total === 0) continue;
-          if (total % 2 !== 0) sizes[sizes.length - 1] += 1; // guarantee an even total
-
+          const numBrackets = 1 + Math.floor(rng() * 5);
+          const sizes = Array.from({ length: numBrackets }, () => 1 + Math.floor(rng() * 5));
+          if (sizes.reduce((a, b) => a + b, 0) % 2 !== 0) sizes[sizes.length - 1] += 1;
           let counter = 0;
           const brackets: WinBracket[] = sizes.map((size, i) => ({
             wins: numBrackets - i,
             teams: Array.from({ length: size }, () =>
               stats(`t${counter++}`, {
-                pullups: Math.floor(Math.random() * 3),
-                drawStrengthWins: Math.floor(Math.random() * 5),
-                drawStrengthSpeaks: Math.floor(Math.random() * 500),
+                pullups: Math.floor(rng() * 3),
+                drawStrengthWins: Math.floor(rng() * 5),
+                drawStrengthSpeaks: Math.floor(rng() * 500),
               })
             ),
           }));
-
-          const expectedIds = brackets.flatMap((b) => b.teams.map((t) => t.team.id)).sort();
-
-          try {
-            const groups = resolveOddBrackets(brackets, method, restriction);
-            const gotIds = groups.flatMap((g) => g.teams.map((t) => t.id)).sort();
-            // Every group must be splittable into rooms of 2 by pairTeams -- i.e. even --
-            // except a genuine solo "bye" leftover, which only intermediate* methods produce.
-            const sizesOk = groups.every(
-              (g) =>
-                g.teams.length > 0 &&
-                (g.teams.length % 2 === 0 ||
-                  (g.teams.length === 1 && (method === "intermediate" || method === "intermediate_bubble")))
-            );
-            if (gotIds.join() !== expectedIds.join() || !sizesOk) bad++;
-          } catch {
-            // pullup_* with nothing below the bottom-most odd bracket is a
-            // legitimate, documented failure mode; only count unexpected throws.
-            const bottomOdd = brackets[brackets.length - 1].teams.length % 2 !== 0;
-            const isPullupMethod = method.startsWith("pullup_");
-            if (!(bottomOdd && isPullupMethod)) bad++;
-          }
+          const expected = brackets.flatMap((b) => b.teams.map((t) => t.team.id)).sort();
+          const conflict = (a: Team, b: Team) => (Number(a.id.slice(1)) + Number(b.id.slice(1))) % 3 === 0;
+          const groups = resolveOddBrackets(brackets, method, restriction, rng, conflict);
+          expect(groups.flatMap((g) => ids(g.teams)).sort()).toEqual(expected);
+          expect(groups.every((g) => g.teams.length > 0 && g.teams.length % 2 === 0)).toBe(true);
+          // Brackets are listed highest first.
+          expect(groups.map((g) => g.bracket)).toEqual([...groups.map((g) => g.bracket)].sort((a, b) => b - a));
         }
-        expect(bad).toBe(0);
       });
     }
   }
+});
+
+describe("resolveOddBracketsWithSides (preallocated sides)", () => {
+  const sided = (wins: number, aff: string[], neg: string[]): SidedBracket => ({
+    wins,
+    aff: aff.map((id) => stats(id)),
+    neg: neg.map((id) => stats(id)),
+  });
+  const show = (groups: { bracket: number; aff: Team[]; neg: Team[] }[]) =>
+    groups.map((g) => `${g.bracket}:${ids(g.aff).join(",")}/${ids(g.neg).join(",")}`);
+
+  // 3 wins: 3 aff + 1 neg (2 surplus aff); 2 wins: 1 aff + 1 neg; 1 wins: 0 aff + 2 neg.
+  const field = () => [
+    sided(3, ["A1", "A2", "A3"], ["N1"]),
+    sided(2, ["A4"], ["N2"]),
+    sided(1, [], ["N3", "N4"]),
+  ];
+
+  it("pullup_top pulls negative teams from as many brackets as needed", () => {
+    expect(show(resolveOddBracketsWithSides(field(), "pullup_top", "none"))).toEqual([
+      "3:A1,A2,A3/N1,N2,N3",
+      "2:A4/N4",
+    ]);
+  });
+
+  it("intermediate1: one intermediate bracket filled from below", () => {
+    expect(show(resolveOddBracketsWithSides(field(), "intermediate1", "none"))).toEqual([
+      "3:A1/N1",
+      "2.5:A2,A3/N2,N3",
+      // Bracket 2's lone affirmative has no negative left in its own bracket, so it
+      // starts its own intermediate bracket (Tabbycat behaviour).
+      "1.5:A4/N4",
+    ]);
+  });
+
+  it("intermediate2: a separate intermediate bracket per contributing bracket", () => {
+    const groups = resolveOddBracketsWithSides(field(), "intermediate2", "none");
+    expect(show(groups)).toEqual([
+      "3:A1/N1",
+      `${3 - 1 / 3}:A2/N2`,
+      `${3 - 2 / 3}:A3/N3`,
+      "1.5:A4/N4",
+    ]);
+  });
+
+  it("rejects methods Tabbycat does not support with allocated sides", () => {
+    expect(() => resolveOddBracketsWithSides(field(), "intermediate_bubble", "none")).toThrow(/not available/);
+    expect(() => resolveOddBracketsWithSides(field(), "pullup_middle", "none")).toThrow(/not available/);
+  });
+
+  it("fails clearly when the sides cannot balance", () => {
+    expect(() => resolveOddBracketsWithSides([sided(1, ["A1", "A2"], [])], "pullup_top", "none")).toThrow(
+      /not enough teams allocated/
+    );
+    expect(() => resolveOddBracketsWithSides([sided(1, ["A1", "A2"], [])], "intermediate1", "none")).toThrow(
+      /unfilled intermediate/
+    );
+  });
+
+  it("property: every method keeps every team once with balanced sides", () => {
+    const rng = createSeededRng(99);
+    for (const method of ["pullup_top", "pullup_bottom", "pullup_random", "intermediate1", "intermediate2"] as OddBracketMethod[]) {
+      for (let iter = 0; iter < 200; iter++) {
+        const n = 2 * (1 + Math.floor(rng() * 8));
+        const sides = Array.from({ length: n }, (_, i) => (i < n / 2 ? "aff" : "neg"));
+        const shuffledSides = sides.sort(() => rng() - 0.5);
+        const wins = Array.from({ length: n }, () => Math.floor(rng() * 4));
+        const brackets: SidedBracket[] = [3, 2, 1, 0].map((w) => ({
+          wins: w,
+          aff: wins.flatMap((x, i) => (x === w && shuffledSides[i] === "aff" ? [stats(`t${i}`)] : [])),
+          neg: wins.flatMap((x, i) => (x === w && shuffledSides[i] === "neg" ? [stats(`t${i}`)] : [])),
+        }));
+        const groups = resolveOddBracketsWithSides(brackets, method, "none", rng);
+        const all = groups.flatMap((g) => [...ids(g.aff), ...ids(g.neg)]).sort();
+        expect(all).toEqual(Array.from({ length: n }, (_, i) => `t${i}`).sort());
+        expect(groups.every((g) => g.aff.length === g.neg.length && g.aff.length > 0)).toBe(true);
+        const affIds = new Set(groups.flatMap((g) => ids(g.aff)));
+        expect([...affIds].every((id) => shuffledSides[Number(id.slice(1))] === "aff")).toBe(true);
+      }
+    }
+  });
 });
