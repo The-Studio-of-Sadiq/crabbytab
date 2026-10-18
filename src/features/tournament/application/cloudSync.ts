@@ -174,25 +174,45 @@ export async function downloadTournamentCommand(input: {
     throw new Error("This cloud tournament belongs to another account.");
   }
   const cloudCollections = await repository.getCollections(tournamentId);
-  const collections = Object.fromEntries(
+  const collections = mergeCloudIntoWorkingCopy({ cloudCollections, localCollections, deletions, overwrites });
+  return { tournament, collections };
+}
+
+/**
+ * Merges cloud records into the device's working copy without losing local work.
+ * There is no per-record "uploaded" baseline, so any record present locally is
+ * treated as possibly unuploaded and wins over its cloud version. Cloud-only
+ * records are added, while records soft-deleted in the cloud (`deletedAt`) or
+ * pending local deletion (`deletions` tombstones) are dropped, except cloud
+ * soft-deletions of records restored from a backup (`overwrites`). With no local
+ * copy (`localCollections` null) this is the cloud state minus soft-deletions.
+ */
+export function mergeCloudIntoWorkingCopy(input: {
+  cloudCollections: Record<CloudCollectionName, CloudRecord[]>;
+  localCollections: Record<CloudCollectionName, CloudRecord[]> | null;
+  deletions?: CloudDeletionMap;
+  overwrites?: CloudOverwriteMap;
+}): Record<CloudCollectionName, CloudRecord[]> {
+  const { cloudCollections, localCollections, deletions = {}, overwrites = {} } = input;
+  return Object.fromEntries(
     CLOUD_COLLECTIONS.map((name) => {
+      const cloudRecords = cloudCollections[name] || [];
       const restoredIds = new Set(overwrites[name] || []);
       const deletedIds = new Set(
-        cloudCollections[name]
+        cloudRecords
           .filter((record) => typeof record.deletedAt === "string" && !restoredIds.has(record.id))
           .map((record) => record.id)
       );
       for (const deletedId of deletions[name] || []) deletedIds.add(deletedId);
       const recordsById = new Map(
-        cloudCollections[name]
+        cloudRecords
           .filter((record) => !deletedIds.has(record.id))
           .map((record) => [record.id, record])
       );
-      for (const record of localCollections[name]) {
+      for (const record of localCollections?.[name] || []) {
         if (!deletedIds.has(record.id)) recordsById.set(record.id, record);
       }
       return [name, [...recordsById.values()]];
     })
   ) as Record<CloudCollectionName, CloudRecord[]>;
-  return { tournament, collections };
 }
