@@ -7,6 +7,10 @@ import {
   query,
   runTransaction,
   where,
+  writeBatch,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type Transaction,
 } from "firebase/firestore";
 
 import { auth, db } from "@/lib/firebase";
@@ -20,7 +24,7 @@ import type {
   SyncConflict,
 } from "@/features/tournament/application/cloudSync";
 import { hasStaleSyncVersion } from "@/features/tournament/application/cloudSync";
-import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "@/features/tournament/collections";
+import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
 import { cleanUndefined } from "./firestore";
 
 function canonicalize(value: unknown): unknown {
@@ -43,6 +47,80 @@ function recordsEqual(left: unknown, right: unknown): boolean {
 function withoutUpdatedAt(data: Record<string, unknown>): Record<string, unknown> {
   const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = data;
   return rest;
+}
+
+/**
+ * Records per upload transaction. Each record can add two writes (itself and the archived version
+ * it replaces), which keeps a transaction well inside Firestore's 500-write and 10 MiB limits.
+ */
+const UPLOAD_TRANSACTION_SIZE = 150;
+/** Audit events per blind batch (one write each). */
+const UPLOAD_BATCH_SIZE = 400;
+
+function chunked<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+/**
+ * Writes one uploaded record inside a transaction, given its current cloud snapshot:
+ * - not in the cloud: created at syncVersion 1;
+ * - identical to the cloud: nothing written;
+ * - soft-deleted in the cloud, or uploaded from a stale version: not written, and the incoming
+ *   version is archived in syncConflicts (counted as a conflict);
+ * - otherwise (or restored from a backup): written at the next version, archiving the version it
+ *   replaces. Audit events are never rewritten.
+ */
+function writeRecordInTransaction(input: {
+  transaction: Transaction;
+  collectionName: CloudCollectionName;
+  item: CloudRecord;
+  snapshot: DocumentSnapshot;
+  restored: boolean;
+  recordRef: DocumentReference;
+  newConflictRef: () => DocumentReference;
+}): { conflict: boolean; syncVersion: number } {
+  const { transaction, collectionName, item, snapshot, restored, recordRef } = input;
+  const cleanRecord = cleanUndefined(item);
+  if (collectionName === "auditEvents" && snapshot.exists()) {
+    return { conflict: false, syncVersion: Number(snapshot.data()?.syncVersion) || 0 };
+  }
+  if (!snapshot.exists()) {
+    transaction.set(recordRef, { ...cleanRecord, syncVersion: 1 });
+    return { conflict: false, syncVersion: 1 };
+  }
+  const archive = (current: CloudRecord, resolution: string) => {
+    const conflictRef = input.newConflictRef();
+    transaction.set(conflictRef, {
+      id: conflictRef.id,
+      collectionName,
+      recordId: item.id,
+      record: current,
+      incomingRecord: cleanRecord,
+      resolution,
+      archivedAt: new Date().toISOString(),
+    });
+  };
+  const current = { ...snapshot.data(), id: snapshot.id } as CloudRecord;
+  const currentVersion = Number(current.syncVersion) || 0;
+  const incomingVersion = Number(item.syncVersion) || 0;
+  // A record restored from a backup replaces whatever the cloud holds, deleted or newer.
+  if (typeof current.deletedAt === "string" && !restored) {
+    archive(current, "deleted");
+    return { conflict: true, syncVersion: currentVersion };
+  }
+  if (recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(cleanRecord))) {
+    return { conflict: false, syncVersion: currentVersion };
+  }
+  if (!restored && hasStaleSyncVersion(incomingVersion, currentVersion)) {
+    archive(current, "unresolved");
+    return { conflict: true, syncVersion: currentVersion };
+  }
+  archive(current, restored ? "restored" : "superseded");
+  const nextVersion = currentVersion + 1;
+  transaction.set(recordRef, { ...cleanRecord, syncVersion: nextVersion });
+  return { conflict: false, syncVersion: nextVersion };
 }
 
 export function createFirestoreTournamentRepository(): TournamentCloudRepository {
@@ -192,112 +270,86 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       overwrites: CloudOverwriteMap = {}
     ) {
       const firestoreDb = getFirestore();
+      const recordRef = (collectionName: CloudCollectionName, recordId: string) =>
+        doc(firestoreDb, "tournaments", tournamentId, collectionName, recordId);
+      const newConflictRef = () => doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
       let archivedConflictCount = 0;
+
       for (const collectionName of CLOUD_COLLECTIONS) {
-        const collectionRef = collection(firestoreDb, "tournaments", tournamentId, collectionName);
-        const remoteIds = collectionName === "auditEvents"
-          ? (await getDocs(collectionRef)).docs.map((remoteDoc) => remoteDoc.id)
-          : [];
-        const localItems = localCollections[collectionName];
-        const plan = planCollectionReconciliation(
-          collectionName,
-          remoteIds,
-          localItems
-        );
-        const deletedIds = new Set(deletions[collectionName] || []);
+        const deletedIds = [...new Set(deletions[collectionName] || [])];
+        const deletedIdSet = new Set(deletedIds);
         const restoredIds = new Set(overwrites[collectionName] || []);
-        for (const recordId of deletedIds) {
-          const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, recordId);
-          const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
+
+        for (const chunk of chunked(deletedIds, UPLOAD_TRANSACTION_SIZE)) {
           await runTransaction(firestoreDb, async (transaction) => {
-            const snapshot = await transaction.get(recordRef);
-            if (snapshot.exists() && typeof snapshot.data().deletedAt === "string") return;
-            const deletedAt = new Date().toISOString();
-            const current = snapshot.exists()
-              ? { ...snapshot.data(), id: snapshot.id } as CloudRecord
-              : { id: recordId };
-            if (snapshot.exists()) {
-              transaction.set(conflictRef, {
-                id: conflictRef.id,
-                collectionName,
-                recordId,
-                record: current,
-                resolution: "recoverable-delete",
-                archivedAt: deletedAt,
+            const snapshots = await Promise.all(chunk.map((recordId) => transaction.get(recordRef(collectionName, recordId))));
+            chunk.forEach((recordId, index) => {
+              const snapshot = snapshots[index];
+              if (snapshot.exists() && typeof snapshot.data().deletedAt === "string") return;
+              const deletedAt = new Date().toISOString();
+              const current = snapshot.exists()
+                ? { ...snapshot.data(), id: snapshot.id } as CloudRecord
+                : { id: recordId };
+              if (snapshot.exists()) {
+                const conflictRef = newConflictRef();
+                transaction.set(conflictRef, {
+                  id: conflictRef.id,
+                  collectionName,
+                  recordId,
+                  record: current,
+                  resolution: "recoverable-delete",
+                  archivedAt: deletedAt,
+                });
+              }
+              transaction.set(recordRef(collectionName, recordId), {
+                ...current,
+                id: recordId,
+                deletedAt,
+                syncVersion: (Number(current.syncVersion) || 0) + 1,
               });
-            }
-            transaction.set(recordRef, {
-              ...current,
-              id: recordId,
-              deletedAt,
-              syncVersion: (Number(current.syncVersion) || 0) + 1,
             });
           });
         }
-        for (const item of plan.recordsToWrite) {
-          if (deletedIds.has(item.id)) continue;
-          const recordRef = doc(firestoreDb, "tournaments", tournamentId, collectionName, item.id);
-          const conflictRef = doc(collection(firestoreDb, "tournaments", tournamentId, "syncConflicts"));
-          const cleanRecord = cleanUndefined(item);
-          const archived = await runTransaction(firestoreDb, async (transaction) => {
-            const snapshot = await transaction.get(recordRef);
-            if (collectionName === "auditEvents" && snapshot.exists()) {
-              return { conflict: false, syncVersion: Number(snapshot.data().syncVersion) || 0 };
+
+        const items = (localCollections[collectionName] || []).filter((item) => !deletedIdSet.has(item.id));
+        let transactional = items;
+        if (collectionName === "auditEvents") {
+          // Audit events are append-only (the rules refuse updates), so events the cloud has never
+          // seen are created in plain batches without reading them first. A batch that hits an
+          // existing event is refused as a whole and is retried below with reads.
+          transactional = items.filter((item) => item.syncVersion !== undefined);
+          for (const chunk of chunked(items.filter((item) => item.syncVersion === undefined), UPLOAD_BATCH_SIZE)) {
+            const batch = writeBatch(firestoreDb);
+            for (const item of chunk) batch.set(recordRef(collectionName, item.id), { ...cleanUndefined(item), syncVersion: 1 });
+            try {
+              await batch.commit();
+              for (const item of chunk) item.syncVersion = 1;
+            } catch (error) {
+              console.warn("An audit batch was refused; retrying it with per-event checks:", error);
+              transactional = [...transactional, ...chunk];
             }
-            if (!snapshot.exists()) {
-              transaction.set(recordRef, { ...cleanRecord, syncVersion: 1 });
-              return { conflict: false, syncVersion: 1 };
-            }
-            const current = { ...snapshot.data(), id: snapshot.id } as CloudRecord;
-            const currentVersion = Number(current.syncVersion) || 0;
-            const incomingVersion = Number(item.syncVersion) || 0;
-            // A record restored from a backup replaces whatever the cloud holds, deleted or newer.
-            const restored = restoredIds.has(item.id);
-            if (typeof current.deletedAt === "string" && !restored) {
-              transaction.set(conflictRef, {
-                id: conflictRef.id,
-                collectionName,
-                recordId: item.id,
-                record: current,
-                incomingRecord: cleanRecord,
-                resolution: "deleted",
-                archivedAt: new Date().toISOString(),
-              });
-              return { conflict: true, syncVersion: currentVersion };
-            }
-            if (recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(cleanRecord))) {
-              return { conflict: false, syncVersion: currentVersion };
-            }
-            if (!restored && hasStaleSyncVersion(incomingVersion, currentVersion)) {
-              transaction.set(conflictRef, {
-                id: conflictRef.id,
-                collectionName,
-                recordId: item.id,
-                record: current,
-                incomingRecord: cleanRecord,
-                resolution: typeof current.deletedAt === "string" ? "deleted" : "unresolved",
-                archivedAt: new Date().toISOString(),
-              });
-              return { conflict: true, syncVersion: currentVersion };
-            }
-            transaction.set(conflictRef, {
-              id: conflictRef.id,
-              collectionName,
-              recordId: item.id,
-              record: current,
-              incomingRecord: cleanRecord,
-              resolution: restored ? "restored" : "superseded",
-              archivedAt: new Date().toISOString(),
-            });
-            const nextVersion = currentVersion + 1;
-            transaction.set(recordRef, { ...cleanRecord, syncVersion: nextVersion });
-            return { conflict: false, syncVersion: nextVersion };
-          });
-          if (archived.conflict) {
-            archivedConflictCount += 1;
-          } else {
-            item.syncVersion = archived.syncVersion;
           }
+        }
+
+        // Records the cloud may already hold are read and written in one transaction per chunk,
+        // so each keeps its stale-version check and the archived copy of what it replaces.
+        for (const chunk of chunked(transactional, UPLOAD_TRANSACTION_SIZE)) {
+          const outcomes = await runTransaction(firestoreDb, async (transaction) => {
+            const snapshots = await Promise.all(chunk.map((item) => transaction.get(recordRef(collectionName, item.id))));
+            return chunk.map((item, index) => writeRecordInTransaction({
+              transaction,
+              collectionName,
+              item,
+              snapshot: snapshots[index],
+              restored: restoredIds.has(item.id),
+              recordRef: recordRef(collectionName, item.id),
+              newConflictRef,
+            }));
+          });
+          outcomes.forEach((outcome, index) => {
+            if (outcome.conflict) archivedConflictCount += 1;
+            else chunk[index].syncVersion = outcome.syncVersion;
+          });
         }
       }
       return archivedConflictCount;
