@@ -1,6 +1,8 @@
 import Papa from "papaparse";
 import { Team, Adjudicator, Institution, Venue, VenueRequirements, Motion, Round, TeamStandingRow, SpeakerStandingRow, BreakCategory, Speaker } from "@/types";
 import { parseCategoryList, resolveBreakCategoryRefs } from "@/lib/teamCategories";
+import { csvFileStem, teamStandingsCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
 
 export interface TeamCsvRow {
   name: string;
@@ -332,32 +334,8 @@ export function parseMotionsCsv(
 }
 
 /**
- * Exports standings to downloadable CSV file.
+ * Exports team standings to a downloadable CSV file.
  */
 export function exportStandingsToCsv(standings: TeamStandingRow[], tournamentName: string) {
-  const csvData = standings.map((s) => ({
-    Rank: s.rank,
-    Team: s.teamName,
-    Institution: s.institutionCode || "",
-    Points: s.points,
-    "Total Speaker Score": s.totalSpeakerScore,
-    "Average Speaker Score": s.averageSpeakerScore,
-    "1st Places": s.firstPlaces || 0,
-    "2nd Places": s.secondPlaces || 0,
-    "3rd Places": s.thirdPlaces || 0,
-    "4th Places": s.fourthPlaces || 0,
-    Wins: s.wins || 0,
-    Margin: s.margins || 0,
-  }));
-
-  const csv = Papa.unparse(csvData);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-  link.setAttribute("download", `${tournamentName}_Standings.csv`);
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  downloadCsv(`${csvFileStem(tournamentName)}_Standings.csv`, teamStandingsCsv(standings));
 }
