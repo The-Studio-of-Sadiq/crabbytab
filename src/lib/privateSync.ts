@@ -115,3 +115,14 @@ export function planPrivateBallotWrites(
 
   return { discardExistingIds, writes };
 }
+
+/**
+ * The fields a private-URL submission changes on an earlier ballot it supersedes. The sync version
+ * moves on, so a tab-room device still holding the earlier version as live gets a sync conflict on
+ * its next upload instead of silently reviving that version.
+ */
+export function supersededBallotUpdate(
+  existing: Partial<BallotSubmission> & { syncVersion?: number }
+): Partial<BallotSubmission> & { syncVersion: number } {
+  return { confirmed: false, discarded: true, syncVersion: (Number(existing.syncVersion) || 0) + 1 };
+}

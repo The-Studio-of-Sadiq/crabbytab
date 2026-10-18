@@ -383,6 +383,21 @@ describe("tournament cloud synchronization", () => {
       expect(merged.venues).toEqual([]);
     });
 
+    it("keeps a backup-restored record even though the cloud copy is soft-deleted", () => {
+      const local = emptyCollections();
+      local.teams = [{ id: "t-restored", name: "From backup" } as CloudRecord];
+      const cloud = emptyCollections();
+      cloud.teams = [{ id: "t-restored", deletedAt: "2026-01-01T00:00:00.000Z" } as CloudRecord];
+
+      const merged = mergeCloudIntoWorkingCopy({
+        cloudCollections: cloud,
+        localCollections: local,
+        overwrites: { teams: ["t-restored"] },
+      });
+
+      expect(merged.teams).toEqual(local.teams);
+    });
+
     it("uses the cloud copy without soft-deleted records on a device with no local copy", () => {
       const cloud = emptyCollections();
       cloud.teams = [
@@ -395,5 +410,32 @@ describe("tournament cloud synchronization", () => {
       expect(merged.teams).toEqual([{ id: "t1", syncVersion: 1 }]);
       expect(Object.keys(merged).sort()).toEqual([...CLOUD_COLLECTIONS].sort());
     });
+  });
+
+  it("saves the records stamped before an interrupted upload stopped", async () => {
+    const localCollections = emptyCollections();
+    localCollections.teams = [{ id: "written" }, { id: "not-written" }];
+    let saved: Record<CloudCollectionName, CloudRecord[]> | undefined;
+    const repository: TournamentCloudRepository = {
+      async getTournament() { return { id: tournament.id, data: { ...tournament, ownerId: "user-1" } }; },
+      async findTournamentBySlug() { return null; },
+      async saveTournament() { return false; },
+      async getCollections() { return emptyCollections(); },
+      async syncCollections(_id, collections) {
+        collections.teams[0].syncVersion = 3;
+        throw new Error("unavailable");
+      },
+      async getSyncConflicts() { return []; },
+    };
+
+    await expect(uploadTournamentCommand({
+      tournament,
+      userId: "user-1",
+      localCollections,
+      repository,
+      saveSyncedRecords: (_tournament, collections) => { saved = collections; },
+    })).rejects.toThrow("unavailable");
+
+    expect(saved?.teams).toEqual([{ id: "written", syncVersion: 3 }, { id: "not-written" }]);
   });
 });

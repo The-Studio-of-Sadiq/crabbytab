@@ -23,7 +23,7 @@ import {
   getPrivatePortalBallots,
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
-import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
+import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
@@ -381,11 +381,13 @@ export async function POST(request: NextRequest) {
             })),
           ]))
         );
+        const existingById = new Map(
+          [...existingBallotsByDebate.values()].flatMap((snapshot) =>
+            snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)
+          )
+        );
         for (const id of plan.discardExistingIds) {
-          transaction.update(ballotCollection.doc(id), {
-            confirmed: false,
-            discarded: true,
-          });
+          transaction.update(ballotCollection.doc(id), supersededBallotUpdate(existingById.get(id) ?? {}));
         }
         for (const ballot of plan.writes) {
           transaction.set(ballotCollection.doc(ballot.id), ballot);

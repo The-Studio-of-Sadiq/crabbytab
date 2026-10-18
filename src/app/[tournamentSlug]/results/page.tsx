@@ -3,29 +3,95 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { SideBadge } from "@/components/ui/SideBadge";
 import {
-  FileCheck2,
-  CheckCircle2,
-  Clock,
-  Edit,
-  ArrowRight,
-  Eye,
-  AlertCircle,
-  FileText,
-  Search,
-  Lock,
-  ArrowUp,
   ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  Edit,
+  Eye,
+  FileText,
+  Lock,
   Printer,
 } from "lucide-react";
-import { BallotSubmission, DebateSide } from "@/types";
+import { BallotSubmission, DebateSide, TeamScoreEntry } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { StatusPill } from "@/components/ui/Badge";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Checkbox } from "@/components/ui/Field";
+import { EmptyState, ProgressBar } from "@/components/ui/Feedback";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
 import {
   getRoundCompletionBlockers,
   setRoundCompletion,
 } from "@/features/tournament/application/roundAdministration";
+
+const BP_SIDES: readonly [DebateSide, string][] = [
+  ["OG", "Opening Gov"],
+  ["OO", "Opening Opp"],
+  ["CG", "Closing Gov"],
+  ["CO", "Closing Opp"],
+];
+const TWO_TEAM_SIDES: readonly [DebateSide, string][] = [
+  ["AFF", "Affirmative"],
+  ["NEG", "Negative"],
+];
+
+/** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
+function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
+  const won = score ? (isBP ? score.rank === 1 : Boolean(score.win)) : false;
+  return (
+    <TD>
+      <div className="flex items-center gap-1 font-medium">
+        {score &&
+          (won ? (
+            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Winning team" />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5 shrink-0 text-danger" aria-label="Losing team" />
+          ))}
+        <span>{teamName || "—"}</span>
+      </div>
+      {score && (
+        <div className="font-mono text-[11px] text-fg-muted">
+          {isBP ? `${score.points} pts` : score.win ? "WIN" : "LOSS"} · {score.totalSpeakerScore} spks
+        </div>
+      )}
+    </TD>
+  );
+}
+
+/** One publication/lifecycle control: description on the left, action on the right. */
+function ControlRow({
+  title,
+  status,
+  action,
+  error,
+}: {
+  title: string;
+  status: React.ReactNode;
+  action: React.ReactNode;
+  error?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-fg">{title}</p>
+        <p className="text-xs text-fg-muted">{status}</p>
+        {error && (
+          <p role="alert" className="mt-0.5 text-xs text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">{action}</div>
+    </div>
+  );
+}
 
 export default function ResultsOverviewPage() {
   const {
@@ -36,12 +102,12 @@ export default function ResultsOverviewPage() {
     debates,
     ballots,
     adjudicators,
-    confirmBallot,
     updateRound,
     proceedToNextEliminationRound,
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
+  const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
   // The confirmed version is the debate's result; otherwise show the newest pending version.
@@ -135,401 +201,278 @@ export default function ResultsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <FileCheck2 className="w-6 h-6 text-blue-600" />
-            <span>Results & Ballot Entry</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Enter and verify speaker scores, team rankings, and paperless e-ballots.
-          </p>
-        </div>
-
-        {/* Progress Badge */}
-        <div className="flex items-center space-x-3">
-          <Link
-            href={`/${tournament?.slug}/print/ballots`}
-            className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50"
-          >
-            <Printer className="h-3.5 w-3.5" />
+      <PageHeader
+        title="Results & ballot entry"
+        description="Enter and verify speaker scores, team rankings, and paperless e-ballots."
+        actions={
+          <Link href={`/${tournament?.slug}/print/ballots`} className={buttonClasses({ variant: "secondary" })}>
+            <Printer aria-hidden="true" />
             Print ballot sheets
           </Link>
-          <span className="text-xs font-semibold text-gray-700">
-            {confirmedCount} of {roundDebates.length} Confirmed
+        }
+      />
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div role="group" aria-label="Select round" className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
+          {rounds.map((r) => {
+            const rDebates = debates.filter((d) => d.roundId === r.id);
+            const rConfirmed = rDebates.filter((d) => ballotMap.get(d.id)?.confirmed).length;
+            const isComplete = rConfirmed === rDebates.length && rDebates.length > 0;
+            const isActive = activeRound?.id === r.id;
+
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setActiveRound(r)}
+                aria-pressed={isActive}
+                className={cn(
+                  "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                  isActive
+                    ? "border-fg bg-fg text-background"
+                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                  focusRing
+                )}
+              >
+                {r.name}
+                {isComplete && (
+                  <>
+                    <CheckCircle2 className={cn("h-3 w-3", isActive ? "text-background" : "text-success")} aria-hidden="true" />
+                    <span className="sr-only">(all ballots confirmed)</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="text-xs font-medium tabular-nums text-fg">
+            {confirmedCount} of {roundDebates.length} confirmed
           </span>
-          <div className="w-36 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 transition-all duration-300"
-              style={{
-                width: `${(confirmedCount / Math.max(1, roundDebates.length)) * 100}%`,
-              }}
-            />
-          </div>
+          <ProgressBar value={confirmedCount} max={roundDebates.length} label="Confirmed ballots" className="w-36" />
         </div>
       </div>
 
-      {/* Round Selector Bar */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">
-          Select Round:
-        </span>
-        {rounds.map((r) => {
-          const rDebates = debates.filter((d) => d.roundId === r.id);
-          const rConfirmed = rDebates.filter((d) => ballotMap.get(d.id)?.confirmed).length;
-          const isComplete = rConfirmed === rDebates.length && rDebates.length > 0;
-
-          return (
-            <button
-              key={r.id}
-              onClick={() => setActiveRound(r)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md border flex items-center space-x-1.5 transition ${
-                activeRound?.id === r.id
-                  ? "bg-blue-600 text-white border-blue-700 shadow-xs"
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              <span>{r.name}</span>
-              {isComplete && <CheckCircle2 className="w-3 h-3 text-emerald-300" />}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Ballots Table */}
       {roundDebates.length === 0 ? (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-10 text-center">
-          <FileText className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-gray-800 mb-1">No Debates in {activeRound?.name}</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-            Generate the draw before entering ballots and results for this round.
-          </p>
-          <Link
-            href={`/${tournament?.slug}/draw`}
-            className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-          >
-            <span>Go to Draw Generation</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
+        <EmptyState
+          icon={<FileText />}
+          title={`No debates in ${activeRound?.name ?? "this round"}`}
+          description="Generate the draw before entering ballots and results for this round."
+          action={
+            <Link href={`/${tournament?.slug}/draw`} className={buttonClasses({ variant: "primary" })}>
+              Go to draw generation
+              <ArrowRight aria-hidden="true" />
+            </Link>
+          }
+        />
       ) : (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-28">Venue</th>
-                  {isBP ? (
-                    <>
-                      <th>Opening Gov (OG)</th>
-                      <th>Opening Opp (OO)</th>
-                      <th>Closing Gov (CG)</th>
-                      <th>Closing Opp (CO)</th>
-                    </>
-                  ) : (
-                    <>
-                      <th>Affirmative</th>
-                      <th>Negative</th>
-                    </>
-                  )}
-                  <th>Adjudicators</th>
-                  <th className="w-28 text-center">Status</th>
-                  <th className="w-32 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {roundDebates.map((debate) => {
-                  const ballot = ballotMap.get(debate.id);
-                  const isConfirmed = ballot?.confirmed;
-                  const isDraft = ballot && !ballot.confirmed;
-                  const panelistNames = getPanelistNamesByScore(debate.adjudicators, adjudicators);
+        <TableContainer>
+          <Table>
+            <THead>
+              <TR>
+                <TH className="w-28">Venue</TH>
+                {sides.map(([side, label]) => (
+                  <TH key={side}>
+                    {label} <span className="text-fg-subtle">({side})</span>
+                  </TH>
+                ))}
+                <TH>Adjudicators</TH>
+                <TH className="w-36">Status</TH>
+                <TH align="right" className="w-32">
+                  <span className="sr-only">Actions</span>
+                </TH>
+              </TR>
+            </THead>
+            <TBody>
+              {roundDebates.map((debate) => {
+                const ballot = ballotMap.get(debate.id);
+                const isConfirmed = ballot?.confirmed;
+                const isDraft = ballot && !ballot.confirmed;
+                const panelistNames = getPanelistNamesByScore(debate.adjudicators, adjudicators);
 
-                  if (debate.byeTeamId) {
-                    const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
-                    return (
-                      <tr key={debate.id} className="bg-gray-50">
-                        <td className="font-bold text-gray-700 text-xs">Bye</td>
-                        <td colSpan={isBP ? 4 : 2} className="text-xs font-semibold text-gray-900">
-                          {byeTeam?.teamName || "Team"}
-                        </td>
-                        <td className="text-xs text-gray-500">No adjudicator</td>
-                        <td className="text-center">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-100 text-blue-800 border border-blue-200">
-                            Bye · {debate.byeResult === "win" ? "Win" : "Absent"}
-                          </span>
-                        </td>
-                        <td className="text-right text-[11px] text-gray-500">No ballot required</td>
-                      </tr>
-                    );
-                  }
-
+                if (debate.byeTeamId) {
+                  const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
                   return (
-                    <tr key={debate.id} className="hover:bg-gray-50">
-                      <td className="font-bold text-gray-900 text-xs">
-                        {debate.venueName || "Unassigned"}
-                      </td>
-
-                      {isBP ? (
-                        <>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.OG && (
-                                ballot.teamScores.OG.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.OG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.OG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.OG.points} pts &bull;{" "}
-                                {ballot.teamScores.OG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.OO && (
-                                ballot.teamScores.OO.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.OO?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.OO && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.OO.points} pts &bull;{" "}
-                                {ballot.teamScores.OO.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.CG && (
-                                ballot.teamScores.CG.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.CG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.CG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.CG.points} pts &bull;{" "}
-                                {ballot.teamScores.CG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.CO && (
-                                ballot.teamScores.CO.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.CO?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.CO && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.CO.points} pts &bull;{" "}
-                                {ballot.teamScores.CO.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.AFF && (
-                                ballot.teamScores.AFF.win
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.AFF?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.AFF && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.AFF.win ? "WIN" : "LOSS"} &bull;{" "}
-                                {ballot.teamScores.AFF.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.NEG && (
-                                ballot.teamScores.NEG.win
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.NEG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.NEG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.NEG.win ? "WIN" : "LOSS"} &bull;{" "}
-                                {ballot.teamScores.NEG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      )}
-
-                      <td className="text-xs text-gray-700">
-                        <span className="font-medium text-gray-900">
-                          Chair: {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
-                        </span>
-                        <span className="mx-1.5 text-gray-300">|</span>
-                        <span>Panellists: {panelistNames.join(", ") || "—"}</span>
-                      </td>
-
-                      <td className="text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                            isConfirmed
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : isDraft
-                              ? "bg-amber-100 text-amber-800 border border-amber-300"
-                              : "bg-gray-100 text-gray-500 border border-gray-200"
-                          }`}
-                        >
-                          {isConfirmed ? "Confirmed" : isDraft ? needsCheckLabel : "Unsubmitted"}
-                        </span>
-                        {isConfirmed && pendingDebateIds.has(debate.id) && (
-                          <span className="mt-0.5 block text-[10px] font-semibold text-amber-700">New version {needsCheckLabel.toLowerCase()}</span>
-                        )}
-                      </td>
-
-                      <td className="text-right">
-                        <Link
-                          href={`/${tournament?.slug}/results/${activeRound?.seq}/${debate.id}`}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded text-xs border border-blue-200 transition"
-                        >
-                          <Edit className="w-3 h-3" />
-                          <span>{ballot ? "Edit Ballot" : "Enter Ballot"}</span>
-                        </Link>
-                      </td>
-                    </tr>
+                    <TR key={debate.id}>
+                      <TD className="font-medium text-fg-muted">Bye</TD>
+                      <TD colSpan={sides.length} className="font-medium">
+                        {byeTeam?.teamName || "Team"}
+                      </TD>
+                      <TD className="text-fg-muted">No adjudicator</TD>
+                      <TD>
+                        <StatusPill tone="info">Bye · {debate.byeResult === "win" ? "Win" : "Absent"}</StatusPill>
+                      </TD>
+                      <TD align="right" className="text-xs text-fg-muted">No ballot required</TD>
+                    </TR>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                }
+
+                return (
+                  <TR key={debate.id}>
+                    <TD className="font-medium">{debate.venueName || "Unassigned"}</TD>
+                    {sides.map(([side]) => (
+                      <TeamResultCell
+                        key={side}
+                        teamName={debate.teams?.[side]?.teamName}
+                        score={ballot?.teamScores?.[side]}
+                        isBP={isBP}
+                      />
+                    ))}
+                    <TD className="text-xs">
+                      <div>
+                        <span className="text-fg-muted">Chair: </span>
+                        {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
+                      </div>
+                      <div className="text-fg-muted">Panellists: {panelistNames.join(", ") || "—"}</div>
+                    </TD>
+                    <TD>
+                      <StatusPill tone={isConfirmed ? "success" : isDraft ? "warning" : "neutral"}>
+                        {isConfirmed ? "Confirmed" : isDraft ? needsCheckLabel : "Unsubmitted"}
+                      </StatusPill>
+                      {isConfirmed && pendingDebateIds.has(debate.id) && (
+                        <span className="mt-1 block text-[11px] font-medium text-warning">
+                          New version {needsCheckLabel.toLowerCase()}
+                        </span>
+                      )}
+                    </TD>
+                    <TD align="right">
+                      <Link
+                        href={`/${tournament?.slug}/results/${activeRound?.seq}/${debate.id}`}
+                        className={buttonClasses({ variant: ballot ? "secondary" : "primary", size: "sm" })}
+                      >
+                        <Edit aria-hidden="true" />
+                        {ballot ? "Edit ballot" : "Enter ballot"}
+                      </Link>
+                    </TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+        </TableContainer>
       )}
 
       {activeRound && (
-        <div className="border-t border-[#d0d7de] pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <label className="flex items-start gap-2.5 text-xs text-gray-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={Boolean(activeRound.silent)}
-              onChange={(event) =>
-                updateRound({
-                  ...activeRound,
-                  silent: event.target.checked,
-                  resultsReleased: false,
-                  teamSpeaksReleased: false,
-                })
-              }
-              className="mt-0.5 rounded border-gray-300 text-blue-600"
-            />
-            <span>
-              <strong className="block text-gray-900">Silent round</strong>
-              Hide this round&apos;s results and team outcomes from the public tab.
-            </span>
-          </label>
-          <div className="flex flex-col items-start sm:items-end gap-1.5">
-            <button
-              type="button"
-              onClick={() => setPendingPublication(!activeRound.resultsReleased)}
-              disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+        <Card>
+          <CardHeader title="Round publication" description={`Public visibility and lifecycle for ${activeRound.name}.`} />
+          <div className="divide-y divide-border">
+            <div className="px-4 py-3">
+              <Checkbox
+                label="Silent round"
+                description="Hide this round's results and team outcomes from the public tab."
+                checked={Boolean(activeRound.silent)}
+                onChange={(event) =>
+                  updateRound({
+                    ...activeRound,
+                    silent: event.target.checked,
+                    resultsReleased: false,
+                    teamSpeaksReleased: false,
+                  })
+                }
+              />
+            </div>
+
+            <ControlRow
+              title="Round results"
+              status={
                 activeRound.resultsReleased
-                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  : "bg-emerald-600 text-white hover:bg-emerald-700"
-              }`}
-            >
-              {activeRound.resultsReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {activeRound.resultsReleased ? "Unpublish Round Results" : "Publish Round Results"}
-            </button>
-            <span className="text-[11px] text-gray-500">
-              {activeRound.resultsReleased
-                ? "Round results are published."
-                : allBallotsConfirmed
-                ? "Ballots are saved; publish when ready."
-                : "Confirm every ballot or record a bye before publishing."}
-            </span>
-            {publicationError && <span className="text-[11px] text-red-600">{publicationError}</span>}
-            <button
-              type="button"
-              onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
-              disabled={!activeRound.teamSpeaksReleased && !allBallotsConfirmed}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
-                activeRound.teamSpeaksReleased
-                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
-              }`}
-            >
-              {activeRound.teamSpeaksReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {activeRound.teamSpeaksReleased ? "Unpublish Team Speaks" : "Publish Team Speaks"}
-            </button>
-            <span className="text-[11px] text-gray-500">
-              {activeRound.teamSpeaksReleased
-                ? "Team scores are published for this round."
-                : allBallotsConfirmed
-                ? "Publish team scores separately when ready."
-                : "Confirm every ballot or record a bye before publishing team scores."}
-            </span>
-            {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
-            {activeRound.stage === "preliminary" && !activeRound.cancelled && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setPendingCompletion(!activeRound.completed)}
-                  disabled={!activeRound.completed && completionBlockers.length > 0}
-                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
-                    activeRound.completed
-                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      : "bg-violet-600 text-white hover:bg-violet-700"
-                  }`}
+                  ? "Round results are published."
+                  : allBallotsConfirmed
+                  ? "Ballots are saved; publish when ready."
+                  : "Confirm every ballot or record a bye before publishing."
+              }
+              error={publicationError}
+              action={
+                <Button
+                  variant={activeRound.resultsReleased ? "secondary" : "primary"}
+                  onClick={() => setPendingPublication(!activeRound.resultsReleased)}
+                  disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  {activeRound.completed ? "Reopen Round" : "Complete Round"}
-                </button>
-                <span className="text-[11px] text-gray-500 max-w-xs sm:text-right">
-                  {activeRound.completed
+                  {activeRound.resultsReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  {activeRound.resultsReleased ? "Unpublish round results" : "Publish round results"}
+                </Button>
+              }
+            />
+
+            <ControlRow
+              title="Team speaks"
+              status={
+                activeRound.teamSpeaksReleased
+                  ? "Team scores are published for this round."
+                  : allBallotsConfirmed
+                  ? "Publish team scores separately when ready."
+                  : "Confirm every ballot or record a bye before publishing team scores."
+              }
+              error={teamSpeaksPublicationError}
+              action={
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
+                  disabled={!activeRound.teamSpeaksReleased && !allBallotsConfirmed}
+                >
+                  {activeRound.teamSpeaksReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  {activeRound.teamSpeaksReleased ? "Unpublish team speaks" : "Publish team speaks"}
+                </Button>
+              }
+            />
+
+            {activeRound.stage === "preliminary" && !activeRound.cancelled && (
+              <ControlRow
+                title="Round completion"
+                status={
+                  activeRound.completed
                     ? "This round is marked complete."
                     : completionBlockers.length === 0
                     ? "Every debate has a confirmed ballot; the round can be completed."
                     : `${completionBlockers.length} debate${completionBlockers.length === 1 ? "" : "s"} still blocking completion: ${completionBlockers
                         .slice(0, 3)
                         .map((blocker) => blocker.message)
-                        .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`}
-                </span>
-                {completionError && pendingCompletion === null && (
-                  <span role="alert" className="text-[11px] text-red-600">{completionError}</span>
-                )}
-              </>
+                        .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`
+                }
+                error={pendingCompletion === null ? completionError : undefined}
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPendingCompletion(!activeRound.completed)}
+                    disabled={!activeRound.completed && completionBlockers.length > 0}
+                  >
+                    <CheckCircle2 aria-hidden="true" />
+                    {activeRound.completed ? "Reopen round" : "Complete round"}
+                  </Button>
+                }
+              />
             )}
-            {activeRound.stage === "elimination" && !activeRound.eliminationAdvanced && (
-              <button
-                type="button"
-                onClick={() => setPendingAdvancement(true)}
-                disabled={!allBallotsConfirmed || isAdvancingRound}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                {isAdvancingRound ? "Advancing..." : "Proceed to Next Round"}
-              </button>
+
+            {activeRound.stage === "elimination" && (
+              <ControlRow
+                title="Elimination"
+                status={
+                  activeRound.eliminationAdvanced
+                    ? "This round is complete; losing teams have been eliminated."
+                    : "Advance once every ballot in this round is confirmed."
+                }
+                error={advancementError}
+                action={
+                  activeRound.eliminationAdvanced ? (
+                    <StatusPill tone="success">Advanced</StatusPill>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      onClick={() => setPendingAdvancement(true)}
+                      disabled={!allBallotsConfirmed}
+                      loading={isAdvancingRound}
+                      loadingText="Advancing..."
+                    >
+                      <ArrowRight aria-hidden="true" />
+                      Proceed to next round
+                    </Button>
+                  )
+                }
+              />
             )}
-            {activeRound.stage === "elimination" && activeRound.eliminationAdvanced && (
-              <span className="text-[11px] font-semibold text-emerald-700">
-                This round is complete; losing teams have been eliminated.
-              </span>
-            )}
-            {advancementError && <span role="alert" className="text-[11px] text-red-600">{advancementError}</span>}
           </div>
-        </div>
+        </Card>
       )}
       {pendingPublication !== null && activeRound && (
         <ConfirmActionDialog

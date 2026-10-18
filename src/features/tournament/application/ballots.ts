@@ -70,6 +70,7 @@ export async function submitBallotCommand(
   }
 
   const debate = dependencies.debates.find((item) => item.id === finalBallot.debateId);
+  let updatedDebates = dependencies.debates;
   if (debate) {
     // A new unconfirmed version (e.g. awaiting a check) leaves an existing confirmed result in place.
     const hasOtherConfirmed = updatedBallots.some(
@@ -79,9 +80,8 @@ export async function submitBallotCommand(
       ...debate,
       resultStatus: finalBallot.confirmed || hasOtherConfirmed ? "confirmed" : "draft",
     };
-    dependencies.repository.saveDebates(
-      dependencies.debates.map((item) => item.id === debate.id ? updatedDebate : item)
-    );
+    updatedDebates = dependencies.debates.map((item) => item.id === debate.id ? updatedDebate : item);
+    dependencies.repository.saveDebates(updatedDebates);
   }
 
   await dependencies.recordAuditEvent({
@@ -99,7 +99,13 @@ export async function submitBallotCommand(
   });
 
   if (!finalBallot.confirmed) return;
-  await confirmBallotCommand(finalBallot.id, finalBallot.debateId, finalBallot, dependencies);
+  // Confirm against what was just saved: the dependencies still hold the state from before this
+  // submission, in which a resubmitted ballot id carries its previous scores.
+  await confirmBallotCommand(finalBallot.id, finalBallot.debateId, finalBallot, {
+    ...dependencies,
+    ballots: updatedBallots,
+    debates: updatedDebates,
+  });
   if (privatePasscode) {
     await dependencies.queuePrivateRecord(
       { collection: "ballots", record: finalBallot },
