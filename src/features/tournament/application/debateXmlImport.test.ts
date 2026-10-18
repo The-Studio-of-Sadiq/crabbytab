@@ -358,7 +358,7 @@ describe("DebateXML import", () => {
     expect(debateTwo.teams.NEG).toMatchObject({ points: 1, speakerScoreTotal: 259 });
 
     const [roundOne, final] = collections.rounds;
-    expect(roundOne).toMatchObject({ name: "Round 1", abbreviation: "R1", feedbackWeight: 0.5, completed: true, drawStatus: "confirmed", motionsReleased: false, resultsReleased: false });
+    expect(roundOne).toMatchObject({ name: "Round 1", abbreviation: "R1", feedbackWeight: 0.5, completed: true, drawStatus: "draft", motionsReleased: false, resultsReleased: false });
     expect(final).toMatchObject({ stage: "elimination", drawType: "elimination", breakCategoryIds: ["open"], completed: false });
     expect(collections.motions[0]).toMatchObject({ infoSlide: "Some context", reference: "Education", rounds: [roundOne.id], released: false });
     expect(collections.breakCategories[1]).toMatchObject({ breakSize: 2, reserveSize: 1, isGeneral: false });

@@ -1010,7 +1010,8 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       abbreviation: rawRound.abbreviation ?? (rawRound.elimination ? rawRound.name.slice(0, 3).toUpperCase() : `R${seq}`),
       stage: rawRound.elimination ? "elimination" : "preliminary",
       drawType: rawRound.elimination ? "elimination" : "manual",
-      drawStatus: hasDraw ? "confirmed" : "none",
+      // "confirmed" means released to the public in CrabbyTab; imported draws start as drafts.
+      drawStatus: hasDraw ? "draft" : "none",
       feedbackWeight: rawRound.feedbackWeight ?? 1,
       silent: rawRound.silent,
       motionsReleased: false,
