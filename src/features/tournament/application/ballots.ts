@@ -50,8 +50,9 @@ export async function submitBallotCommand(
     : [...dependencies.ballots, finalBallot];
   dependencies.repository.saveBallots(updatedBallots);
 
+  // Only a confirmed ballot changes the recorded result, so only it withdraws released results.
   const ballotRound = dependencies.rounds.find((round) => round.id === finalBallot.roundId);
-  if (ballotRound?.resultsReleased || ballotRound?.teamSpeaksReleased) {
+  if (finalBallot.confirmed && (ballotRound?.resultsReleased || ballotRound?.teamSpeaksReleased)) {
     await dependencies.updateRound({
       ...ballotRound,
       resultsReleased: false,
@@ -61,9 +62,13 @@ export async function submitBallotCommand(
 
   const debate = dependencies.debates.find((item) => item.id === finalBallot.debateId);
   if (debate) {
+    // A new unconfirmed version (e.g. awaiting a check) leaves an existing confirmed result in place.
+    const hasOtherConfirmed = updatedBallots.some(
+      (item) => item.debateId === debate.id && item.id !== finalBallot.id && item.confirmed && !item.discarded
+    );
     const updatedDebate: Debate = {
       ...debate,
-      resultStatus: finalBallot.confirmed ? "confirmed" : "draft",
+      resultStatus: finalBallot.confirmed || hasOtherConfirmed ? "confirmed" : "draft",
     };
     dependencies.repository.saveDebates(
       dependencies.debates.map((item) => item.id === debate.id ? updatedDebate : item)
@@ -163,5 +168,55 @@ export async function confirmBallotCommand(
       version: confirmedBallot?.version,
       submitterType: confirmedBallot?.submitterType,
     },
+  });
+}
+/**
+ * Discards one ballot version. Discarding the confirmed version withdraws the debate's result (and
+ * any released results for the round) until another version is confirmed.
+ */
+export async function discardBallotCommand(
+  ballotId: string,
+  discardedBy: string | undefined,
+  dependencies: BallotWorkflowDependencies
+): Promise<void> {
+  const ballot = dependencies.ballots.find((item) => item.id === ballotId);
+  if (!ballot || ballot.discarded) return;
+  const now = new Date().toISOString();
+  const updatedBallots = dependencies.ballots.map((item) =>
+    item.id === ballotId
+      ? { ...item, confirmed: false, discarded: true, discardedBy, discardedTimestamp: now }
+      : item
+  );
+  dependencies.repository.saveBallots(updatedBallots);
+
+  const debate = dependencies.debates.find((item) => item.id === ballot.debateId);
+  if (debate && ballot.confirmed) {
+    const remaining = updatedBallots.filter((item) => item.debateId === debate.id && !item.discarded);
+    const teams = Object.fromEntries(
+      Object.entries(debate.teams).map(([side, slot]) => [
+        side,
+        slot ? { ...slot, points: undefined, speakerScoreTotal: undefined } : slot,
+      ])
+    ) as Debate["teams"];
+    dependencies.repository.saveDebates(
+      dependencies.debates.map((item) =>
+        item.id === debate.id
+          ? { ...item, teams, resultStatus: remaining.length > 0 ? "draft" : "none" }
+          : item
+      )
+    );
+    const ballotRound = dependencies.rounds.find((round) => round.id === ballot.roundId);
+    if (ballotRound?.resultsReleased || ballotRound?.teamSpeaksReleased) {
+      await dependencies.updateRound({ ...ballotRound, resultsReleased: false, teamSpeaksReleased: false });
+    }
+  }
+
+  await dependencies.recordAuditEvent({
+    action: "ballot.discarded",
+    category: "ballot",
+    summary: `Ballot v${ballot.version} discarded`,
+    roundId: ballot.roundId,
+    debateId: ballot.debateId,
+    details: { ballotId, version: ballot.version, wasConfirmed: ballot.confirmed },
   });
 }
