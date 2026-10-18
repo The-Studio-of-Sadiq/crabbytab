@@ -109,4 +109,14 @@ describe("standings and the results core", () => {
     expect(result.replies.some((row) => row.speakerId === "reply-AFF")).toBe(false);
     expect(result.replies.find((row) => row.speakerId === "n1")!.totalScore).toBe(35);
   });
+
+  it("ignores a ballot whose teams do not match the debate it points to", () => {
+    const redrawn = { ...debate("d1", "r1", 1), teams: {
+      AFF: { teamId: "neg", teamName: "Neg", side: "AFF" },
+      NEG: { teamId: "aff", teamName: "Aff", side: "NEG" },
+    } } as unknown as Debate;
+    const result = calculateStandings(tournament, rounds, teams, [redrawn], [ballot("d1", "r1")]);
+    expect(result.teams.find((row) => row.teamId === "aff")!.wins).toBe(0);
+    expect(result.teams.find((row) => row.teamId === "neg")!.wins).toBe(0);
+  });
 });

@@ -1,6 +1,7 @@
 import type {
   AdjudicatorSheet,
   BallotSubmission,
+  Debate,
   DebateSide,
   Speaker,
   SpeakerScoreEntry,
@@ -41,6 +42,22 @@ export function replySpeechesEnabled(rules: BallotRules): boolean {
 /** Voting ballots exist only for two-team formats; BP panels always reach a consensus. */
 export function usesVotingBallots(rules: BallotRules): boolean {
   return rules.format !== "bp" && rules.preferences?.ballotMode === "voting";
+}
+
+/**
+ * True when a ballot's teams are the debate's teams. A ballot whose sides name different teams
+ * belongs to an earlier version of the draw and must not be read as this debate's result.
+ * Ballots that record no team ids (very old data) are accepted.
+ */
+export function ballotMatchesDebate(
+  ballot: Pick<BallotSubmission, "teamScores">,
+  debate: Pick<Debate, "teams">
+): boolean {
+  for (const [side, slot] of Object.entries(debate.teams || {})) {
+    const recorded = ballot.teamScores?.[side as DebateSide]?.teamId;
+    if (slot?.teamId && recorded && recorded !== slot.teamId) return false;
+  }
+  return true;
 }
 
 export function isReplyEntry(entry: Pick<SpeakerScoreEntry, "position">, rules: BallotRules): boolean {
