@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { calculateStandings } from "./calculator";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence, compareByPrecedence } from "./precedence";
 import { DEFAULT_TEAM_PRECEDENCE, DEFAULT_SPEAKER_PRECEDENCE, TEAM_METRIC_DIRECTION } from "./metrics";
-import { Tournament, Round, Team, Debate, BallotSubmission, DebateSide } from "@/types";
+import { Tournament, Round, Team, Debate, BallotSubmission, BPSide, DebateSide } from "@/types";
 
 function tournament(format: "bp" | "uadc", overrides: Partial<Tournament["preferences"]> = {}): Tournament {
   return {
@@ -61,7 +61,7 @@ const round: Round = {
   createdAt: "",
 };
 
-function bpDebate(id: string, roundSeq: number, teams: Record<DebateSide, string>): Debate {
+function bpDebate(id: string, roundSeq: number, teams: Record<BPSide, string>): Debate {
   return {
     id,
     tournamentId: "tourn-test",
@@ -83,7 +83,7 @@ function bpDebate(id: string, roundSeq: number, teams: Record<DebateSide, string
   };
 }
 
-function bpBallot(id: string, debateId: string, points: Record<DebateSide, number>, speaks: Record<DebateSide, number>): BallotSubmission {
+function bpBallot(id: string, debateId: string, points: Record<BPSide, number>, speaks: Record<BPSide, number>): BallotSubmission {
   const mk = (side: DebateSide, s1: number, s2: number) => [
     { speakerId: `${side}-1`, speakerName: `${side}-1`, position: 1, score: s1 },
     { speakerId: `${side}-2`, speakerName: `${side}-2`, position: 2, score: s2 },

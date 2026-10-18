@@ -68,7 +68,7 @@ describe("tournament cloud synchronization", () => {
 
   it("does not resurrect locally cached records deleted in the cloud", async () => {
     const localCollections = emptyCollections();
-    localCollections.teams = [{ id: "deleted-team", name: "Old local copy" } as CloudRecord];
+    localCollections.teams = [{ id: "deleted-team", name: "Old local copy" } as CloudRecord as CloudRecord];
     const cloudCollections = emptyCollections();
     cloudCollections.teams = [{
       id: "deleted-team",
@@ -102,7 +102,7 @@ describe("tournament cloud synchronization", () => {
 
   it("does not restore a cloud record with a pending local deletion", async () => {
     const cloudCollections = emptyCollections();
-    cloudCollections.teams = [{ id: "deleted-team", name: "Cloud copy" }];
+    cloudCollections.teams = [{ id: "deleted-team", name: "Cloud copy" } as CloudRecord];
     const repository: TournamentCloudRepository = {
       async getTournament() {
         return {
@@ -272,13 +272,13 @@ describe("tournament cloud synchronization", () => {
   it("merges downloaded records without dropping local-only records or replacing local conflicts", async () => {
     const localCollections = emptyCollections();
     localCollections.teams = [
-      { id: "same", name: "Local version" } as CloudRecord,
-      { id: "local-only", name: "Local only" } as CloudRecord,
+      { id: "same", name: "Local version" } as CloudRecord as CloudRecord,
+      { id: "local-only", name: "Local only" } as CloudRecord as CloudRecord,
     ];
     const cloudCollections = emptyCollections();
     cloudCollections.teams = [
-      { id: "same", name: "Cloud version" } as CloudRecord,
-      { id: "cloud-only", name: "Cloud only" } as CloudRecord,
+      { id: "same", name: "Cloud version" } as CloudRecord as CloudRecord,
+      { id: "cloud-only", name: "Cloud only" } as CloudRecord as CloudRecord,
     ];
     const repository: TournamentCloudRepository = {
       async getTournament() {
@@ -301,9 +301,9 @@ describe("tournament cloud synchronization", () => {
     });
 
     expect(result.collections.teams).toEqual([
-      { id: "same", name: "Local version" },
-      { id: "cloud-only", name: "Cloud only" },
-      { id: "local-only", name: "Local only" },
+      { id: "same", name: "Local version" } as CloudRecord,
+      { id: "cloud-only", name: "Cloud only" } as CloudRecord,
+      { id: "local-only", name: "Local only" } as CloudRecord,
     ]);
   });
 

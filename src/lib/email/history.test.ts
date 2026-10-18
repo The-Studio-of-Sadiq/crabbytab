@@ -5,7 +5,7 @@ import { createEmailCampaign } from "./history";
 
 describe("email campaign history", () => {
   it("omits undefined Firestore fields and private credentials from campaign records", async () => {
-    const create = vi.fn(async () => undefined);
+    const create = vi.fn(async (_record: unknown) => undefined);
     const campaignDocument = {
       id: "campaign-1",
       create,
