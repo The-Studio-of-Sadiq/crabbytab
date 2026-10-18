@@ -26,7 +26,7 @@ import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
-import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
 import { DrawCheckPanel } from "@/features/tournament/components/DrawCheckPanel";
@@ -54,8 +54,6 @@ export default function DrawPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
-  const [isSavingDrawRelease, setIsSavingDrawRelease] = useState(false);
-  const [drawReleaseError, setDrawReleaseError] = useState("");
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
 
   // Drag & Drop state
@@ -168,23 +166,6 @@ export default function DrawPage() {
   };
 
   // Toggle release
-  const confirmDrawRelease = async () => {
-    if (!activeRound || pendingDrawRelease === null) return;
-    setIsSavingDrawRelease(true);
-    setDrawReleaseError("");
-    try {
-      await updateRound({
-        ...activeRound,
-        drawStatus: pendingDrawRelease ? "confirmed" : "draft",
-      });
-      setPendingDrawRelease(null);
-    } catch {
-      setDrawReleaseError("The draw visibility change could not be saved. Please try again.");
-    } finally {
-      setIsSavingDrawRelease(false);
-    }
-  };
-
   // Add new empty debate room
   const handleAddDebateRoom = async () => {
     if (!activeRound) return;
@@ -529,7 +510,6 @@ export default function DrawPage() {
               </>
             )}
           </button>
-          {drawReleaseError && <p role="alert" className="text-xs text-red-600">{drawReleaseError}</p>}
 
           <button
             onClick={handleExportDrawCsv}
@@ -1035,16 +1015,14 @@ export default function DrawPage() {
         </div>
       )}
       {pendingDrawRelease !== null && activeRound && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={pendingDrawRelease ? "Publish this draw?" : "Unpublish this draw?"}
           description={pendingDrawRelease
             ? `Publishing ${activeRound.name} makes its room and team assignments visible on the public tab.`
-            : `Unpublishing ${activeRound.name} immediately hides its draw from the public tab.`}
-          confirmLabel={pendingDrawRelease ? "Yes, publish draw" : "Yes, unpublish draw"}
-          onConfirm={confirmDrawRelease}
-          onCancel={() => setPendingDrawRelease(null)}
-          isBusy={isSavingDrawRelease}
-          error={drawReleaseError}
+            : `Unpublishing ${activeRound.name} hides its draw from the public tab.`}
+          confirmLabel={pendingDrawRelease ? "Publish draw" : "Unpublish draw"}
+          apply={() => updateRound({ ...activeRound, drawStatus: pendingDrawRelease ? "confirmed" : "draft" })}
+          onClose={() => setPendingDrawRelease(null)}
         />
       )}
     </div>

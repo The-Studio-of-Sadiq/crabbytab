@@ -136,7 +136,10 @@ and adds cloud-only records; data-entry assistants' devices get organiser change
 the same way when they open the tournament. Records edited on this device are
 kept for upload; if the cloud changed them too, they are listed as sync
 conflicts (the warning in the top bar, or the account menu) with the fields that
-differ, until you keep this device's or the cloud version of each. Team portals show ballots only
+differ, until you keep this device's or the cloud version of each. The top bar
+counts changes not yet uploaded, and public pages only change when an upload or
+release publishes a conflict-free cloud copy; see
+[docs/public-pages-and-notifications.md](./docs/public-pages-and-notifications.md#when-public-pages-change). Team portals show ballots only
 after results are released on a non-silent round, and hide speaker scores until
 team speaks are released.
 
