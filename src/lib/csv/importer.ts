@@ -35,6 +35,8 @@ export interface AdjudicatorCsvRow {
   trainee?: string | boolean;
   independent?: string | boolean;
   preformed_panel_id?: string;
+  gender?: string;
+  region?: string;
   required_venue_category?: string;
   min_venue_capacity?: string | number;
   requires_accessible_venue?: string | boolean;
@@ -186,6 +188,8 @@ export function parseAdjudicatorsCsv(csvContent: string, tournamentId: string): 
       trainee: isTrainee,
       independent: isIndep,
       preformedPanelId: getField(row, "preformed_panel_id", "preformedPanelId").trim() || undefined,
+      gender: getField(row, "gender", "Gender").trim() || undefined,
+      region: getField(row, "region", "Region").trim() || undefined,
       venueRequirements: parseVenueRequirements(row, idx + 2),
       checkedIn: true,
       conflicts: [],

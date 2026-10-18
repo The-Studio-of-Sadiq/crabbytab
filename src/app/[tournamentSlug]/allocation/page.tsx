@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { Adjudicator, Debate, Team } from "@/types";
+import { Adjudicator, Debate, PanelSizingMode, Team } from "@/types";
 import {
   calculateAdjDebateConflict,
-  calculateAdjudicatorFeedbackScores,
   calculateDebatePriorities,
   buildPastAdjTeams,
   computeBreakLiveness,
@@ -32,6 +32,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
+import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/feedback/scores";
+import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
 import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
 
 export default function AllocationPage() {
@@ -50,10 +52,17 @@ export default function AllocationPage() {
     updateDebates,
     teamStandings,
     breakCategories,
+    institutions,
+    recordAuditEvent,
   } = useTournament();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [panelSize, setPanelSize] = useState<number>(1);
+  const [panelSizing, setPanelSizing] = useState<PanelSizingMode>(
+    tournament?.preferences?.panelSizingMode ?? "fixed"
+  );
+  const [showDiversity, setShowDiversity] = useState(false);
+  const [feedbackWeightError, setFeedbackWeightError] = useState("");
   const [isAllocating, setIsAllocating] = useState(false);
   const [revealError, setRevealError] = useState("");
   const [manualAssignmentError, setManualAssignmentError] = useState("");
@@ -92,8 +101,14 @@ export default function AllocationPage() {
   }, [adjudicators]);
 
   const feedbackScores = useMemo(
-    () => calculateAdjudicatorFeedbackScores(feedback),
-    [feedback]
+    () => calculateScaledFeedbackScores(feedback, debates, tournament?.preferences),
+    [feedback, debates, tournament?.preferences]
+  );
+  const feedbackWeight = activeRound?.feedbackWeight;
+  const scoreOf = (adjudicator: Adjudicator) => effectiveAdjScore(adjudicator, feedbackScores, feedbackWeight);
+  const institutionsById = useMemo(
+    () => new Map(institutions.map((institution) => [institution.id, institution])),
+    [institutions]
   );
 
   // ─── Debate Priorities ───
@@ -159,9 +174,10 @@ export default function AllocationPage() {
   // Sort available adjs by effective score (highest first)
   const sortedFilteredAdjs = useMemo(
     () => [...filteredAdjs].sort(
-      (a, b) => effectiveAdjScore(b, feedbackScores) - effectiveAdjScore(a, feedbackScores)
+      (a, b) =>
+        effectiveAdjScore(b, feedbackScores, feedbackWeight) - effectiveAdjScore(a, feedbackScores, feedbackWeight)
     ),
-    [filteredAdjs, feedbackScores]
+    [filteredAdjs, feedbackScores, feedbackWeight]
   );
 
   // ─── Panel Strength per Debate ───
@@ -177,12 +193,12 @@ export default function AllocationPage() {
       const scores = panelAdjIds
         .map((id) => adjsMap.get(id))
         .filter((a): a is Adjudicator => a !== undefined)
-        .map((a) => effectiveAdjScore(a, feedbackScores));
+        .map((a) => effectiveAdjScore(a, feedbackScores, feedbackWeight));
       const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
       map.set(debate.id, Math.round(avg * 10) / 10);
     }
     return map;
-  }, [roundDebates, adjsMap, feedbackScores]);
+  }, [roundDebates, adjsMap, feedbackScores, feedbackWeight]);
 
   // Priority score color coding
   const getPriorityColor = (score: number) => {
@@ -425,9 +441,33 @@ export default function AllocationPage() {
     if (!activeRound) return;
     setIsAllocating(true);
     try {
-      await autoAllocate(activeRound.id, panelSize);
+      await autoAllocate(activeRound.id, panelSize, { panelSizing });
     } finally {
       setIsAllocating(false);
+    }
+  };
+
+  const handleFeedbackWeightChange = async (value: string) => {
+    if (!activeRound) return;
+    const percent = parseFloat(value);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      setFeedbackWeightError("Feedback weight must be between 0% and 100%.");
+      return;
+    }
+    setFeedbackWeightError("");
+    const weight = Math.round(percent) / 100;
+    if (weight === activeRound.feedbackWeight) return;
+    try {
+      await updateRound({ ...activeRound, feedbackWeight: weight });
+      await recordAuditEvent({
+        action: "round.feedback_weight_changed",
+        category: "feedback",
+        summary: `${activeRound.name} feedback weight set to ${Math.round(weight * 100)}%`,
+        roundId: activeRound.id,
+        details: { previous: activeRound.feedbackWeight, current: weight },
+      });
+    } catch (error) {
+      setFeedbackWeightError(error instanceof Error ? error.message : "Could not save the feedback weight.");
     }
   };
 
@@ -532,24 +572,69 @@ export default function AllocationPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-md border border-indigo-200 bg-indigo-50 p-2">
             <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">Allocation Engine</div>
-            <div className="mt-1 flex items-center gap-2 text-xs">
-              <span className="font-semibold text-indigo-800">Automatic panel size</span>
-              <select
-                value={panelSize}
-                onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
-                className="bg-white border border-indigo-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
-                aria-label="Automatic allocation engine panel size"
-              >
-                <option value={1}>1 (Solo Chair)</option>
-                <option value={3}>3 (Chair + 2 Panellists)</option>
-                <option value={5}>5 (Chair + 4 Panellists)</option>
-              </select>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <label className="flex items-center gap-1">
+                <span className="font-semibold text-indigo-800">Panels</span>
+                <select
+                  value={panelSizing}
+                  onChange={(e) => setPanelSizing(e.target.value as PanelSizingMode)}
+                  className="bg-white border border-indigo-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
+                >
+                  <option value="fixed">Same size everywhere</option>
+                  <option value="by_priority">Larger in priority rooms</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1">
+                <span className="font-semibold text-indigo-800">
+                  {panelSizing === "by_priority" ? "Largest panel" : "Panel size"}
+                </span>
+                <select
+                  value={panelSize}
+                  onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
+                  className="bg-white border border-indigo-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
+                  aria-label="Automatic allocation engine panel size"
+                >
+                  <option value={1}>1 (Solo Chair)</option>
+                  <option value={3}>3 (Chair + 2 Panellists)</option>
+                  <option value={5}>5 (Chair + 4 Panellists)</option>
+                  <option value={7}>7 (Chair + 6 Panellists)</option>
+                </select>
+              </label>
+              {activeRound && (
+                <label
+                  className="flex items-center gap-1"
+                  title="Share of each score taken from feedback in this round; the rest is the test or base score"
+                >
+                  <span className="font-semibold text-indigo-800">Feedback weight</span>
+                  <input
+                    key={`${activeRound.id}-${activeRound.feedbackWeight}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={5}
+                    defaultValue={Math.round(normalizeFeedbackWeight(activeRound.feedbackWeight) * 100)}
+                    onBlur={(e) => handleFeedbackWeightChange(e.target.value)}
+                    className="w-14 bg-white border border-indigo-300 rounded px-1 py-0.5 font-mono text-xs text-center"
+                  />
+                  <span className="text-indigo-800">%</span>
+                </label>
+              )}
             </div>
+            {feedbackWeightError && <p role="alert" className="mt-1 text-[10px] text-red-700">{feedbackWeightError}</p>}
             <p className="mt-1 text-[10px] text-indigo-700">
               {tournament?.preferences?.adjudicatorPanelStrategy === "panel_average"
                 ? "Panel average strategy matches each panel's average strength to debate priority."
                 : "Preset 1 ranks adjudicators into priority rooms; this is the existing CrabbyTab behavior."}
+              {tournament?.preferences?.usePreformedPanels && (activeRound?.preformedPanels?.length ?? 0) > 0
+                ? ` ${activeRound?.preformedPanels?.length} preformed panel(s) are placed first.`
+                : ""}
             </p>
+            <Link
+              href={`/${tournament?.slug}/allocation/panels`}
+              className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-800 underline"
+            >
+              <Layers className="w-3 h-3" /> Preformed panels
+            </Link>
           </div>
 
           <button
@@ -589,6 +674,20 @@ export default function AllocationPage() {
           >
             <Gauge className="w-3.5 h-3.5" />
             <span>Priority Info</span>
+          </button>
+
+          <button
+            onClick={() => setShowDiversity(!showDiversity)}
+            aria-pressed={showDiversity}
+            className={`inline-flex items-center space-x-1.5 px-3 py-1.5 font-semibold border rounded text-xs shadow-2xs transition ${
+              showDiversity
+                ? "bg-indigo-50 text-indigo-700 border-indigo-300"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            }`}
+            title="Show gender and region of adjudicators and a per-panel summary"
+          >
+            <Users2 className="w-3.5 h-3.5" />
+            <span>Diversity</span>
           </button>
 
           <button
@@ -633,6 +732,9 @@ export default function AllocationPage() {
           adjudicators={sortedFilteredAdjs}
           availableCount={availableAdjs.length}
           feedbackScores={feedbackScores}
+          feedbackWeight={feedbackWeight}
+          showDiversity={showDiversity}
+          institutionsById={institutionsById}
           selectedAdjudicator={selectedAdjForManual}
           searchQuery={searchQuery}
           dragOverTarget={dragOverTarget}
@@ -668,9 +770,23 @@ export default function AllocationPage() {
               const priority = debatePriorities.get(debate.id);
               const panelStrength = debatePanelStrengths.get(debate.id) ?? 0;
 
+              const panelMembers = [
+                debate.adjudicators?.chairId,
+                ...(debate.adjudicators?.panellistIds || []),
+                ...(debate.adjudicators?.traineeIds || []),
+              ]
+                .map((id) => (id ? adjsMap.get(id) : undefined))
+                .filter((member): member is Adjudicator => member !== undefined);
+              const othersOnPanel = (adjId: string) => panelMembers.filter((member) => member.id !== adjId);
               const previewJudge = adjsMap.get(draggingJudge?.adjId ?? selectedAdjForManual?.id ?? "");
               const judgeClashPreview = previewJudge
-                ? calculateAdjDebateConflict(previewJudge, debateTeams, pastAdjudicatorTeams)
+                ? calculateAdjDebateConflict(
+                    previewJudge,
+                    debateTeams,
+                    pastAdjudicatorTeams,
+                    undefined,
+                    othersOnPanel(previewJudge.id)
+                  )
                 : null;
               const dragJudgeClashPreview = judgeClashPreview?.reasons ?? [];
 
@@ -682,7 +798,9 @@ export default function AllocationPage() {
                   chairConflicts = calculateAdjDebateConflict(
                     chairAdj,
                     debateTeams,
-                    pastAdjudicatorTeams
+                    pastAdjudicatorTeams,
+                    undefined,
+                    othersOnPanel(chairAdj.id)
                   ).reasons;
                 }
               }
@@ -777,9 +895,18 @@ export default function AllocationPage() {
                             Personal
                           </span>
                         )}
+                        {judgeClashPreview.hasAdjudicatorClash && (
+                          <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold">
+                            Adjudicator
+                          </span>
+                        )}
                         <span className="text-red-700">{judgeClashPreview.reasons.join("; ")}</span>
                       </div>
                     </div>
+                  )}
+
+                  {showDiversity && panelMembers.length > 0 && (
+                    <PanelDiversityLine members={panelMembers} institutionsById={institutionsById} />
                   )}
 
                   {chairConflicts.length > 0 && (
@@ -833,12 +960,17 @@ export default function AllocationPage() {
                                   ({adjsMap.get(debate.adjudicators.chairId!)?.institutionName})
                                 </span>
                               )}
-                              <span className="font-mono text-[10px] text-blue-600">
-                                {effectiveAdjScore(
-                                  adjsMap.get(debate.adjudicators.chairId!)!,
-                                  feedbackScores
-                                ).toFixed(1)}
-                              </span>
+                              {adjsMap.get(debate.adjudicators.chairId!) && (
+                                <span className="font-mono text-[10px] text-blue-600">
+                                  {scoreOf(adjsMap.get(debate.adjudicators.chairId!)!).toFixed(1)}
+                                </span>
+                              )}
+                              {showDiversity && adjsMap.get(debate.adjudicators.chairId!) && (
+                                <DiversityBadges
+                                  participant={adjsMap.get(debate.adjudicators.chairId!)!}
+                                  institutionsById={institutionsById}
+                                />
+                              )}
                             </div>
                           ) : (
                             <span className="text-red-500 italic text-xs">
@@ -909,7 +1041,9 @@ export default function AllocationPage() {
                             ? calculateAdjDebateConflict(
                                 pAdj,
                                 debateTeams,
-                                pastAdjudicatorTeams
+                                pastAdjudicatorTeams,
+                                undefined,
+                                othersOnPanel(pAdj.id)
                               ).reasons
                             : [];
 
@@ -942,8 +1076,11 @@ export default function AllocationPage() {
                                   )}
                                   {pAdj && (
                                     <span className="text-[10px] font-mono text-blue-600">
-                                      {effectiveAdjScore(pAdj, feedbackScores).toFixed(1)}
+                                      {scoreOf(pAdj).toFixed(1)}
                                     </span>
+                                  )}
+                                  {showDiversity && pAdj && (
+                                    <DiversityBadges participant={pAdj} institutionsById={institutionsById} />
                                   )}
                                   {pClashes.length > 0 && (
                                     <span className="text-[10px] text-red-600 font-bold block">
@@ -999,6 +1136,16 @@ export default function AllocationPage() {
                       <div className="flex flex-wrap gap-1.5">
                         {(debate.adjudicators?.traineeIds || []).map((tId, tIdx) => {
                           const tName = debate.adjudicators.traineeNames[tIdx];
+                          const tAdj = adjsMap.get(tId);
+                          const tClashes = tAdj
+                            ? calculateAdjDebateConflict(
+                                tAdj,
+                                debateTeams,
+                                pastAdjudicatorTeams,
+                                undefined,
+                                othersOnPanel(tAdj.id)
+                              ).reasons
+                            : [];
                           return (
                             <div
                               key={tId}
@@ -1013,10 +1160,19 @@ export default function AllocationPage() {
                                   sourceDebateId: debate.id,
                                 })
                               }
-                              className="inline-flex items-center space-x-1 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px] text-amber-900 cursor-grab"
+                              className={`inline-flex items-center space-x-1 border px-2 py-0.5 rounded text-[11px] text-amber-900 cursor-grab ${
+                                tClashes.length > 0 ? "bg-red-50 border-red-400" : "bg-amber-50 border-amber-200"
+                              }`}
+                              title={tClashes.length > 0 ? `Clash: ${tClashes.join(", ")}` : undefined}
                             >
                               <GripVertical className="w-2.5 h-2.5 text-amber-500" />
                               <span>{tName}</span>
+                              {tClashes.length > 0 && (
+                                <span className="text-[10px] font-bold text-red-700">Clash</span>
+                              )}
+                              {showDiversity && tAdj && (
+                                <DiversityBadges participant={tAdj} institutionsById={institutionsById} />
+                              )}
                               <button
                                 onClick={() => removeTrainee(debate.id, tId)}
                                 className="text-amber-600 hover:text-red-600 ml-1"

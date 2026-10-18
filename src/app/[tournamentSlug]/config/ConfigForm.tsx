@@ -337,9 +337,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <span>
                       <span className="block text-xs font-semibold text-gray-800">Allocate preformed panels as a unit</span>
                       <span className="mt-1 block text-[11px] text-gray-500">
-                        Assign adjudicators a shared <code>preformed_panel_id</code> in their CSV. Each group must have
-                        exactly the configured number of available voting adjudicators; the group remains together and
-                        is matched to debates by panel-average strength. A group with unavailable members is not split.
+                        Build each round&apos;s panels on Allocation &rarr; Preformed panels (CSV <code>preformed_panel_id</code>
+                        groups can seed them). Auto-allocation places each panel as a unit, higher importance into
+                        higher-priority debates, skipping members who are unavailable; other debates are filled normally.
                       </span>
                     </span>
                   </label>
