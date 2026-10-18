@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { allocateSidesForDebate, calculateSidePenalty, computeBPSideCost } from "./sideAllocator";
+import { allocateSidesForDebate, bpPositionBaseCost, computeBPSideCost } from "./sideAllocator";
+import { createSeededRng } from "./rng";
 import { Team, DebateSide } from "@/types";
 
 function makeTeam(id: string, name: string): Team {
@@ -85,19 +86,35 @@ describe("Side Allocator (sideAllocator)", () => {
     expect(placedIds.size).toBe(4);
   });
 
-  it("calculates side penalties accurately", () => {
-    // Repeated side incurs high penalty
-    const penaltySame = calculateSidePenalty(["OG"], "OG", "bp");
-    const penaltyDiff = calculateSidePenalty(["OG"], "OO", "bp");
-    expect(penaltySame).toBeGreaterThan(penaltyDiff);
+  it("matches Tabbycat's position cost formulas", () => {
+    // Shannon entropy (α = 1): C = n · (2 − H), H in bits, after adding the candidate position.
+    expect(bpPositionBaseCost([], "OG")).toBe(2);
+    expect(bpPositionBaseCost(["OG"], "OG")).toBe(4);
+    expect(bpPositionBaseCost(["OG"], "OO")).toBe(2);
+    expect(bpPositionBaseCost(["OG", "OO", "CG"], "CO")).toBe(0);
+    // Hartley (α = 0) and collision (α = 2) entropy.
+    expect(bpPositionBaseCost(["OG"], "OO", { renyiOrder: 0 })).toBe(2);
+    expect(bpPositionBaseCost(["OG", "OG"], "OO", { renyiOrder: 0 })).toBeCloseTo(3, 10);
+    expect(bpPositionBaseCost(["OG", "OG"], "OO", { renyiOrder: 2 })).toBeCloseTo((2 + Math.log2(5 / 9)) * 3, 10);
+    // Sum of squared deviations: counts [3,1,0,0], mean 1.
+    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(6);
+    // Legacy saved value.
+    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "std_dev" as never })).toBe(6);
+    expect(() => bpPositionBaseCost([], "OG", { renyiOrder: -1 })).toThrow(/negative/);
   });
 
-  it("uses the configured sum-of-squared-deviations position cost", () => {
-    expect(
-      computeBPSideCost(["OG", "OG", "OO"], "OG", {
-        bpPositionCost: "sum_squared_deviations",
-      })
-    ).toBe(1_296_000);
+  it("raises the base cost to the exponent, with no extra repeat-position penalty", () => {
+    expect(computeBPSideCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(1296);
+    expect(computeBPSideCost(["OG"], "OG", { bpPositionCostExponent: 2 })).toBe(16);
+    expect(computeBPSideCost(["OG", "OO", "CG"], "CO")).toBe(0);
+  });
+
+  it("two-team balance: equal histories are decided by the seeded random source", () => {
+    const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
+    const history = new Map<string, DebateSide[]>();
+    const affFor = (seed: number) => allocateSidesForDebate(teams, history, "uadc", "balanced", {}, createSeededRng(seed)).AFF.id;
+    expect(affFor(4)).toBe(affFor(4));
+    expect(new Set(Array.from({ length: 20 }, (_, seed) => affFor(seed)))).toEqual(new Set(["t1", "t2"]));
   });
 
   it("throws if team count does not match format sides", () => {
@@ -124,6 +141,17 @@ describe("Side Allocator (sideAllocator)", () => {
     expect(Object.entries(allocation).find(([, team]) => team.id === "t0")?.[0]).not.toBe("OG");
   });
 
+  it("throws for a two-team room where neither orientation fits the limits", () => {
+    const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
+    const history = new Map<string, DebateSide[]>([
+      ["t1", ["AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG"]],
+      ["t2", ["AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG"]],
+    ]);
+    expect(() => allocateSidesForDebate(teams, history, "uadc", "balanced", { maxTimesPerSide: 5 })).toThrow(
+      /Team 1 vs Team 2/
+    );
+  });
+
   it("enforces side-imbalance limits for two-team assignments", () => {
     const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
     const history = new Map<string, DebateSide[]>([["t1", ["AFF", "AFF", "AFF"]]]);
@@ -142,6 +170,6 @@ describe("Side Allocator (sideAllocator)", () => {
       ])
     );
     expect(() => allocateSidesForDebate(teams, history, "bp", "random", { maxTimesPerSide: 5 }))
-      .toThrow("No side assignment satisfies the configured side limits.");
+      .toThrow(/No side assignment satisfies the configured side limits \(at most 5 times per side\)/);
   });
 });
