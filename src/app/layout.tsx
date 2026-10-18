@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OfflineSupport } from "@/components/OfflineSupport";
+import { themeInitScript } from "@/lib/theme";
 
 const inter = Inter({ subsets: ["latin"] });
 const siteUrl =
@@ -46,7 +47,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // data-theme is set by the inline script before hydration.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className={inter.className}>
         <AuthProvider>
           <OfflineSupport />

@@ -3,21 +3,67 @@
 import React from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { SideBadge } from "@/components/ui/SideBadge";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Badge, StatusPill, type Tone } from "@/components/ui/Badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { EmptyState, ProgressBar } from "@/components/ui/Feedback";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+import { describeRoundStatus } from "@/components/layout/roundStatus";
+import type { Debate } from "@/types";
 import {
-  Shuffle,
-  Users2,
-  FileCheck2,
-  Trophy,
   ArrowRight,
-  Users,
+  ArrowUpRight,
+  CalendarPlus,
+  FileCheck2,
   MapPin,
-  Lightbulb,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Layers,
+  Shuffle,
+  Trophy,
+  Users,
+  Users2,
 } from "lucide-react";
+
+function debateStatus(debate: Debate): { tone: Tone; label: string } {
+  if (debate.byeTeamId) return { tone: "info", label: `Bye · ${debate.byeResult === "win" ? "Win" : "Absent"}` };
+  if (debate.resultStatus === "confirmed") return { tone: "success", label: "Confirmed" };
+  if (debate.resultStatus === "draft") return { tone: "warning", label: "Draft" };
+  return { tone: "neutral", label: "No result" };
+}
+
+function StatTile({
+  href,
+  label,
+  value,
+  detail,
+  icon,
+}: {
+  href: string;
+  label: string;
+  value: number;
+  detail: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "group rounded-lg border border-border bg-surface p-4 transition-colors hover:border-border-strong",
+        focusRing
+      )}
+    >
+      <div className="flex items-center justify-between text-xs font-medium text-fg-muted">
+        <span>{label}</span>
+        <span className="text-fg-subtle [&_svg]:h-4 [&_svg]:w-4" aria-hidden="true">
+          {icon}
+        </span>
+      </div>
+      <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-fg">{value}</div>
+      <p className="mt-0.5 text-xs text-fg-muted">{detail}</p>
+    </Link>
+  );
+}
 
 export default function TournamentDashboardPage() {
   const {
@@ -31,7 +77,6 @@ export default function TournamentDashboardPage() {
     ballots,
     motions,
     generateDraw,
-    autoAllocate,
   } = useTournament();
 
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
@@ -46,328 +91,215 @@ export default function TournamentDashboardPage() {
     : null;
 
   const isBP = tournament?.format === "bp";
+  const base = `/${tournament?.slug}`;
+  const roundStatus = activeRound ? describeRoundStatus(activeRound) : null;
+  const sides = isBP
+    ? ([
+        ["OG", "Opening Gov"],
+        ["OO", "Opening Opp"],
+        ["CG", "Closing Gov"],
+        ["CO", "Closing Opp"],
+      ] as const)
+    : ([
+        ["AFF", "Affirmative"],
+        ["NEG", "Negative"],
+      ] as const);
+
+  const workflow = [
+    { t: "Availability", h: `${base}/checkins` },
+    { t: "Generate draw", h: `${base}/draw` },
+    { t: "Allocate", h: `${base}/allocation` },
+    { t: "Display", h: `${base}/display` },
+    { t: "Motions", h: `${base}/imports/motions` },
+    { t: "Results", h: `${base}/results` },
+    { t: "Standings", h: `${base}/standings` },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-            {tournament?.name || "Tournament Dashboard"}
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Format:{" "}
-            <span className="font-semibold text-gray-700 uppercase">
-              {isBP ? "British Parliamentary (4 Teams/Room)" : "Asian/Australs (2 Teams/Room)"}
-            </span>{" "}
-            &bull; Status: <span className="text-emerald-600 font-semibold">Active</span>
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <Link
-            href={`/${tournament?.slug}/public`}
-            target="_blank"
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded text-xs font-semibold border border-gray-300 transition"
-          >
-            <span>Public Index</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+      <PageHeader
+        title={tournament?.name || "Tournament Dashboard"}
+        description={isBP ? "British Parliamentary · 4 teams per room" : "Asian/Australs · 2 teams per room"}
+        actions={
+          <Link href={`${base}/public`} target="_blank" rel="noreferrer" className={buttonClasses({ variant: "secondary" })}>
+            Public index
+            <ArrowUpRight aria-hidden="true" />
           </Link>
-        </div>
-      </div>
+        }
+      />
 
-      <ol className="grid grid-cols-1 md:grid-cols-7 gap-2 text-[11px]">
-        {[
-          { n: "1", t: "Availability", h: `/${tournament?.slug}/checkins` },
-          { n: "2", t: "Generate draw", h: `/${tournament?.slug}/draw` },
-          { n: "3", t: "Allocate", h: `/${tournament?.slug}/allocation` },
-          { n: "4", t: "Display", h: `/${tournament?.slug}/display` },
-          { n: "5", t: "Motions", h: `/${tournament?.slug}/imports/motions` },
-          { n: "6", t: "Results", h: `/${tournament?.slug}/results` },
-          { n: "7", t: "Standings", h: `/${tournament?.slug}/standings` },
-        ].map((step) => (
-          <li key={step.n}>
-            <Link
-              href={step.h}
-              className="flex items-center space-x-2 border border-[#d0d7de] rounded px-2 py-2 hover:border-blue-400 hover:bg-blue-50"
-            >
-              <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
-                {step.n}
-              </span>
-              <span className="font-semibold text-gray-800">{step.t}</span>
-            </Link>
-          </li>
-        ))}
-      </ol>
+      <nav aria-label="Round workflow">
+        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          {workflow.map((step, index) => (
+            <li key={step.t}>
+              <Link
+                href={step.h}
+                className={cn(
+                  "flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-muted/60",
+                  focusRing
+                )}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold tabular-nums text-fg-muted">
+                  {index + 1}
+                </span>
+                <span className="truncate">{step.t}</span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+      </nav>
 
-      {/* Active Round Action Hero Card */}
       {activeRound ? (
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50/40 rounded-lg border border-blue-200 p-5 shadow-xs">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2 mb-1">
-                <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">
-                  Active Tournament Stage
-                </span>
-                <span
-                  className={`text-[11px] font-semibold px-2 py-0.2 rounded uppercase ${
-                    activeRound.drawStatus === "confirmed"
-                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                      : activeRound.drawStatus === "draft"
-                      ? "bg-amber-100 text-amber-800 border border-amber-300"
-                      : "bg-gray-200 text-gray-700"
-                  }`}
-                >
-                  {activeRound.drawStatus === "confirmed"
-                    ? "Confirmed Draw"
-                    : activeRound.drawStatus === "draft"
-                    ? "Draft Generated"
-                    : "Draw Pending"}
-                </span>
-              </div>
-              <h2 className="text-xl font-bold text-gray-900">{activeRound.name}</h2>
-              {roundMotion ? (
-                <p className="text-xs text-gray-700 mt-2 italic bg-white/80 p-2 rounded border border-blue-100 max-w-2xl">
-                  <strong>Motion:</strong> &ldquo;{roundMotion.text}&rdquo;
-                </p>
-              ) : (
-                <p className="text-xs text-gray-500 mt-1">No motion assigned to this round yet.</p>
-              )}
-            </div>
-
-            {/* Quick Action Triggers */}
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {roundDebates.length === 0 ? (
-                <button
-                  onClick={() => generateDraw(activeRound.id)}
-                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-                >
-                  <Shuffle className="w-3.5 h-3.5" />
-                  <span>Generate Draw</span>
-                </button>
+        <Card>
+          <CardHeader
+            title={activeRound.name}
+            description="Current round"
+            actions={
+              roundDebates.length === 0 ? (
+                <Button variant="primary" onClick={() => generateDraw(activeRound.id)}>
+                  <Shuffle aria-hidden="true" />
+                  Generate draw
+                </Button>
               ) : (
                 <>
-                  <Link
-                    href={`/${tournament?.slug}/draw`}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-blue-700 border border-blue-300 rounded text-xs font-semibold shadow-2xs transition"
-                  >
-                    <Shuffle className="w-3.5 h-3.5" />
-                    <span>View Draw ({roundDebates.length} rooms)</span>
+                  <Link href={`${base}/draw`} className={buttonClasses({ variant: "secondary" })}>
+                    <Shuffle aria-hidden="true" />
+                    View draw ({roundDebates.length} rooms)
                   </Link>
-
-                  <Link
-                    href={`/${tournament?.slug}/allocation`}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-indigo-700 border border-indigo-300 rounded text-xs font-semibold shadow-2xs transition"
-                  >
-                    <Users2 className="w-3.5 h-3.5" />
-                    <span>Adjudicator Allocation</span>
+                  <Link href={`${base}/allocation`} className={buttonClasses({ variant: "secondary" })}>
+                    <Users2 aria-hidden="true" />
+                    Adjudicator allocation
                   </Link>
-
-                  <Link
-                    href={`/${tournament?.slug}/results`}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-                  >
-                    <FileCheck2 className="w-3.5 h-3.5" />
-                    <span>
-                      Enter Ballots ({completedRoundDebates}/{roundDebates.length})
-                    </span>
+                  <Link href={`${base}/results`} className={buttonClasses({ variant: "primary" })}>
+                    <FileCheck2 aria-hidden="true" />
+                    Enter ballots ({completedRoundDebates}/{roundDebates.length})
                   </Link>
                 </>
-              )}
+              )
+            }
+          />
+          <CardBody className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {roundStatus && <StatusPill tone={roundStatus.tone}>{roundStatus.label}</StatusPill>}
+              <Badge>{activeRound.stage === "elimination" ? "Elimination" : "Preliminary"}</Badge>
             </div>
-          </div>
-
-          {/* Progress Bar for Ballots */}
-          {roundDebates.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-blue-200/60">
-              <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                <span>Round Completion Progress</span>
-                <span className="font-semibold text-gray-900">
-                  {completedRoundDebates} of {roundDebates.length} Results Complete (
-                  {Math.round((completedRoundDebates / Math.max(1, roundDebates.length)) * 100)}%)
-                </span>
+            {roundMotion ? (
+              <blockquote className="max-w-3xl border-l-2 border-border-strong pl-3 text-[13px] text-fg">
+                <span className="mb-0.5 block text-[11px] font-medium uppercase tracking-wide text-fg-subtle">Motion</span>
+                &ldquo;{roundMotion.text}&rdquo;
+              </blockquote>
+            ) : (
+              <p className="text-[13px] text-fg-muted">No motion assigned to this round yet.</p>
+            )}
+            {roundDebates.length > 0 && (
+              <div className="space-y-1.5 border-t border-border pt-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-fg-muted">Round completion</span>
+                  <span className="font-medium tabular-nums text-fg">
+                    {completedRoundDebates} of {roundDebates.length} results complete (
+                    {Math.round((completedRoundDebates / Math.max(1, roundDebates.length)) * 100)}%)
+                  </span>
+                </div>
+                <ProgressBar value={completedRoundDebates} max={roundDebates.length} label="Round completion" />
               </div>
-              <div className="w-full h-2.5 bg-blue-200/70 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${(confirmedBallots.length / Math.max(1, roundDebates.length)) * 100}%`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </CardBody>
+        </Card>
       ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
-          <p className="text-sm text-gray-600">No rounds created yet.</p>
-        </div>
+        <EmptyState
+          icon={<CalendarPlus />}
+          title="No rounds created yet"
+          description="Create the first round from the round menu in the top bar."
+        />
       )}
 
-      {/* Overview Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        <Link
-          href={`/${tournament?.slug}/imports/teams`}
-          className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
-        >
-          <div className="flex items-center justify-between text-gray-500 mb-1">
-            <span className="text-xs font-semibold uppercase">Teams</span>
-            <Users className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{teams.length}</div>
-          <p className="text-[11px] text-gray-500 mt-1">
-            {teams.reduce((sum, t) => sum + (t.speakers?.length || 0), 0)} Registered Speakers
-          </p>
-        </Link>
-
-        <Link
-          href={`/${tournament?.slug}/imports/adjudicators`}
-          className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
-        >
-          <div className="flex items-center justify-between text-gray-500 mb-1">
-            <span className="text-xs font-semibold uppercase">Adjudicators</span>
-            <Users2 className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{adjudicators.length}</div>
-          <p className="text-[11px] text-gray-500 mt-1">
-            {adjudicators.filter((a) => !a.trainee).length} Accredited Chairs
-          </p>
-        </Link>
-
-        <Link
-          href={`/${tournament?.slug}/imports/venues`}
-          className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
-        >
-          <div className="flex items-center justify-between text-gray-500 mb-1">
-            <span className="text-xs font-semibold uppercase">Venues</span>
-            <MapPin className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{venues.length}</div>
-          <p className="text-[11px] text-gray-500 mt-1">
-            {venues.filter((v) => v.available !== false).length} Active Rooms
-          </p>
-        </Link>
-
-        <Link
-          href={`/${tournament?.slug}/standings`}
-          className="bg-white border border-[#d0d7de] p-4 rounded-lg hover:border-blue-500 hover:shadow-xs transition"
-        >
-          <div className="flex items-center justify-between text-gray-500 mb-1">
-            <span className="text-xs font-semibold uppercase">Rounds</span>
-            <Trophy className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{rounds.length}</div>
-          <p className="text-[11px] text-gray-500 mt-1">
-            {rounds.filter((r) => r.completed).length} Rounds Completed
-          </p>
-        </Link>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatTile
+          href={`${base}/imports/teams`}
+          label="Teams"
+          value={teams.length}
+          detail={`${teams.reduce((sum, t) => sum + (t.speakers?.length || 0), 0)} registered speakers`}
+          icon={<Users />}
+        />
+        <StatTile
+          href={`${base}/imports/adjudicators`}
+          label="Adjudicators"
+          value={adjudicators.length}
+          detail={`${adjudicators.filter((a) => !a.trainee).length} accredited chairs`}
+          icon={<Users2 />}
+        />
+        <StatTile
+          href={`${base}/imports/venues`}
+          label="Venues"
+          value={venues.length}
+          detail={`${venues.filter((v) => v.available !== false).length} active rooms`}
+          icon={<MapPin />}
+        />
+        <StatTile
+          href={`${base}/standings`}
+          label="Rounds"
+          value={rounds.length}
+          detail={`${rounds.filter((r) => r.completed).length} rounds completed`}
+          icon={<Trophy />}
+        />
       </div>
 
-      {/* Active Round Debates Table Preview */}
       {roundDebates.length > 0 && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-[#d0d7de] flex items-center justify-between bg-[#f6f8fa]">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-              <Shuffle className="w-4 h-4 text-gray-600" />
-              <span>{activeRound?.name} Matchups & Rooms</span>
-            </h3>
+        <section aria-labelledby="overview-matchups" className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 id="overview-matchups" className="text-[15px] font-semibold text-fg">
+              {activeRound?.name} matchups &amp; rooms
+            </h2>
             <Link
-              href={`/${tournament?.slug}/draw`}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+              href={`${base}/draw`}
+              className={cn("inline-flex items-center gap-1 rounded-sm text-[13px] font-medium text-accent-text hover:underline", focusRing)}
             >
-              Full Draw View &rarr;
+              Full draw
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-24">Venue</th>
-                  {isBP ? (
-                    <>
-                      <th>Opening Gov (OG)</th>
-                      <th>Opening Opp (OO)</th>
-                      <th>Closing Gov (CG)</th>
-                      <th>Closing Opp (CO)</th>
-                    </>
-                  ) : (
-                    <>
-                      <th>Affirmative (Gov)</th>
-                      <th>Negative (Opp)</th>
-                    </>
-                  )}
-                  <th>Chair Adjudicator</th>
-                  <th className="w-28 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody>
+          <TableContainer>
+            <Table>
+              <THead>
+                <TR>
+                  <TH className="w-28">Venue</TH>
+                  {sides.map(([side, label]) => (
+                    <TH key={side}>
+                      {label} <span className="text-fg-subtle">({side})</span>
+                    </TH>
+                  ))}
+                  <TH>Chair</TH>
+                  <TH className="w-32">Status</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {roundDebates.map((debate) => {
-                  const isConfirmed = debate.resultStatus === "confirmed";
-
+                  const status = debateStatus(debate);
                   return (
-                    <tr key={debate.id} className="hover:bg-gray-50">
-                      <td className="font-semibold text-gray-800 text-xs">
-                        {debate.venueName || "Unassigned"}
-                      </td>
-                      {isBP ? (
-                        <>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.OG?.teamName || "—"}
-                          </td>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.OO?.teamName || "—"}
-                          </td>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.CG?.teamName || "—"}
-                          </td>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.CO?.teamName || "—"}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.AFF?.teamName || "—"}
-                          </td>
-                          <td className="text-xs font-medium text-gray-900">
-                            {debate.teams?.NEG?.teamName || "—"}
-                          </td>
-                        </>
-                      )}
-                      <td className="text-xs text-gray-700">
+                    <TR key={debate.id}>
+                      <TD className="font-medium">{debate.venueName || "Unassigned"}</TD>
+                      {sides.map(([side]) => (
+                        <TD key={side}>{debate.teams?.[side]?.teamName || "—"}</TD>
+                      ))}
+                      <TD>
                         {debate.byeTeamId ? (
-                          <span className="text-gray-500 italic text-[11px]">Not required</span>
+                          <span className="text-fg-muted">Not required</span>
                         ) : debate.adjudicators?.chairName ? (
-                          <span className="font-medium text-gray-900">
-                            {debate.adjudicators.chairName}
-                          </span>
+                          debate.adjudicators.chairName
                         ) : (
-                          <span className="text-red-500 italic text-[11px]">Unassigned</span>
+                          <StatusPill tone="danger">Unassigned</StatusPill>
                         )}
-                      </td>
-                      <td className="text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                            isConfirmed
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : debate.resultStatus === "draft"
-                              ? "bg-amber-100 text-amber-800 border border-amber-300"
-                              : "bg-gray-100 text-gray-600 border border-gray-200"
-                          }`}
-                        >
-                          {debate.byeTeamId
-                            ? `Bye · ${debate.byeResult === "win" ? "Win" : "Absent"}`
-                            : debate.resultStatus || "none"}
-                        </span>
-                      </td>
-                    </tr>
+                      </TD>
+                      <TD>
+                        <StatusPill tone={status.tone}>{status.label}</StatusPill>
+                      </TD>
+                    </TR>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TBody>
+            </Table>
+          </TableContainer>
+        </section>
       )}
     </div>
   );

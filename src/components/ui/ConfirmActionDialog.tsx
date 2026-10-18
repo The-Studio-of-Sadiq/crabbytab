@@ -1,8 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useRef } from "react";
 import { AlertTriangle } from "lucide-react";
+import { Dialog } from "@/components/ui/Dialog";
+import { Button } from "@/components/ui/Button";
 
+/**
+ * Confirmation for consequential actions. Focus starts on "No, cancel" so an
+ * accidental Enter does not confirm. Escape cancels unless the action is busy.
+ */
 export function ConfirmActionDialog({
   title,
   description,
@@ -22,50 +28,38 @@ export function ConfirmActionDialog({
   isBusy?: boolean;
   error?: string;
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-action-title"
-        aria-describedby="confirm-action-description"
-        className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-5 text-gray-900 shadow-xl"
-      >
-        <div className="flex items-start gap-3">
-          <span className={`mt-0.5 rounded-full p-2 ${variant === "danger" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-            <AlertTriangle className="h-4 w-4" />
-          </span>
-          <div>
-            <h2 id="confirm-action-title" className="text-sm font-bold">
-              {title}
-            </h2>
-            <p id="confirm-action-description" className="mt-2 text-xs leading-relaxed text-gray-600">
-              {description}
-            </p>
-            {error && <p role="alert" className="mt-2 text-xs font-medium text-red-700">{error}</p>}
-          </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2 border-t border-gray-100 pt-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isBusy}
-            className="rounded border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
+    <Dialog
+      open
+      role="alertdialog"
+      onClose={onCancel}
+      dismissible={!isBusy}
+      initialFocusRef={cancelRef}
+      title={title}
+      description={description}
+      icon={<AlertTriangle className={variant === "danger" ? "text-danger" : "text-warning"} aria-hidden="true" />}
+      footer={
+        <>
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={isBusy}>
             No, cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={variant === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
-            disabled={isBusy}
-            className={`rounded px-3 py-2 text-xs font-bold text-white disabled:opacity-50 ${
-              variant === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
-            }`}
+            loading={isBusy}
+            loadingText="Saving..."
           >
-            {isBusy ? "Saving..." : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {error && (
+        <p role="alert" className="text-xs font-medium text-danger">
+          {error}
+        </p>
+      )}
+    </Dialog>
   );
 }
