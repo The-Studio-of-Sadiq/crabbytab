@@ -52,6 +52,13 @@ export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
 export type FeedbackQuestionType = "text" | "textarea" | "scale" | "yes_no" | "select_one" | "select_many";
 export type FeedbackAnswer = string | number | boolean | string[] | null;
 export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
+/** Who gave feedback: a team, or an adjudicator in the role they held in that debate. */
+export type FeedbackSourceRole = "team" | "chair" | "panellist" | "trainee";
+/** The role the rated adjudicator held in that debate. */
+export type FeedbackTargetRole = "chair" | "panellist" | "trainee";
+export type FeedbackWeightKey = `${FeedbackSourceRole}_on_${FeedbackTargetRole}`;
+/** "fixed": every debate gets the same panel size; "by_priority": odd panels grow in priority order. */
+export type PanelSizingMode = "fixed" | "by_priority";
 export type BreakQualificationRule = "standard" | "aida_1996" | "aida_2016_australs" | "aida_2016_easters";
 
 export interface FeedbackQuestion {
@@ -116,6 +123,10 @@ export interface TournamentPreferences {
   /** How voting adjudicator strength is matched to debate priority. */
   adjudicatorPanelStrategy?: AdjudicatorPanelStrategy;
   usePreformedPanels?: boolean;
+  /** How auto-allocation sizes voting panels. Absent -> "fixed". */
+  panelSizingMode?: PanelSizingMode;
+  /** Multiplier per feedback source/target pair when averaging feedback. Absent keys weigh 1. */
+  feedbackSourceWeights?: Partial<Record<FeedbackWeightKey, number>>;
   skipAdjCheckins?: boolean;
   noPanellistAdjs?: boolean;
   noTraineeAdjs?: boolean;
@@ -242,6 +253,17 @@ export interface Round {
   completed: boolean;
   createdAt: string;
   feedbackEnabled?: boolean;
+  /** Panels formed before the draw, allocated to debates as units. */
+  preformedPanels?: PreformedPanel[];
+}
+
+export interface PreformedPanel {
+  id: string;
+  chairId?: string;
+  panellistIds: string[];
+  traineeIds: string[];
+  /** 0-10, like Debate.importance: higher panels go to higher-priority debates. */
+  importance: number;
 }
 
 export interface Institution {
@@ -265,6 +287,9 @@ export interface Speaker {
   id: string;
   name: string;
   email?: string;
+  gender?: string;
+  /** Overrides the institution region for diversity displays. */
+  region?: string;
   categories?: string[]; // e.g. ["esl", "novice"]
 }
 
@@ -318,6 +343,8 @@ export interface Adjudicator {
   roundAvailabilityAt?: Record<string, string>;
   conflicts: AdjudicatorConflict[];
   gender?: string;
+  /** Overrides the institution region for diversity displays. */
+  region?: string;
   preformedPanelId?: string;
   venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for adjudicator's private URL
@@ -487,6 +514,8 @@ export interface FeedbackSubmission {
   comments?: string;
   answers?: Record<string, FeedbackAnswer>;
   confirmed: boolean;
+  /** Kept on record but excluded from adjudicator scores. */
+  ignored?: boolean;
   timestamp: string;
 }
 

@@ -1,11 +1,26 @@
-import { Adjudicator, Debate, Team, Venue, Round, BreakCategory, TeamStandingRow, BallotSubmission, FeedbackSubmission, TournamentPreferences, AdjudicatorPanelStrategy } from "@/types";
+import type {
+  Adjudicator,
+  Debate,
+  Team,
+  BreakCategory,
+  TeamStandingRow,
+  FeedbackSubmission,
+  TournamentPreferences,
+  AdjudicatorPanelStrategy,
+  PanelSizingMode,
+  PreformedPanel,
+} from "@/types";
 import { solveHungarian } from "./hungarian";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { blendAdjudicatorScore, isFeedbackCountedForScore } from "@/lib/feedback/scores";
 
 // ─── Types & Interfaces ──────────────────────────────────────────────
 
 export interface AllocationOptions {
-  panelSize: number; // e.g., 1 (solo chair), 3 (chair + 2 panellists), or 5
+  /** Fixed mode: voting panel size for every debate. By-priority mode: the largest panel size. */
+  panelSize: number;
+  /** Defaults to "fixed". */
+  panelSizing?: PanelSizingMode;
   /** Whether to include panel-average balance in the strength-matching objective. */
   balancePanels: boolean;
   /** Defaults to the original CrabbyTab slot-ranking behavior for old tournaments. */
@@ -14,6 +29,8 @@ export interface AllocationOptions {
   respectPersonalConflicts: boolean;
   respectHistoryConflicts: boolean;
   preferences?: Partial<TournamentPreferences>;
+  /** Upper bound on improvement passes of the panel local search. Defaults to 50. */
+  maxLocalSearchIterations?: number;
 }
 
 export interface AdjudicatorAllocationResult {
@@ -34,6 +51,8 @@ export interface AdjDebateConflictResult {
   hasInstitutionalClash: boolean;
   hasPersonalClash: boolean;
   hasHistoryClash: boolean;
+  /** Conflict with another adjudicator on the same panel. */
+  hasAdjudicatorClash: boolean;
 }
 
 export interface DebatePriorityInfo {
@@ -61,6 +80,8 @@ export interface AllocationCostBreakdown {
 
 // ─── Cost function weights ───────────────────────────────────────────
 // Tunable by tournament preferences; higher = more penalty = more avoided in the matching.
+// The weights are used as given: conflicts and history are soft penalties traded off
+// against strength matching, and any conflict that remains is reported on the result.
 
 export function getAllocationWeights(prefs?: Partial<TournamentPreferences>) {
   const conflictPenalty = prefs?.adjConflictPenalty ?? 1_000_000;
@@ -71,6 +92,7 @@ export function getAllocationWeights(prefs?: Partial<TournamentPreferences>) {
     PRIORITY_STRENGTH_MISMATCH: mismatchPenalty,
     INSTITUTION_CONFLICT: conflictPenalty,
     PERSONAL_CONFLICT: conflictPenalty,
+    ADJUDICATOR_CONFLICT: conflictPenalty,
     DECLARED_INSTITUTION_CONFLICT: Math.round(conflictPenalty * 0.8),
     REPEAT_TEAM: historyPenalty,
     REPEAT_PANEL: Math.round(historyPenalty * 0.4),
@@ -79,52 +101,65 @@ export function getAllocationWeights(prefs?: Partial<TournamentPreferences>) {
   };
 }
 
-function prioritizeClashAvoidance(
-  options: AllocationOptions,
-  debateCount: number
-): ReturnType<typeof getAllocationWeights> {
-  const weights = getAllocationWeights(options.preferences);
-  const maximumStrengthMismatch =
-    weights.PRIORITY_STRENGTH_MISMATCH * 20 * debateCount * Math.max(1, options.panelSize);
-  const clashPenaltyFloor = maximumStrengthMismatch + 1;
-  const adjustedWeights = { ...weights };
-
-  if (options.respectInstitutionConflicts) {
-    adjustedWeights.INSTITUTION_CONFLICT = Math.max(
-      weights.INSTITUTION_CONFLICT,
-      clashPenaltyFloor
-    );
-    adjustedWeights.DECLARED_INSTITUTION_CONFLICT = Math.max(
-      weights.DECLARED_INSTITUTION_CONFLICT,
-      clashPenaltyFloor
-    );
-  }
-  if (options.respectPersonalConflicts) {
-    adjustedWeights.PERSONAL_CONFLICT = Math.max(
-      weights.PERSONAL_CONFLICT,
-      clashPenaltyFloor
-    );
-  }
-  if (options.respectHistoryConflicts) {
-    adjustedWeights.REPEAT_TEAM = Math.max(weights.REPEAT_TEAM, clashPenaltyFloor);
-    adjustedWeights.REPEAT_PANEL = Math.max(weights.REPEAT_PANEL, clashPenaltyFloor);
-  }
-
-  return adjustedWeights;
-}
+export type AllocationWeights = ReturnType<typeof getAllocationWeights>;
 
 export const WEIGHTS = getAllocationWeights();
 
+/**
+ * importanceMismatchPenalty is charged on squared score distance, as a fraction of the
+ * full 10-point scale, times this factor. With the default weights a one-point mismatch
+ * costs 50,000 (more than one repeat-team history at 10,000) and even a full ten-point
+ * mismatch (500,000) costs less than one conflict (1,000,000).
+ */
+export const STRENGTH_COST_SCALE = 0.05;
+
+export function strengthMismatchCost(scoreDistance: number, weights: AllocationWeights): number {
+  const fraction = scoreDistance / 10;
+  return weights.PRIORITY_STRENGTH_MISMATCH * STRENGTH_COST_SCALE * fraction * fraction;
+}
+
+export const DEFAULT_LOCAL_SEARCH_ITERATIONS = 50;
+/** Bounds the total move evaluations of one local search, whatever the iteration cap. */
+export const LOCAL_SEARCH_EVALUATION_BUDGET = 4_000_000;
+
 // ─── Conflict Detection ─────────────────────────────────────────────
 
+/** True when either adjudicator declared a conflict with the other. */
+export function adjudicatorsConflict(first: Adjudicator, second: Adjudicator): boolean {
+  if (first.id === second.id) return false;
+  return (
+    (first.conflicts ?? []).some((conflict) => conflict.adjudicatorId === second.id) ||
+    (second.conflicts ?? []).some((conflict) => conflict.adjudicatorId === first.id)
+  );
+}
+
+function sharesInstitution(adj: Adjudicator, team: Team): boolean {
+  if (adj.independent) return false;
+  if (adj.institutionId && team.institutionId) return adj.institutionId === team.institutionId;
+  return Boolean(
+    adj.institutionName &&
+      team.institutionName &&
+      adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
+  );
+}
+
+function declaredInstitutionMatches(institutionId: string, team: Team): boolean {
+  return Boolean(
+    (team.institutionId && institutionId === team.institutionId) ||
+      (team.institutionName && institutionId.toLowerCase() === team.institutionName.toLowerCase())
+  );
+}
+
 /**
- * Calculates conflict penalty between an adjudicator and a debate's teams/institutions.
+ * Calculates conflict penalty between an adjudicator and a debate's teams/institutions,
+ * and (when given) the other adjudicators on the same panel.
  */
 export function calculateAdjDebateConflict(
   adj: Adjudicator,
   debateTeams: Team[],
   pastAdjudicatorTeams: Map<string, Set<string>> = new Map(), // adjId -> Set of teamIds
-  customWeights?: ReturnType<typeof getAllocationWeights>
+  customWeights?: AllocationWeights,
+  otherPanelAdjudicators: Adjudicator[] = []
 ): AdjDebateConflictResult {
   const weights = customWeights || WEIGHTS;
   let penalty = 0;
@@ -132,44 +167,33 @@ export function calculateAdjDebateConflict(
   let hasInstitutionalClash = false;
   let hasPersonalClash = false;
   let hasHistoryClash = false;
+  let hasAdjudicatorClash = false;
 
   for (const team of debateTeams) {
     if (!team) continue;
 
     // 1. Direct Institutional Conflict (unless judge is explicitly marked independent with no institution)
-    if (!adj.independent) {
-      if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-        penalty += weights.INSTITUTION_CONFLICT;
-        hasInstitutionalClash = true;
-        reasons.push(`Institutional clash with ${team.name} (${team.institutionName || "Same Institution"})`);
-      } else if (
-        adj.institutionName &&
-        team.institutionName &&
-        adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
-      ) {
-        penalty += weights.INSTITUTION_CONFLICT;
-        hasInstitutionalClash = true;
-        reasons.push(`Institutional clash with ${team.name} (${team.institutionName})`);
-      }
+    if (sharesInstitution(adj, team)) {
+      penalty += weights.INSTITUTION_CONFLICT;
+      hasInstitutionalClash = true;
+      reasons.push(`Institutional clash with ${team.name} (${team.institutionName || "Same Institution"})`);
     }
 
     // 2. Declared conflicts (personal, institutional, etc.)
-    if (adj.conflicts && adj.conflicts.length > 0) {
-      for (const conflict of adj.conflicts) {
-        if (conflict.teamId && conflict.teamId === team.id) {
-          penalty += weights.PERSONAL_CONFLICT;
-          hasPersonalClash = true;
-          reasons.push(`Personal clash with team "${team.name}"`);
-        }
-        if (
-          conflict.institutionId &&
-          ((team.institutionId && conflict.institutionId === team.institutionId) ||
-            (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
-        ) {
-          penalty += weights.DECLARED_INSTITUTION_CONFLICT;
-          hasInstitutionalClash = true;
-          reasons.push(`Declared institutional clash with ${team.name}`);
-        }
+    for (const conflict of adj.conflicts ?? []) {
+      if (conflict.teamId && conflict.teamId === team.id) {
+        penalty += weights.PERSONAL_CONFLICT;
+        hasPersonalClash = true;
+        reasons.push(`Personal clash with team "${team.name}"`);
+      }
+      if (
+        conflict.institutionId &&
+        declaredInstitutionMatches(conflict.institutionId, team) &&
+        !sharesInstitution(adj, team)
+      ) {
+        penalty += weights.DECLARED_INSTITUTION_CONFLICT;
+        hasInstitutionalClash = true;
+        reasons.push(`Declared institutional clash with ${team.name}`);
       }
     }
 
@@ -182,6 +206,15 @@ export function calculateAdjDebateConflict(
     }
   }
 
+  // 4. Adjudicator-adjudicator conflicts on the same panel
+  for (const other of otherPanelAdjudicators) {
+    if (adjudicatorsConflict(adj, other)) {
+      penalty += weights.ADJUDICATOR_CONFLICT;
+      hasAdjudicatorClash = true;
+      reasons.push(`Personal clash with adjudicator "${other.name}"`);
+    }
+  }
+
   return {
     penalty,
     reasons,
@@ -189,7 +222,63 @@ export function calculateAdjDebateConflict(
     hasInstitutionalClash,
     hasPersonalClash,
     hasHistoryClash,
+    hasAdjudicatorClash,
   };
+}
+
+interface TeamConflictCosts {
+  institution: number;
+  personal: number;
+  history: number;
+}
+
+/** Team-facing conflict costs for one adjudicator in one debate, honouring the respect flags. */
+function teamConflictCosts(
+  adj: Adjudicator,
+  debateTeams: Team[],
+  pastAdjTeams: Map<string, Set<string>>,
+  options: AllocationOptions,
+  weights: AllocationWeights
+): TeamConflictCosts {
+  const costs: TeamConflictCosts = { institution: 0, personal: 0, history: 0 };
+  for (const team of debateTeams) {
+    if (options.respectInstitutionConflicts && sharesInstitution(adj, team)) {
+      costs.institution += weights.INSTITUTION_CONFLICT;
+    }
+    for (const conflict of adj.conflicts ?? []) {
+      if (options.respectPersonalConflicts && conflict.teamId && conflict.teamId === team.id) {
+        costs.personal += weights.PERSONAL_CONFLICT;
+      }
+      if (
+        options.respectInstitutionConflicts &&
+        conflict.institutionId &&
+        declaredInstitutionMatches(conflict.institutionId, team) &&
+        !sharesInstitution(adj, team)
+      ) {
+        costs.institution += weights.DECLARED_INSTITUTION_CONFLICT;
+      }
+    }
+    if (options.respectHistoryConflicts && pastAdjTeams.get(adj.id)?.has(team.id)) {
+      costs.history += weights.REPEAT_TEAM;
+    }
+  }
+  return costs;
+}
+
+function adjudicatorPairCost(
+  first: Adjudicator,
+  second: Adjudicator,
+  pastPanelHistory: Map<string, number>,
+  options: AllocationOptions,
+  weights: AllocationWeights
+): number {
+  let cost = 0;
+  if (options.respectPersonalConflicts && adjudicatorsConflict(first, second)) {
+    cost += weights.ADJUDICATOR_CONFLICT;
+  }
+  const key = [first.id, second.id].sort().join(":");
+  cost += (pastPanelHistory.get(key) ?? 0) * weights.REPEAT_PANEL;
+  return cost;
 }
 
 // ─── Break Liveness ─────────────────────────────────────────────────
@@ -318,43 +407,38 @@ export function calculateDebatePriorities(
   });
 }
 
+
 // ─── Panel Strength ─────────────────────────────────────────────────
 
 /**
- * Computes effective panel strength for an adjudicator, incorporating
- * feedback-adjusted scores when available.
+ * Effective adjudicator score: the test score (or base score) blended with the
+ * feedback average using the round's feedback weight. `feedbackScores` must already
+ * be on the adjudicator score scale (see calculateScaledFeedbackScores).
  */
 export function effectiveAdjScore(
   adj: Adjudicator,
-  feedbackScores?: Map<string, number> // adjId -> feedback average
+  feedbackScores?: Map<string, number>, // adjId -> feedback average
+  feedbackWeight?: number
 ): number {
-  const feedbackScore = feedbackScores?.get(adj.id);
-  if (feedbackScore !== undefined) {
-    // Blend base score (40%) with feedback (60%) for feedback-adjusted score
-    return adj.baseScore * 0.4 + feedbackScore * 0.6;
-  }
-  return adj.baseScore || 5;
+  return blendAdjudicatorScore(adj, feedbackScores?.get(adj.id), feedbackWeight);
 }
 
 export function isFeedbackEligibleForRating(submission: FeedbackSubmission): boolean {
-  return submission.confirmed && Number.isFinite(submission.score);
+  return submission.confirmed && !submission.ignored && Number.isFinite(submission.score);
 }
 
+/** Unweighted raw feedback average per adjudicator (confirmed, not ignored). */
 export function calculateAdjudicatorFeedbackScores(
   submissions: FeedbackSubmission[]
 ): Map<string, number> {
   const totals = new Map<string, { total: number; count: number }>();
   for (const submission of submissions) {
-    if (
-      !isFeedbackEligibleForRating(submission) ||
-      (submission.targetType && submission.targetType !== "adjudicator") ||
-      !submission.targetAdjudicatorId
-    ) continue;
+    if (!isFeedbackCountedForScore(submission)) continue;
 
-    const current = totals.get(submission.targetAdjudicatorId) ?? { total: 0, count: 0 };
+    const current = totals.get(submission.targetAdjudicatorId!) ?? { total: 0, count: 0 };
     current.total += submission.score;
     current.count += 1;
-    totals.set(submission.targetAdjudicatorId, current);
+    totals.set(submission.targetAdjudicatorId!, current);
   }
 
   return new Map(
@@ -427,6 +511,7 @@ export function buildPastAdjTeams(
   return map;
 }
 
+
 // ─── Multi-factor Cost Function ─────────────────────────────────────
 
 /**
@@ -445,106 +530,185 @@ export function computeAssignmentCost(
   role: "chair" | "panellist" | "trainee",
   options: AllocationOptions,
   strengthTarget: number = debatePriority,
-  weightOverrides?: ReturnType<typeof getAllocationWeights>
+  weightOverrides?: AllocationWeights
 ): AllocationCostBreakdown {
   const weights = weightOverrides ?? getAllocationWeights(options.preferences);
-  let priorityStrengthMismatch = 0;
-  let institutionConflict = 0;
-  let personalConflict = 0;
-  let repeatTeamConflict = 0;
+  const teamCosts = teamConflictCosts(adj, debateTeams, pastAdjTeams, options, weights);
+  const priorityStrengthMismatch = strengthMismatchCost(strengthTarget - adjEffectiveScore, weights);
+
   let repeatPanelConflict = 0;
-  let traineeSuitability = 0;
-
-  // 1. Priority-Strength Mismatch
-  // We want high-scored judges in high-priority debates
-  const mismatch = Math.abs(strengthTarget - adjEffectiveScore);
-  priorityStrengthMismatch = mismatch * weights.PRIORITY_STRENGTH_MISMATCH;
-
-  // 2. Institution Conflict
-  if (options.respectInstitutionConflicts && !adj.independent) {
-    for (const team of debateTeams) {
-      if (!team) continue;
-      if (adj.institutionId && team.institutionId && adj.institutionId === team.institutionId) {
-        institutionConflict += weights.INSTITUTION_CONFLICT;
-      } else if (
-        adj.institutionName &&
-        team.institutionName &&
-        adj.institutionName.trim().toLowerCase() === team.institutionName.trim().toLowerCase()
-      ) {
-        institutionConflict += weights.INSTITUTION_CONFLICT;
-      }
-    }
-  }
-
-  // 3. Personal Conflict
-  if (options.respectPersonalConflicts && adj.conflicts?.length) {
-    for (const conflict of adj.conflicts) {
-      for (const team of debateTeams) {
-        if (!team) continue;
-        if (conflict.teamId && conflict.teamId === team.id) {
-          personalConflict += weights.PERSONAL_CONFLICT;
-        }
-        if (
-          conflict.institutionId &&
-          ((team.institutionId && conflict.institutionId === team.institutionId) ||
-            (team.institutionName && conflict.institutionId.toLowerCase() === team.institutionName.toLowerCase()))
-        ) {
-          institutionConflict += weights.DECLARED_INSTITUTION_CONFLICT;
-        }
-      }
-    }
-  }
-
-  // 4. Repeat-Team Conflict
-  if (options.respectHistoryConflicts) {
-    const judgedTeams = pastAdjTeams.get(adj.id);
-    if (judgedTeams) {
-      for (const team of debateTeams) {
-        if (!team) continue;
-        if (judgedTeams.has(team.id)) {
-          repeatTeamConflict += weights.REPEAT_TEAM;
-        }
-      }
-    }
-  }
-
-  // 5. Repeat-Panel Conflict
   for (const otherAdjId of currentPanelAdjIds) {
     const key = [adj.id, otherAdjId].sort().join(":");
-    const coCount = pastPanelHistory.get(key) || 0;
-    if (coCount > 0) {
-      repeatPanelConflict += weights.REPEAT_PANEL * coCount;
-    }
+    repeatPanelConflict += weights.REPEAT_PANEL * (pastPanelHistory.get(key) || 0);
   }
 
-  // 6. Trainee Suitability
+  let traineeSuitability = 0;
   if (adj.trainee) {
-    if (role === "chair") {
-      traineeSuitability += weights.TRAINEE_AS_CHAIR;
-    }
+    if (role === "chair") traineeSuitability += weights.TRAINEE_AS_CHAIR;
     // Prefer trainees in lower-priority debates
-    if (debatePriority > 7) {
-      traineeSuitability += weights.TRAINEE_TOP_DEBATE;
-    }
+    if (debatePriority > 7) traineeSuitability += weights.TRAINEE_TOP_DEBATE;
   }
 
   const total =
     priorityStrengthMismatch +
-    institutionConflict +
-    personalConflict +
-    repeatTeamConflict +
+    teamCosts.institution +
+    teamCosts.personal +
+    teamCosts.history +
     repeatPanelConflict +
     traineeSuitability;
 
   return {
     priorityStrengthMismatch,
-    institutionConflict,
-    personalConflict,
-    repeatTeamConflict,
+    institutionConflict: teamCosts.institution,
+    personalConflict: teamCosts.personal,
+    repeatTeamConflict: teamCosts.history,
     repeatPanelConflict,
     traineeSuitability,
     total,
   };
+}
+
+// ─── Panel sizing ───────────────────────────────────────────────────
+
+/**
+ * Voting panel size per debate, in the order the debates are given (highest priority first).
+ *
+ * "fixed": every debate gets maxPanelSize (slots beyond the available voting adjudicators
+ * are dropped from the lowest-priority panels first).
+ * "by_priority": every debate gets a chair, then panels grow to 3, then 5, ... (odd sizes
+ * only, up to maxPanelSize) in priority order while voting adjudicators remain.
+ */
+export function planPanelSizes(
+  debateCount: number,
+  votingCount: number,
+  maxPanelSize: number,
+  mode: PanelSizingMode = "fixed"
+): number[] {
+  const maxSize = Math.max(1, Math.floor(maxPanelSize));
+  if (mode === "fixed") return Array.from({ length: debateCount }, () => maxSize);
+
+  const sizes = Array.from({ length: debateCount }, () => 1);
+  let remaining = votingCount - debateCount;
+  for (let target = 3; target <= maxSize; target += 2) {
+    for (let index = 0; index < debateCount && remaining >= 2; index++) {
+      if (sizes[index] === target - 2) {
+        sizes[index] = target;
+        remaining -= 2;
+      }
+    }
+  }
+  return sizes;
+}
+
+// ─── Bounded local search ───────────────────────────────────────────
+
+export interface PanelSearchProblem {
+  /** slotCost[slot][candidate]: separable cost of seating a candidate in a slot. */
+  slotCost: number[][];
+  groupOfSlot: number[];
+  slotsByGroup: number[][];
+  /** Non-separable cost of a group's members (pairwise penalties, panel balance). */
+  groupCost(group: number, members: number[]): number;
+}
+
+export interface PanelSearchResult {
+  assignment: number[];
+  cost: number;
+  iterations: number;
+  /** True when the iteration cap or evaluation budget ended the search. */
+  stoppedEarly: boolean;
+}
+
+/**
+ * Best-improvement local search over single replacements and swaps. Each pass evaluates
+ * every (slot, candidate) move using only the costs that move changes. Passes are capped
+ * so large tournaments stay responsive; the result is a local optimum only when the
+ * search was not stopped early.
+ */
+export function improvePanelAssignment(
+  problem: PanelSearchProblem,
+  initial: number[],
+  maxIterations: number = DEFAULT_LOCAL_SEARCH_ITERATIONS,
+  evaluationBudget: number = LOCAL_SEARCH_EVALUATION_BUDGET
+): PanelSearchResult {
+  const assignment = [...initial];
+  const candidateCount = problem.slotCost[0]?.length ?? 0;
+  const slotOfCandidate = new Array<number>(candidateCount).fill(-1);
+  assignment.forEach((candidate, slot) => {
+    if (candidate >= 0) slotOfCandidate[candidate] = slot;
+  });
+  const membersOf = (group: number) =>
+    problem.slotsByGroup[group].map((slot) => assignment[slot]).filter((candidate) => candidate >= 0);
+  const slotPart = (slot: number, candidate: number) =>
+    candidate >= 0 ? problem.slotCost[slot][candidate] : 0;
+  const groupCosts = problem.slotsByGroup.map((_, group) => problem.groupCost(group, membersOf(group)));
+
+  let cost =
+    assignment.reduce((sum, candidate, slot) => sum + slotPart(slot, candidate), 0) +
+    groupCosts.reduce((sum, value) => sum + value, 0);
+  let iterations = 0;
+  let evaluations = 0;
+  let stoppedEarly = false;
+
+  while (!stoppedEarly) {
+    if (iterations >= maxIterations) {
+      stoppedEarly = true;
+      break;
+    }
+    iterations++;
+
+    let bestDelta = -1e-9;
+    let bestMove: { slot: number; candidate: number; groupCosts: Array<[number, number]> } | undefined;
+
+    for (let slot = 0; slot < assignment.length && !stoppedEarly; slot++) {
+      const current = assignment[slot];
+      for (let candidate = 0; candidate < candidateCount; candidate++) {
+        if (candidate === current) continue;
+        if (++evaluations > evaluationBudget) {
+          stoppedEarly = true;
+          break;
+        }
+        const otherSlot = slotOfCandidate[candidate];
+        let delta = slotPart(slot, candidate) - slotPart(slot, current);
+        if (otherSlot >= 0) delta += slotPart(otherSlot, current) - slotPart(otherSlot, candidate);
+
+        const firstGroup = problem.groupOfSlot[slot];
+        const secondGroup = otherSlot >= 0 ? problem.groupOfSlot[otherSlot] : -1;
+        const changedGroups: Array<[number, number]> = [];
+        if (secondGroup !== firstGroup) {
+          assignment[slot] = candidate;
+          if (otherSlot >= 0) assignment[otherSlot] = current;
+          for (const group of secondGroup >= 0 ? [firstGroup, secondGroup] : [firstGroup]) {
+            const updated = problem.groupCost(group, membersOf(group));
+            delta += updated - groupCosts[group];
+            changedGroups.push([group, updated]);
+          }
+          assignment[slot] = current;
+          if (otherSlot >= 0) assignment[otherSlot] = candidate;
+        }
+
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestMove = { slot, candidate, groupCosts: changedGroups };
+        }
+      }
+    }
+
+    if (!bestMove) break;
+    const { slot, candidate } = bestMove;
+    const current = assignment[slot];
+    const otherSlot = slotOfCandidate[candidate];
+    assignment[slot] = candidate;
+    slotOfCandidate[candidate] = slot;
+    if (current >= 0) slotOfCandidate[current] = otherSlot;
+    if (otherSlot >= 0) assignment[otherSlot] = current;
+    bestMove.groupCosts.forEach(([group, value]) => {
+      groupCosts[group] = value;
+    });
+    cost += bestDelta;
+  }
+
+  return { assignment, cost, iterations, stoppedEarly };
 }
 
 // ─── Intelligent Auto-Allocator ─────────────────────────────────────
@@ -562,10 +726,96 @@ export interface IntelligentAllocationContext {
   completedRounds: number;
   /** Whether tournament is BP format */
   isBP: boolean;
-  /** Optional feedback-adjusted scores */
+  /** Optional feedback averages, already on the adjudicator score scale. */
   feedbackScores?: Map<string, number>;
+  /** The allocated round's feedback weight (0-1). Absent: the legacy 60% feedback blend. */
+  feedbackWeight?: number;
   /** Venue id to priority; used to align stronger adjudicators with better rooms. */
   venuePriorities?: Map<string, number>;
+  /** Panels formed before the draw; placed as units before the other debates are filled. */
+  preformedPanels?: PreformedPanel[];
+}
+
+function emptyAllocation(debateId: string): AdjudicatorAllocationResult {
+  return {
+    debateId,
+    panellistIds: [],
+    panellistNames: [],
+    traineeIds: [],
+    traineeNames: [],
+    conflicts: [],
+  };
+}
+
+interface PreformedPlacementInput {
+  adjById: Map<string, Adjudicator>;
+  adjScores: Map<string, number>;
+  priorityOf(debate: Debate): number;
+  teamsOf(debate: Debate): Team[];
+  pastAdjTeams: Map<string, Set<string>>;
+  options: AllocationOptions;
+  weights: AllocationWeights;
+  includePanellists: boolean;
+  includeTrainees: boolean;
+}
+
+/**
+ * Matches preformed panels to debates as whole units. Panels are ranked by importance
+ * (then average voting strength) and the i-th ranked panel is steered towards the i-th
+ * highest-priority debate; team conflicts and history of every member are added on top.
+ * Members who are unavailable this round are left out; a panel with no available voting
+ * member is not placed.
+ */
+export function placePreformedPanels(
+  panels: PreformedPanel[],
+  debatesByPriority: Debate[],
+  input: PreformedPlacementInput
+): Map<string, PreformedPanel> {
+  const placements = new Map<string, PreformedPanel>();
+  const score = (id: string) => input.adjScores.get(id) ?? 5;
+  const usable = panels
+    .map((panel) => ({
+      ...panel,
+      chairId: panel.chairId && input.adjById.has(panel.chairId) ? panel.chairId : undefined,
+      panellistIds: input.includePanellists
+        ? panel.panellistIds.filter((id) => input.adjById.has(id))
+        : [],
+      traineeIds: input.includeTrainees ? panel.traineeIds.filter((id) => input.adjById.has(id)) : [],
+    }))
+    .filter((panel) => panel.chairId || panel.panellistIds.length > 0);
+  if (usable.length === 0 || debatesByPriority.length === 0) return placements;
+
+  const votingAverage = (panel: PreformedPanel) => {
+    const ids = [panel.chairId, ...panel.panellistIds].filter((id): id is string => Boolean(id));
+    return ids.reduce((sum, id) => sum + score(id), 0) / ids.length;
+  };
+  const ranked = [...usable].sort(
+    (a, b) =>
+      (b.importance ?? 0) - (a.importance ?? 0) ||
+      votingAverage(b) - votingAverage(a) ||
+      a.id.localeCompare(b.id)
+  );
+  const priorities = debatesByPriority.map((debate) => input.priorityOf(debate));
+  const costs = ranked.map((panel, panelRank) => {
+    const idealPriority = priorities[Math.min(panelRank, priorities.length - 1)];
+    const members = [panel.chairId, ...panel.panellistIds, ...panel.traineeIds]
+      .filter((id): id is string => Boolean(id))
+      .map((id) => input.adjById.get(id)!);
+    return debatesByPriority.map((debate, debateIndex) => {
+      const teams = input.teamsOf(debate);
+      const conflictCost = members.reduce((sum, member) => {
+        const costs = teamConflictCosts(member, teams, input.pastAdjTeams, input.options, input.weights);
+        return sum + costs.institution + costs.personal + costs.history;
+      }, 0);
+      return conflictCost + strengthMismatchCost(priorities[debateIndex] - idealPriority, input.weights);
+    });
+  });
+
+  solveHungarian(costs).forEach((debateIndex, panelRank) => {
+    if (debateIndex < 0 || debateIndex >= debatesByPriority.length) return;
+    placements.set(debatesByPriority[debateIndex].id, ranked[panelRank]);
+  });
+  return placements;
 }
 
 /**
@@ -574,11 +824,14 @@ export interface IntelligentAllocationContext {
  *
  * Algorithm:
  * 1. Compute debate priority scores (bracket + break liveness + manual priority)
- * 2. Compute effective adjudicator scores (base + feedback blend)
+ * 2. Compute effective adjudicator scores (test/base score blended with feedback)
  * 3. Build past history maps (teams judged, panel co-occurrences)
- * 4. Match complete voting panels while balancing average panel strength to debate priority
- * 5. Promote each panel's strongest conflict-free member to chair
- * 6. Distribute trainees to lower-priority debates
+ * 4. Place preformed panels as units, when given
+ * 5. Size the remaining voting panels and match them with a Hungarian assignment,
+ *    then improve pairwise costs (adjudicator conflicts, repeat panels) with a
+ *    bounded local search
+ * 6. Seat trainees, avoiding team and adjudicator conflicts, in lower-priority debates
+ * 7. Promote each panel's strongest conflict-free member to chair and report conflicts
  */
 export function autoAllocateAdjudicators(
   debates: Debate[],
@@ -606,14 +859,7 @@ export function autoAllocateAdjudicators(
     );
     const allocationByDebateId = new Map(eligibleAllocations.map((allocation) => [allocation.debateId, allocation]));
 
-    return debates.map((debate) => allocationByDebateId.get(debate.id) ?? {
-      debateId: debate.id,
-      panellistIds: [],
-      panellistNames: [],
-      traineeIds: [],
-      traineeNames: [],
-      conflicts: [],
-    });
+    return debates.map((debate) => allocationByDebateId.get(debate.id) ?? emptyAllocation(debate.id));
   }
 
   const skipCheckins = options.preferences?.skipAdjCheckins ?? false;
@@ -626,21 +872,13 @@ export function autoAllocateAdjudicators(
   const numDebates = debates.length;
 
   if (numDebates === 0 || availableAdjs.length === 0) {
-    return debates.map((d) => ({
-      debateId: d.id,
-      panellistIds: [],
-      panellistNames: [],
-      traineeIds: [],
-      traineeNames: [],
-      conflicts: [],
-    }));
+    return debates.map((d) => emptyAllocation(d.id));
   }
 
   const weights = getAllocationWeights(options.preferences);
   const minScoreToVote = options.preferences?.minAdjScoreToVote ?? 1.5;
   const noPanellists = options.preferences?.noPanellistAdjs ?? false;
   const noTrainees = options.preferences?.noTraineeAdjs ?? false;
-  const allocationWeights = prioritizeClashAvoidance(options, numDebates);
 
   // ─── Step 1: Compute debate priorities ───
   let breakLiveness = new Map<string, number>();
@@ -692,6 +930,7 @@ export function autoAllocateAdjudicators(
       }
     });
   }
+  const priorityOf = (debate: Debate) => priorityMap.get(debate.id)?.priorityScore ?? 5;
 
   // Venue priority contributes to, but never replaces, debate importance.
   const sortedDebateIndices = Array.from({ length: numDebates }, (_, i) => i).sort((a, b) => {
@@ -701,295 +940,243 @@ export function autoAllocateAdjudicators(
   });
 
   // ─── Step 2: Compute effective adjudicator scores ───
-  const feedbackScores = context?.feedbackScores;
   const adjScores = new Map<string, number>();
   availableAdjs.forEach((adj) => {
-    adjScores.set(adj.id, effectiveAdjScore(adj, feedbackScores));
+    adjScores.set(adj.id, effectiveAdjScore(adj, context?.feedbackScores, context?.feedbackWeight));
   });
+  const scoreOf = (adj: Adjudicator) => adjScores.get(adj.id) ?? 5;
 
   // ─── Step 3: Build history maps ───
   const allPastDebates = context?.allPastDebates || [];
   const pastPanelHistory = buildPastPanelHistory(allPastDebates);
 
   // Merge any additional past adj-team relationships from context
-  const fullPastAdjTeams = new Map(pastAdjudicatorTeams);
+  const fullPastAdjTeams = new Map(
+    [...pastAdjudicatorTeams].map(([adjId, teamIds]) => [adjId, new Set(teamIds)])
+  );
   if (allPastDebates.length > 0) {
-    const historyFromDebates = buildPastAdjTeams(allPastDebates);
-    historyFromDebates.forEach((teamSet, adjId) => {
-      if (!fullPastAdjTeams.has(adjId)) {
+    buildPastAdjTeams(allPastDebates).forEach((teamSet, adjId) => {
+      const existing = fullPastAdjTeams.get(adjId);
+      if (!existing) {
         fullPastAdjTeams.set(adjId, teamSet);
       } else {
-        const existing = fullPastAdjTeams.get(adjId)!;
         teamSet.forEach((tid) => existing.add(tid));
       }
     });
   }
 
-  // ─── Step 4: Identify voting adjudicators and trainees ───
-  // Adjudicators can only vote (chair/panellist) if not marked trainee AND score >= minScoreToVote
+  const adjById = new Map(availableAdjs.map((adj) => [adj.id, adj]));
+  const teamsByDebateId = new Map(
+    debates.map((debate) => [
+      debate.id,
+      Object.values(debate.teams)
+        .map((slot) => teamsMap.get(slot.teamId))
+        .filter((team): team is Team => team !== undefined),
+    ])
+  );
+  const teamsOf = (debate: Debate) => teamsByDebateId.get(debate.id) ?? [];
+
+  const resultsMap = new Map<string, AdjudicatorAllocationResult>();
+  for (const debate of debates) resultsMap.set(debate.id, emptyAllocation(debate.id));
+  const nameOf = (id: string) => adjById.get(id)?.name ?? id;
+
+  // ─── Step 4: Preformed panels ───
+  const usedAdjIds = new Set<string>();
+  if (context?.preformedPanels?.length) {
+    const placements = placePreformedPanels(
+      context.preformedPanels,
+      sortedDebateIndices.map((index) => debates[index]),
+      {
+        adjById,
+        adjScores,
+        priorityOf,
+        teamsOf,
+        pastAdjTeams: fullPastAdjTeams,
+        options,
+        weights,
+        includePanellists: !noPanellists,
+        includeTrainees: !noTrainees,
+      }
+    );
+    for (const [debateId, panel] of placements) {
+      const result = resultsMap.get(debateId)!;
+      if (panel.chairId) {
+        result.chairId = panel.chairId;
+        result.chairName = nameOf(panel.chairId);
+        usedAdjIds.add(panel.chairId);
+      }
+      result.panellistIds = [...panel.panellistIds];
+      result.panellistNames = panel.panellistIds.map(nameOf);
+      result.traineeIds = [...panel.traineeIds];
+      result.traineeNames = panel.traineeIds.map(nameOf);
+      [...panel.panellistIds, ...panel.traineeIds].forEach((id) => usedAdjIds.add(id));
+    }
+  }
+
+  // ─── Step 5: Voting panels for the remaining debates ───
+  const openDebateOrder = sortedDebateIndices.filter((index) => {
+    const result = resultsMap.get(debates[index].id)!;
+    return !result.chairId && result.panellistIds.length === 0;
+  });
   const nonTrainees = availableAdjs.filter(
-    (a) => !a.trainee && (adjScores.get(a.id) ?? 5) >= minScoreToVote
+    (adj) => !usedAdjIds.has(adj.id) && !adj.trainee && scoreOf(adj) >= minScoreToVote
   );
   const trainees = noTrainees
     ? []
-    : availableAdjs.filter((a) => a.trainee);
+    : availableAdjs.filter((adj) => !usedAdjIds.has(adj.id) && adj.trainee);
 
-  const resultsMap = new Map<string, AdjudicatorAllocationResult>();
-  for (const debate of debates) {
-    resultsMap.set(debate.id, {
-      debateId: debate.id,
-      panellistIds: [],
-      panellistNames: [],
-      traineeIds: [],
-      traineeNames: [],
-      conflicts: [],
-    });
-  }
-
-  // ─── Step 5: Assign complete voting panels via global minimum-cost matching ───
-  const votingPanelSize = noPanellists ? 1 : Math.max(1, options.panelSize);
-  if (nonTrainees.length > 0) {
-    const panelSlots = Array.from({ length: votingPanelSize }, (_, panelPosition) =>
-      sortedDebateIndices.map((debateIdx) => ({
-        debate: debates[debateIdx],
-      }))
-    ).flat();
-    const rankedAdjudicators = [...nonTrainees].sort((a, b) =>
-      (adjScores.get(b.id) ?? 5) - (adjScores.get(a.id) ?? 5) ||
-      b.baseScore - a.baseScore ||
-      a.id.localeCompare(b.id)
+  if (nonTrainees.length > 0 && openDebateOrder.length > 0) {
+    const sizes = planPanelSizes(
+      openDebateOrder.length,
+      nonTrainees.length,
+      noPanellists ? 1 : options.panelSize,
+      noPanellists ? "fixed" : options.panelSizing ?? "fixed"
     );
-    const adjudicatorRank = new Map<string, number>();
-    for (let start = 0; start < rankedAdjudicators.length;) {
-      const score = adjScores.get(rankedAdjudicators[start].id) ?? 5;
-      let end = start + 1;
-      while (
-        end < rankedAdjudicators.length &&
-        (adjScores.get(rankedAdjudicators[end].id) ?? 5) === score
-      ) {
-        end++;
-      }
-      const rank = (start + end - 1) / 2;
-      for (let index = start; index < end; index++) {
-        adjudicatorRank.set(rankedAdjudicators[index].id, rank);
-      }
-      start = end;
+    // Position-major slot order: every chair slot (by priority), then every second seat, ...
+    const slots: Array<{ debateIndex: number; group: number }> = [];
+    const largestPanel = Math.max(...sizes);
+    for (let seat = 0; seat < largestPanel; seat++) {
+      openDebateOrder.forEach((debateIndex, group) => {
+        if (sizes[group] > seat) slots.push({ debateIndex, group });
+      });
     }
-    const maxPanelRepeatCount = Math.max(0, ...pastPanelHistory.values());
-    const repeatPanelCostBound =
-      maxPanelRepeatCount *
-      allocationWeights.REPEAT_PANEL *
-      panelSlots.length *
-      panelSlots.length;
-    const panelAverageStrategy = options.panelStrengthStrategy === "panel_average";
-    const strengthRankWeight = repeatPanelCostBound + 1;
-    const maxRankDistance = Math.max(nonTrainees.length, panelSlots.length);
-    const strengthCostBound =
-      panelSlots.length * maxRankDistance * maxRankDistance * strengthRankWeight;
-    const balanceCostBound = numDebates * 0.01;
-    const panelAverageCostBound =
-      numDebates * 10 * Math.max(1, allocationWeights.PRIORITY_STRENGTH_MISMATCH);
-    const hardConflictCost = panelAverageStrategy
-      ? panelAverageCostBound + repeatPanelCostBound + 1
-      : strengthCostBound + repeatPanelCostBound + balanceCostBound + 1;
-    const basePanelCostMatrix = panelSlots.map(({ debate }, slotIdx) => {
-      const debateTeams: Team[] = Object.values(debate.teams)
-        .map((t) => teamsMap.get(t.teamId))
-        .filter((t): t is Team => t !== undefined);
-      const debatePriority = priorityMap.get(debate.id)?.priorityScore ?? 5;
+    slots.length = Math.min(slots.length, nonTrainees.length);
 
-      return nonTrainees.map((adj) => {
-        const cost = computeAssignmentCost(
-          adj,
-          debate,
-          debateTeams,
-          debatePriority,
-          adjScores.get(adj.id) ?? 5,
-          fullPastAdjTeams,
-          pastPanelHistory,
-          [],
-          "panellist",
-          options,
-          debatePriority,
-          allocationWeights
-        );
-        const hasRespectedConflict =
-          (options.respectInstitutionConflicts && cost.institutionConflict > 0) ||
-          (options.respectPersonalConflicts && cost.personalConflict > 0) ||
-          (options.respectHistoryConflicts && cost.repeatTeamConflict > 0          );
-        const conflictCost = hasRespectedConflict ? hardConflictCost : 0;
-        if (panelAverageStrategy) return conflictCost;
-
-        const rankDistance = Math.abs(
-          slotIdx - (adjudicatorRank.get(adj.id) ?? nonTrainees.length)
-        );
-        return conflictCost + rankDistance * rankDistance * strengthRankWeight;
+    const panelAverage = options.panelStrengthStrategy === "panel_average";
+    const voterScores = nonTrainees.map(scoreOf);
+    // The k-th slot ideally holds the k-th strongest voting adjudicator.
+    const idealScores = [...voterScores].sort((a, b) => b - a);
+    const slotCost = slots.map(({ debateIndex }, slotIndex) => {
+      const teams = teamsOf(debates[debateIndex]);
+      return nonTrainees.map((adj, adjIndex) => {
+        const costs = teamConflictCosts(adj, teams, fullPastAdjTeams, options, weights);
+        const conflictCost = costs.institution + costs.personal + costs.history;
+        return panelAverage
+          ? conflictCost
+          : conflictCost + strengthMismatchCost(voterScores[adjIndex] - idealScores[slotIndex], weights);
       });
     });
-    const panelCostMatrix = basePanelCostMatrix;
+    // Panel-average costs are not separable; seed the matching with per-adjudicator distance
+    // to the debate priority and let the local search optimise the real panel averages.
+    const seedCost = panelAverage
+      ? slotCost.map((row, slotIndex) => {
+          const priority = priorityOf(debates[slots[slotIndex].debateIndex]);
+          return row.map((cost, adjIndex) => cost + strengthMismatchCost(voterScores[adjIndex] - priority, weights));
+        })
+      : slotCost;
+    const seed = solveHungarian(seedCost).map((adjIndex) =>
+      adjIndex >= 0 && adjIndex < nonTrainees.length ? adjIndex : -1
+    );
 
-    const panelSlotsByDebate = new Map<string, number[]>();
-    panelSlots.forEach(({ debate }, slotIdx) => {
-      const slots = panelSlotsByDebate.get(debate.id) ?? [];
-      slots.push(slotIdx);
-      panelSlotsByDebate.set(debate.id, slots);
-    });
-
-    const panelAssignmentCost = (assignment: number[]) => {
-      let total = 0;
-      assignment.forEach((adjIdx, slotIdx) => {
-        if (adjIdx >= 0) total += panelCostMatrix[slotIdx][adjIdx];
-      });
-
-      for (const slotIndices of panelSlotsByDebate.values()) {
-        if (options.balancePanels && slotIndices.length > 0) {
-          const panelScores = slotIndices
-            .map((slotIdx) => assignment[slotIdx])
-            .filter((adjIdx) => adjIdx >= 0)
-            .map((adjIdx) => adjScores.get(nonTrainees[adjIdx].id) ?? 5);
-          if (panelScores.length > 0) {
-            const debateId = panelSlots[slotIndices[0]].debate.id;
-            const priority = priorityMap.get(debateId)?.priorityScore ?? 5;
-            const averageStrength = panelScores.reduce((sum, score) => sum + score, 0) / panelScores.length;
-            const mismatchWeight = panelAverageStrategy
-              ? allocationWeights.PRIORITY_STRENGTH_MISMATCH
-              : 0.001;
-            total += Math.abs(averageStrength - priority) * mismatchWeight;
-          }
-        }
-        for (let i = 0; i < slotIndices.length; i++) {
-          const firstAdjIdx = assignment[slotIndices[i]];
-          if (firstAdjIdx < 0) continue;
-          for (let j = i + 1; j < slotIndices.length; j++) {
-            const secondAdjIdx = assignment[slotIndices[j]];
-            if (secondAdjIdx < 0) continue;
-            const key = [
-              nonTrainees[firstAdjIdx].id,
-              nonTrainees[secondAdjIdx].id,
-            ].sort().join(":");
-            total += (pastPanelHistory.get(key) ?? 0) * allocationWeights.REPEAT_PANEL;
-          }
+    const slotsByGroup: number[][] = openDebateOrder.map(() => []);
+    slots.forEach((slot, slotIndex) => slotsByGroup[slot.group].push(slotIndex));
+    const groupCost = (group: number, members: number[]) => {
+      let cost = 0;
+      if (members.length > 0 && (panelAverage || options.balancePanels)) {
+        const average = members.reduce((sum, member) => sum + voterScores[member], 0) / members.length;
+        const priority = priorityOf(debates[openDebateOrder[group]]);
+        cost += panelAverage
+          ? strengthMismatchCost(average - priority, weights)
+          : Math.abs(average - priority) * 0.001;
+      }
+      for (let i = 0; i < members.length; i++) {
+        for (let j = i + 1; j < members.length; j++) {
+          cost += adjudicatorPairCost(
+            nonTrainees[members[i]],
+            nonTrainees[members[j]],
+            pastPanelHistory,
+            options,
+            weights
+          );
         }
       }
-      return total;
+      return cost;
     };
 
-    const panelMatching = solveHungarian(panelCostMatrix).map((adjIdx) =>
-      adjIdx >= 0 && adjIdx < nonTrainees.length ? adjIdx : -1
+    const { assignment } = improvePanelAssignment(
+      { slotCost, groupOfSlot: slots.map((slot) => slot.group), slotsByGroup, groupCost },
+      seed,
+      options.maxLocalSearchIterations ?? DEFAULT_LOCAL_SEARCH_ITERATIONS
     );
 
-    // Pairwise repeat-panel penalties are not separable in the Hungarian matrix.
-    // Improve its global assignment by accepting cost-reducing replacements/swaps.
-    let currentPanelCost = panelAssignmentCost(panelMatching);
-    while (true) {
-      let bestCost = currentPanelCost;
-      let bestAssignment: number[] | undefined;
-      const slotByAdj = new Map<number, number>();
-      panelMatching.forEach((adjIdx, slotIdx) => {
-        if (adjIdx >= 0) slotByAdj.set(adjIdx, slotIdx);
-      });
+    slots.forEach(({ debateIndex }, slotIndex) => {
+      const adjIndex = assignment[slotIndex];
+      if (adjIndex === undefined || adjIndex < 0) return;
+      const chosen = nonTrainees[adjIndex];
+      const result = resultsMap.get(debates[debateIndex].id)!;
+      result.panellistIds.push(chosen.id);
+      result.panellistNames.push(chosen.name);
+    });
+  }
 
-      for (let slotIdx = 0; slotIdx < panelMatching.length; slotIdx++) {
-        const currentAdjIdx = panelMatching[slotIdx];
-        for (let candidateIdx = 0; candidateIdx < nonTrainees.length; candidateIdx++) {
-          if (candidateIdx === currentAdjIdx) continue;
-          const candidateSlot = slotByAdj.get(candidateIdx);
-          const candidateAssignment = [...panelMatching];
-          candidateAssignment[slotIdx] = candidateIdx;
-          if (candidateSlot !== undefined) {
-            candidateAssignment[candidateSlot] = currentAdjIdx;
-          }
-
-          const candidateCost = panelAssignmentCost(candidateAssignment);
-          if (candidateCost < bestCost) {
-            bestCost = candidateCost;
-            bestAssignment = candidateAssignment;
+  // ─── Step 6: Trainees (conflict-checked, lower-priority debates first) ───
+  if (trainees.length > 0) {
+    const lowestPriorityFirst = [...sortedDebateIndices].reverse();
+    const sortedTrainees = [...trainees].sort((a, b) => scoreOf(a) - scoreOf(b) || a.id.localeCompare(b.id));
+    for (const trainee of sortedTrainees) {
+      let best: { result: AdjudicatorAllocationResult; cost: number; count: number } | undefined;
+      for (const debateIndex of lowestPriorityFirst) {
+        const debate = debates[debateIndex];
+        const result = resultsMap.get(debate.id)!;
+        const teamCosts = teamConflictCosts(trainee, teamsOf(debate), fullPastAdjTeams, options, weights);
+        let cost = teamCosts.institution + teamCosts.personal + teamCosts.history;
+        if (options.respectPersonalConflicts) {
+          for (const memberId of [result.chairId, ...result.panellistIds, ...result.traineeIds]) {
+            const member = memberId ? adjById.get(memberId) : undefined;
+            if (member && adjudicatorsConflict(trainee, member)) cost += weights.ADJUDICATOR_CONFLICT;
           }
         }
+        const count = result.traineeIds.length;
+        if (!best || cost < best.cost || (cost === best.cost && count < best.count)) {
+          best = { result, cost, count };
+        }
       }
-
-      if (!bestAssignment) break;
-      panelMatching.splice(0, panelMatching.length, ...bestAssignment);
-      currentPanelCost = bestCost;
-    }
-
-    panelSlots.forEach(({ debate }, slotIdx) => {
-      const adjIdx = panelMatching[slotIdx];
-      if (adjIdx === undefined || adjIdx < 0 || adjIdx >= nonTrainees.length) return;
-
-      const chosen = nonTrainees[adjIdx];
-      const res = resultsMap.get(debate.id)!;
-      res.panellistIds.push(chosen.id);
-      res.panellistNames.push(chosen.name);
-
-      const debateTeams: Team[] = Object.values(debate.teams)
-        .map((t) => teamsMap.get(t.teamId))
-        .filter((t): t is Team => t !== undefined);
-      const { reasons } = calculateAdjDebateConflict(chosen, debateTeams, fullPastAdjTeams, weights);
-      res.conflicts.push(...reasons);
-    });
-  }
-
-  // ─── Step 6: Distribute trainees (prefer lower-priority debates) ───
-  if (!noTrainees && trainees.length > 0) {
-    const sortedTrainees = [...trainees].sort(
-      (a, b) => (adjScores.get(a.id) ?? 0) - (adjScores.get(b.id) ?? 0)
-    );
-
-    // Assign trainees starting from the lowest-priority debates
-    const reversePriorityOrder = [...sortedDebateIndices].reverse();
-    let traineeIdx = 0;
-
-    while (traineeIdx < sortedTrainees.length) {
-      for (const debateIdx of reversePriorityOrder) {
-        if (traineeIdx >= sortedTrainees.length) break;
-        const debate = debates[debateIdx];
-        const res = resultsMap.get(debate.id)!;
-        const trainee = sortedTrainees[traineeIdx++];
-
-        res.traineeIds.push(trainee.id);
-        res.traineeNames.push(trainee.name);
-      }
+      best?.result.traineeIds.push(trainee.id);
+      best?.result.traineeNames.push(trainee.name);
     }
   }
 
+  // ─── Step 7: Chairs and conflict report ───
   for (const debate of debates) {
-    const result = resultsMap.get(debate.id);
-    if (!result) continue;
+    const result = resultsMap.get(debate.id)!;
+    const debateTeams = teamsOf(debate);
 
-    const panelMembers = result.panellistIds;
-    if (panelMembers.length === 0) continue;
+    if (!result.chairId && result.panellistIds.length > 0) {
+      const panelMembers = result.panellistIds;
+      const conflictFreeChairIds = panelMembers.filter((adjId) => {
+        const adj = adjById.get(adjId);
+        if (!adj) return false;
+        const conflict = calculateAdjDebateConflict(adj, debateTeams, fullPastAdjTeams, weights);
+        return !(
+          (options.respectInstitutionConflicts && conflict.hasInstitutionalClash) ||
+          (options.respectPersonalConflicts && conflict.hasPersonalClash) ||
+          (options.respectHistoryConflicts && conflict.hasHistoryClash)
+        );
+      });
+      const chairCandidates = conflictFreeChairIds.length > 0 ? conflictFreeChairIds : panelMembers;
+      const chairId = [...chairCandidates].sort(
+        (a, b) => (adjScores.get(b) ?? 0) - (adjScores.get(a) ?? 0)
+      )[0];
 
-    const debateTeams: Team[] = Object.values(debate.teams)
-      .map((teamSlot) => teamsMap.get(teamSlot.teamId))
-      .filter((team): team is Team => team !== undefined);
-    const conflictFreeChairIds = panelMembers.filter((adjId) => {
-      const adj = availableAdjs.find((candidate) => candidate.id === adjId);
-      if (!adj) return false;
+      result.chairId = chairId;
+      result.chairName = nameOf(chairId);
+      result.panellistIds = panelMembers.filter((id) => id !== chairId);
+      result.panellistNames = result.panellistIds.map(nameOf);
+    }
 
-      const conflict = calculateAdjDebateConflict(
-        adj,
+    const members = [result.chairId, ...result.panellistIds, ...result.traineeIds]
+      .map((id) => (id ? adjById.get(id) : undefined))
+      .filter((adj): adj is Adjudicator => adj !== undefined);
+    members.forEach((member, index) => {
+      const { reasons } = calculateAdjDebateConflict(
+        member,
         debateTeams,
         fullPastAdjTeams,
-        allocationWeights
+        weights,
+        members.slice(index + 1)
       );
-      return !(
-        (options.respectInstitutionConflicts && conflict.hasInstitutionalClash) ||
-        (options.respectPersonalConflicts && conflict.hasPersonalClash) ||
-        (options.respectHistoryConflicts && conflict.hasHistoryClash)
-      );
+      result.conflicts.push(...reasons.map((reason) => `${member.name}: ${reason}`));
     });
-    const chairCandidates = conflictFreeChairIds.length > 0 ? conflictFreeChairIds : panelMembers;
-    const chairId = [...chairCandidates].sort(
-      (a, b) => (adjScores.get(b) ?? 0) - (adjScores.get(a) ?? 0)
-    )[0];
-
-    result.chairId = chairId;
-    result.chairName = availableAdjs.find((adj) => adj.id === chairId)?.name ?? result.chairName;
-    result.panellistIds = panelMembers.filter((id) => id !== chairId);
-    result.panellistNames = result.panellistIds.map(
-      (id) => availableAdjs.find((adj) => adj.id === id)?.name ?? id
-    );
   }
 
   return debates.map((d) => resultsMap.get(d.id)!);

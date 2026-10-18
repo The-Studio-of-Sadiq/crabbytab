@@ -39,7 +39,12 @@ import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from 
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { addFeedbackCommand } from "@/features/tournament/application/feedback";
-import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand } from "@/features/tournament/application/allocation";
+import {
+  autoAllocateCommand,
+  updateDebateCommand,
+  updateDebatesCommand,
+  type AutoAllocateSettings,
+} from "@/features/tournament/application/allocation";
 import {
   generateBreakCommand,
   proceedToNextEliminationRoundCommand,
@@ -121,7 +126,7 @@ export interface TournamentContextType {
   deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
   generateDraw: (roundId: string) => Promise<void>;
-  autoAllocate: (roundId: string, panelSize?: number) => Promise<void>;
+  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
@@ -1340,8 +1345,8 @@ export function TournamentProvider({
     });
   };
 
-  const autoAllocate = async (roundId: string, panelSize: number = 1) => {
-    await autoAllocateCommand(roundId, panelSize, allocationDependencies);
+  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
+    await autoAllocateCommand(roundId, panelSize, allocationDependencies, settings);
   };
 
   const updateDebate = async (debate: Debate) => {

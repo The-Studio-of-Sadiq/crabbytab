@@ -4,6 +4,7 @@ import type {
   BreakCategory,
   Debate,
   FeedbackSubmission,
+  PanelSizingMode,
   Round,
   Team,
   TeamStandingRow,
@@ -13,9 +14,9 @@ import type {
 import {
   autoAllocateAdjudicators,
   buildPastAdjTeams,
-  calculateAdjudicatorFeedbackScores,
   type IntelligentAllocationContext,
 } from "@/lib/draw/allocator";
+import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
 import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
 
 export interface AllocationAuditEvent {
@@ -53,10 +54,16 @@ function getPriorDebates(round: Round | undefined, dependencies: AllocationDepen
   return dependencies.debates.filter((debate) => earlierRoundIds.has(debate.roundId));
 }
 
+export interface AutoAllocateSettings {
+  /** Defaults to the tournament's panelSizingMode preference, then "fixed". */
+  panelSizing?: PanelSizingMode;
+}
+
 export async function autoAllocateCommand(
   roundId: string,
   panelSize: number,
-  dependencies: AllocationDependencies
+  dependencies: AllocationDependencies,
+  settings: AutoAllocateSettings = {}
 ): Promise<void> {
   const roundDebates = dependencies.debates.filter((debate) => debate.roundId === roundId);
   const tournament = dependencies.tournament;
@@ -78,10 +85,20 @@ export async function autoAllocateCommand(
     totalPrelimRounds,
     completedRounds: completedPrelimRounds,
     isBP: tournament.format === "bp",
-    feedbackScores: calculateAdjudicatorFeedbackScores(dependencies.feedback),
+    feedbackScores: calculateScaledFeedbackScores(
+      dependencies.feedback,
+      dependencies.debates,
+      tournament.preferences
+    ),
+    feedbackWeight: round?.feedbackWeight,
     venuePriorities: new Map(dependencies.venues.map((venue) => [venue.id, venue.priority])),
+    preformedPanels: tournament.preferences?.usePreformedPanels ? round?.preformedPanels : undefined,
   };
   const effectivePanelSize = tournament.preferences?.noPanellistAdjs ? 1 : panelSize;
+  const panelSizing = settings.panelSizing ?? tournament.preferences?.panelSizingMode ?? "fixed";
+  // A zero penalty switches a constraint off; otherwise the configured weight is used as given.
+  const conflictPenalty = tournament.preferences?.adjConflictPenalty ?? 1;
+  const historyPenalty = tournament.preferences?.adjHistoryPenalty ?? 1;
   const allocations = autoAllocateAdjudicators(
     roundDebates,
     teamsById,
@@ -89,11 +106,12 @@ export async function autoAllocateCommand(
     buildPastAdjTeams(pastDebates),
     {
       panelSize: effectivePanelSize,
+      panelSizing,
       balancePanels: true,
       panelStrengthStrategy: tournament.preferences?.adjudicatorPanelStrategy ?? "crabbytab_v1",
-      respectInstitutionConflicts: true,
-      respectPersonalConflicts: true,
-      respectHistoryConflicts: true,
+      respectInstitutionConflicts: conflictPenalty > 0,
+      respectPersonalConflicts: conflictPenalty > 0,
+      respectHistoryConflicts: historyPenalty > 0,
       preferences: tournament.preferences,
     },
     intelligentContext
@@ -147,6 +165,9 @@ export async function autoAllocateCommand(
     roundId,
     details: {
       panelSize: effectivePanelSize,
+      panelSizing,
+      feedbackWeight: round?.feedbackWeight,
+      preformedPanelCount: intelligentContext.preformedPanels?.length ?? 0,
       debateCount: finalRoundDebates.length,
       adjudicatorCount: dependencies.adjudicators.length,
       assignments: allocations.map((allocation) => ({
