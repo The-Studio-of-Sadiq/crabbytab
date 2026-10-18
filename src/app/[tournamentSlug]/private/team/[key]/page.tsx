@@ -4,10 +4,10 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
   Users,
   MessageSquareHeart,
-  UserCheck,
   CheckCircle2,
   AlertTriangle,
   MapPin,
@@ -41,7 +41,6 @@ export default function TeamPrivatePortalPage() {
     debates,
     feedback,
     addFeedback,
-    updateTeam,
     syncPrivatePortal,
     loadPrivateTeamPortal,
   } = useTournament();
@@ -157,24 +156,6 @@ export default function TeamPrivatePortalPage() {
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState("");
 
-  // Check-in toggle
-  const [isUpdatingCheckIn, setIsUpdatingCheckIn] = useState(false);
-  const [checkInError, setCheckInError] = useState("");
-  const handleToggleCheckIn = async () => {
-    if (!team) return;
-    setIsUpdatingCheckIn(true);
-    setCheckInError("");
-    try {
-      await updateTeam({
-        ...team,
-        checkedIn: !team.checkedIn,
-      }, activePasscode);
-    } catch (error) {
-      setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
-    } finally {
-      setIsUpdatingCheckIn(false);
-    }
-  };
 
   // Find all debates this team competed in
   const teamDebates = useMemo(() => {
@@ -472,20 +453,6 @@ export default function TeamPrivatePortalPage() {
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={handleToggleCheckIn}
-              disabled={isUpdatingCheckIn}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition border ${
-                team.checkedIn
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
-                  : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-              }`}
-            >
-              <UserCheck className={`w-3.5 h-3.5 ${team.checkedIn ? "text-emerald-600" : "text-gray-500"}`} />
-              <span>{team.checkedIn ? "Checked In ✓" : "Mark Checked In"}</span>
-            </button>
-
             <Link
               href={`/${tournamentSlug}/public`}
               className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center space-x-1"
@@ -500,9 +467,7 @@ export default function TeamPrivatePortalPage() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {checkInError && (
-          <p role="alert" className="text-xs text-red-700">{checkInError}</p>
-        )}
+        <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
         {/* Success Notices */}
         {feedbackSuccessNotice && (
           <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">

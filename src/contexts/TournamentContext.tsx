@@ -79,6 +79,12 @@ import {
   publishPublicViewCommand,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
+import type { SelfCheckInRequest, SelfCheckInStatus } from "@/lib/selfCheckIn";
+import {
+  describeNotificationSummary,
+  hasAutomaticRoundNotifications,
+  sendDueNotificationsCommand,
+} from "@/features/tournament/application/notifications";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
 import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
@@ -136,7 +142,13 @@ export interface TournamentContextType {
   previewTournamentBackup: (file: File) => Promise<{ validation: BackupValidation; diff?: BackupDiff }>;
   /** Replaces this tournament's data with a backup after downloading a pre-restore backup. */
   replaceTournamentWithBackup: (file: File) => Promise<void>;
-  syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
+  syncPrivatePortal: (
+    privateUrlKey: string,
+    passcode: string,
+    options?: { checkIn?: SelfCheckInRequest }
+  ) => Promise<void>;
+  /** The private portal participant's check-in status for the current round, from the last sync. */
+  privateSelfCheckIn: SelfCheckInStatus | null;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
   // Mutations
@@ -234,6 +246,7 @@ export function TournamentProvider({
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
   const [staffAccessError, setStaffAccessError] = useState("");
+  const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
   const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
@@ -702,7 +715,8 @@ export function TournamentProvider({
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
-    passcode
+    passcode,
+    options
   ) => {
     if (!tournament || !db) {
       throw new Error("Cloud sync is unavailable for this tournament.");
@@ -726,6 +740,7 @@ export function TournamentProvider({
           privateUrlKey,
           passcode,
           pending,
+          ...(options?.checkIn ? { checkIn: options.checkIn } : {}),
         }),
       });
       const responseBody = await response.text();
@@ -740,6 +755,7 @@ export function TournamentProvider({
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
+        selfCheckIn?: SelfCheckInStatus | null;
       };
 
       try {
@@ -818,6 +834,7 @@ export function TournamentProvider({
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
       persistLocal("feedback", mergedFeedback);
+      setPrivateSelfCheckIn(result.selfCheckIn ?? null);
       setPrivateSyncState("idle");
       setPrivateSyncMessage(
         `Synced ${result.uploadedCount || 0} pending item(s); downloaded ${downloadedBallots.length} ballot(s) and ${downloadedFeedback.length} feedback item(s).`
@@ -1736,8 +1753,21 @@ export function TournamentProvider({
           publishError instanceof Error ? publishError.message : "publish failed"
         }`;
       }
+      // Opted-in draw / results emails go out once their release is in the cloud copy.
+      let notificationSummary = "";
+      if (hasAutomaticRoundNotifications(tournament.preferences)) {
+        try {
+          notificationSummary = describeNotificationSummary(
+            await sendDueNotificationsCommand({ tournamentId: tournament.id, idToken: await user.getIdToken() })
+          );
+        } catch (notificationError) {
+          notificationSummary = ` Notifications were not sent: ${
+            notificationError instanceof Error ? notificationError.message : "notification failed"
+          }`;
+        }
+      }
       setCloudSyncState("success");
-      setCloudSyncMessage(syncSummary + publishSummary);
+      setCloudSyncMessage(syncSummary + publishSummary + notificationSummary);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud upload failed.";
       setCloudSyncState("error");
@@ -2038,6 +2068,7 @@ export function TournamentProvider({
         replaceTournamentWithBackup,
         syncPrivatePortal,
         loadPrivateTeamPortal,
+        privateSelfCheckIn,
         saveTournament,
         createRound,
         setPreliminaryRoundCount,

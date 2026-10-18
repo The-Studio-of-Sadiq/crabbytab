@@ -23,6 +23,9 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  Users,
+  Building2,
+  Gavel,
 } from "lucide-react";
 import { DebateSide } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
@@ -34,8 +37,27 @@ import {
 } from "@/lib/publicRelease";
 import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
+import { computeMotionStatistics } from "@/lib/motionStatistics";
+import { buildPublicAdjudicatorLists, buildPublicInstitutions, buildPublicParticipants } from "@/lib/publicLists";
+import {
+  AdjudicatorListsPanel,
+  InstitutionsPanel,
+  MotionStatisticsSummary,
+  ParticipantsPanel,
+} from "@/features/tournament/components/public/PublicListPanels";
 
-type PublicTab = "draw" | "results" | "standings" | "teamTab" | "speakerTab" | "repliesTab" | "motions" | "break";
+type PublicTab =
+  | "draw"
+  | "results"
+  | "standings"
+  | "teamTab"
+  | "speakerTab"
+  | "repliesTab"
+  | "motions"
+  | "break"
+  | "participants"
+  | "institutions"
+  | "adjudicators";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -55,6 +77,7 @@ export default function PublicTournamentPage() {
     breakCategories,
     venues,
     adjudicators,
+    institutions,
   } = useTournament();
 
   const getVenueCategory = (venueId?: string, venueName?: string): string | undefined => {
@@ -119,6 +142,12 @@ export default function PublicTournamentPage() {
   const tabRankByTeamId = new Map(tabStandings.teams.map((row) => [row.teamId, row.rank]));
   const publicBreak = buildPublicBreak(breakCategories, teams, release, (teamId) => tabRankByTeamId.get(teamId));
   const showPublicBreak = publicBreak.length > 0;
+  const showParticipants = release.participants;
+  const showInstitutions = release.institutions;
+  const showAdjudicatorLists = release.adjudicatorCore || release.breakingAdjudicators;
+  const participants = buildPublicParticipants(teams, adjudicators, release);
+  const institutionRows = buildPublicInstitutions(institutions, teams, adjudicators, release);
+  const adjudicatorLists = buildPublicAdjudicatorLists(adjudicators, release);
 
   // Available tabs based on preferences
   const availableTabs: PublicTab[] = [];
@@ -130,6 +159,9 @@ export default function PublicTournamentPage() {
   if (showRepliesTab) availableTabs.push("repliesTab");
   if (showPublicMotions) availableTabs.push("motions");
   if (showPublicBreak) availableTabs.push("break");
+  if (showParticipants) availableTabs.push("participants");
+  if (showInstitutions) availableTabs.push("institutions");
+  if (showAdjudicatorLists) availableTabs.push("adjudicators");
 
   const [activeTab, setActiveTab] = useState<PublicTab>(availableTabs[0] || "draw");
   const [searchQuery, setSearchQuery] = useState("");
@@ -166,6 +198,17 @@ export default function PublicTournamentPage() {
 
   const ballotMap = new Map<string, any>();
   publicBallots.forEach((ballot) => ballotMap.set(ballot.debateId, ballot));
+  // Same gate as the projection (public round results or a released tab), applied again so a local
+  // working copy never feeds unreleased results into the statistics.
+  const motionStatisticBallots = ballots.filter(
+    (ballot) => publicRoundIds.has(ballot.roundId) || tabRoundIds.has(ballot.roundId)
+  );
+  const motionStatistics = new Map(
+    computeMotionStatistics(releasedMotions, debates, motionStatisticBallots, isBP).map((statistic) => [
+      statistic.motion.id,
+      statistic,
+    ])
+  );
 
   useEffect(() => {
     setMotionSlideIndex((index) => Math.min(index, Math.max(0, releasedMotions.length - 1)));
@@ -350,6 +393,30 @@ export default function PublicTournamentPage() {
               <span>Break</span>
             </button>
           )}
+
+          {([
+            { tab: "participants", show: showParticipants, label: "Participants", Icon: Users },
+            { tab: "institutions", show: showInstitutions, label: "Institutions", Icon: Building2 },
+            {
+              tab: "adjudicators",
+              show: showAdjudicatorLists,
+              label: release.adjudicatorCore ? "Adjudication Core" : "Breaking Adjudicators",
+              Icon: Gavel,
+            },
+          ] as const).filter((item) => item.show).map(({ tab, label, Icon }) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              aria-pressed={activeTab === tab}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 whitespace-nowrap ${
+                activeTab === tab ? "bg-blue-600 text-white shadow-xs" : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -787,6 +854,9 @@ export default function PublicTournamentPage() {
                         <p className="whitespace-pre-line">{m.infoSlide}</p>
                       </div>
                     )}
+                    {motionStatistics.get(m.id) && (
+                      <MotionStatisticsSummary statistic={motionStatistics.get(m.id)!} isBP={isBP} />
+                    )}
                   </div>
                 );
               })
@@ -830,6 +900,16 @@ export default function PublicTournamentPage() {
               </div>
             ))}
           </div>
+        )}
+
+        {showParticipants && activeTab === "participants" && <ParticipantsPanel participants={participants} />}
+        {showInstitutions && activeTab === "institutions" && <InstitutionsPanel institutions={institutionRows} />}
+        {showAdjudicatorLists && activeTab === "adjudicators" && (
+          <AdjudicatorListsPanel
+            lists={adjudicatorLists}
+            showCore={release.adjudicatorCore}
+            showBreaking={release.breakingAdjudicators}
+          />
         )}
       </main>
 

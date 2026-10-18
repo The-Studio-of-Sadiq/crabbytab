@@ -30,7 +30,16 @@ const esl: BreakCategory = { ...open, id: "esl", slug: "esl", name: "ESL", seq: 
 describe("getPublicRelease", () => {
   it("defaults everything to unreleased, including existing tournaments", () => {
     const release = getPublicRelease({});
-    expect(release).toEqual({ teamTab: false, speakerTab: false, repliesTab: false, breakCategoryIds: new Set() });
+    expect(release).toEqual({
+      teamTab: false,
+      speakerTab: false,
+      repliesTab: false,
+      breakCategoryIds: new Set(),
+      participants: false,
+      institutions: false,
+      adjudicatorCore: false,
+      breakingAdjudicators: false,
+    });
     expect(isAnyTabReleased(release)).toBe(false);
     expect(getPublicRelease(null).teamTab).toBe(false);
   });
@@ -121,5 +130,26 @@ describe("buildPublicBreak", () => {
 
   it("returns nothing when no category is released", () => {
     expect(buildPublicBreak([open], teams, getPublicRelease({}))).toEqual([]);
+  });
+});
+
+describe("participant list releases", () => {
+  it("are read only from explicit opt-ins", () => {
+    const release = getPublicRelease({ publicParticipants: true, publicAdjudicatorCore: true });
+    expect(release.participants).toBe(true);
+    expect(release.adjudicatorCore).toBe(true);
+    expect(release.institutions).toBe(false);
+    expect(release.breakingAdjudicators).toBe(false);
+    // Participant lists are not tabs: releasing them does not open completed-round results.
+    expect(isAnyTabReleased(release)).toBe(false);
+  });
+
+  it("are switched by setRelease", () => {
+    const preferences = {} as TournamentPreferences;
+    expect(setRelease(preferences, { kind: "institutions", released: true }).publicInstitutionsList).toBe(true);
+    expect(setRelease(preferences, { kind: "breakingAdjudicators", released: true }).publicBreakingAdjudicators).toBe(true);
+    expect(
+      setRelease({ ...preferences, publicParticipants: true }, { kind: "participants", released: false }).publicParticipants
+    ).toBe(false);
   });
 });

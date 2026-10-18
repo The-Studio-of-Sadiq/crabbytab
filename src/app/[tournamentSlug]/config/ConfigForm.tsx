@@ -1719,6 +1719,19 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <span className="text-[11px] text-gray-500">Publish round totals only; no participant names or individual check-in details.</span>
                 </div>
               </label>
+
+              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prefs.allowSelfCheckIn === true}
+                  onChange={(e) => setPrefs((p) => ({ ...p, allowSelfCheckIn: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <div>
+                  <span className="font-semibold text-gray-800 block">Self check-in from private URLs</span>
+                  <span className="text-[11px] text-gray-500">Teams and adjudicators can mark themselves available for the current round. Check-ins are saved to the cloud copy; download from the cloud to see them here.</span>
+                </div>
+              </label>
             </div>
 
             <label className="block max-w-xs text-xs font-semibold text-gray-700">

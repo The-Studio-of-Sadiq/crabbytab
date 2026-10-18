@@ -4,10 +4,10 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
   FileCheck2,
   MessageSquareHeart,
-  UserCheck,
   CheckCircle2,
   AlertTriangle,
   MapPin,
@@ -52,7 +52,6 @@ export default function AdjudicatorPrivatePortalPage() {
     feedback,
     submitBallot,
     addFeedback,
-    updateAdjudicator,
   } = useTournament();
 
   // The URL key identifies the adjudicator; a separate passcode gates access.
@@ -171,24 +170,6 @@ export default function AdjudicatorPrivatePortalPage() {
   const [ballotError, setBallotError] = useState("");
   const [ballotSuccessNotice, setBallotSuccessNotice] = useState("");
 
-  // Check-in toggle
-  const [isUpdatingCheckIn, setIsUpdatingCheckIn] = useState(false);
-  const [checkInError, setCheckInError] = useState("");
-  const handleToggleCheckIn = async () => {
-    if (!adjudicator) return;
-    setIsUpdatingCheckIn(true);
-    setCheckInError("");
-    try {
-      await updateAdjudicator({
-        ...adjudicator,
-        checkedIn: !adjudicator.checkedIn,
-      }, activePasscode);
-    } catch (error) {
-      setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
-    } finally {
-      setIsUpdatingCheckIn(false);
-    }
-  };
 
   // Find all debates this adjudicator is assigned to
   const assignedDebates = useMemo(() => {
@@ -649,20 +630,6 @@ export default function AdjudicatorPrivatePortalPage() {
               <RefreshCw className={`h-3.5 w-3.5 ${privateSyncState === "syncing" ? "animate-spin" : ""}`} />
               Sync / Download
             </button>
-            <button
-              type="button"
-              onClick={handleToggleCheckIn}
-              disabled={isUpdatingCheckIn}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition border ${
-                adjudicator.checkedIn
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
-                  : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-              }`}
-            >
-              <UserCheck className={`w-3.5 h-3.5 ${adjudicator.checkedIn ? "text-emerald-600" : "text-gray-500"}`} />
-              <span>{adjudicator.checkedIn ? "Checked In ✓" : "Mark Checked In"}</span>
-            </button>
-
             <Link
               href={`/${tournamentSlug}/public`}
               className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center space-x-1"
@@ -677,9 +644,7 @@ export default function AdjudicatorPrivatePortalPage() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {checkInError && (
-          <p role="alert" className="text-xs text-red-700">{checkInError}</p>
-        )}
+        <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
         {privateSyncMessage && (
           <p
             role={privateSyncState === "error" ? "alert" : "status"}

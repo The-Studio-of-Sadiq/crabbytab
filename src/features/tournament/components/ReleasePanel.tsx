@@ -19,7 +19,7 @@ interface ReleaseItem {
 
 /** Admin controls for tournament-level public releases (tabs and breaks). */
 export function ReleasePanel() {
-  const { tournament, rounds, breakCategories, teams, isOwnerOrAdmin, saveTournament } = useTournament();
+  const { tournament, rounds, breakCategories, teams, adjudicators, isOwnerOrAdmin, saveTournament } = useTournament();
   const [pending, setPending] = useState<{ item: ReleaseItem; released: boolean } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -54,6 +54,34 @@ export function ReleasePanel() {
           change: (released: boolean): ReleaseChange => ({ kind: "repliesTab", released }),
         }]
       : []),
+    {
+      key: "participants",
+      label: "Participants list",
+      description: "Every team with its speakers, and every adjudicator with their institution.",
+      released: release.participants,
+      change: (released) => ({ kind: "participants", released }),
+    },
+    {
+      key: "institutions",
+      label: "Institutions list",
+      description: "Institution names, codes and regions (with team and adjudicator counts if participants are public).",
+      released: release.institutions,
+      change: (released) => ({ kind: "institutions", released }),
+    },
+    {
+      key: "adjudicatorCore",
+      label: "Adjudication core",
+      description: `${adjudicators.filter((item) => item.adjCore).length} adjudicator(s) marked as core in the participant directory.`,
+      released: release.adjudicatorCore,
+      change: (released) => ({ kind: "adjudicatorCore", released }),
+    },
+    {
+      key: "breakingAdjudicators",
+      label: "Breaking adjudicators",
+      description: `${adjudicators.filter((item) => item.breaking).length} adjudicator(s) marked as breaking in the participant directory.`,
+      released: release.breakingAdjudicators,
+      change: (released) => ({ kind: "breakingAdjudicators", released }),
+    },
     ...[...breakCategories]
       .sort((left, right) => (right.priority || 0) - (left.priority || 0))
       .map((category) => {
@@ -137,7 +165,7 @@ export function ReleasePanel() {
           title={`${pending.released ? "Release" : "Unrelease"} ${pending.item.label.toLowerCase()}?`}
           description={pending.released
             ? `${pending.item.description} It becomes visible on the public page immediately${
-                completedPrelims.length < prelims.length && !pending.item.key.startsWith("break-")
+                completedPrelims.length < prelims.length && pending.item.key.endsWith("Tab")
                   ? `; only ${completedPrelims.length} of ${prelims.length} preliminary rounds are complete`
                   : ""
               }.`

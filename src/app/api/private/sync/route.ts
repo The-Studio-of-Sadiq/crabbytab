@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { QuerySnapshot } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, type QuerySnapshot } from "firebase-admin/firestore";
 import {
   Adjudicator,
   BallotSubmission,
@@ -24,6 +24,8 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
+import { sendBallotReceipts } from "@/lib/email/notificationService";
+import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -55,7 +57,9 @@ export async function POST(request: NextRequest) {
 
   const { tournamentId, privateUrlKey, passcode } = body;
   const pending = body.pending === undefined ? [] : body.pending;
+  const checkIn = parseSelfCheckInRequest(body.checkIn);
   if (
+    checkIn === "invalid" ||
     !validDocumentId(tournamentId) ||
     typeof privateUrlKey !== "string" ||
     privateUrlKey.length === 0 ||
@@ -166,6 +170,11 @@ export async function POST(request: NextRequest) {
           { ...document.data(), id: document.id } as Team,
         ] as const)
     );
+    if (checkIn) {
+      const refusal = selfCheckInError(tournament.preferences, [...roundById.values()], checkIn);
+      if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
+    }
+
     const actorDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
     // Teams never see (or act on) debates from unpublished draws.
     const assignedDebates = actorType === "team"
@@ -341,6 +350,7 @@ export async function POST(request: NextRequest) {
       uploadedCount += 1;
     }
 
+    let writtenBallots: BallotSubmission[] = [];
     if (ballotSubmissions.length > 0) {
       const ballotCollection = tournamentRef.collection("ballots");
       const committed = await firestore.runTransaction(async (transaction) => {
@@ -380,6 +390,7 @@ export async function POST(request: NextRequest) {
         for (const ballot of plan.writes) {
           transaction.set(ballotCollection.doc(ballot.id), ballot);
         }
+        writtenBallots = plan.writes;
         return true;
       });
       if (!committed) {
@@ -391,6 +402,41 @@ export async function POST(request: NextRequest) {
     }
 
     if (uploadedCount > 0) await batch.commit();
+    // Self check-in for the current round. The version bump makes a later upload of an older local
+    // copy record a sync conflict instead of silently overwriting the participant's check-in.
+    let actorAvailability = {
+      checkedIn: actor.checkedIn,
+      checkedInAt: actor.checkedInAt,
+      roundAvailability: actor.roundAvailability,
+      roundAvailabilityAt: actor.roundAvailabilityAt,
+    };
+    if (checkIn) {
+      const checkedInAt = new Date().toISOString();
+      await actorDocument.ref.update(
+        new FieldPath("roundAvailability", checkIn.roundId),
+        checkIn.available,
+        new FieldPath("roundAvailabilityAt", checkIn.roundId),
+        checkedInAt,
+        "syncVersion",
+        FieldValue.increment(1)
+      );
+      actorAvailability = {
+        ...actorAvailability,
+        roundAvailability: { ...(actor.roundAvailability || {}), [checkIn.roundId]: checkIn.available },
+        roundAvailabilityAt: { ...(actor.roundAvailabilityAt || {}), [checkIn.roundId]: checkedInAt },
+      };
+    }
+
+    if (writtenBallots.length > 0 && actorType === "adjudicator") {
+      await sendBallotReceipts({
+        firestore,
+        tournament,
+        adjudicator: { id: actorDocument.id, name: actor.name, email: actor.email },
+        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true),
+        debates: assignedDebates,
+        rounds: roundById,
+      });
+    }
 
     const [ballotsSnapshot, feedbackSnapshot, roundsSnapshot] = await Promise.all([
       tournamentRef.collection("ballots").get(),
@@ -489,6 +535,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       uploadedCount,
+      selfCheckIn: selfCheckInStatus(tournament.preferences, [...roundById.values()], actorAvailability),
       ballots,
       feedback,
       tournament: {

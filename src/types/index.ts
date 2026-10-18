@@ -180,6 +180,21 @@ export interface TournamentPreferences {
   releaseRepliesTab?: boolean;
   /** Break categories whose generated break is shown on the public page. */
   releasedBreakCategoryIds?: string[];
+  /** Public participants list (every team with its speakers, every adjudicator). Absent = hidden. */
+  publicParticipants?: boolean;
+  /** Public institutions list. Absent = hidden. */
+  publicInstitutionsList?: boolean;
+  /** Public adjudication core list (adjudicators flagged `adjCore`). Absent = hidden. */
+  publicAdjudicatorCore?: boolean;
+  /** Public breaking adjudicators list (adjudicators flagged `breaking`). Absent = hidden. */
+  publicBreakingAdjudicators?: boolean;
+
+  /** Automatic notifications (opt-in). Sent only after the data is published to the cloud copy. */
+  notifyDrawReleased?: boolean;
+  notifyBallotReceipt?: boolean;
+  notifyTeamPoints?: boolean;
+  /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
+  allowSelfCheckIn?: boolean;
 }
 
 export interface Tournament {
@@ -364,6 +379,10 @@ export interface Adjudicator {
   /** Overrides the institution region for diversity displays. */
   region?: string;
   preformedPanelId?: string;
+  /** Member of the adjudication core (shown on the public adjudication core list when released). */
+  adjCore?: boolean;
+  /** Breaking adjudicator (shown on the public breaking adjudicators list when released). */
+  breaking?: boolean;
   venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for adjudicator's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
