@@ -31,7 +31,11 @@ export type OddBracketMethod =
   | "pullup_middle"
   | "pullup_random"
   | "intermediate"
-  | "intermediate_bubble";
+  | "intermediate_bubble"
+  /** Preallocated sides only: excess teams form one intermediate bracket filled from below. */
+  | "intermediate1"
+  /** Preallocated sides only: like intermediate1, but each lower bracket fills its own intermediate bracket. */
+  | "intermediate2";
 
 export type PairingMethod = "slide" | "fold" | "adjacent" | "random" | "fold_top_adjacent_rest";
 
@@ -80,8 +84,10 @@ export interface TournamentPreferences {
   stepSpeakerScore: number; // typically 0.5 or 1
   minReplyScore: number; // typically 30 or 35
   maxReplyScore: number; // typically 45 or 50
+  /** "bracket" is a legacy value; round creation treats it as "random". */
   drawRule: "power_paired" | "random" | "round_robin" | "bracket";
-  sideAllocationRule: "balanced" | "random";
+  /** "preallocated": two-team only; sides come from Round.preallocatedSides. */
+  sideAllocationRule: "balanced" | "random" | "preallocated";
   ballotDoubleEntry: boolean;
   publicDraw: boolean;
   publicResults: boolean;
@@ -235,7 +241,8 @@ export interface PublicAuditEvent {
 }
 
 export type RoundStage = "preliminary" | "elimination";
-export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual";
+/** "seeded": two-team only; one bracket ordered by Team.seed (higher is stronger), as Tabbycat. */
+export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual" | "seeded";
 export type DrawStatus = "none" | "draft" | "confirmed" | "released";
 
 export interface Round {
@@ -262,6 +269,10 @@ export interface Round {
   feedbackEnabled?: boolean;
   /** Panels formed before the draw, allocated to debates as units. */
   preformedPanels?: PreformedPanel[];
+  /** Team id -> side, used when sideAllocationRule is "preallocated" (two-team formats). */
+  preallocatedSides?: Record<string, TwoTeamSide>;
+  /** Seed of the draw generator's random source for the current draw; regenerating with it reproduces the draw. */
+  drawSeed?: number;
 }
 
 export interface PreformedPanel {
@@ -587,6 +598,8 @@ export interface TeamStandingRow {
     side: DebateSide;
     points: number;
     speakerScore: number;
+    /** A bye awarded as a win; speakerScore is 0 and no speeches were given. */
+    bye?: boolean;
     rank?: number;
     win?: boolean;
     opponentNames?: string[];

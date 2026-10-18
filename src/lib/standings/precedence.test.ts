@@ -269,6 +269,22 @@ describe("calculateStandings: pullups metric", () => {
     expect(result.teams.find((r) => r.teamId === "t1")!.metrics.pullups).toBe(1);
     expect(result.teams.find((r) => r.teamId === "t2")!.metrics.pullups).toBe(0);
   });
+
+  it("ranks the team with fewer pull-ups higher when pullups breaks a tie", () => {
+    expect(TEAM_METRIC_DIRECTION.pullups).toBe(-1);
+    const t = tournament("bp", { teamStandingsPrecedence: ["points", "pullups"] });
+    const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"].map((id) => team(id, id.toUpperCase()));
+    const pulled = bpDebate("d1", 1, { OG: "t1", OO: "t2", CG: "t3", CO: "t4" });
+    pulled.teams.OG.pulledUp = true;
+    const clean = bpDebate("d2", 1, { OG: "t5", OO: "t6", CG: "t7", CO: "t8" });
+    const speaks = { OG: 150, OO: 150, CG: 150, CO: 150 };
+    const result = calculateStandings(t, [round], teams, [pulled, clean], [
+      bpBallot("b1", "d1", { OG: 3, OO: 2, CG: 1, CO: 0 }, speaks),
+      bpBallot("b2", "d2", { OG: 3, OO: 2, CG: 1, CO: 0 }, speaks),
+    ]);
+    const rankOf = (id: string) => result.teams.find((r) => r.teamId === id)!.rank;
+    expect(rankOf("t5")).toBeLessThan(rankOf("t1"));
+  });
 });
 
 describe("calculateStandings: speaker precedence and trimmed mean", () => {
