@@ -1,7 +1,8 @@
 import { Building2, GripVertical, Search, X } from "lucide-react";
 import type { DragEvent } from "react";
-import type { Adjudicator } from "@/types";
+import type { Adjudicator, Institution } from "@/types";
 import { effectiveAdjScore } from "@/lib/draw/allocator";
+import { DiversityBadges } from "./DiversityBadges";
 
 export interface JudgeDragPayload {
   type: "judge";
@@ -15,6 +16,9 @@ interface AvailableAdjudicatorsPanelProps {
   adjudicators: Adjudicator[];
   availableCount: number;
   feedbackScores: Map<string, number>;
+  feedbackWeight?: number;
+  showDiversity?: boolean;
+  institutionsById?: Map<string, Pick<Institution, "region">>;
   selectedAdjudicator: Adjudicator | null;
   searchQuery: string;
   dragOverTarget: string | null;
@@ -32,6 +36,9 @@ export function AvailableAdjudicatorsPanel({
   adjudicators,
   availableCount,
   feedbackScores,
+  feedbackWeight,
+  showDiversity = false,
+  institutionsById = new Map(),
   selectedAdjudicator,
   searchQuery,
   dragOverTarget,
@@ -96,7 +103,7 @@ export function AvailableAdjudicatorsPanel({
         <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
           {adjudicators.map((adjudicator) => {
             const selected = selectedAdjudicator?.id === adjudicator.id;
-            const score = effectiveAdjScore(adjudicator, feedbackScores);
+            const score = effectiveAdjScore(adjudicator, feedbackScores, feedbackWeight);
 
             return (
               <div
@@ -133,6 +140,9 @@ export function AvailableAdjudicatorsPanel({
                       <Building2 className="w-3 h-3 text-gray-400" />
                       <span>{adjudicator.institutionName || "Independent / Unaffiliated"}</span>
                     </div>
+                    {showDiversity && (
+                      <DiversityBadges participant={adjudicator} institutionsById={institutionsById} />
+                    )}
                   </div>
                 </div>
 
