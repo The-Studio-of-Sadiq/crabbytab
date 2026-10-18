@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate, Round } from "@/types";
-import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "./privatePortalBallots";
+import {
+  filterTeamVisibleDebates,
+  getPrivatePortalBallots,
+  isDrawVisibleToTeams,
+  sanitizeTeamPrivateDebate,
+} from "./privatePortalBallots";
 
 const round: Round = {
   id: "round-1",
@@ -106,5 +111,70 @@ describe("getPrivatePortalBallots", () => {
     expect(
       sanitizeTeamPrivateDebate(debate, round).teams.OG?.speakerScoreTotal
     ).toBeUndefined();
+  });
+});
+
+describe("team draw and panel visibility", () => {
+  const panel = {
+    chairId: "judge-1",
+    chairName: "Chair",
+    panellistIds: ["judge-2"],
+    panellistNames: ["Wing"],
+    traineeIds: [],
+    traineeNames: [],
+  };
+  const debate = {
+    id: "debate-1",
+    tournamentId: "tournament-1",
+    roundId: "round-1",
+    roundSeq: 1,
+    bracket: 0,
+    roomRank: 0,
+    importance: 0,
+    resultStatus: "none",
+    sidesConfirmed: true,
+    flags: [],
+    teams: { OG: { teamId: "team-1", teamName: "Team", side: "OG" } },
+    adjudicators: panel,
+    motionId: "motion-1",
+    motionText: "This House would test",
+  } as unknown as Debate;
+
+  it("only shows confirmed or released, non-cancelled draws", () => {
+    expect(isDrawVisibleToTeams(undefined)).toBe(false);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "none" })).toBe(false);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "draft" })).toBe(false);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "confirmed", cancelled: true })).toBe(false);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "confirmed" })).toBe(true);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "released" })).toBe(true);
+  });
+
+  it("drops debates whose draw is unpublished", () => {
+    const rounds = new Map([
+      ["round-1", { ...round, drawStatus: "draft" as const }],
+      ["round-2", { ...round, id: "round-2", drawStatus: "released" as const }],
+    ]);
+    const visible = filterTeamVisibleDebates(
+      [debate, { ...debate, id: "debate-2", roundId: "round-2" }, { ...debate, id: "debate-3", roundId: "missing" }],
+      rounds
+    );
+    expect(visible.map((item) => item.id)).toEqual(["debate-2"]);
+  });
+
+  it("hides the panel until adjudicators are revealed", () => {
+    const hidden = sanitizeTeamPrivateDebate(debate, { ...round, adjudicatorsRevealed: false });
+    expect(hidden.adjudicators).toEqual({ panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] });
+    const revealed = sanitizeTeamPrivateDebate(debate, { ...round, adjudicatorsRevealed: true });
+    expect(revealed.adjudicators).toEqual(panel);
+    const draftRevealed = sanitizeTeamPrivateDebate(debate, { ...round, drawStatus: "draft", adjudicatorsRevealed: true });
+    expect(draftRevealed.adjudicators.chairId).toBeUndefined();
+  });
+
+  it("hides the motion until motions are released", () => {
+    const hidden = sanitizeTeamPrivateDebate(debate, { ...round, motionsReleased: false });
+    expect(hidden).not.toHaveProperty("motionText");
+    expect(hidden).not.toHaveProperty("motionId");
+    const shown = sanitizeTeamPrivateDebate(debate, { ...round, motionsReleased: true });
+    expect(shown.motionText).toBe("This House would test");
   });
 });

@@ -12,7 +12,11 @@ import {
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
-import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import {
+  filterTeamVisibleDebates,
+  getPrivatePortalBallots,
+  sanitizeTeamPrivateDebate,
+} from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
@@ -143,7 +147,11 @@ export async function POST(request: NextRequest) {
           { ...document.data(), id: document.id } as Team,
         ] as const)
     );
-    const assignedDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
+    const actorDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
+    // Teams never see (or act on) debates from unpublished draws.
+    const assignedDebates = actorType === "team"
+      ? new Map(filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate]))
+      : actorDebates;
 
     const batch = firestore.batch();
     let uploadedCount = 0;
@@ -223,8 +231,10 @@ export async function POST(request: NextRequest) {
           record.sourceType === actorType &&
           record.sourceId === actorDocument.id &&
           (actorType === "adjudicator" || Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id));
+        const panelVisibleToActor =
+          actorType === "adjudicator" || roundById.get(debate.roundId)?.adjudicatorsRevealed === true;
         const targetIsAuthorized = targetType === "adjudicator"
-          ? targetAdjudicatorIsAssigned && targetAdjudicatorId !== actorDocument.id
+          ? targetAdjudicatorIsAssigned && panelVisibleToActor && targetAdjudicatorId !== actorDocument.id
           : targetType === "team" && Boolean(targetTeamSlot) &&
             (actorType !== "team" || targetTeamId !== actorDocument.id);
         const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;

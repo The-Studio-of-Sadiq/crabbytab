@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Debate, Round } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
-import { sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 
 export const runtime = "nodejs";
 
@@ -77,21 +77,26 @@ export async function POST(request: NextRequest) {
       tournamentRef.collection("rounds").get(),
       tournamentRef.collection("feedback").where("sourceId", "==", teamDocument.id).get(),
     ]);
-    const debates: Debate[] = debatesSnapshot.docs
-      .filter((document) => typeof document.data().deletedAt !== "string")
-      .map((document) => ({ ...document.data(), id: document.id } as Debate))
-      .filter((debate) =>
-        Object.values(debate.teams || {}).some(
-          (slot) => slot?.teamId === teamDocument.id
-        )
-      );
+    const liveRoundsById = new Map(
+      roundsSnapshot.docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => [document.id, { ...document.data(), id: document.id } as Round] as const)
+    );
+    const debates: Debate[] = filterTeamVisibleDebates(
+      debatesSnapshot.docs
+        .filter((document) => typeof document.data().deletedAt !== "string")
+        .map((document) => ({ ...document.data(), id: document.id } as Debate))
+        .filter((debate) =>
+          Object.values(debate.teams || {}).some(
+            (slot) => slot?.teamId === teamDocument.id
+          )
+        ),
+      liveRoundsById
+    );
     const roundIds = new Set(debates.map((debate) => debate.roundId));
-    const rounds = roundsSnapshot.docs
-      .filter((document) => typeof document.data().deletedAt !== "string")
-      .filter((document) => roundIds.has(document.id))
-      .map((document) => ({ ...document.data(), id: document.id }));
+    const rounds = [...liveRoundsById.values()].filter((round) => roundIds.has(round.id));
     const tournamentData = tournamentSnapshot.data()!;
-    const roundsById = new Map(rounds.map((round) => [round.id, round as Round]));
+    const roundsById = new Map(rounds.map((round) => [round.id, round]));
     const safeDebates = debates.map((debate) =>
       sanitizeTeamPrivateDebate(
         debate,
