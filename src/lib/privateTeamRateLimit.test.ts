@@ -1,12 +1,18 @@
 import type { DocumentData, DocumentReference, Firestore, Transaction } from "firebase-admin/firestore";
 import { describe, expect, it } from "vitest";
-import { checkPrivateApiRateLimit, checkPrivateTeamRateLimit } from "@/lib/privateTeamRateLimit";
+import {
+  checkPrivateApiRateLimit,
+  checkPrivateFailureLimit,
+  checkPrivateTeamRateLimit,
+  clientAddressFromHeaders,
+  recordPrivateFailure,
+} from "@/lib/privateTeamRateLimit";
 
 function createFirestoreMock() {
   const documents = new Map<string, DocumentData>();
   const firestore = {
     collection: () => ({
-      doc: (id: string) => ({ id }),
+      doc: (id: string) => ({ id, get: async () => ({ data: () => documents.get(id) }) }),
     }),
     runTransaction: async <T>(callback: (transaction: Transaction) => Promise<T>) => {
       const transaction = {
@@ -83,5 +89,41 @@ describe("checkPrivateTeamRateLimit", () => {
     await expect(checkPrivateTeamRateLimit(firestore, "private-link-a", now + 2)).resolves.toMatchObject({
       allowed: true,
     });
+  });
+});
+
+describe("private failure limit", () => {
+  it("throttles a client after repeated failures without counting successful checks", async () => {
+    const { firestore, documents } = createFirestoreMock();
+    const now = 1_000_000;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(checkPrivateFailureLimit(firestore, "t1:1.2.3.4", "sync", 3, now)).resolves.toEqual({
+        allowed: true,
+        retryAfterSeconds: 0,
+      });
+    }
+    expect(documents.size).toBe(0);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await recordPrivateFailure(firestore, "t1:1.2.3.4", "sync", 3, now + attempt);
+    }
+    await expect(checkPrivateFailureLimit(firestore, "t1:1.2.3.4", "sync", 3, now + 3)).resolves.toMatchObject({
+      allowed: false,
+    });
+    await expect(checkPrivateFailureLimit(firestore, "t1:5.6.7.8", "sync", 3, now + 3)).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(
+      checkPrivateFailureLimit(firestore, "t1:1.2.3.4", "sync", 3, now + 60 * 60 * 1000 + 1)
+    ).resolves.toMatchObject({ allowed: true });
+  });
+});
+
+describe("clientAddressFromHeaders", () => {
+  it("prefers x-real-ip, then the first x-forwarded-for entry", () => {
+    expect(clientAddressFromHeaders(new Headers({ "x-real-ip": "1.1.1.1", "x-forwarded-for": "2.2.2.2" }))).toBe("1.1.1.1");
+    expect(clientAddressFromHeaders(new Headers({ "x-forwarded-for": "2.2.2.2, 3.3.3.3" }))).toBe("2.2.2.2");
+    expect(clientAddressFromHeaders(new Headers())).toBe("unknown");
   });
 });

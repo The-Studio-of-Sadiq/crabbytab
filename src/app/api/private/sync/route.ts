@@ -10,7 +10,13 @@ import {
   Tournament,
 } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
-import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
+import {
+  checkPrivateApiRateLimit,
+  checkPrivateFailureLimit,
+  clientAddressFromHeaders,
+  recordPrivateFailure,
+} from "@/lib/privateTeamRateLimit";
+import { passcodesMatch } from "@/lib/passcode";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import {
   filterTeamVisibleDebates,
@@ -65,6 +71,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const firestore = getAdminFirestore();
+    const clientIdentity = `${tournamentId}:${clientAddressFromHeaders(request.headers)}`;
+    const failureLimit = await checkPrivateFailureLimit(firestore, clientIdentity, "sync");
+    if (!failureLimit.allowed) {
+      return NextResponse.json(
+        { error: "Too many private sync requests. Try again later." },
+        { status: 429, headers: { "Retry-After": String(failureLimit.retryAfterSeconds) } }
+      );
+    }
+    const noteFailedAttempt = () => recordPrivateFailure(firestore, clientIdentity, "sync").catch((error) => {
+      console.error("Could not record failed private sync attempt:", error);
+    });
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
     const tournamentSnapshot = await tournamentRef.get();
     if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
@@ -86,6 +103,7 @@ export async function POST(request: NextRequest) {
     );
     const team = teamDocument?.data();
     if (!adjudicatorDocument && !teamDocument) {
+      await noteFailedAttempt();
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
@@ -110,14 +128,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const actorType = adjudicator?.privatePasscode === passcode
+    const actorType = passcodesMatch(adjudicator?.privatePasscode, passcode)
       ? "adjudicator"
-      : team?.privatePasscode === passcode
+      : passcodesMatch(team?.privatePasscode, passcode)
         ? "team"
         : null;
     const actorDocument = actorType === "adjudicator" ? adjudicatorDocument : teamDocument;
     const actor = actorType === "adjudicator" ? adjudicator : team;
     if (!actorType || !actorDocument || !actor) {
+      await noteFailedAttempt();
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
