@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { redactAssistantDebate } from "@/lib/dataEntrySync";
 
 export const runtime = "nodejs";
 
@@ -62,6 +63,10 @@ export async function GET(
       ownerId: "",
       admins: {},
     };
+    const roundsById = new Map(records.rounds.map((round) => [
+      String(round.id),
+      round as { adjudicatorsRevealed?: boolean; motionsReleased?: boolean },
+    ]));
     const collections = {
       rounds: records.rounds.map((round) => pickFields(round, [
         "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
@@ -79,23 +84,26 @@ export async function GET(
           : [],
       })),
       adjudicators: records.adjudicators.map((adjudicator) => pickFields(adjudicator, [
-        "id", "tournamentId", "name", "email", "institutionId", "institutionName", "baseScore",
-        "testScore", "trainee", "independent", "checkedIn", "roundAvailability", "gender",
+        "id", "tournamentId", "name", "institutionId", "institutionName",
+        "trainee", "independent", "checkedIn", "roundAvailability", "gender",
       ])),
       venues: records.venues.map((venue) => pickFields(venue, [
         "id", "tournamentId", "name", "priority", "category", "capacity", "accessible", "online", "available",
       ])),
-      motions: records.motions.map((motion) => pickFields(motion, [
+      motions: records.motions.filter((motion) => motion.released === true).map((motion) => pickFields(motion, [
         "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released",
       ])),
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",
       ])),
-      debates: records.debates.map((debate) => pickFields(debate, [
-        "id", "tournamentId", "roundId", "roundSeq", "byeTeamId", "byeResult", "breakCategoryId",
-        "venueId", "venueName", "bracket", "roomRank", "importance", "resultStatus", "sidesConfirmed",
-        "flags", "teams", "adjudicators", "motionId", "motionText",
-      ])),
+      debates: records.debates.map((debate) => redactAssistantDebate(
+        pickFields(debate, [
+          "id", "tournamentId", "roundId", "roundSeq", "byeTeamId", "byeResult", "breakCategoryId",
+          "venueId", "venueName", "bracket", "roomRank", "importance", "resultStatus", "sidesConfirmed",
+          "flags", "teams", "adjudicators", "motionId", "motionText",
+        ]),
+        roundsById.get(String(debate.roundId))
+      )),
       ballots: records.ballots.map((ballot) => pickFields(ballot, [
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
@@ -103,8 +111,8 @@ export async function GET(
       ])),
       feedback: records.feedback.map((submission) => pickFields(submission, [
         "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
-        "targetAdjudicatorName", "targetTeamId", "targetTeamName", "sourceType", "sourceId", "sourceName", "score",
-        "agreeWithDecision", "comments", "answers", "confirmed", "timestamp",
+        "targetAdjudicatorName", "targetTeamId", "targetTeamName", "sourceType", "sourceId", "sourceName",
+        "confirmed", "timestamp",
       ])),
       institutions: records.institutions.map((institution) => pickFields(institution, [
         "id", "tournamentId", "name", "code", "region",
