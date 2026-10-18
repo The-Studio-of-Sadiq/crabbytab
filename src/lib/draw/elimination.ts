@@ -1,3 +1,4 @@
+import { ballotMatchesDebate } from "@/lib/ballots/result";
 import { Team, Debate, BallotSubmission, DebateSide, DebateTeamSlot, TournamentFormat } from "@/types";
 
 export interface EliminationRoomDraft {
@@ -46,6 +47,12 @@ export function getAdvancingTeamIds(
     }
     const ballot = ballotByDebateId.get(debate.id);
     if (!ballot) throw new Error(`A confirmed ballot is required for ${debate.venueName || debate.id}.`);
+    if (!ballotMatchesDebate(ballot, debate)) {
+      throw new Error(
+        `The confirmed ballot for ${debate.venueName || debate.id} names different teams from the draw. ` +
+        "Re-enter the ballot for the current matchup."
+      );
+    }
 
     for (const [side, slot] of Object.entries(debate.teams)) {
       if (!slot?.teamId) continue;

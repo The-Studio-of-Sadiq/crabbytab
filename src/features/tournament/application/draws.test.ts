@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { Tournament } from "@/types";
+import type { BallotSubmission, Debate, Tournament } from "@/types";
 import { createRoundRecord } from "./rounds";
 import type { GenerateDrawDependencies } from "./draws";
-import { generateDrawCommand } from "./draws";
+import { DrawHasResultsError, generateDrawCommand, roundResults, withGenerationIds } from "./draws";
 
 const tournament: Tournament = {
   id: "tournament-1",
@@ -55,6 +55,7 @@ describe("generateDrawCommand", () => {
       teams: [],
       venues: [],
       debates: [],
+      ballots: [],
       motions: [],
       standings: [],
       generateRoundDraw(params) {
@@ -66,6 +67,9 @@ describe("generateDrawCommand", () => {
         saveDebates(debates) {
           calls.push("local-debates");
           expect(debates).toEqual([]);
+        },
+        saveBallots() {
+          calls.push("local-ballots");
         },
         saveRounds(rounds, activeRound) {
           calls.push("local-rounds");
@@ -98,5 +102,55 @@ describe("generateDrawCommand", () => {
       "cloud",
       "audit",
     ]);
+  });
+});
+describe("regenerating a draw that already has results", () => {
+  const round = createRoundRecord({ tournamentId: tournament.id, roundSeq: 1, name: "Round 1", abbr: "R1", stage: "preliminary" });
+  const oldDebate = { id: `debate-${round.id}-1`, roundId: round.id, teams: {} } as unknown as Debate;
+  const ballot = (overrides: Partial<BallotSubmission>) =>
+    ({ id: "b1", debateId: oldDebate.id, roundId: round.id, confirmed: true, discarded: false, ...overrides }) as BallotSubmission;
+
+  function setup(ballots: BallotSubmission[]) {
+    const saved: { ballots?: BallotSubmission[]; debates?: Debate[] } = {};
+    const dependencies: GenerateDrawDependencies = {
+      tournament,
+      rounds: [round],
+      teams: [],
+      venues: [],
+      debates: [oldDebate],
+      ballots,
+      motions: [],
+      standings: [],
+      // The generator numbers rooms from 1, exactly like the replaced draw.
+      generateRoundDraw: () => [{ ...oldDebate }],
+      localRepository: {
+        saveDebates(debates) { saved.debates = debates; },
+        saveBallots(items) { saved.ballots = items; },
+        saveRounds() {},
+      },
+      async recordAuditEvent() {},
+    };
+    return { dependencies, saved };
+  }
+
+  it("refuses to regenerate unless the results are explicitly discarded", async () => {
+    const { dependencies, saved } = setup([ballot({})]);
+    await expect(generateDrawCommand(round.id, dependencies)).rejects.toBeInstanceOf(DrawHasResultsError);
+    expect(saved.debates).toBeUndefined();
+  });
+
+  it("discards old results and never reuses their debate ids", async () => {
+    const { dependencies, saved } = setup([ballot({}), ballot({ id: "b0", discarded: true })]);
+    await generateDrawCommand(round.id, dependencies, { discardExistingResults: true });
+    expect(saved.ballots?.find((item) => item.id === "b1")).toMatchObject({ discarded: true, confirmed: false, discardedBy: "draw regenerated" });
+    const newIds = saved.debates!.map((debate) => debate.id);
+    expect(newIds).toHaveLength(1);
+    expect(newIds).not.toContain(oldDebate.id);
+    expect(saved.ballots!.some((item) => newIds.includes(item.debateId))).toBe(false);
+  });
+
+  it("only counts undiscarded ballots on this round's current draw", () => {
+    expect(roundResults(round.id, [oldDebate], [ballot({}), ballot({ id: "x", discarded: true }), ballot({ id: "y", debateId: "other" })]).map((item) => item.id)).toEqual(["b1"]);
+    expect(withGenerationIds([{ id: "debate-r-1" }], 35)[0].id).toBe("debate-r-1-gz");
   });
 });

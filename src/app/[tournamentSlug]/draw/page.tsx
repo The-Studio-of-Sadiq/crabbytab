@@ -29,6 +29,7 @@ import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/v
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
+import { roundResults } from "@/features/tournament/application/draws";
 
 export default function DrawPage() {
   const {
@@ -37,6 +38,7 @@ export default function DrawPage() {
     rounds,
     setActiveRound,
     debates,
+    ballots,
     teams,
     venues,
     generateDraw,
@@ -138,14 +140,24 @@ export default function DrawPage() {
       );
       return;
     }
-    if (roundDebates.length > 0) {
+    const existingResults = roundResults(activeRound.id, debates, ballots);
+    if (existingResults.length > 0) {
+      const resultDebates = new Set(existingResults.map((ballot) => ballot.debateId)).size;
+      if (!confirm(
+        `This round already has ${existingResults.length} ballot(s) for ${resultDebates} debate(s). ` +
+        "Regenerating the draw will DISCARD these results (they stay in each ballot's history but will no longer count). " +
+        "Only do this if the round has not actually been debated as drawn. Discard results and regenerate?"
+      )) {
+        return;
+      }
+    } else if (roundDebates.length > 0) {
       if (!confirm("A draw already exists for this round. Regenerating will overwrite all current matchups. Proceed?")) {
         return;
       }
     }
     setIsGenerating(true);
     try {
-      await generateDraw(activeRound.id);
+      await generateDraw(activeRound.id, { discardExistingResults: existingResults.length > 0 });
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Could not generate the draw.");
     } finally {

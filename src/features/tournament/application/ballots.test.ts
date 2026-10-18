@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BallotSubmission } from "@/types";
-import { discardBallotCommand, submitBallotCommand, type BallotWorkflowDependencies } from "./ballots";
+import { confirmBallotCommand, discardBallotCommand, submitBallotCommand, type BallotWorkflowDependencies } from "./ballots";
 
 function makeBallot(overrides: Partial<BallotSubmission> = {}): BallotSubmission {
   const teamScore = (side: "OG" | "OO" | "CG" | "CO" | "AFF" | "NEG") => ({
@@ -103,6 +103,7 @@ describe("submitBallotCommand", () => {
   it("confirms submitted ballots before queuing private sync", async () => {
     const { dependencies, calls } = makeDependencies({
       adjudicators: [{ id: "judge-1", privateUrlKey: "judge-key" }],
+      debates: [debate as never],
     });
 
     await submitBallotCommand(
@@ -113,8 +114,10 @@ describe("submitBallotCommand", () => {
 
     expect(calls).toEqual([
       "ballots",
+      "debates",
       "ballot.submitted",
       "ballots",
+      "debates",
       "ballot.confirmed",
       "private-sync",
     ]);
@@ -155,7 +158,7 @@ const debate = {
 
 describe("result-changing ballot actions", () => {
   it("withdraws released results when a confirmed ballot is submitted", async () => {
-    const { dependencies, calls } = makeDependencies({ rounds: [releasedRound] });
+    const { dependencies, calls } = makeDependencies({ rounds: [releasedRound], debates: [debate as never] });
     await submitBallotCommand(makeBallot({ confirmed: true }), undefined, dependencies);
     expect(calls.slice(0, 2)).toEqual(["ballots", "round"]);
   });
@@ -192,5 +195,53 @@ describe("result-changing ballot actions", () => {
     expect(savedDebates[0].resultStatus).toBe("none");
     expect(savedDebates[0].teams.AFF.points).toBeUndefined();
     expect(calls).toEqual(["round", "ballot.discarded"]);
+  });
+});
+
+describe("confirmBallotCommand", () => {
+  const saved = makeBallot({ id: "v1", debateId: "debate-1" });
+
+  it("rejects unknown ballots, ballots of another debate and discarded ballots without writing", async () => {
+    const writes: string[] = [];
+    const { dependencies } = makeDependencies({
+      ballots: [saved, makeBallot({ id: "old", discarded: true }), makeBallot({ id: "elsewhere", debateId: "debate-2" })],
+      debates: [debate as never],
+      repository: { saveBallots() { writes.push("ballots"); }, saveDebates() { writes.push("debates"); } },
+      async recordAuditEvent(event) { writes.push(event.action); },
+    });
+    await expect(confirmBallotCommand("missing", "debate-1", undefined, dependencies)).rejects.toThrow(/could not be found/);
+    await expect(confirmBallotCommand("elsewhere", "debate-1", undefined, dependencies)).rejects.toThrow(/different debate/);
+    await expect(confirmBallotCommand("old", "debate-1", undefined, dependencies)).rejects.toThrow(/discarded ballot/);
+    expect(writes).toEqual([]);
+  });
+
+  it("rejects a ballot whose teams no longer match the draw", async () => {
+    const { dependencies } = makeDependencies({
+      ballots: [makeBallot({ id: "v1", teamScores: { ...saved.teamScores, AFF: { side: "AFF", teamId: "someone-else", points: 1, totalSpeakerScore: 0 } } })],
+      debates: [debate as never],
+    });
+    await expect(confirmBallotCommand("v1", "debate-1", undefined, dependencies)).rejects.toThrow(/different teams/);
+  });
+
+  it("confirms the identified ballot and discards the debate's other versions", async () => {
+    let savedBallots: BallotSubmission[] = [];
+    let savedDebates: Array<{ resultStatus: string }> = [];
+    const { dependencies } = makeDependencies({
+      ballots: [saved, makeBallot({ id: "v2", version: 2 })],
+      debates: [debate as never],
+      repository: { saveBallots(items) { savedBallots = items; }, saveDebates(items) { savedDebates = items as never; } },
+    });
+    await confirmBallotCommand("v2", "debate-1", undefined, dependencies);
+    expect(savedBallots.map((item) => [item.id, item.confirmed, item.discarded])).toEqual([["v1", false, true], ["v2", true, false]]);
+    expect(savedDebates[0].resultStatus).toBe("confirmed");
+  });
+
+  it("saves nothing when a confirmed submission targets a missing debate", async () => {
+    const writes: string[] = [];
+    const { dependencies } = makeDependencies({
+      repository: { saveBallots() { writes.push("ballots"); }, saveDebates() { writes.push("debates"); } },
+    });
+    await expect(submitBallotCommand(makeBallot({ confirmed: true }), undefined, dependencies)).rejects.toThrow(/no longer exists/);
+    expect(writes).toEqual([]);
   });
 });

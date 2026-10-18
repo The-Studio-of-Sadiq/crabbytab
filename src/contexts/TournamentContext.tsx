@@ -162,7 +162,8 @@ export interface TournamentContextType {
   setPreliminaryRoundCount: (count: number) => Promise<void>;
   deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
-  generateDraw: (roundId: string) => Promise<void>;
+  /** Throws DrawHasResultsError when the round has ballots, unless discardExistingResults is set. */
+  generateDraw: (roundId: string, options?: { discardExistingResults?: boolean }) => Promise<void>;
   autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
@@ -1004,7 +1005,14 @@ export function TournamentProvider({
     setAuditEvents(updated);
     persistLocal("auditEvents", updated);
     if (AUTOMATIC_CLOUD_WRITES && db && tournament?.id) {
-      await createFirestoreAuditRepository(tournament.id).append(event);
+      // The change this event describes has already been saved, and the event is in the local
+      // audit log, which every cloud upload appends to Firestore. A failed immediate append must
+      // therefore not surface as a failure of the change itself.
+      try {
+        await createFirestoreAuditRepository(tournament.id).append(event);
+      } catch (error) {
+        console.warn("Audit event kept locally; it will be uploaded with the next cloud sync.", error);
+      }
     }
   };
 
@@ -1388,7 +1396,7 @@ export function TournamentProvider({
     });
   };
 
-  const generateDraw = async (roundId: string) => {
+  const generateDraw = async (roundId: string, options?: { discardExistingResults?: boolean }) => {
     await generateDrawCommand(roundId, {
       tournament,
       rounds,
@@ -1396,6 +1404,7 @@ export function TournamentProvider({
       institutions,
       venues,
       debates,
+      ballots,
       motions,
       standings: teamStandings,
       generateRoundDraw,
@@ -1403,6 +1412,10 @@ export function TournamentProvider({
         saveDebates: (items) => {
           setDebates(items);
           persistLocal("debates", items);
+        },
+        saveBallots: (items) => {
+          setBallots(items);
+          persistLocal("ballots", items);
         },
         saveRounds: (items, active) => {
           setRounds(items);
@@ -1415,7 +1428,7 @@ export function TournamentProvider({
           ? createFirestoreDrawRepository(tournament.id)
           : undefined,
       recordAuditEvent,
-    });
+    }, options);
   };
 
   const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {

@@ -1,3 +1,4 @@
+import { ballotMatchesDebate } from "@/lib/ballots/result";
 import type {
   AuditCategory,
   BallotSubmission,
@@ -45,6 +46,14 @@ export async function submitBallotCommand(
     ...ballot,
     id: ballot.id || `ballot-${ballot.debateId}-${Date.now()}`,
   };
+  // Check a confirmed ballot before saving anything, so a rejected confirmation leaves no trace.
+  if (finalBallot.confirmed) {
+    const targetDebate = dependencies.debates.find((item) => item.id === finalBallot.debateId);
+    if (!targetDebate) throw new Error("The debate for this ballot no longer exists, so nothing was saved.");
+    if (!ballotMatchesDebate(finalBallot, targetDebate)) {
+      throw new Error("This ballot names different teams from the current draw, so nothing was saved.");
+    }
+  }
   const updatedBallots = existingIndex >= 0
     ? dependencies.ballots.map((item, index) => index === existingIndex ? finalBallot : item)
     : [...dependencies.ballots, finalBallot];
@@ -107,11 +116,30 @@ export async function confirmBallotCommand(
   dependencies: BallotWorkflowDependencies
 ): Promise<void> {
   const now = new Date().toISOString();
-  const confirmedBallot = submittedBallot || dependencies.ballots.find(
-    (item) => item.id === ballotId || item.debateId === debateId
-  );
+  // Only an identified ballot of this debate can be confirmed; never fall back to "some ballot of
+  // the debate", and never mark a debate confirmed without one.
+  const confirmedBallot =
+    submittedBallot?.id === ballotId
+      ? submittedBallot
+      : dependencies.ballots.find((item) => item.id === ballotId);
+  if (!confirmedBallot) {
+    throw new Error("That ballot could not be found, so nothing was confirmed.");
+  }
+  if (confirmedBallot.debateId !== debateId) {
+    throw new Error("That ballot belongs to a different debate, so nothing was confirmed.");
+  }
+  if (confirmedBallot.discarded && !submittedBallot) {
+    throw new Error("A discarded ballot cannot be confirmed. Load it and save it as a new version instead.");
+  }
+  const debate = dependencies.debates.find((item) => item.id === debateId);
+  if (!debate) {
+    throw new Error("The debate for this ballot no longer exists, so nothing was confirmed.");
+  }
+  if (!ballotMatchesDebate(confirmedBallot, debate)) {
+    throw new Error("This ballot names different teams from the current draw, so it cannot be confirmed.");
+  }
   const updatedBallots = dependencies.ballots.map((item) => {
-    if (item.id === ballotId || (item.debateId === debateId && item.id === ballotId)) {
+    if (item.id === ballotId) {
       return { ...item, confirmed: true, discarded: false, confirmedTimestamp: now };
     }
     if (item.debateId === debateId && item.id !== ballotId) {
@@ -119,7 +147,7 @@ export async function confirmBallotCommand(
     }
     return item;
   });
-  if (confirmedBallot && !updatedBallots.some((item) => item.id === ballotId)) {
+  if (!updatedBallots.some((item) => item.id === ballotId)) {
     updatedBallots.push({
       ...confirmedBallot,
       confirmed: true,
@@ -129,44 +157,36 @@ export async function confirmBallotCommand(
   }
   dependencies.repository.saveBallots(updatedBallots);
 
-  const debate = dependencies.debates.find((item) => item.id === debateId);
-  if (debate) {
-    const updatedTeams = { ...debate.teams };
-    if (confirmedBallot) {
-      for (const [key, slot] of Object.entries(updatedTeams)) {
-        const side = key as DebateSide;
-        if (!slot?.teamId) continue;
-        const teamScore = confirmedBallot.teamScores?.[side];
-        const speakerScores = confirmedBallot.speakerScores?.[side] || [];
-        const speakerTotal = speakerScores.reduce((sum, score) => sum + (score.score || 0), 0);
-        updatedTeams[side] = {
-          ...slot,
-          points: teamScore ? teamScore.points : slot.points,
-          speakerScoreTotal:
-            speakerTotal || teamScore?.totalSpeakerScore || slot.speakerScoreTotal,
-        };
-      }
-    }
-    const updatedDebate: Debate = {
-      ...debate,
-      resultStatus: "confirmed",
-      teams: updatedTeams,
+  const updatedTeams = { ...debate.teams };
+  for (const [key, slot] of Object.entries(updatedTeams)) {
+    const side = key as DebateSide;
+    if (!slot?.teamId) continue;
+    const teamScore = confirmedBallot.teamScores?.[side];
+    // The ballot's team total already applies the ghost and reply rules.
+    const fallbackTotal = (confirmedBallot.speakerScores?.[side] || [])
+      .reduce((sum, score) => sum + (score.score || 0), 0);
+    updatedTeams[side] = {
+      ...slot,
+      points: teamScore ? teamScore.points : slot.points,
+      speakerScoreTotal: teamScore?.totalSpeakerScore ?? (fallbackTotal || slot.speakerScoreTotal),
     };
-    dependencies.repository.saveDebates(
-      dependencies.debates.map((item) => item.id === debateId ? updatedDebate : item)
-    );
   }
+  dependencies.repository.saveDebates(
+    dependencies.debates.map((item) =>
+      item.id === debateId ? { ...debate, resultStatus: "confirmed" as const, teams: updatedTeams } : item
+    )
+  );
 
   await dependencies.recordAuditEvent({
     action: "ballot.confirmed",
     category: "ballot",
     summary: "Ballot confirmed and results recorded",
-    roundId: confirmedBallot?.roundId,
+    roundId: confirmedBallot.roundId,
     debateId,
     details: {
       ballotId,
-      version: confirmedBallot?.version,
-      submitterType: confirmedBallot?.submitterType,
+      version: confirmedBallot.version,
+      submitterType: confirmedBallot.submitterType,
     },
   });
 }
