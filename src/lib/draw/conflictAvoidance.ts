@@ -1,33 +1,11 @@
 import type { ConflictAvoidance, Team } from "@/types";
-import type { MatchupHistory } from "./powerPaired";
-
-function haveMet(a: Team, b: Team, history: MatchupHistory): boolean {
-  return history.opponents.get(a.id)?.has(b.id) ?? false;
-}
-
-function sameInstitution(a: Team, b: Team): boolean {
-  return Boolean(a.institutionId && b.institutionId && a.institutionId === b.institutionId);
-}
-
-function roomCost(
-  a: Team,
-  b: Team,
-  history: MatchupHistory,
-  repeatMatchupPenalty: number,
-  institutionClashPenalty: number
-): number {
-  let cost = 0;
-  if (haveMet(a, b, history)) cost += repeatMatchupPenalty;
-  if (sameInstitution(a, b)) cost += institutionClashPenalty;
-  return cost;
-}
+import { MatchupHistory, sameInstitution, timesMet } from "./history";
 
 export interface ClashPenalties {
+  /** Per previous meeting; 0 turns history avoidance off. */
   repeatMatchupPenalty: number;
+  /** 0 turns institution avoidance off. */
   institutionClashPenalty: number;
-  previouslySawPullupPenalty?: number;
-  sideBalancePenalty?: number;
-  pairingDeviationPenalty?: number;
 }
 
 export const DEFAULT_CLASH_PENALTIES: ClashPenalties = {
@@ -35,55 +13,85 @@ export const DEFAULT_CLASH_PENALTIES: ClashPenalties = {
   institutionClashPenalty: 200,
 };
 
-/**
- * A single greedy pass: for every clashing room, try swapping one of its
- * teams with a team in an adjacent room if that removes the clash without
- * making the adjacent room worse. Cheap, and only ever looks one room away
- * (hence "one up, one down") rather than searching the whole bracket.
- */
-function oneUpOneDown(rooms: Team[][], history: MatchupHistory, penalties: ClashPenalties): Team[][] {
-  const r = rooms.map((room) => [...room] as Team[]);
-  const cost = (room: Team[]) =>
-    roomCost(room[0], room[1], history, penalties.repeatMatchupPenalty, penalties.institutionClashPenalty);
-
-  for (let i = 0; i < r.length; i++) {
-    if (cost(r[i]) === 0) continue;
-    for (const j of [i - 1, i + 1]) {
-      if (j < 0 || j >= r.length) continue;
-      const before = cost(r[i]) + cost(r[j]);
-      for (const slotA of [0, 1]) {
-        for (const slotB of [0, 1]) {
-          [r[i][slotA], r[j][slotB]] = [r[j][slotB], r[i][slotA]];
-          const after = cost(r[i]) + cost(r[j]);
-          if (after < before) {
-            if (cost(r[i]) === 0) break;
-          } else {
-            [r[i][slotA], r[j][slotB]] = [r[j][slotB], r[i][slotA]]; // undo
-          }
-        }
-        if (cost(r[i]) === 0) break;
-      }
-      if (cost(r[i]) === 0) break;
-    }
-  }
-  return r;
+/** Clash cost of one room: meetings × history penalty, plus the institution penalty. */
+export function clashCost(a: Team, b: Team, history: MatchupHistory, penalties: ClashPenalties): number {
+  let cost = 0;
+  if (penalties.repeatMatchupPenalty > 0) cost += timesMet(history, a, b) * penalties.repeatMatchupPenalty;
+  if (penalties.institutionClashPenalty > 0 && sameInstitution(a, b)) cost += penalties.institutionClashPenalty;
+  return cost;
 }
 
-/** Applies the configured conflict-avoidance strategy to a set of 2-team rooms. */
+/**
+ * Picks the best set of non-overlapping adjacent swaps: given the gain of
+ * swapping each room with the one below (data[i] for rooms i and i+1),
+ * returns the indices maximising the total gain such that no two chosen swaps
+ * share a room. Negative gains are never chosen. (Tabbycat's
+ * OneUpOneDownSwapper.dp, written as a standard take/skip recurrence.)
+ */
+export function bestSwapSet(data: number[]): number[] {
+  const n = data.length;
+  const best = new Array<number>(n + 2).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    best[i] = Math.max(best[i + 1], data[i] + best[i + 2]);
+  }
+  const chosen: number[] = [];
+  for (let i = 0; i < n; ) {
+    if (data[i] + best[i + 2] > best[i + 1]) {
+      chosen.push(i);
+      i += 2;
+    } else {
+      i += 1;
+    }
+  }
+  return chosen;
+}
+
+/**
+ * Australasian one-up-one-down, as Tabbycat's OneUpOneDownSwapper: each
+ * pair of adjacent rooms (A1 v N1, A2 v N2) may swap their second teams to
+ * become (A1 v N2, A2 v N1). The gain of a swap is the clash cost removed;
+ * a swap is excluded when neither room has a clash, or when it would add
+ * history conflicts. The best non-overlapping set of swaps is applied, with
+ * a tiny bias towards fewer swaps and towards swaps higher in the bracket.
+ */
+export function oneUpOneDown(rooms: Team[][], history: MatchupHistory, penalties: ClashPenalties): Team[][] {
+  const result = rooms.map((room) => [...room]);
+  const meetings = (a: Team, b: Team) => (penalties.repeatMatchupPenalty > 0 ? timesMet(history, a, b) : 0);
+  const institution = (a: Team, b: Team) => (penalties.institutionClashPenalty > 0 && sameInstitution(a, b) ? 1 : 0);
+  const badness = (inst: number, hist: number) =>
+    inst * penalties.institutionClashPenalty + hist * penalties.repeatMatchupPenalty;
+
+  const gains = result.slice(0, -1).map(([a1, n1], i) => {
+    const [a2, n2] = result[i + 1];
+    const inst = institution(a1, n1) + institution(a2, n2);
+    const hist = meetings(a1, n1) + meetings(a2, n2);
+    if (inst === 0 && hist === 0) return -Infinity;
+    const histSwapped = meetings(a1, n2) + meetings(a2, n1);
+    if (histSwapped > hist) return -Infinity;
+    const instSwapped = institution(a1, n2) + institution(a2, n1);
+    const gain = badness(inst, hist) - badness(instSwapped, histSwapped) - 1e-3;
+    return gain > 0 ? gain + (result.length - 1 - i) * 1e-6 : gain;
+  });
+
+  for (const i of bestSwapSet(gains)) {
+    const [a1, n1] = result[i];
+    const [a2, n2] = result[i + 1];
+    result[i] = [a1, n2];
+    result[i + 1] = [a2, n1];
+  }
+  return result;
+}
+
+/**
+ * Applies post-pairing conflict avoidance to one bracket's rooms. "min_cost"
+ * is not a post-processing step: it replaces the pairing itself (see
+ * minCostPairing.ts), so rooms are returned unchanged here.
+ */
 export function avoidConflicts(
   rooms: Team[][],
   history: MatchupHistory,
   strategy: ConflictAvoidance,
   penalties: ClashPenalties = DEFAULT_CLASH_PENALTIES
 ): Team[][] {
-  switch (strategy) {
-    case "off":
-      return rooms;
-    case "one_up_one_down":
-      return oneUpOneDown(rooms, history, penalties);
-    case "min_cost":
-      // Opponent reassignment would silently replace the configured pairing method.
-      // Keep this legacy strategy value compatible without changing its matchups.
-      return rooms;
-  }
+  return strategy === "one_up_one_down" ? oneUpOneDown(rooms, history, penalties) : rooms;
 }
