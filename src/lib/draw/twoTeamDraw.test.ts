@@ -308,3 +308,25 @@ describe("generateRandomTwoTeamDraw", () => {
     expect(draw.every((d) => sides[d.teamsWithSides.AFF.id] === "AFF" && sides[d.teamsWithSides.NEG.id] === "NEG")).toBe(true);
   });
 });
+
+describe("two-team draws at 1000 teams", () => {
+  // Regression: one 1000-team bracket (round 1, or a random draw) gave the
+  // matching ~500k edges, spread into Math.max, which overflowed the call stack from ~500 teams.
+  const teams = Array.from({ length: 1000 }, (_, i) => team(`t${i}`, `inst${i % 120}`));
+
+  it("power-pairs a single 1000-team bracket by min-cost matching, deterministically per seed", () => {
+    const standings = rankedStandings(teams.map((t) => [t.id, 0]));
+    const run = () =>
+      generateTwoTeamDraw(teams, standings, emptyHistory(), "uadc", { conflictAvoidance: "min_cost" }, createSeededRng(42));
+    const draw = run();
+    expect(draw).toHaveLength(500);
+    expect(allIds(draw)).toEqual(teams.map((t) => t.id).sort());
+    expect(rooms(run())).toEqual(rooms(draw));
+  }, 120_000);
+
+  it("draws a 1000-team random round", () => {
+    const draw = generateRandomTwoTeamDraw(teams, emptyHistory(), "uadc", {}, createSeededRng(7));
+    expect(draw).toHaveLength(500);
+    expect(allIds(draw)).toEqual(teams.map((t) => t.id).sort());
+  }, 120_000);
+});
