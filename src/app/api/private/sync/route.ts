@@ -24,6 +24,7 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
+import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -341,6 +342,7 @@ export async function POST(request: NextRequest) {
       uploadedCount += 1;
     }
 
+    let writtenBallots: BallotSubmission[] = [];
     if (ballotSubmissions.length > 0) {
       const ballotCollection = tournamentRef.collection("ballots");
       const committed = await firestore.runTransaction(async (transaction) => {
@@ -380,6 +382,7 @@ export async function POST(request: NextRequest) {
         for (const ballot of plan.writes) {
           transaction.set(ballotCollection.doc(ballot.id), ballot);
         }
+        writtenBallots = plan.writes;
         return true;
       });
       if (!committed) {
@@ -391,6 +394,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (uploadedCount > 0) await batch.commit();
+    if (writtenBallots.length > 0 && actorType === "adjudicator") {
+      await sendBallotReceipts({
+        firestore,
+        tournament,
+        adjudicator: { id: actorDocument.id, name: actor.name, email: actor.email },
+        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true),
+        debates: assignedDebates,
+        rounds: roundById,
+      });
+    }
 
     const [ballotsSnapshot, feedbackSnapshot, roundsSnapshot] = await Promise.all([
       tournamentRef.collection("ballots").get(),

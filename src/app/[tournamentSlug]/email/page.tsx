@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Mail, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
+import { AutomaticNotificationsPanel } from "@/features/tournament/components/AutomaticNotificationsPanel";
 import {
   EMAIL_RECIPIENT_GROUPS,
   findCredentialEmailConflict,
@@ -519,6 +520,8 @@ export default function EmailSettingsPage() {
         )}
       </section>
 
+      <AutomaticNotificationsPanel onSent={() => void refreshCampaignHistory()} />
+
       <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -556,6 +559,7 @@ export default function EmailSettingsPage() {
                   <p className="text-xs text-gray-500">
                     Sent by {campaign.senderName || campaign.senderEmail || "Unknown"}
                     {campaign.retryOf ? " · Retry attempt" : ""}
+                    {campaign.notificationKey ? " · Automatic notification" : ""}
                     {campaign.status === "sending" ? " · In progress" : ""}
                   </p>
                   <p className="text-xs font-medium text-gray-700">

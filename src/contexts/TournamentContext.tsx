@@ -73,6 +73,11 @@ import {
   publishPublicViewCommand,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
+import {
+  describeNotificationSummary,
+  hasAutomaticRoundNotifications,
+  sendDueNotificationsCommand,
+} from "@/features/tournament/application/notifications";
 import { createFirestoreRoundRepository } from "@/features/tournament/infrastructure/roundRepository";
 import { createFirestoreEntityRepository } from "@/features/tournament/infrastructure/entityRepository";
 import { createFirestoreDrawRepository } from "@/features/tournament/infrastructure/drawRepository";
@@ -1724,8 +1729,21 @@ export function TournamentProvider({
           publishError instanceof Error ? publishError.message : "publish failed"
         }`;
       }
+      // Opted-in draw / results emails go out once their release is in the cloud copy.
+      let notificationSummary = "";
+      if (hasAutomaticRoundNotifications(tournament.preferences)) {
+        try {
+          notificationSummary = describeNotificationSummary(
+            await sendDueNotificationsCommand({ tournamentId: tournament.id, idToken: await user.getIdToken() })
+          );
+        } catch (notificationError) {
+          notificationSummary = ` Notifications were not sent: ${
+            notificationError instanceof Error ? notificationError.message : "notification failed"
+          }`;
+        }
+      }
       setCloudSyncState("success");
-      setCloudSyncMessage(syncSummary + publishSummary);
+      setCloudSyncMessage(syncSummary + publishSummary + notificationSummary);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Cloud upload failed.";
       setCloudSyncState("error");
