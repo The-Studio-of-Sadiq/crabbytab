@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
@@ -73,20 +73,29 @@ export default function DisplayPage() {
     setRevealIndex(0);
   }, [activeRound?.id, revealSteps.length]);
 
+  const revealIndexRef = useRef(revealIndex);
+  revealIndexRef.current = revealIndex;
+  const revealRef = useRef<HTMLElement>(null);
+  // Focus the slide so Space advances it rather than re-pressing the view button.
+  useEffect(() => {
+    if (view === "motions") revealRef.current?.focus();
+  }, [view]);
   useEffect(() => {
     if (view !== "motions") return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      // Space and Enter on a focused button activate that button instead.
+      if (target?.tagName === "BUTTON" && (event.key === " " || event.key === "Enter")) return;
       if (event.key === "Escape") {
         setView("rooms");
         return;
       }
-      setRevealIndex((current) => {
-        const next = nextRevealStep(current, event.key, revealSteps.length);
-        if (next !== current) event.preventDefault();
-        return next;
-      });
+      const current = revealIndexRef.current;
+      const next = nextRevealStep(current, event.key, revealSteps.length);
+      if (next === current) return;
+      event.preventDefault();
+      setRevealIndex(next);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -177,9 +186,11 @@ export default function DisplayPage() {
 
       {view === "motions" ? (
         <section
+          ref={revealRef}
+          tabIndex={-1}
           aria-label="Motion reveal"
           aria-live="polite"
-          className="flex min-h-[calc(100vh-12rem)] flex-col rounded-lg border border-gray-700 bg-[#111820]"
+          className="flex min-h-[calc(100vh-12rem)] flex-col rounded-lg border border-gray-700 bg-[#111820] focus:outline-none"
           style={{ fontSize: `${scale}rem` }}
         >
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10 text-center sm:px-14">
