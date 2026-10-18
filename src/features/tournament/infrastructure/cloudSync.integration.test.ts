@@ -7,6 +7,7 @@ import type { BallotSubmission, BreakCategory, Round, Team, Tournament } from "@
 import { CLOUD_COLLECTIONS, type CloudCollectionName, type CloudRecord } from "@/features/tournament/collections";
 import {
   downloadTournamentCommand,
+  resolveDivergedRecords,
   uploadTournamentCommand,
   type CloudDeletionMap,
 } from "@/features/tournament/application/cloudSync";
@@ -101,8 +102,12 @@ async function upload(device: TournamentHarness): Promise<number> {
     localCollections: device.collections(),
     deletions,
     overwrites: device.overwrites,
+    baseline: device.syncBaseline,
     repository: createFirestoreTournamentRepository(),
-    saveSyncedRecords: (tournament, collections) => device.load(tournament, collections),
+    saveSyncedRecords: (tournament, collections, baseline) => {
+      device.load(tournament, collections);
+      device.syncBaseline = baseline;
+    },
   });
   device.tombstones = {};
   device.overwrites = {};
@@ -110,17 +115,20 @@ async function upload(device: TournamentHarness): Promise<number> {
 }
 
 async function download(device: TournamentHarness): Promise<void> {
-  const { tournament, collections } = await downloadTournamentCommand({
+  const { tournament, collections, baseline, divergedRecords } = await downloadTournamentCommand({
     tournamentId: device.tournament.id,
     slug: device.tournament.slug,
     userId: USER,
     localTournament: device.tournament,
     localCollections: device.collections(),
+    baseline: device.syncBaseline,
     deletions: device.tombstones,
     overwrites: device.overwrites,
     repository: createFirestoreTournamentRepository(),
   });
   device.load(tournament, collections);
+  device.syncBaseline = baseline;
+  device.divergedRecords = divergedRecords;
 }
 
 function cloud(tournament: Tournament, name: CloudCollectionName): Array<Record<string, unknown> & { id: string }> {
@@ -223,9 +231,28 @@ describe("two devices editing the same record", () => {
       record: { name: "Name from A" },
       incomingRecord: { name: "Name from B" },
     });
-    // B keeps its own edit locally after downloading; nothing was overwritten without a trace.
+    // B keeps its own edit locally after downloading and is told about it; nothing was
+    // overwritten without a trace. B's other records take A's upload.
     await download(b);
     expect(b.teams.find((team) => team.id === teamId)?.name).toBe("Name from B");
+    expect(b.divergedRecords).toEqual([
+      expect.objectContaining({ collectionName: "teams", recordId: teamId, cloudRecord: expect.objectContaining({ name: "Name from A" }) }),
+    ]);
+  });
+
+  it("brings another admin device's upload to records this device has not changed", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    const b = blankDevice(a, "device-b");
+    await download(b);
+    a.venues = a.venues.map((venue, index) => index === 0 ? { ...venue, name: "Main Hall" } : venue);
+    expect(await upload(a)).toBe(0);
+
+    await download(b);
+    expect(b.venues[0]).toMatchObject({ name: "Main Hall", syncVersion: 2 });
+    expect(b.divergedRecords).toEqual([]);
+    b.venues = b.venues.map((venue, index) => index === 0 ? { ...venue, priority: 7 } : venue);
+    expect(await upload(b)).toBe(0);
   });
 
   it("lets a device that downloaded the latest version edit and upload without a conflict", async () => {
@@ -364,6 +391,67 @@ describe("private-URL ballots", () => {
     expect(conflicts(a.tournament)).toEqual([
       expect.objectContaining({ collectionName: "ballots", recordId: "portal-1", incomingRecord: expect.objectContaining({ confirmed: true }) }),
     ]);
+    // The admin never edited that ballot, so a download replaces it with the discarded version.
+    await download(a);
+    expect(a.ballots.find((ballot) => ballot.id === "portal-1")).toMatchObject({ discarded: true, confirmed: false });
+    expect(a.ballots.find((ballot) => ballot.id === "portal-2")).toMatchObject({ confirmed: true });
+    expect(a.divergedRecords).toEqual([]);
+    expect(await upload(a)).toBe(0);
+  });
+});
+
+describe("self check-ins", () => {
+  /** What /api/private/sync writes for a self check-in: the availability and a version bump. */
+  function selfCheckIn(tournament: Tournament, teamId: string, roundId: string, available: boolean) {
+    const path = `${TOURNAMENT_PATH(tournament)}/teams/${teamId}`;
+    const current = fakeStore.documents.get(path)!;
+    fakeStore.documents.set(path, {
+      ...current,
+      roundAvailability: { ...(current.roundAvailability as Record<string, boolean> | undefined), [roundId]: available },
+      roundAvailabilityAt: { [roundId]: new Date().toISOString() },
+      syncVersion: (Number(current.syncVersion) || 0) + 1,
+    });
+  }
+
+  it("reach the organiser's device on download, and its next upload keeps them", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    const [team] = a.teams;
+    selfCheckIn(a.tournament, team.id, "round-next", false);
+
+    await download(a);
+    expect(a.teams.find((item) => item.id === team.id)?.roundAvailability).toEqual({ "round-next": false });
+    expect(a.divergedRecords).toEqual([]);
+    expect(await upload(a)).toBe(0);
+    expect(cloud(a.tournament, "teams").find((item) => item.id === team.id)?.roundAvailability).toEqual({ "round-next": false });
+    expect(conflicts(a.tournament)).toEqual([]);
+  });
+
+  it("never overwrite a team the organiser edited meanwhile; the organiser picks a version", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    const [team] = a.teams;
+    a.teams = a.teams.map((item) => item.id === team.id ? { ...item, name: "Renamed in the tab room" } : item);
+    selfCheckIn(a.tournament, team.id, "round-next", true);
+
+    await download(a);
+    expect(a.teams.find((item) => item.id === team.id)).toMatchObject({ name: "Renamed in the tab room" });
+    expect(a.teams.find((item) => item.id === team.id)?.roundAvailability).toBeUndefined();
+    expect(a.divergedRecords).toEqual([
+      expect.objectContaining({ collectionName: "teams", recordId: team.id }),
+    ]);
+
+    const resolved = resolveDivergedRecords({
+      localCollections: a.collections(),
+      baseline: a.syncBaseline,
+      divergedRecords: a.divergedRecords,
+      keep: "cloud",
+    });
+    a.load(a.tournament, resolved.collections);
+    a.syncBaseline = resolved.baseline;
+    expect(a.teams.find((item) => item.id === team.id)).toMatchObject({ roundAvailability: { "round-next": true } });
+    await download(a);
+    expect(a.divergedRecords).toEqual([]);
   });
 });
 

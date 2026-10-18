@@ -123,10 +123,14 @@ record after another device has changed it, CrabbyTab keeps the cloud copy and
 archives both versions rather than silently replacing the newer copy. Use the
 tournament's sync-recovery export to inspect archived versions. Deleted cloud
 records receive recoverable tombstones, so later downloads do not restore them
-and stale uploads cannot remove the tombstone. Opening a tournament that has a
-cloud copy merges it into this device's working copy the same way a download
-does: local records are kept (they may hold changes not yet uploaded), and only
-cloud records missing on this device are added. Team portals show ballots only
+and stale uploads cannot remove the tombstone. Each device remembers every
+record as it last uploaded or downloaded it (its synced baseline). Downloading,
+or opening a tournament that has a cloud copy, gives records unchanged on this
+device since then the newer cloud version (self check-ins, private-URL ballot
+discards, assistant edits, other devices' uploads) and adds cloud-only records.
+Records edited on this device are kept for upload; if the cloud changed them
+too, they are shown as sync conflicts until you choose the cloud or this
+device's version from the account menu. Team portals show ballots only
 after results are released on a non-silent round, and hide speaker scores until
 team speaks are released.
 
