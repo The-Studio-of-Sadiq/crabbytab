@@ -119,10 +119,15 @@ listener scoping is part of the sync-model work.
 assignment of teams → (room, position) with cost = position-history cost (Rényi/SSD with exponent)
 + pullup cost, brackets by points, pullups from below distributed per `bpPullupDistribution`.
 `hungarian.ts` already exists. Golden tests against Tabbycat outputs.
+*Done in step 5 (see `docs/draw-generation.md`); tests are golden cases derived from
+Tabbycat's algorithms and brute-force optimality checks, not recorded Tabbycat outputs.*
 
 **Two-team draw** — true `intermediate`, `intermediate1/2`, `intermediate_bubble` (bubble-up/down
 swaps), real `min_cost` conflict avoidance (graph matching over clashes + history), seeded random
 (`Team.seed`), preallocated sides, history-aware random rounds, option for non-random R1.
+*Done in step 5, together with Phase 1 items 5 and 6 and the draw preferences in item 12
+(`min_cost`, `pairingDeviationPenalty`, `pullupPenalty`, `previouslySawPullupPenalty`,
+`sideBalancePenalty` are wired; `drawRule: "bracket"` is a legacy value treated as random).*
 
 **Adjudicator allocation** — Tabbycat-style cost: per-debate importance-weighted score mismatch +
 soft history penalty + hard conflicts (institution, team, **adj↔adj**), respect user weights (drop
