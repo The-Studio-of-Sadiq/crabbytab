@@ -1,9 +1,16 @@
-import { consensusTeamScores, sheetOutcome, TWO_TEAM_SIDES } from "@/lib/ballots/result";
+import {
+  ballotSides,
+  consensusTeamScores,
+  sheetOutcome,
+  substantiveSpeakerCount,
+  TWO_TEAM_SIDES,
+} from "@/lib/ballots/result";
 import type {
   Adjudicator,
   BallotSubmission,
   BreakCategory,
   Debate,
+  DebateSide,
   FeedbackSubmission,
   FeedbackQuestion,
   Institution,
@@ -87,7 +94,7 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
   const speakerIds = new Map<string, string>();
   for (const { team, speaker } of speakerEntries) {
     if (speakerIds.has(speaker.id)) throw new Error(`Speaker ID ${speaker.id} is duplicated; fix the participant record before exporting.`);
-    speakerIds.set(speaker.id, ids.allocate("speaker", `${team.id}_${speaker.id}`));
+    speakerIds.set(speaker.id, ids.allocate("speaker", speaker.id));
   }
 
   const institutionNames = new Map<string, { id: string; name: string; code?: string }>();
@@ -159,9 +166,10 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
     const xmlQuestionId = ids.allocate("question", question.id || String(index + 1));
     questionIdsBySource.get(fromTeams ? "team" : "adjudicator")!.set(question.id, xmlQuestionId);
     const choices = (question.options || []).map((option) => `<choice>${escapeXml(option)}</choice>`).join("");
-    return `<question id="${xmlQuestionId}" name="${escapeXml(question.label)}" type="${typeMap[question.type]}" from-teams="${fromTeams}" from-adjudicators="${fromAdjudicators}">${escapeXml(question.label)}${choices}</question>`;
+    return `<question id="${xmlQuestionId}" name="${escapeXml(question.label)}" type="${typeMap[question.type]}" from-teams="${fromTeams}" from-adjudicators="${fromAdjudicators}" required="${question.required}"${attribute("min-value", question.min)}${attribute("max-value", question.max)}>${escapeXml(question.label)}${choices}</question>`;
   }).join("");
 
+  const replyPosition = substantiveSpeakerCount({ format: input.tournament.format, preferences });
   const ballotsByDebate = groupBy(
     input.ballots.filter((ballot) => ballot.confirmed && !ballot.discarded),
     (ballot) => ballot.debateId
@@ -178,8 +186,11 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
         byeXml.push(`<bye>${teamIds.get(debate.byeTeamId)}</bye>`);
         continue;
       }
+      // DebateXML encodes the side by the order of <side> elements.
+      const sideOrder = ballotSides(input.tournament.format);
       const slots = Object.entries(debate.teams || {})
-        .filter(([, slot]) => slot?.teamId && teamIds.has(slot.teamId));
+        .filter(([, slot]) => slot?.teamId && teamIds.has(slot.teamId))
+        .sort(([a], [b]) => sideOrder.indexOf(a as DebateSide) - sideOrder.indexOf(b as DebateSide));
       if (slots.length === 0) continue;
       if (slots.length < 2) {
         throw new Error(`Debate ${debate.id} has an incomplete assignment and cannot be archived.`);
@@ -222,19 +233,20 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
           return `<ballot${attribute("rank", rank)}${attribute("adjudicators", judgeIds)}>${escapeXml(score?.points ?? "")}</ballot>`;
         });
         if (sideBallots.length === 0) sideBallots.push("<ballot/>");
-        const speeches = team.speakers.flatMap((speaker) => {
-          const xmlSpeakerId = speakerIds.get(speaker.id);
+        // Speeches follow speaking order; each holds one score per ballot, matched by position.
+        const sideEntries = (ballot: BallotSubmission) =>
+          ballot.speakerScores?.[side as keyof typeof ballot.speakerScores] || [];
+        const reference = debateBallots[0] ? [...sideEntries(debateBallots[0])].sort((a, b) => a.position - b.position) : [];
+        const speeches = reference.flatMap((referenceEntry) => {
+          const xmlSpeakerId = speakerIds.get(referenceEntry.speakerId);
           if (!xmlSpeakerId) return [];
-          const entries = debateBallots.flatMap((ballot) =>
-            (ballot.speakerScores?.[side as keyof typeof ballot.speakerScores] || [])
-              .filter((entry) => entry.speakerId === speaker.id && !entry.ghost)
-              .map((entry) => ({ entry, ballot }))
-          );
-          if (entries.length === 0) return [];
-          const replyPosition = input.tournament.preferences?.substantiveSpeakers ?? 2;
-          return [`<speech speaker="${xmlSpeakerId}"${attribute("reply", entries.some(({ entry }) => entry.position > replyPosition) ? "true" : undefined)}>${entries.map(({ entry, ballot }) =>
-            `<ballot${attribute("adjudicators", ballot.chairId ? adjudicatorIds.get(ballot.chairId) : undefined)}>${escapeXml(entry.score)}</ballot>`
-          ).join("")}</speech>`];
+          const scores = debateBallots.flatMap((ballot) => {
+            const entry = sideEntries(ballot).find((candidate) => candidate.position === referenceEntry.position);
+            return entry
+              ? [`<ballot${attribute("adjudicators", ballot.chairId ? adjudicatorIds.get(ballot.chairId) : undefined)}>${escapeXml(entry.score)}</ballot>`]
+              : [];
+          });
+          return [`<speech speaker="${xmlSpeakerId}"${attribute("reply", referenceEntry.position > replyPosition ? "true" : undefined)}${attribute("ghost", referenceEntry.ghost ? "true" : undefined)}>${scores.join("")}</speech>`];
         }).join("");
         return `<side team="${teamIds.get(team.id)}">${sideBallots.join("")}${speeches}</side>`;
       }).join("");
@@ -244,8 +256,19 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
       ? breakIds.get(round.breakCategoryIds[0])
       : undefined;
     const divisionId = round.divisionId ? divisionIds.get(round.divisionId) : undefined;
-    return `<round${attribute("name", round.name)}${attribute("elimination", round.stage === "elimination" ? "true" : undefined)}${attribute("feedback-weight", round.feedbackWeight)}${attribute("break-category", categoryId)}${attribute("division", divisionId)}>${debateXml.join("")}${byeXml.join("")}</round>`;
+    return `<round${attribute("name", round.name)}${attribute("abbreviation", round.abbreviation)}${attribute("elimination", round.stage === "elimination" ? "true" : undefined)}${attribute("feedback-weight", round.feedbackWeight)}${attribute("break-category", categoryId)}${attribute("division", divisionId)}>${debateXml.join("")}${byeXml.join("")}</round>`;
   }).join("");
+
+  const conflictAttributes = (adj: Adjudicator) => {
+    const refs = (pick: (conflict: Adjudicator["conflicts"][number]) => string | undefined) =>
+      [...new Set((adj.conflicts || []).filter((conflict) => conflict.type !== "history").flatMap((conflict) => {
+        const ref = pick(conflict);
+        return ref ? [ref] : [];
+      }))].join(" ");
+    return `${attribute("team-conflicts", refs((conflict) => conflict.teamId ? teamIds.get(conflict.teamId) : undefined))}${attribute("institution-conflicts", refs((conflict) =>
+      conflict.institutionId && !conflict.teamId && !conflict.adjudicatorId ? institutionIds.get(conflict.institutionId) : undefined
+    ))}${attribute("adjudicator-conflicts", refs((conflict) => conflict.adjudicatorId ? adjudicatorIds.get(conflict.adjudicatorId) : undefined))}`;
+  };
 
   const participantsXml = [
     ...input.teams.map((team) => {
@@ -262,10 +285,10 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
           .join(" ");
         return `<speaker${attribute("id", speakerIds.get(speaker.id))}${attribute("name", speaker.name)}${attribute("institutions", institutionRef(team.institutionId, team.institutionName))}${attribute("categories", speakerCategoryRefs)}>${escapeXml(speaker.name)}</speaker>`;
       }).join("");
-      return `<team${attribute("id", teamIds.get(team.id))}${attribute("code", team.codeName)}${attribute("name", team.name)}${attribute("break-eligibilities", breakEligibility)}${attribute("division", divisionId)}>${speakers}</team>`;
+      return `<team${attribute("id", teamIds.get(team.id))}${attribute("code", team.codeName)}${attribute("name", team.name)}${attribute("institution", institutionRef(team.institutionId, team.institutionName))}${attribute("break-eligibilities", breakEligibility)}${attribute("division", divisionId)}>${speakers}</team>`;
     }),
     ...input.adjudicators.map((adj) =>
-      `<adjudicator${attribute("id", adjudicatorIds.get(adj.id))}${attribute("name", adj.name)}${attribute("institutions", institutionRef(adj.institutionId, adj.institutionName))}${attribute("score", adj.baseScore)}${attribute("independent", adj.independent ? "true" : undefined)}>${escapeXml(adj.name)}${input.feedback.filter((item) =>
+      `<adjudicator${attribute("id", adjudicatorIds.get(adj.id))}${attribute("name", adj.name)}${attribute("institutions", institutionRef(adj.institutionId, adj.institutionName))}${attribute("score", adj.baseScore)}${attribute("independent", adj.independent ? "true" : undefined)}${attribute("trainee", adj.trainee ? "true" : undefined)}${conflictAttributes(adj)}>${escapeXml(adj.name)}${input.feedback.filter((item) =>
         item.confirmed &&
         item.targetType === "adjudicator" &&
         item.targetAdjudicatorId === adj.id &&
@@ -281,12 +304,12 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
             ? [`<answer question="${xmlQuestionId}">${escapeXml(Array.isArray(answer) ? answer.join(", ") : answer)}</answer>`]
             : [];
         }).join("");
-        return `<feedback${attribute("source-team", item.sourceType === "team" ? sourceId : undefined)}${attribute("source-adjudicator", item.sourceType === "adjudicator" ? sourceId : undefined)}${attribute("debate", debateIds.get(item.debateId))}${attribute("score", item.score)}>${answers}</feedback>`;
+        return `<feedback${attribute("source-team", item.sourceType === "team" ? sourceId : undefined)}${attribute("source-adjudicator", item.sourceType === "adjudicator" ? sourceId : undefined)}${attribute("debate", debateIds.get(item.debateId))}${attribute("score", item.score)}${attribute("ignored", item.ignored ? "true" : undefined)}>${answers}</feedback>`;
       }).join("")}</adjudicator>`
     ),
   ].join("");
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<tournament${attribute("name", input.tournament.name)}${attribute("short", input.tournament.shortName)}${attribute("style", input.tournament.format === "custom_2team" ? undefined : input.tournament.format)}>\n${roundXml}\n<participants>${participantsXml}</participants>\n${institutions.map((institution) => `<institution${attribute("id", institutionIds.get(institution.id))}${attribute("reference", institution.code)}>${escapeXml(institution.name)}</institution>`).join("")}\n${input.motions.map((motion) => `<motion id="${motionIds.get(motion.id)}"${attribute("reference", motion.reference)}>${escapeXml(motion.text)}${motion.infoSlide ? `<info-slide>${escapeXml(motion.infoSlide)}</info-slide>` : ""}</motion>`).join("")}\n${input.venues.map((venue) => `<venue id="${venueIds.get(venue.id)}"${attribute("priority", venue.priority)}>${escapeXml(venue.name)}</venue>`).join("")}\n${questionXml}\n${input.breakCategories.map((category) => `<break-category${attribute("id", breakIds.get(category.id))}${attribute("priority", category.priority)}>${escapeXml(category.name)}</break-category>`).join("")}\n${speakerCategoryNames.map((name) => `<speaker-category id="${speakerCategoryIds.get(name)}">${escapeXml(name)}</speaker-category>`).join("")}\n${[...divisionDefinitions].map(([id, name]) => `<division id="${divisionIds.get(id)}">${escapeXml(name)}</division>`).join("")}\n</tournament>`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<tournament${attribute("name", input.tournament.name)}${attribute("short", input.tournament.shortName)}${attribute("style", input.tournament.format === "custom_2team" ? undefined : input.tournament.format)}>\n${roundXml}\n<participants>${participantsXml}</participants>\n${institutions.map((institution) => `<institution${attribute("id", institutionIds.get(institution.id))}${attribute("reference", institution.code)}>${escapeXml(institution.name)}</institution>`).join("")}\n${input.motions.map((motion) => `<motion id="${motionIds.get(motion.id)}"${attribute("reference", motion.reference)}>${escapeXml(motion.text)}${motion.infoSlide ? `<info-slide>${escapeXml(motion.infoSlide)}</info-slide>` : ""}</motion>`).join("")}\n${input.venues.map((venue) => `<venue id="${venueIds.get(venue.id)}"${attribute("priority", venue.priority)}>${escapeXml(venue.name)}</venue>`).join("")}\n${questionXml}\n${input.breakCategories.map((category) => `<break-category${attribute("id", breakIds.get(category.id))}${attribute("priority", category.priority)}${attribute("break-size", category.breakSize)}${attribute("reserve-size", category.reserveSize)}${attribute("general", category.isGeneral ? "true" : undefined)}>${escapeXml(category.name)}</break-category>`).join("")}\n${speakerCategoryNames.map((name) => `<speaker-category id="${speakerCategoryIds.get(name)}">${escapeXml(name)}</speaker-category>`).join("")}\n${[...divisionDefinitions].map(([id, name]) => `<division id="${divisionIds.get(id)}">${escapeXml(name)}</division>`).join("")}\n</tournament>`;
 
   return xml;
 }
