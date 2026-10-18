@@ -1,6 +1,7 @@
 import type {
   Adjudicator,
   AuditCategory,
+  BallotSubmission,
   BreakCategory,
   Debate,
   FeedbackSubmission,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/draw/allocator";
 import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
 import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
+import { applyGuards, checkAutoAllocation, checkDebateEdits, type RuleOverride } from "./stateGuards";
 
 export interface AllocationAuditEvent {
   action: string;
@@ -33,6 +35,8 @@ export interface AllocationDependencies {
   rounds: Round[];
   teams: Team[];
   debates: Debate[];
+  /** Ballots decide which debates may still be edited (see stateGuards). */
+  ballots: BallotSubmission[];
   adjudicators: Adjudicator[];
   standings: TeamStandingRow[];
   breakCategories: BreakCategory[];
@@ -63,13 +67,22 @@ export async function autoAllocateCommand(
   roundId: string,
   panelSize: number,
   dependencies: AllocationDependencies,
-  settings: AutoAllocateSettings = {}
+  settings: AutoAllocateSettings = {},
+  override?: RuleOverride
 ): Promise<void> {
   const roundDebates = dependencies.debates.filter((debate) => debate.roundId === roundId);
   const tournament = dependencies.tournament;
   if (roundDebates.length === 0 || !tournament) return;
 
   const round = dependencies.rounds.find((item) => item.id === roundId);
+  if (round) {
+    await applyGuards(checkAutoAllocation(round, dependencies), override, {
+      action: "adjudicators.allocated",
+      category: "allocation",
+      roundId,
+      record: dependencies.recordAuditEvent,
+    });
+  }
   const teamsById = new Map(dependencies.teams.map((team) => [team.id, team]));
   const pastDebates = getPriorDebates(round, dependencies);
   const completedPrelimRounds = dependencies.rounds.filter(
@@ -184,9 +197,16 @@ export async function autoAllocateCommand(
 export async function updateDebateCommand(
   debate: Debate,
   debates: Debate[],
-  dependencies: Pick<AllocationDependencies, "repository" | "hideRevealedAdjudicators" | "recordAuditEvent">
+  dependencies: Pick<AllocationDependencies, "rounds" | "ballots" | "repository" | "hideRevealedAdjudicators" | "recordAuditEvent">,
+  override?: RuleOverride
 ): Promise<void> {
   const previous = debates.find((item) => item.id === debate.id);
+  await applyGuards(checkDebateEdits(previous ? [previous] : [], [debate], dependencies), override, {
+    action: "draw.debate_updated",
+    category: "draw",
+    roundId: debate.roundId,
+    record: dependencies.recordAuditEvent,
+  });
   dependencies.repository.saveDebates(
     debates.map((item) => item.id === debate.id ? debate : item)
   );
@@ -220,8 +240,21 @@ export async function updateDebateCommand(
 export async function updateDebatesCommand(
   newDebates: Debate[],
   previousDebates: Debate[],
-  dependencies: Pick<AllocationDependencies, "repository" | "cloudRepository" | "hideRevealedAdjudicators" | "recordAuditEvent">
+  dependencies: Pick<
+    AllocationDependencies,
+    "rounds" | "ballots" | "repository" | "cloudRepository" | "hideRevealedAdjudicators" | "recordAuditEvent"
+  >,
+  override?: RuleOverride
 ): Promise<void> {
+  const changedRoundIds = new Set(
+    [...previousDebates, ...newDebates].map((debate) => debate.roundId)
+  );
+  await applyGuards(checkDebateEdits(previousDebates, newDebates, dependencies), override, {
+    action: "draw.debates_updated",
+    category: "draw",
+    roundId: changedRoundIds.size === 1 ? [...changedRoundIds][0] : undefined,
+    record: dependencies.recordAuditEvent,
+  });
   dependencies.repository.saveDebates(newDebates);
   if (dependencies.cloudRepository) {
     await dependencies.cloudRepository.saveDebates(newDebates);

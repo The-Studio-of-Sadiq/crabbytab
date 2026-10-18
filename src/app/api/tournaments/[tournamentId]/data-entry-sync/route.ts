@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
-import type { Debate, Tournament } from "@/types";
+import type { Debate, Round, Tournament } from "@/types";
+import { remoteBallotSubmissionBlocker } from "@/features/tournament/application/stateGuards";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
   DATA_ENTRY_FIELDS,
@@ -150,6 +151,18 @@ export async function POST(
         .filter((snapshot) => snapshot.exists)
         .map((snapshot) => [snapshot.id, { ...snapshot.data(), id: snapshot.id } as Debate])
     );
+    // Ballots may only be entered for rounds whose draw is published and still running.
+    const referencedRoundIds = [...new Set([...debatesById.values()].map((debate) => debate.roundId).filter(validId))];
+    const roundSnapshots: DocumentSnapshot[] = referencedRoundIds.length > 0
+      ? await authorization.firestore.getAll(
+          ...referencedRoundIds.map((id) => authorization.tournamentRef.collection("rounds").doc(id))
+        )
+      : [];
+    const roundsById = new Map<string, Round>(
+      roundSnapshots
+        .filter((snapshot) => snapshot.exists && typeof snapshot.data()?.deletedAt !== "string")
+        .map((snapshot) => [snapshot.id, { ...snapshot.data(), id: snapshot.id } as Round])
+    );
 
     for (const { collectionName, record, createOnly } of records) {
       const recordRef = authorization.tournamentRef.collection(collectionName).doc(record.id as string);
@@ -184,6 +197,10 @@ export async function POST(
         if (collectionName === "ballots") {
           // Confirmed ballots and ballots entered by someone else are kept for tab review instead.
           if (current && !canAssistantOverwriteBallot(current, user.uid)) return archiveIncoming("rejected");
+          const debate = debatesById.get(String(record.debateId));
+          if (debate && remoteBallotSubmissionBlocker(roundsById.get(debate.roundId))) {
+            return archiveIncoming("rejected");
+          }
           next = { ...prepareAssistantBallot(record, {
             debate: debatesById.get(String(record.debateId)),
             preferences: tournament.preferences,

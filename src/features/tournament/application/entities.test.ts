@@ -24,6 +24,9 @@ function createDependencies(overrides: Partial<EntityCommandDependencies> = {}) 
     adjudicators: [],
     venues: [],
     motions: [],
+    debates: [],
+    ballots: [],
+    feedback: [],
     repositories,
     async recordAuditEvent(event) {
       calls.push("audit");

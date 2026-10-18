@@ -6,6 +6,7 @@ import { createSeededRng } from "@/lib/draw/rng";
 import { resolveCheckState } from "./ballotEntry";
 import { withTeamOverride } from "./breaks";
 import { DrawHasResultsError } from "./draws";
+import { TournamentRuleError } from "./stateGuards";
 import { TournamentHarness } from "@/test/lifecycleHarness";
 import { expectValidRound, publicRound, slotResultFields, teamPortal } from "@/test/lifecycleAssertions";
 import { FIXED_TIME, makeTournament, simulateBallot } from "@/test/tournamentFixtures";
@@ -202,7 +203,10 @@ describe("British Parliamentary tournament lifecycle", () => {
     const r2 = harness.rounds[1];
     const before = harness.roundDebates(r2.id).map((debate) => debate.id);
     const standings = harness.standings().teams;
-    await expect(harness.generateDraw(r2.id)).rejects.toBeInstanceOf(DrawHasResultsError);
+    // The published draw needs an explicit override; even then, its results must be discarded first.
+    await expect(harness.generateDraw(r2.id)).rejects.toBeInstanceOf(TournamentRuleError);
+    await expect(harness.generateDraw(r2.id, { override: { reason: "Wrong teams checked in" } }))
+      .rejects.toBeInstanceOf(DrawHasResultsError);
     expect(harness.roundDebates(r2.id).map((debate) => debate.id)).toEqual(before);
     expect(harness.standings().teams).toEqual(standings);
   });

@@ -49,6 +49,9 @@ import { createEntityId, createTournamentEntityCommands } from "@/features/tourn
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
+import { withRuleOverride } from "@/features/tournament/application/ruleOverridePrompt";
+import type { RuleOverride } from "@/features/tournament/application/stateGuards";
+import { validateDraw } from "@/lib/draw/validateDraw";
 import {
   addFeedbackCommand,
   reviewFeedbackCommand,
@@ -1121,6 +1124,9 @@ export function TournamentProvider({
     adjudicators,
     venues,
     motions,
+    debates,
+    ballots,
+    feedback,
     repositories: {
       institutions: {
         save: (items) => {
@@ -1311,8 +1317,14 @@ export function TournamentProvider({
   }, [breakCategories, teams, teamStandings]);
 
   // Mutations
+  // Overridable tournament rules ask an administrator for a reason (RuleOverrideHost); assistants
+  // are never offered an override.
+  const guarded = <T,>(action: (override?: RuleOverride) => Promise<T>) =>
+    withRuleOverride(action, isOwnerOrAdmin);
+
   const saveTournament = async (t: Tournament) => {
-    await saveTournamentCommand(t, tournament, {
+    await guarded((override) => saveTournamentCommand(t, tournament, {
+      ballots,
       localRepository: {
         saveTournament: (value) => {
           setTournament(value);
@@ -1325,7 +1337,7 @@ export function TournamentProvider({
           : undefined,
       recordAuditEvent,
       warn: (message, error) => console.warn(message, error),
-    });
+    }, override));
   };
 
   const createRound = async (
@@ -1357,11 +1369,18 @@ export function TournamentProvider({
       AUTOMATIC_CLOUD_WRITES && db && tournament?.id
         ? createFirestoreRoundRepository(tournament.id)
         : undefined;
-    await updateRoundCommand(round, rounds, activeRound, {
+    await guarded((override) => updateRoundCommand(round, rounds, activeRound, {
       localRepository: { saveRounds: saveRoundsLocally },
       recordAuditEvent,
       cloudRepository,
-    });
+      guards: {
+        debates,
+        ballots,
+        drawIssues: (target) => tournament
+          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues })
+          : [],
+      },
+    }, override));
   };
 
   const ballotWorkflowDependencies = {
@@ -1388,6 +1407,7 @@ export function TournamentProvider({
     rounds,
     teams,
     debates,
+    ballots,
     adjudicators,
     standings: teamStandings,
     breakCategories,
@@ -1437,9 +1457,10 @@ export function TournamentProvider({
   };
 
   const setPreliminaryRoundCount = async (count: number) => {
-    await setPreliminaryRoundCountCommand(count, {
+    await guarded((override) => setPreliminaryRoundCountCommand(count, {
       rounds,
       debates,
+      ballots,
       tournamentId: tournament?.id || tournamentSlug,
       drawRule: tournament?.preferences?.drawRule || "power_paired",
       localRepository: {
@@ -1458,7 +1479,7 @@ export function TournamentProvider({
           ? createFirestoreRoundRepository(tournament.id)
           : undefined,
       recordAuditEvent,
-    });
+    }, override));
   };
 
   const deleteRound = async (roundId: string) => {
@@ -1471,7 +1492,7 @@ export function TournamentProvider({
     const deletedFeedback = feedback.filter(
       (submission) => submission.roundId === roundId || deletedDebateIds.has(submission.debateId)
     );
-    await deleteRoundCommand({
+    await guarded((override) => deleteRoundCommand({
       roundId,
       rounds,
       debates,
@@ -1507,7 +1528,7 @@ export function TournamentProvider({
           ? createFirestoreRoundRepository(tournament.id)
           : undefined,
       recordAuditEvent,
-    });
+    }, override));
     recordSyncTombstones({
       rounds: [roundId],
       debates: deletedDebates.map((debate) => debate.id),
@@ -1517,7 +1538,7 @@ export function TournamentProvider({
   };
 
   const generateDraw = async (roundId: string, options?: { discardExistingResults?: boolean }) => {
-    await generateDrawCommand(roundId, {
+    await guarded((override) => generateDrawCommand(roundId, {
       tournament,
       rounds,
       teams,
@@ -1549,28 +1570,32 @@ export function TournamentProvider({
           ? createFirestoreDrawRepository(tournament.id)
           : undefined,
       recordAuditEvent,
-    }, options);
+    }, { ...options, override }));
   };
 
   const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
-    await autoAllocateCommand(roundId, panelSize, allocationDependencies, settings);
+    await guarded((override) =>
+      autoAllocateCommand(roundId, panelSize, allocationDependencies, settings, override)
+    );
   };
 
   const updateDebate = async (debate: Debate) => {
-    await updateDebateCommand(debate, debates, allocationDependencies);
+    await guarded((override) => updateDebateCommand(debate, debates, allocationDependencies, override));
   };
 
   const updateDebates = async (newDebates: Debate[]) => {
-    await updateDebatesCommand(newDebates, debates, {
+    await guarded((override) => updateDebatesCommand(newDebates, debates, {
+      rounds,
+      ballots,
       repository: allocationDependencies.repository,
       cloudRepository: allocationDependencies.cloudRepository,
       hideRevealedAdjudicators,
       recordAuditEvent,
-    });
+    }, override));
   };
 
   const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
-    await submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies);
+    await guarded((override) => submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies, override));
   };
 
   const confirmBallot = async (
@@ -1578,11 +1603,15 @@ export function TournamentProvider({
     debateId: string,
     submittedBallot?: BallotSubmission
   ) => {
-    await confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies);
+    await guarded((override) =>
+      confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies, override)
+    );
   };
 
   const discardBallot = async (ballotId: string) => {
-    await discardBallotCommand(ballotId, user?.email || user?.uid || undefined, ballotWorkflowDependencies);
+    await guarded((override) =>
+      discardBallotCommand(ballotId, user?.email || user?.uid || undefined, ballotWorkflowDependencies, override)
+    );
   };
 
   const addInstitutions = async (instData: Omit<Institution, "id" | "tournamentId">[]) => {
@@ -1683,7 +1712,7 @@ export function TournamentProvider({
   };
 
   const generateBreak = async (categoryId: string) => {
-    return generateBreakCommand(categoryId, breakDependencies);
+    return guarded((override) => generateBreakCommand(categoryId, breakDependencies, override));
   };
 
   const proceedToNextEliminationRound = async (roundId: string) => {
