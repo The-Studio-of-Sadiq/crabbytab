@@ -11,6 +11,20 @@ one seeded random source (`rng.ts`). Generating a draw records the seed on the r
 (`Round.drawSeed`) and in the audit log, so the same inputs and seed reproduce the same
 draw.
 
+## Running in the background
+
+Draw generation and adjudicator auto-allocation run in a Web Worker
+(`src/features/tournament/compute/`), so the page stays responsive on large fields (a
+1000-team BP round takes 1–3 s to draw). The worker gets the same plain inputs, including
+the seed, so the result is identical to computing on the page; where a worker cannot start
+(no Worker support, a blocked script) the same code runs on the page instead. While a job
+runs, the Draw and Allocation pages show what is running, for how long, and a **Cancel**
+button, which stops the worker and saves nothing. The organiser can keep working meanwhile:
+the result is saved on top of the current records, and if the round itself (its settings,
+debates or ballots) changed while computing, nothing is saved and the page asks to try
+again. Progress is reported as elapsed time, not as a percentage: the algorithms do not
+know in advance how long they will take.
+
 ## Ranking and brackets
 
 Teams are ranked by the team standings. Teams that share a standings rank, and teams with
@@ -133,5 +147,5 @@ scores. Speaker tabs and speaker-score averages ignore it, and so does the margi
 
 - `one_up_one_down` and `intermediate_bubble` are local rules. They can leave conflicts
   that a different pairing would avoid, by design.
-- Large BP fields run the O(n³) Hungarian algorithm on the main thread. That is fast for
-  a few hundred teams but has not been moved to a Web Worker.
+- BP pairing (Hungarian) and two-team min-cost matching are O(n³). They run in a Web
+  Worker, so a 1000-team round takes a few seconds without freezing the page.

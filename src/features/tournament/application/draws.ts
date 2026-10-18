@@ -10,7 +10,7 @@ import type {
   Tournament,
   Venue,
 } from "@/types";
-import type { generateRoundDraw } from "@/lib/draw/generator";
+import type { GenerateDrawParams } from "@/lib/draw/generator";
 import { randomSeed } from "@/lib/draw/rng";
 
 export interface DrawAuditEvent {
@@ -32,7 +32,8 @@ export interface GenerateDrawDependencies {
   ballots: BallotSubmission[];
   motions: Motion[];
   standings: TeamStandingRow[];
-  generateRoundDraw: typeof generateRoundDraw;
+  /** `generateRoundDraw`, inline or in a Web Worker; the same params (and seed) give the same draw. */
+  generateRoundDraw(params: GenerateDrawParams): Debate[] | Promise<Debate[]>;
   localRepository: {
     saveDebates(debates: Debate[]): void;
     saveBallots(ballots: BallotSubmission[]): void;
@@ -53,6 +54,40 @@ export interface GenerateDrawDependencies {
     ): Promise<void>;
   };
   recordAuditEvent(event: DrawAuditEvent): Promise<void>;
+  /**
+   * The working copy as it is now. Generation may run in a Web Worker while the organiser keeps
+   * working, so the result is saved on top of the current records, not the ones it started from.
+   */
+  latest?(): { rounds: Round[]; debates: Debate[]; ballots: BallotSubmission[] };
+}
+
+/**
+ * The round was edited (or regenerated) while its draw or allocation was being computed, so the
+ * result would overwrite that edit. Nothing is saved.
+ */
+export class RoundChangedDuringComputeError extends Error {
+  constructor(roundName: string) {
+    super(`${roundName} was changed while this was being computed, so nothing was saved. Try again.`);
+    this.name = "RoundChangedDuringComputeError";
+  }
+}
+
+/** Whether a round, its debates or its ballots differ between two snapshots of the working copy. */
+export function roundChangedBetween(
+  roundId: string,
+  before: { rounds?: Round[]; debates: Debate[]; ballots?: BallotSubmission[] },
+  after: { rounds?: Round[]; debates: Debate[]; ballots?: BallotSubmission[] }
+): boolean {
+  const snapshot = (state: typeof before) => {
+    const debates = state.debates.filter((debate) => debate.roundId === roundId);
+    const debateIds = new Set(debates.map((debate) => debate.id));
+    return JSON.stringify([
+      state.rounds?.find((round) => round.id === roundId) ?? null,
+      debates,
+      (state.ballots || []).filter((ballot) => debateIds.has(ballot.debateId)),
+    ]);
+  };
+  return snapshot(before) !== snapshot(after);
 }
 
 /** The draw is saved locally, but the immediate cloud replacement did not finish. */
@@ -121,7 +156,7 @@ export async function generateDrawCommand(
   const pastDebates = debates.filter((debate) => previousRoundIds.has(debate.roundId));
   // Recorded on the round so this exact draw can be reproduced from the same inputs.
   const seed = randomSeed();
-  const generated = withGenerationIds(dependencies.generateRoundDraw({
+  const generated = withGenerationIds(await dependencies.generateRoundDraw({
     tournament,
     round,
     teams,
@@ -132,6 +167,11 @@ export async function generateDrawCommand(
     seed,
   }), seed);
 
+  const current = dependencies.latest?.() ?? { rounds, debates, ballots };
+  if (roundChangedBetween(roundId, { rounds, debates, ballots }, current)) {
+    throw new RoundChangedDuringComputeError(round.name);
+  }
+
   const roundMotion = motions.find((motion) => motion.rounds?.includes(round.id));
   if (roundMotion) {
     generated.forEach((debate) => {
@@ -140,10 +180,10 @@ export async function generateDrawCommand(
     });
   }
 
-  const removedDebates = debates.filter((debate) => debate.roundId === roundId);
-  const updatedDebates = [...debates.filter((debate) => debate.roundId !== roundId), ...generated];
+  const removedDebates = current.debates.filter((debate) => debate.roundId === roundId);
+  const updatedDebates = [...current.debates.filter((debate) => debate.roundId !== roundId), ...generated];
   const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false, drawSeed: seed };
-  const updatedRounds = rounds.map((item) => item.id === round.id ? updatedRound : item);
+  const updatedRounds = current.rounds.map((item) => item.id === round.id ? updatedRound : item);
 
   // Results of the replaced draw are kept as discarded versions, never re-attached to new matchups.
   const discardedTimestamp = new Date().toISOString();
@@ -156,7 +196,7 @@ export async function generateDrawCommand(
   }));
   if (discardedBallots.length > 0) {
     const byId = new Map(discardedBallots.map((ballot) => [ballot.id, ballot]));
-    dependencies.localRepository.saveBallots(ballots.map((ballot) => byId.get(ballot.id) ?? ballot));
+    dependencies.localRepository.saveBallots(current.ballots.map((ballot) => byId.get(ballot.id) ?? ballot));
   }
   dependencies.localRepository.saveDebates(updatedDebates);
   dependencies.localRepository.saveRounds(updatedRounds, updatedRound);

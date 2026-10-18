@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
+import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
 import {
@@ -161,7 +163,9 @@ export default function DrawPage() {
     try {
       await generateDraw(activeRound.id, { discardExistingResults: existingResults.length > 0 });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Could not generate the draw.");
+      if (!(error instanceof ComputeCancelledError)) {
+        window.alert(error instanceof Error ? error.message : "Could not generate the draw.");
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -497,6 +501,7 @@ export default function DrawPage() {
             <Shuffle className="w-3.5 h-3.5" />
             <span>{isGenerating ? "Generating..." : "Generate Draw"}</span>
           </button>
+          <ComputeStatus kind="draw" />
 
           <button
             onClick={handleAutoAllocateVenues}

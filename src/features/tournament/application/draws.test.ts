@@ -3,7 +3,15 @@ import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate, Tournament } from "@/types";
 import { createRoundRecord } from "./rounds";
 import type { GenerateDrawDependencies } from "./draws";
-import { DrawCloudSyncIncompleteError, DrawHasResultsError, generateDrawCommand, roundResults, withGenerationIds } from "./draws";
+import {
+  DrawCloudSyncIncompleteError,
+  DrawHasResultsError,
+  RoundChangedDuringComputeError,
+  generateDrawCommand,
+  roundChangedBetween,
+  roundResults,
+  withGenerationIds,
+} from "./draws";
 import { PartialBatchCommitError } from "../infrastructure/firestore";
 
 const tournament: Tournament = {
@@ -197,5 +205,57 @@ describe("regenerating a draw that already has results", () => {
     expect(saved.removedIds).toEqual([oldDebate.id]);
     expect(saved.ballots?.find((item) => item.id === "b1")?.discarded).toBe(true);
     expect(audit[0]).toMatchObject({ cloudSync: "incomplete" });
+  });
+});
+
+describe("draws computed in the background", () => {
+  const round = createRoundRecord({ tournamentId: tournament.id, roundSeq: 2, name: "Round 2", abbr: "R2", stage: "preliminary" });
+  const otherRound = createRoundRecord({ tournamentId: tournament.id, roundSeq: 1, name: "Round 1", abbr: "R1", stage: "preliminary" });
+  const generated = { id: "room-1", roundId: round.id, teams: {}, adjudicators: {} } as unknown as Debate;
+
+  function dependencies(latest: GenerateDrawDependencies["latest"], saved: { debates?: Debate[] }) {
+    return {
+      tournament,
+      rounds: [otherRound, round],
+      teams: [],
+      venues: [],
+      debates: [],
+      ballots: [],
+      motions: [],
+      standings: [],
+      // Resolves later, like a Web Worker.
+      generateRoundDraw: () => new Promise<Debate[]>((resolve) => setTimeout(() => resolve([generated]), 0)),
+      latest,
+      localRepository: {
+        saveDebates: (debates: Debate[]) => { saved.debates = debates; },
+        saveBallots: () => undefined,
+        markDebatesRemoved: () => undefined,
+        saveRounds: () => undefined,
+      },
+      recordAuditEvent: async () => undefined,
+    } satisfies GenerateDrawDependencies;
+  }
+
+  it("keeps edits to other rounds made while it was computing", async () => {
+    const saved: { debates?: Debate[] } = {};
+    const editedElsewhere = { id: "r1-room", roundId: otherRound.id } as Debate;
+    await generateDrawCommand(round.id, dependencies(() => ({ rounds: [otherRound, round], debates: [editedElsewhere], ballots: [] }), saved));
+    expect(saved.debates?.map((debate) => debate.id)).toEqual(["r1-room", expect.stringMatching(/^room-1-g/)]);
+  });
+
+  it("saves nothing when the round changed while it was computing", async () => {
+    const saved: { debates?: Debate[] } = {};
+    const renamed = { ...round, name: "Round 2 (moved)" };
+    await expect(generateDrawCommand(round.id, dependencies(() => ({ rounds: [otherRound, renamed], debates: [], ballots: [] }), saved)))
+      .rejects.toBeInstanceOf(RoundChangedDuringComputeError);
+    expect(saved.debates).toBeUndefined();
+  });
+
+  it("compares a round's record, debates and ballots", () => {
+    const debate = { id: "d", roundId: round.id } as Debate;
+    const ballot = { id: "b", debateId: "d" } as BallotSubmission;
+    const before = { rounds: [round], debates: [debate], ballots: [ballot] };
+    expect(roundChangedBetween(round.id, before, { ...before, debates: [debate, { id: "x", roundId: "other" } as Debate] })).toBe(false);
+    expect(roundChangedBetween(round.id, before, { ...before, ballots: [{ ...ballot, confirmed: true }] })).toBe(true);
   });
 });

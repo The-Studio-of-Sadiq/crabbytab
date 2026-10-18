@@ -21,7 +21,6 @@ import {
 } from "@/types";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import { generateRoundDraw } from "@/lib/draw/generator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import {
@@ -60,6 +59,7 @@ import {
   updateDebateCommand,
   updateDebatesCommand,
   type AutoAllocateSettings,
+  type AutoAllocationInput,
 } from "@/features/tournament/application/allocation";
 import {
   generateBreakCommand,
@@ -107,6 +107,8 @@ import { createFirestoreDrawRepository } from "@/features/tournament/infrastruct
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
+import { runComputeJob } from "@/features/tournament/compute/computeClient";
+import type { ComputeKind, ComputeRequest, ComputeResults } from "@/features/tournament/compute/computeJobs";
 import { summarizeDivergedRecord, type DivergedRecordSummary } from "@/features/tournament/application/syncConflicts";
 import {
   isViewerTournamentAdmin,
@@ -146,6 +148,10 @@ export interface TournamentContextType {
   localSaveError: string;
   /** Shared views: earlier rounds' public debates and ballots are still loading. */
   publicRoundsLoading: boolean;
+  /** A draw or auto-allocation running in the background, if any. */
+  computeJob: { kind: ComputeKind; startedAt: number } | null;
+  /** Stops the running draw or allocation; it then fails with ComputeCancelledError and saves nothing. */
+  cancelCompute: () => void;
   uploadToCloud: () => Promise<void>;
   /** Rebuilds the cached public view from the cloud copy; `force` skips the unchanged check. */
   publishPublicView: (force?: boolean) => Promise<void>;
@@ -1481,6 +1487,31 @@ export function TournamentProvider({
     recordAuditEvent,
     queuePrivateRecord,
   };
+  // Draws and allocations run in a Web Worker; these let their results land on the current state.
+  const latestRecordsRef = useRef({ rounds, debates, ballots });
+  useEffect(() => {
+    latestRecordsRef.current = { rounds, debates, ballots };
+  }, [rounds, debates, ballots]);
+  const [computeJob, setComputeJob] = useState<{ kind: ComputeKind; startedAt: number } | null>(null);
+  const computeAbortRef = useRef<AbortController | null>(null);
+  const runCompute = useCallback(async <K extends ComputeKind>(
+    request: Extract<ComputeRequest, { kind: K }>
+  ): Promise<ComputeResults[K]> => {
+    computeAbortRef.current?.abort();
+    const controller = new AbortController();
+    computeAbortRef.current = controller;
+    setComputeJob({ kind: request.kind, startedAt: Date.now() });
+    try {
+      return await runComputeJob(request, { signal: controller.signal });
+    } finally {
+      if (computeAbortRef.current === controller) {
+        computeAbortRef.current = null;
+        setComputeJob(null);
+      }
+    }
+  }, []);
+  const cancelCompute = useCallback(() => computeAbortRef.current?.abort(), []);
+
   const allocationDependencies = {
     tournament,
     rounds,
@@ -1503,6 +1534,8 @@ export function TournamentProvider({
         : undefined,
     hideRevealedAdjudicators,
     recordAuditEvent,
+    computeAllocation: (input: AutoAllocationInput) => runCompute({ kind: "allocation", input }),
+    latestDebates: () => latestRecordsRef.current.debates,
   };
   const breakDependencies = {
     tournament,
@@ -1625,7 +1658,8 @@ export function TournamentProvider({
       ballots,
       motions,
       standings: teamStandings,
-      generateRoundDraw,
+      generateRoundDraw: (input) => runCompute({ kind: "draw", input }),
+      latest: () => latestRecordsRef.current,
       localRepository: {
         saveDebates: (items) => {
           setDebates(items);
@@ -2363,6 +2397,8 @@ export function TournamentProvider({
         privateSyncMessage,
         localSaveError,
         publicRoundsLoading,
+        computeJob,
+        cancelCompute,
         uploadToCloud,
         publishPublicView,
         downloadFromCloud,
