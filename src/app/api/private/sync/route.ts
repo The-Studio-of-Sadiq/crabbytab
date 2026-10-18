@@ -13,7 +13,7 @@ import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
-import { selectAssignedDebates } from "@/lib/privateSync";
+import { planPrivateBallotWrites, selectAssignedDebates } from "@/lib/privateSync";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -332,45 +332,24 @@ export async function POST(request: NextRequest) {
           return false;
         }
 
-        const pendingIdsToDiscard = new Set<string>();
-        for (const debateId of debateIds) {
-          const group = ballotSubmissions.filter((ballot) => ballot.debateId === debateId);
-          const finalChairIndex = group.reduce(
-            (lastIndex, ballot, index) => ballot.confirmed ? index : lastIndex,
-            -1
-          );
-          if (finalChairIndex >= 0) {
-            group.slice(0, finalChairIndex).forEach((ballot) => pendingIdsToDiscard.add(ballot.id));
-            for (const existing of existingBallotsByDebate.get(debateId)!.docs) {
-              if (existing.data().discarded !== true) {
-                transaction.update(existing.ref, {
-                  confirmed: false,
-                  discarded: true,
-                });
-              }
-            }
-          }
-        }
-
-        const nextVersionByDebate = new Map<string, number>();
-        for (const debateId of debateIds) {
-          const currentVersion = existingBallotsByDebate.get(debateId)!.docs.reduce(
-            (version, document) =>
-              Math.max(version, Number(document.data().version) || 0),
-            0
-          );
-          nextVersionByDebate.set(debateId, currentVersion);
-        }
-        for (const ballot of ballotSubmissions) {
-          const version = (nextVersionByDebate.get(ballot.debateId) || 0) + 1;
-          nextVersionByDebate.set(ballot.debateId, version);
-          const discarded = pendingIdsToDiscard.has(ballot.id);
-          transaction.set(ballotCollection.doc(ballot.id), {
-            ...ballot,
-            version,
-            confirmed: ballot.confirmed && !discarded,
-            discarded,
+        const plan = planPrivateBallotWrites(
+          ballotSubmissions,
+          new Map(debateIds.map((debateId) => [
+            debateId,
+            existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
+              id: document.id,
+              data: document.data() as Partial<BallotSubmission>,
+            })),
+          ]))
+        );
+        for (const id of plan.discardExistingIds) {
+          transaction.update(ballotCollection.doc(id), {
+            confirmed: false,
+            discarded: true,
           });
+        }
+        for (const ballot of plan.writes) {
+          transaction.set(ballotCollection.doc(ballot.id), ballot);
         }
         return true;
       });
