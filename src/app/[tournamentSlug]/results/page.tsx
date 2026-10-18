@@ -22,6 +22,10 @@ import {
 import { BallotSubmission, DebateSide } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
+import {
+  getRoundCompletionBlockers,
+  setRoundCompletion,
+} from "@/features/tournament/application/roundAdministration";
 
 export default function ResultsOverviewPage() {
   const {
@@ -66,6 +70,26 @@ export default function ResultsOverviewPage() {
   const [isAdvancingRound, setIsAdvancingRound] = useState(false);
   const [advancementError, setAdvancementError] = useState("");
   const [pendingAdvancement, setPendingAdvancement] = useState(false);
+  const [pendingCompletion, setPendingCompletion] = useState<boolean | null>(null);
+  const [isSavingCompletion, setIsSavingCompletion] = useState(false);
+  const [completionError, setCompletionError] = useState("");
+  const completionBlockers = activeRound?.stage === "preliminary"
+    ? getRoundCompletionBlockers(activeRound, debates, ballots)
+    : [];
+
+  const confirmCompletion = async () => {
+    if (!activeRound || pendingCompletion === null) return;
+    setIsSavingCompletion(true);
+    setCompletionError("");
+    try {
+      await updateRound(setRoundCompletion(activeRound, pendingCompletion, debates, ballots));
+      setPendingCompletion(null);
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : "The round status could not be saved. Please try again.");
+    } finally {
+      setIsSavingCompletion(false);
+    }
+  };
 
   const confirmPublication = async () => {
     if (!activeRound || pendingPublication === null) return;
@@ -457,6 +481,36 @@ export default function ResultsOverviewPage() {
                 : "Confirm every ballot or record a bye before publishing team scores."}
             </span>
             {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
+            {activeRound.stage === "preliminary" && !activeRound.cancelled && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPendingCompletion(!activeRound.completed)}
+                  disabled={!activeRound.completed && completionBlockers.length > 0}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+                    activeRound.completed
+                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      : "bg-violet-600 text-white hover:bg-violet-700"
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {activeRound.completed ? "Reopen Round" : "Complete Round"}
+                </button>
+                <span className="text-[11px] text-gray-500 max-w-xs sm:text-right">
+                  {activeRound.completed
+                    ? "This round is marked complete."
+                    : completionBlockers.length === 0
+                    ? "Every debate has a confirmed ballot; the round can be completed."
+                    : `${completionBlockers.length} debate${completionBlockers.length === 1 ? "" : "s"} still blocking completion: ${completionBlockers
+                        .slice(0, 3)
+                        .map((blocker) => blocker.message)
+                        .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`}
+                </span>
+                {completionError && pendingCompletion === null && (
+                  <span role="alert" className="text-[11px] text-red-600">{completionError}</span>
+                )}
+              </>
+            )}
             {activeRound.stage === "elimination" && !activeRound.eliminationAdvanced && (
               <button
                 type="button"
@@ -501,6 +555,22 @@ export default function ResultsOverviewPage() {
           onCancel={() => setPendingTeamSpeaksPublication(null)}
           isBusy={isPublishingTeamSpeaks}
           error={teamSpeaksPublicationError}
+        />
+      )}
+      {pendingCompletion !== null && activeRound && (
+        <ConfirmActionDialog
+          title={pendingCompletion ? `Complete ${activeRound.name}?` : `Reopen ${activeRound.name}?`}
+          description={pendingCompletion
+            ? "Completed rounds count towards break liveness in adjudicator allocation. You can reopen the round later."
+            : "Reopening marks the round as in progress again so ballots can be corrected before completing it."}
+          confirmLabel={pendingCompletion ? "Yes, complete round" : "Yes, reopen round"}
+          onConfirm={confirmCompletion}
+          onCancel={() => {
+            setPendingCompletion(null);
+            setCompletionError("");
+          }}
+          isBusy={isSavingCompletion}
+          error={completionError}
         />
       )}
       {pendingAdvancement && activeRound?.stage === "elimination" && (

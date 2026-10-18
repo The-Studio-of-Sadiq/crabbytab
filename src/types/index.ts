@@ -167,6 +167,13 @@ export interface TournamentPreferences {
   enableMotionVetoes?: boolean;
   /** Allow two-team debates to be recorded as forfeits. */
   enableForfeits?: boolean;
+
+  /** Public tab releases: full standings over completed preliminary rounds. Absent = unreleased. */
+  releaseTeamTab?: boolean;
+  releaseSpeakerTab?: boolean;
+  releaseRepliesTab?: boolean;
+  /** Break categories whose generated break is shown on the public page. */
+  releasedBreakCategoryIds?: string[];
 }
 
 export interface Tournament {
@@ -379,6 +386,8 @@ export interface DebateTeamSlot {
   speakerScoreTotal?: number;
   /** Set by the draw generator when this team was moved up from a lower bracket to fill a room. */
   pulledUp?: boolean;
+  /** Elimination rounds: bracket position (break seed, then inherited from the room the team advanced from). */
+  bracketPosition?: number;
 }
 
 export interface DebateAdjudicatorSlot {
@@ -532,6 +541,29 @@ export interface BreakCategory {
   /** Maximum breaking and reserve teams selected from one institution. */
   maxPerInstitution?: number;
   qualificationRule?: BreakQualificationRule;
+  /** Manual break decisions for this category, keyed by team id. */
+  teamOverrides?: Record<string, BreakTeamOverride>;
+  /** The break as it was when it was last generated for this category. */
+  generatedBreak?: GeneratedBreak;
+}
+
+/**
+ * "include" forces a team into the break (it still cannot break in two
+ * categories); every other value excludes the team, like Tabbycat's remarks.
+ */
+export type BreakTeamOverride =
+  | "include"
+  | "ineligible"
+  | "withdrawn"
+  | "different_break"
+  | "disqualified"
+  | "lost_coin_toss";
+
+export interface GeneratedBreak {
+  /** Breaking teams in seed order. */
+  breakingTeamIds: string[];
+  reserveTeamIds: string[];
+  generatedAt: string;
 }
 
 export interface TeamStandingRow {

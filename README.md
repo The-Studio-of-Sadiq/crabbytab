@@ -41,9 +41,33 @@ adjudicator, and institution imports can also include `required_venue_category`,
 `requires_near_tab_room` to apply standing venue requirements. Venue imports
 accept `near_tab_room` as a capability column.
 
+Team imports may also include `speaker1_categories` (to `speaker3_categories`),
+e.g. `esl; novice`, and `break_categories`, listing the names, slugs or ids of
+existing break categories the team is eligible for. An unknown break category
+rejects the whole import and names the row.
+
 Break categories may use Standard qualification, AIDA 1996, AIDA 2016 Australs,
 or AIDA 2016 Easters rules. The AIDA 2016 options require a two-team format;
 the standard rule remains the default for existing and new categories.
+
+### Rounds, breaks and public releases
+
+- A preliminary round can be marked **complete** from the Results page once
+  every non-bye debate has a confirmed ballot and none is postponed; it can be
+  reopened. Released tabs and adjudicator break-liveness use completed rounds.
+- Break sizes need not be powers of two. A break that does not halve cleanly
+  (for example 12 two-team or 24 BP teams) starts with a partial elimination
+  round: the top `2T − N` seeds get a bye (T is the next full bracket size
+  below N) and the remaining seeds are folded. BP breaks must be even. Later
+  elimination rounds keep each team's bracket position instead of re-seeding.
+- On the Break page each category can be edited or deleted (until its break is
+  generated) and teams can be given overrides: *manually included* (takes a
+  break place first, but a team never breaks in two categories) or a remark
+  that removes it (ineligible, withdrawn, different break, disqualified, lost
+  coin toss). Generating a category's break changes only that category.
+- Full tabs and breaks are hidden by default: the **Public release** panel on the Standings
+  page releases the team, speaker and replies tabs (completed preliminary
+  rounds, silent rounds included) and each break category separately.
 
 ## Requirements
 
