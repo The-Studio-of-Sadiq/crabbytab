@@ -99,14 +99,17 @@ nor completed. Requests go through `/api/private/sync` (passcode check and per-l
 are refused for any other round.
 
 The server writes `roundAvailability[roundId]` and `roundAvailabilityAt[roundId]` and bumps
-`syncVersion`. Organisers see check-ins after **Download from cloud**; uploading an older local copy of
-that participant records a sync conflict instead of silently overwriting the check-in. The public
-check-in counts update at the next publish.
+`syncVersion`. A check-in reaches an organiser device when it downloads from the cloud or opens the
+tournament, provided that device has not edited the participant since it last synced it. If it
+has, the device keeps its own version and shows the participant as a sync conflict (account menu →
+**Use cloud versions…** or **Keep this device's versions…**); uploading that older local copy
+without choosing records a sync conflict in the cloud instead of silently overwriting the check-in.
+The public check-in counts update at the next publish.
 
 ## Known limitations
 
 - Notifications and self check-ins depend on the cloud copy, so they lag local changes until the
-  next upload (or download, for check-ins). This goes away with the Firestore source-of-truth work
+  next upload (or, for check-ins, the next download or tournament open). This goes away with the Firestore source-of-truth work
   (Phase 4.1).
 - Notification templates are fixed in code.
 - Veto statistics are not public: vetoes are not in the projection.

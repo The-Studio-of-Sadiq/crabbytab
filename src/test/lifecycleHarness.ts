@@ -12,7 +12,7 @@ import type {
   Venue,
 } from "@/types";
 import { CLOUD_COLLECTIONS, type CloudCollectionName, type CloudRecord } from "@/features/tournament/collections";
-import type { CloudDeletionMap } from "@/features/tournament/application/cloudSync";
+import type { CloudDeletionMap, DivergedRecord, SyncBaseline } from "@/features/tournament/application/cloudSync";
 import {
   autoAllocateCommand,
   updateDebateCommand,
@@ -71,6 +71,9 @@ export class TournamentHarness {
   tombstones: CloudDeletionMap = {};
   /** Records restored from a backup that the next upload writes over the cloud copy. */
   overwrites: CloudDeletionMap = {};
+  /** Each record as this device last synced it, and records changed both here and in the cloud. */
+  syncBaseline: SyncBaseline = {};
+  divergedRecords: DivergedRecord[] = [];
   activeRound: Round | null = null;
   /** The immediate cloud draw replacement (AUTOMATIC_CLOUD_WRITES); absent means local-only. */
   drawCloudRepository?: GenerateDrawDependencies["cloudRepository"];
