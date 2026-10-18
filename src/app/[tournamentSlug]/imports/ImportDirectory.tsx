@@ -1397,6 +1397,28 @@ export default function ImportDirectory({
                 )}
               </div>
 
+              <fieldset className="flex flex-wrap gap-4 text-xs text-gray-700">
+                <legend className="sr-only">Public adjudicator lists</legend>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={editingAdj.adjCore === true}
+                    onChange={(e) => setEditingAdj({ ...editingAdj, adjCore: e.target.checked || undefined })}
+                    className="rounded border-gray-300 text-indigo-600"
+                  />
+                  Adjudication core
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={editingAdj.breaking === true}
+                    onChange={(e) => setEditingAdj({ ...editingAdj, breaking: e.target.checked || undefined })}
+                    className="rounded border-gray-300 text-indigo-600"
+                  />
+                  Breaking adjudicator
+                </label>
+              </fieldset>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">Base Rating (1-10)</label>
