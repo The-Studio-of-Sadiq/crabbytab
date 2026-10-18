@@ -103,6 +103,11 @@ export interface TournamentPreferences {
   feedbackInEliminationRounds?: boolean;
   checkInExpiresAfterHours?: number;
   publicCheckInStatus?: boolean;
+  /**
+   * UI language for public pages and private portals when the viewer has not picked one
+   * (a code from LOCALES in src/lib/i18n/config.ts). Absent = follow each viewer's browser.
+   */
+  publicLanguage?: string;
   /** Up to 8 metric ids, most important first. Empty/absent -> format default. */
   teamStandingsPrecedence?: TeamMetricId[];
   /** Shown on the standings page but not used to rank. */

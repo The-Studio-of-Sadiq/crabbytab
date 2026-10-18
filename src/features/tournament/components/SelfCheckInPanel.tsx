@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { CheckCircle2, CircleSlash } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Lets a team or adjudicator mark themselves available (or not) for the current round from their
@@ -12,6 +13,7 @@ import { useTournament } from "@/contexts/TournamentContext";
  */
 export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string; passcode: string }) {
   const { privateSelfCheckIn, syncPrivatePortal } = useTournament();
+  const { t } = useI18n();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,7 +26,7 @@ export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string;
     try {
       await syncPrivatePortal(privateKey, passcode, { checkIn: { roundId, available: nextAvailable } });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update your check-in.");
+      setError(cause instanceof Error ? cause.message : t("checkIn.error"));
     } finally {
       setSaving(false);
     }
@@ -34,14 +36,14 @@ export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string;
     <section aria-labelledby="self-check-in-title" className="rounded-lg border border-[#d0d7de] bg-white p-4 shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 id="self-check-in-title" className="text-sm font-bold text-gray-900">Check in for {roundName}</h2>
+          <h2 id="self-check-in-title" className="text-sm font-bold text-gray-900">{t("checkIn.title", { round: roundName })}</h2>
           <p role="status" className="mt-1 flex items-center gap-1.5 text-xs text-gray-700">
             {available ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
             ) : (
               <CircleSlash className="h-4 w-4 text-gray-500" aria-hidden="true" />
             )}
-            {available ? "You are marked as available." : "You are marked as not available."}
+            {available ? t("checkIn.available") : t("checkIn.notAvailable")}
           </p>
         </div>
         <div className="flex gap-2">
@@ -51,7 +53,7 @@ export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string;
             disabled={saving || available}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
-            {saving && !available ? "Saving…" : "I'm available"}
+            {saving && !available ? t("checkIn.saving") : t("checkIn.markAvailable")}
           </button>
           <button
             type="button"
@@ -59,7 +61,7 @@ export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string;
             disabled={saving || !available}
             className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {saving && available ? "Saving…" : "Not available"}
+            {saving && available ? t("checkIn.saving") : t("checkIn.markNotAvailable")}
           </button>
         </div>
       </div>

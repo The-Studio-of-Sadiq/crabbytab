@@ -130,7 +130,7 @@ export function DropdownMenu({
             onKeyDown={handleMenuKeyDown}
             className={cn(
               "absolute top-full z-50 mt-1 max-h-[min(70vh,28rem)] min-w-[12rem] overflow-y-auto rounded-lg border border-border bg-surface p-1 text-[13px] text-fg shadow-lg",
-              align === "end" ? "right-0" : "left-0",
+              align === "end" ? "end-0" : "start-0",
               menuClassName
             )}
           >
@@ -143,7 +143,7 @@ export function DropdownMenu({
 }
 
 const itemClasses = cn(
-  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none",
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start outline-none",
   "hover:bg-muted focus-visible:bg-muted focus:bg-muted",
   "aria-disabled:pointer-events-none aria-disabled:opacity-50",
   "[&_svg]:h-3.5 [&_svg]:w-3.5 [&_svg]:shrink-0 [&_svg]:text-fg-subtle"

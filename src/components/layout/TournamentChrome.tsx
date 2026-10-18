@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { ToastProvider } from "@/components/ui/Toast";
 import { Alert } from "@/components/ui/Feedback";
 import { cn } from "@/components/ui/cn";
+import { useTournamentLocale } from "@/components/i18n/I18nProvider";
 
 /**
  * Tournament pages already rebuilt on the design system (docs/design-system.md).
@@ -70,6 +71,10 @@ export function TournamentChrome({
   React.useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  // Participants are the most likely non-English readers, so the organiser's public language
+  // applies to public pages and private portals only.
+  useTournamentLocale(isPublicRoute ? tournament?.preferences?.publicLanguage : null);
 
   if (isPublicRoute) {
     return isDisplay

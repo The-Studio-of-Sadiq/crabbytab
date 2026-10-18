@@ -1,5 +1,8 @@
+"use client";
+
 import React from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { SideBadge } from "@/components/ui/SideBadge";
 import type { PublicAdjudicatorLists, PublicInstitutionRow, PublicParticipants } from "@/lib/publicLists";
 import type { MotionStatistic } from "@/lib/motionStatistics";
@@ -18,19 +21,20 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 export function ParticipantsPanel({ participants }: { participants: PublicParticipants }) {
+  const { t, formatList } = useI18n();
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Panel title={`Teams (${participants.teams.length})`}>
+      <Panel title={t("lists.teams", { count: participants.teams.length })}>
         {participants.teams.length === 0 ? (
-          <Empty>No teams are registered yet.</Empty>
+          <Empty>{t("lists.noTeams")}</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
+            <table className="w-full text-start tabby-table">
               <thead>
                 <tr>
-                  <th scope="col">Team</th>
-                  <th scope="col">Institution</th>
-                  <th scope="col">Speakers</th>
+                  <th scope="col">{t("lists.col.team")}</th>
+                  <th scope="col">{t("lists.col.institution")}</th>
+                  <th scope="col">{t("lists.col.speakers")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -38,7 +42,7 @@ export function ParticipantsPanel({ participants }: { participants: PublicPartic
                   <tr key={team.id}>
                     <td className="text-xs font-bold text-gray-900">{team.name}</td>
                     <td className="text-xs text-gray-600">{team.institutionName || "—"}</td>
-                    <td className="text-xs text-gray-700">{team.speakers.join(", ") || "—"}</td>
+                    <td className="text-xs text-gray-700">{formatList(team.speakers) || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -46,23 +50,23 @@ export function ParticipantsPanel({ participants }: { participants: PublicPartic
           </div>
         )}
       </Panel>
-      <Panel title={`Adjudicators (${participants.adjudicators.length})`}>
+      <Panel title={t("lists.adjudicators", { count: participants.adjudicators.length })}>
         {participants.adjudicators.length === 0 ? (
-          <Empty>No adjudicators are registered yet.</Empty>
+          <Empty>{t("lists.noAdjudicators")}</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
+            <table className="w-full text-start tabby-table">
               <thead>
                 <tr>
-                  <th scope="col">Adjudicator</th>
-                  <th scope="col">Institution</th>
+                  <th scope="col">{t("lists.col.adjudicator")}</th>
+                  <th scope="col">{t("lists.col.institution")}</th>
                 </tr>
               </thead>
               <tbody>
                 {participants.adjudicators.map((adjudicator) => (
                   <tr key={adjudicator.id}>
                     <td className="text-xs font-bold text-gray-900">{adjudicator.name}</td>
-                    <td className="text-xs text-gray-600">{adjudicator.institutionName || "Independent"}</td>
+                    <td className="text-xs text-gray-600">{adjudicator.institutionName || t("common.independent")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -77,20 +81,21 @@ export function ParticipantsPanel({ participants }: { participants: PublicPartic
 export function InstitutionsPanel({ institutions }: { institutions: PublicInstitutionRow[] }) {
   const showCounts = institutions.some((row) => row.teams !== undefined);
   const showRegions = institutions.some((row) => row.region);
+  const { t } = useI18n();
   return (
-    <Panel title={`Institutions (${institutions.length})`}>
+    <Panel title={t("lists.institutions", { count: institutions.length })}>
       {institutions.length === 0 ? (
-        <Empty>No institutions are registered yet.</Empty>
+        <Empty>{t("lists.noInstitutions")}</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left tabby-table">
+          <table className="w-full text-start tabby-table">
             <thead>
               <tr>
-                <th scope="col">Institution</th>
-                <th scope="col">Code</th>
-                {showRegions && <th scope="col">Region</th>}
-                {showCounts && <th scope="col" className="text-right">Teams</th>}
-                {showCounts && <th scope="col" className="text-right">Adjudicators</th>}
+                <th scope="col">{t("lists.col.institution")}</th>
+                <th scope="col">{t("lists.col.code")}</th>
+                {showRegions && <th scope="col">{t("lists.col.region")}</th>}
+                {showCounts && <th scope="col" className="text-end">{t("lists.col.teams")}</th>}
+                {showCounts && <th scope="col" className="text-end">{t("lists.col.adjudicators")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -99,8 +104,8 @@ export function InstitutionsPanel({ institutions }: { institutions: PublicInstit
                   <td className="text-xs font-bold text-gray-900">{row.name}</td>
                   <td className="text-xs font-mono text-gray-600">{row.code}</td>
                   {showRegions && <td className="text-xs text-gray-600">{row.region || "—"}</td>}
-                  {showCounts && <td className="text-right text-xs font-mono">{row.teams}</td>}
-                  {showCounts && <td className="text-right text-xs font-mono">{row.adjudicators}</td>}
+                  {showCounts && <td className="text-end text-xs font-mono">{row.teams}</td>}
+                  {showCounts && <td className="text-end text-xs font-mono">{row.adjudicators}</td>}
                 </tr>
               ))}
             </tbody>
@@ -112,6 +117,7 @@ export function InstitutionsPanel({ institutions }: { institutions: PublicInstit
 }
 
 function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAdjudicatorLists["core"]; empty: string }) {
+  const { t } = useI18n();
   return (
     <Panel title={title}>
       {rows.length === 0 ? (
@@ -121,7 +127,7 @@ function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAd
           {rows.map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
               <span className="font-bold text-gray-900">{row.name}</span>
-              <span className="text-gray-600">{row.institutionName || "Independent"}</span>
+              <span className="text-gray-600">{row.institutionName || t("common.independent")}</span>
             </li>
           ))}
         </ul>
@@ -139,34 +145,34 @@ export function AdjudicatorListsPanel({
   showCore: boolean;
   showBreaking: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {showCore && (
-        <AdjudicatorList title="Adjudication core" rows={lists.core} empty="The adjudication core has not been announced." />
+        <AdjudicatorList title={t("lists.core")} rows={lists.core} empty={t("lists.coreEmpty")} />
       )}
       {showBreaking && (
         <AdjudicatorList
-          title="Breaking adjudicators"
+          title={t("lists.breaking")}
           rows={lists.breaking}
-          empty="No breaking adjudicators have been announced."
+          empty={t("lists.breakingEmpty")}
         />
       )}
     </div>
   );
 }
 
-function formatAverage(value: number | null): string {
-  return value === null ? "—" : value.toFixed(2);
-}
-
 /** Side results for one motion; only rendered from released (public) ballots. */
 export function MotionStatisticsSummary({ statistic, isBP }: { statistic: MotionStatistic; isBP: boolean }) {
+  const { plural, richPlural, rich, t, formatDecimal } = useI18n();
   if (statistic.debatesCounted === 0) return null;
   const { balance } = statistic;
+  const number = { n: (text: string) => <span className="font-mono font-bold">{text}</span> };
+  const formatAverage = (value: number | null) => (value === null ? "—" : formatDecimal(value, 2));
   return (
     <div className="mt-3 border-t border-gray-100 pt-3">
       <p className="text-[11px] font-bold uppercase text-gray-500">
-        Results from {statistic.debatesCounted} released debate{statistic.debatesCounted === 1 ? "" : "s"}
+        {plural("motionStats.resultsFrom", statistic.debatesCounted)}
       </p>
       <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {statistic.positions.map((position) => (
@@ -175,11 +181,14 @@ export function MotionStatisticsSummary({ statistic, isBP }: { statistic: Motion
               <SideBadge side={position.side} />
             </dt>
             <dd className="mt-1 text-xs text-gray-800">
-              <span className="font-mono font-bold">{position.wins}</span> {isBP ? "first" : "win"}
-              {position.wins === 1 ? "" : "s"}
+              {richPlural(isBP ? "motionStats.firsts" : "motionStats.wins", position.wins, number)}
               {isBP && (
                 <span className="block text-[11px] text-gray-500">
-                  Avg points <span className="font-mono">{formatAverage(position.averagePoints)}</span>
+                  {rich(
+                    "motionStats.averagePoints",
+                    { n: (text) => <span className="font-mono">{text}</span> },
+                    { value: formatAverage(position.averagePoints) }
+                  )}
                 </span>
               )}
             </dd>
@@ -188,8 +197,11 @@ export function MotionStatisticsSummary({ statistic, isBP }: { statistic: Motion
       </dl>
       {balance.pValue !== null && (
         <p className="mt-2 text-[11px] text-gray-500">
-          Side balance: χ² = {balance.chiSquared?.toFixed(2)}, p = {balance.pValue.toFixed(3)}
-          {balance.lowExpectedCount ? " (too few debates for a reliable test)" : ""}
+          {t("motionStats.sideBalance", {
+            chiSquared: balance.chiSquared === null || balance.chiSquared === undefined ? "—" : formatDecimal(balance.chiSquared, 2),
+            pValue: formatDecimal(balance.pValue, 3),
+          })}
+          {balance.lowExpectedCount ? ` ${t("motionStats.lowCount")}` : ""}
         </p>
       )}
     </div>

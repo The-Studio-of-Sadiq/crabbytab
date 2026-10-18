@@ -4,7 +4,8 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
-import { SideBadge } from "@/components/ui/SideBadge";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import {
   Trophy,
   Shuffle,
@@ -79,6 +80,7 @@ export default function PublicTournamentPage() {
     adjudicators,
     institutions,
   } = useTournament();
+  const { t, plural, formatDecimal, formatList } = useI18n();
 
   const getVenueCategory = (venueId?: string, venueName?: string): string | undefined => {
     if (!venueId && !venueName) return undefined;
@@ -104,15 +106,7 @@ export default function PublicTournamentPage() {
   };
 
   const isBP = tournament?.format === "bp";
-  const formatLabel = tournament
-    ? {
-        bp: "British Parliamentary",
-        uadc: "UADC",
-        australs: "Australs",
-        wsdc: "WSDC",
-        custom_2team: "Custom 2-Team",
-      }[tournament.format]
-    : "Tournament";
+  const formatLabel = tournament ? t(`format.${tournament.format}`) : t("common.tournament");
   const prefs = tournament?.preferences;
 
   // S1: Public toggles
@@ -238,7 +232,7 @@ export default function PublicTournamentPage() {
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="text-center space-y-2">
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-500">Loading public tournament details...</p>
+          <p role="status" className="text-xs text-gray-500">{t("public.loading")}</p>
         </div>
       </div>
     );
@@ -248,7 +242,7 @@ export default function PublicTournamentPage() {
     return (
       <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
         <div className="max-w-lg w-full bg-white border border-amber-200 rounded-xl p-8 text-center shadow-sm space-y-3">
-          <h1 className="text-lg font-bold text-gray-900">Public tournament data unavailable</h1>
+          <h1 className="text-lg font-bold text-gray-900">{t("public.unavailableTitle")}</h1>
           <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
         </div>
       </div>
@@ -259,8 +253,8 @@ export default function PublicTournamentPage() {
     <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
       {/* Public Header */}
       <header className="bg-[#24292e] text-white border-b border-[#1b1f23] py-4 px-6 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Link
               href="/"
               className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-mono font-bold text-sm text-white"
@@ -269,138 +263,139 @@ export default function PublicTournamentPage() {
             </Link>
             <div>
               <h1 className="text-base sm:text-lg font-bold tracking-tight">
-                {tournament?.name || "Debate Tournament Tab"}
+                {tournament?.name || t("public.defaultTitle")}
               </h1>
               <span className="text-[11px] text-gray-400">
-                Official Public Tab &bull; {formatLabel}
+                {t("public.subtitle", { format: formatLabel })}
               </span>
             </div>
           </div>
+          <LanguageSwitcher triggerClassName="shrink-0 text-gray-100 hover:bg-white/10 hover:text-white" />
         </div>
       </header>
 
       {/* Navigation Pills (S1: hide matching sections if toggle is off) */}
       <div className="bg-white border-b border-[#d0d7de] sticky top-14 z-40">
-        <div className="max-w-6xl mx-auto px-6 py-2.5 flex items-center space-x-2 overflow-x-auto">
+        <nav aria-label={t("public.sections")} className="max-w-6xl mx-auto px-6 py-2.5 flex items-center gap-2 overflow-x-auto">
           {showPublicDraw && (
             <button
               onClick={() => setActiveTab("draw")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "draw"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <Shuffle className="w-3.5 h-3.5" />
-              <span>Draw</span>
+              <span>{t("public.tab.draw")}</span>
             </button>
           )}
 
           {showPublicResults && (
             <button
               onClick={() => setActiveTab("results")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "results"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <FileCheck2 className="w-3.5 h-3.5" />
-              <span>Results & Scores</span>
+              <span>{t("public.tab.results")}</span>
             </button>
           )}
 
           {showPublicStandings && (
             <button
               onClick={() => setActiveTab("standings")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "standings"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <Trophy className="w-3.5 h-3.5" />
-              <span>Standings</span>
+              <span>{t("public.tab.standings")}</span>
             </button>
           )}
 
           {showTeamTab && (
             <button
               onClick={() => setActiveTab("teamTab")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "teamTab"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <ListOrdered className="w-3.5 h-3.5" />
-              <span>Team Tab</span>
+              <span>{t("public.tab.teamTab")}</span>
             </button>
           )}
 
           {showSpeakerTab && (
             <button
               onClick={() => setActiveTab("speakerTab")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "speakerTab"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <Mic className="w-3.5 h-3.5" />
-              <span>Speaker Tab</span>
+              <span>{t("public.tab.speakerTab")}</span>
             </button>
           )}
 
           {showRepliesTab && (
             <button
               onClick={() => setActiveTab("repliesTab")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "repliesTab"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <MessageSquareQuote className="w-3.5 h-3.5" />
-              <span>Replies Tab</span>
+              <span>{t("public.tab.repliesTab")}</span>
             </button>
           )}
 
           {showPublicMotions && (
             <button
               onClick={() => setActiveTab("motions")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "motions"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <Lightbulb className="w-3.5 h-3.5" />
-              <span>Motions ({releasedMotions.length})</span>
+              <span>{t("public.tab.motions", { count: releasedMotions.length })}</span>
             </button>
           )}
 
           {showPublicBreak && (
             <button
               onClick={() => setActiveTab("break")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 ${
                 activeTab === "break"
                   ? "bg-blue-600 text-white shadow-xs"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
               <Award className="w-3.5 h-3.5" />
-              <span>Break</span>
+              <span>{t("public.tab.break")}</span>
             </button>
           )}
 
           {([
-            { tab: "participants", show: showParticipants, label: "Participants", Icon: Users },
-            { tab: "institutions", show: showInstitutions, label: "Institutions", Icon: Building2 },
+            { tab: "participants", show: showParticipants, label: t("public.tab.participants"), Icon: Users },
+            { tab: "institutions", show: showInstitutions, label: t("public.tab.institutions"), Icon: Building2 },
             {
               tab: "adjudicators",
               show: showAdjudicatorLists,
-              label: release.adjudicatorCore ? "Adjudication Core" : "Breaking Adjudicators",
+              label: release.adjudicatorCore ? t("public.tab.adjudicationCore") : t("public.tab.breakingAdjudicators"),
               Icon: Gavel,
             },
           ] as const).filter((item) => item.show).map(({ tab, label, Icon }) => (
@@ -409,7 +404,7 @@ export default function PublicTournamentPage() {
               type="button"
               onClick={() => setActiveTab(tab)}
               aria-pressed={activeTab === tab}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 whitespace-nowrap ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === tab ? "bg-blue-600 text-white shadow-xs" : "text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -417,7 +412,7 @@ export default function PublicTournamentPage() {
               <span>{label}</span>
             </button>
           ))}
-        </div>
+        </nav>
       </div>
 
       {/* Main Public Content */}
@@ -425,8 +420,8 @@ export default function PublicTournamentPage() {
         {/* 1. Draw View */}
         {showPublicDraw && activeTab === "draw" && (
           <div className="space-y-4">
-            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-              <span className="text-xs font-bold text-gray-500 uppercase mr-1">Round:</span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="text-xs font-bold text-gray-500 uppercase me-1">{t("public.roundPicker")}</span>
               {rounds.map((r) => (
                 <button
                   key={r.id}
@@ -444,31 +439,31 @@ export default function PublicTournamentPage() {
 
             {releasedDebates.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
-                The draw for {activeRound?.name || "this round"} has not been released to the public yet.
+                {t("public.drawNotReleased", { round: activeRound?.name || t("public.thisRound") })}
               </div>
             ) : (
               <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left tabby-table">
+                  <table className="w-full text-start tabby-table">
                     <thead>
                       <tr>
-                        <th>Venue</th>
+                        <th>{t("public.col.venue")}</th>
                         {isBP ? (
                           <>
-                            <th>OG</th>
-                            <th>OO</th>
-                            <th>CG</th>
-                            <th>CO</th>
+                            <th><abbr title={t("side.OG")}>OG</abbr></th>
+                            <th><abbr title={t("side.OO")}>OO</abbr></th>
+                            <th><abbr title={t("side.CG")}>CG</abbr></th>
+                            <th><abbr title={t("side.CO")}>CO</abbr></th>
                           </>
                         ) : (
                           <>
-                            <th>Affirmative</th>
-                            <th>Negative</th>
+                            <th>{t("side.AFF")}</th>
+                            <th>{t("side.NEG")}</th>
                           </>
                         )}
-                        <th>Chair</th>
-                        <th>Panellists</th>
-                        <th>Trainees</th>
+                        <th>{t("public.col.chair")}</th>
+                        <th>{t("public.col.panellists")}</th>
+                        <th>{t("public.col.trainees")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -479,7 +474,7 @@ export default function PublicTournamentPage() {
                         return (
                           <tr key={d.id} className="hover:bg-gray-50">
                             <td className="text-xs">
-                              <span className="font-bold text-gray-900">{d.venueName || `Room ${idx + 1}`}</span>
+                              <span className="font-bold text-gray-900">{d.venueName || t("public.roomFallback", { number: idx + 1 })}</span>
                               {venueCategory && (
                                 <span className="block text-[10px] text-blue-700">{venueCategory}</span>
                               )}
@@ -500,13 +495,13 @@ export default function PublicTournamentPage() {
                             <td className="text-xs font-medium text-gray-900">
                               {showPublicAdjudicators
                                 ? d.adjudicators?.chairName || "—"
-                                : "TBA"}
+                                : t("common.tba")}
                             </td>
                             <td className="text-xs text-gray-700">
-                              {showPublicAdjudicators ? panellistNames.join(", ") || "—" : "TBA"}
+                              {showPublicAdjudicators ? formatList(panellistNames) || "—" : t("common.tba")}
                             </td>
                             <td className="text-xs text-gray-600">
-                              {showPublicAdjudicators ? traineeNames.join(", ") || "—" : "TBA"}
+                              {showPublicAdjudicators ? formatList(traineeNames) || "—" : t("common.tba")}
                             </td>
                           </tr>
                         );
@@ -522,8 +517,8 @@ export default function PublicTournamentPage() {
         {/* 2. Results & Scores View (S1: publicResults) */}
         {showPublicResults && activeTab === "results" && (
           <div className="space-y-4">
-            <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-              <span className="text-xs font-bold text-gray-500 uppercase mr-1">Round:</span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="text-xs font-bold text-gray-500 uppercase me-1">{t("public.roundPicker")}</span>
               {rounds.map((r) => (
                 <button
                   key={r.id}
@@ -541,37 +536,37 @@ export default function PublicTournamentPage() {
 
             {activeRound?.silent ? (
               <div className="bg-white border border-amber-300 rounded-lg p-10 text-center text-amber-900 text-xs">
-                Results for {activeRound.name} are withheld because this is a silent round.
+                {t("public.resultsSilent", { round: activeRound.name })}
               </div>
             ) : !roundResultsReleased || releasedDebates.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
-                Results for {activeRound?.name || "this round"} have not been released to the public yet.
+                {t("public.resultsNotReleased", { round: activeRound?.name || t("public.thisRound") })}
               </div>
             ) : (
               <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
                 <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
-                  {activeRound?.name} Official Confirmed Results
+                  {t("public.resultsTitle", { round: activeRound?.name ?? "" })}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left tabby-table">
+                  <table className="w-full text-start tabby-table">
                     <thead>
                       <tr>
-                        <th>Venue</th>
+                        <th>{t("public.col.venue")}</th>
                         {isBP ? (
                           <>
-                            <th>Opening Gov (1st/2nd/3rd/4th)</th>
-                            <th>Opening Opp</th>
-                            <th>Closing Gov</th>
-                            <th>Closing Opp</th>
+                            <th>{t("public.col.openingGovRanked")}</th>
+                            <th>{t("side.OO")}</th>
+                            <th>{t("side.CG")}</th>
+                            <th>{t("side.CO")}</th>
                           </>
                         ) : (
                           <>
-                            <th>Affirmative</th>
-                            <th>Negative</th>
+                            <th>{t("side.AFF")}</th>
+                            <th>{t("side.NEG")}</th>
                           </>
                         )}
-                        <th>Adjudicators</th>
-                        <th className="text-center">Status</th>
+                        <th>{t("public.col.adjudicators")}</th>
+                        <th className="text-center">{t("public.col.status")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -600,16 +595,16 @@ export default function PublicTournamentPage() {
                                     <div className="font-semibold text-gray-900">
                                       {tScore && (
                                         tScore.rank === 1
-                                          ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                          : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                                          ? <ArrowUp className="inline w-3.5 h-3.5 me-1 text-emerald-600" aria-label={t("public.winningTeam")} />
+                                          : <ArrowDown className="inline w-3.5 h-3.5 me-1 text-red-600" aria-label={t("public.losingTeam")} />
                                       )}
                                       {tSlot?.teamName || "—"}
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
-                                        Rank {tScore.rank}
+                                        {t("public.rank", { rank: tScore.rank })}
                                         {roundTeamSpeaksReleased && (
-                                          <> &bull; {tScore.points} pts &bull; {tScore.totalSpeakerScore} spks</>
+                                          <> &bull; {t("public.points", { points: tScore.points })} &bull; {t("public.speaks", { speaks: tScore.totalSpeakerScore })}</>
                                         )}
                                       </div>
                                     )}
@@ -625,15 +620,15 @@ export default function PublicTournamentPage() {
                                     <div className="font-semibold text-gray-900">
                                       {tScore && (
                                         tScore.win
-                                          ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                          : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
+                                          ? <ArrowUp className="inline w-3.5 h-3.5 me-1 text-emerald-600" aria-label={t("public.winningTeam")} />
+                                          : <ArrowDown className="inline w-3.5 h-3.5 me-1 text-red-600" aria-label={t("public.losingTeam")} />
                                       )}
                                       {tSlot?.teamName || "—"}
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
-                                        {tScore.win ? "WIN" : "LOSS"}
-                                        {roundTeamSpeaksReleased && <> &bull; {tScore.totalSpeakerScore} spks</>}
+                                        {tScore.win ? t("public.win") : t("public.loss")}
+                                        {roundTeamSpeaksReleased && <> &bull; {t("public.speaks", { speaks: tScore.totalSpeakerScore })}</>}
                                       </div>
                                     )}
                                   </td>
@@ -641,21 +636,21 @@ export default function PublicTournamentPage() {
                               })
                             )}
                             <td className="text-xs text-gray-700">
-                              <span className="font-semibold text-gray-700">Chair:</span>{" "}
+                              <span className="font-semibold text-gray-700">{t("public.chairLabel")}</span>{" "}
                               <span className="text-gray-900 font-medium">
                                 {showPublicAdjudicators
                                   ? d.adjudicators?.chairName
                                     ? `© ${d.adjudicators.chairName}`
                                     : "—"
-                                  : "TBA"}
+                                  : t("common.tba")}
                               </span>
                               <span className="mx-1.5 text-gray-300">|</span>
-                              <span className="font-medium text-gray-700">Panellists:</span>{" "}
-                              <span>{showPublicAdjudicators ? panellistNames.join(", ") || "—" : "TBA"}</span>
+                              <span className="font-medium text-gray-700">{t("public.panellistsLabel")}</span>{" "}
+                              <span>{showPublicAdjudicators ? formatList(panellistNames) || "—" : t("common.tba")}</span>
                               <span className="mx-1.5 text-gray-300">|</span>
-                              <span className="font-medium text-gray-700">Trainees:</span>{" "}
+                              <span className="font-medium text-gray-700">{t("public.traineesLabel")}</span>{" "}
                               <span className="italic">
-                                {showPublicAdjudicators ? traineeNames.join(", ") || "—" : "TBA"}
+                                {showPublicAdjudicators ? formatList(traineeNames) || "—" : t("common.tba")}
                               </span>
                             </td>
                             <td className="text-center">
@@ -666,7 +661,7 @@ export default function PublicTournamentPage() {
                                     : "bg-gray-100 text-gray-600"
                                 }`}
                               >
-                                {ballot?.confirmed ? "Confirmed" : "Pending"}
+                                {ballot?.confirmed ? t("public.confirmed") : t("public.pending")}
                               </span>
                             </td>
                           </tr>
@@ -684,35 +679,35 @@ export default function PublicTournamentPage() {
         {showPublicStandings && activeTab === "standings" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
-              Team Standings
+              {t("public.teamStandings")}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left tabby-table">
+              <table className="w-full text-start tabby-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">#</th>
-                    <th>Team</th>
-                    <th>Institution</th>
-                    {showAggregateTeamScores && <th className="text-right">Points</th>}
-                    {showAggregateTeamScores && <th className="text-right">Total Speaks</th>}
-                    {showAggregateTeamScores && <th className="text-right">Avg Speaks</th>}
+                    <th>{t("public.col.team")}</th>
+                    <th>{t("public.col.institution")}</th>
+                    {showAggregateTeamScores && <th className="text-end">{t("public.col.points")}</th>}
+                    {showAggregateTeamScores && <th className="text-end">{t("public.col.totalSpeaks")}</th>}
+                    {showAggregateTeamScores && <th className="text-end">{t("public.col.avgSpeaks")}</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {publicStandings.teams.map((t) => (
-                    <tr key={t.teamId} className="hover:bg-gray-50">
-                      <td className="text-center font-mono font-bold text-xs">{t.rank}</td>
-                      <td className="font-bold text-gray-900 text-xs">{t.teamName}</td>
-                      <td className="text-xs text-gray-600">{t.institutionCode || "—"}</td>
-                      {showAggregateTeamScores && <td className="text-right font-mono font-bold text-sm text-blue-600">{t.points}</td>}
+                  {publicStandings.teams.map((row) => (
+                    <tr key={row.teamId} className="hover:bg-gray-50">
+                      <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
+                      <td className="font-bold text-gray-900 text-xs">{row.teamName}</td>
+                      <td className="text-xs text-gray-600">{row.institutionCode || "—"}</td>
+                      {showAggregateTeamScores && <td className="text-end font-mono font-bold text-sm text-blue-600">{row.points}</td>}
                       {showAggregateTeamScores && (
-                        <td className="text-right font-mono font-semibold text-xs text-gray-800">
-                          {t.totalSpeakerScore.toFixed(1)}
+                        <td className="text-end font-mono font-semibold text-xs text-gray-800">
+                          {formatDecimal(row.totalSpeakerScore, 1)}
                         </td>
                       )}
                       {showAggregateTeamScores && (
-                        <td className="text-right font-mono text-xs text-gray-600">
-                          {t.averageSpeakerScore.toFixed(2)}
+                        <td className="text-end font-mono text-xs text-gray-600">
+                          {formatDecimal(row.averageSpeakerScore, 2)}
                         </td>
                       )}
                     </tr>
@@ -727,18 +722,21 @@ export default function PublicTournamentPage() {
         {showTeamTab && activeTab === "teamTab" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
-              Team Tab &middot; {tabRounds.length} completed preliminary round{tabRounds.length === 1 ? "" : "s"}
+              {t("public.tabTitle", {
+                tab: t("public.tab.teamTab"),
+                rounds: plural("public.completedRounds", tabRounds.length),
+              })}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left tabby-table">
+              <table className="w-full text-start tabby-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">#</th>
-                    <th>Team</th>
-                    <th>Institution</th>
-                    <th className="text-right">{isBP ? "Points" : "Wins"}</th>
-                    <th className="text-right">Total Speaks</th>
-                    <th className="text-right">Avg Speaks</th>
+                    <th>{t("public.col.team")}</th>
+                    <th>{t("public.col.institution")}</th>
+                    <th className="text-end">{isBP ? t("public.col.points") : t("public.col.wins")}</th>
+                    <th className="text-end">{t("public.col.totalSpeaks")}</th>
+                    <th className="text-end">{t("public.col.avgSpeaks")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -747,13 +745,13 @@ export default function PublicTournamentPage() {
                       <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
                       <td className="font-bold text-gray-900 text-xs">{row.teamName}</td>
                       <td className="text-xs text-gray-600">{row.institutionCode || "—"}</td>
-                      <td className="text-right font-mono font-bold text-sm text-blue-600">
+                      <td className="text-end font-mono font-bold text-sm text-blue-600">
                         {isBP ? row.points : row.wins ?? row.points}
                       </td>
-                      <td className="text-right font-mono font-semibold text-xs text-gray-800">
-                        {row.totalSpeakerScore.toFixed(1)}
+                      <td className="text-end font-mono font-semibold text-xs text-gray-800">
+                        {formatDecimal(row.totalSpeakerScore, 1)}
                       </td>
-                      <td className="text-right font-mono text-xs text-gray-600">{row.averageSpeakerScore.toFixed(2)}</td>
+                      <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageSpeakerScore, 2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -766,19 +764,21 @@ export default function PublicTournamentPage() {
         {((showSpeakerTab && activeTab === "speakerTab") || (showRepliesTab && activeTab === "repliesTab")) && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
-              {activeTab === "repliesTab" ? "Replies Tab" : "Speaker Tab"} &middot; {tabRounds.length} completed preliminary
-              round{tabRounds.length === 1 ? "" : "s"}
+              {t("public.tabTitle", {
+                tab: activeTab === "repliesTab" ? t("public.tab.repliesTab") : t("public.tab.speakerTab"),
+                rounds: plural("public.completedRounds", tabRounds.length),
+              })}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left tabby-table">
+              <table className="w-full text-start tabby-table">
                 <thead>
                   <tr>
                     <th className="w-12 text-center">#</th>
-                    <th>Speaker</th>
-                    <th>Team</th>
-                    <th className="text-right">Total</th>
-                    <th className="text-right">Average</th>
-                    <th className="text-right">Speeches</th>
+                    <th>{t("public.col.speaker")}</th>
+                    <th>{t("public.col.team")}</th>
+                    <th className="text-end">{t("public.col.total")}</th>
+                    <th className="text-end">{t("public.col.average")}</th>
+                    <th className="text-end">{t("public.col.speeches")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -787,9 +787,9 @@ export default function PublicTournamentPage() {
                       <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
                       <td className="font-bold text-gray-900 text-xs">{row.speakerName}</td>
                       <td className="text-xs text-gray-600">{row.teamName}</td>
-                      <td className="text-right font-mono font-semibold text-xs text-gray-800">{row.totalScore.toFixed(1)}</td>
-                      <td className="text-right font-mono text-xs text-gray-600">{row.averageScore.toFixed(2)}</td>
-                      <td className="text-right font-mono text-xs text-gray-600">{row.speechesCount}</td>
+                      <td className="text-end font-mono font-semibold text-xs text-gray-800">{formatDecimal(row.totalScore, 1)}</td>
+                      <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageScore, 2)}</td>
+                      <td className="text-end font-mono text-xs text-gray-600">{row.speechesCount}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -802,52 +802,52 @@ export default function PublicTournamentPage() {
         {showPublicMotions && activeTab === "motions" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-bold text-gray-900">Released Motions</h2>
+              <h2 className="text-sm font-bold text-gray-900">{t("public.releasedMotions")}</h2>
               <button
                 type="button"
                 onClick={() => setIsMotionPresentation(true)}
                 disabled={releasedMotions.length === 0}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50"
               >
-                <Presentation className="w-3.5 h-3.5" />
-                Present Motions
+                <Presentation className="w-3.5 h-3.5" aria-hidden="true" />
+                {t("public.presentMotions")}
               </button>
             </div>
             {releasedMotions.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
-                No motions have been released to the public yet.
+                {t("public.noMotions")}
               </div>
             ) : (
               releasedMotions.map((m) => {
                 const assignedRounds = rounds.filter((r) => m.rounds && m.rounds.includes(r.id));
-                const assignedRoundNames = assignedRounds.map((r) => r.name).join(", ");
+                const assignedRoundNames = formatList(assignedRounds.map((r) => r.name));
 
                 return (
                   <div key={m.id} className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
                       <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                        {m.reference || "Motion"}
+                        {m.reference || t("public.motionFallback")}
                       </span>
                       {assignedRoundNames ? (
                         <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
-                          Round: {assignedRoundNames}
+                          {t("public.motionRounds", { rounds: assignedRoundNames })}
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400 italic">Unassigned round</span>
+                        <span className="text-xs text-gray-400 italic">{t("public.unassignedRound")}</span>
                       )}
                     </div>
-                    <blockquote className="text-base font-bold text-gray-900 my-2.5 pl-3 border-l-4 border-amber-500">
+                    <blockquote className="text-base font-bold text-gray-900 my-2.5 ps-3 border-s-4 border-amber-500">
                       &ldquo;{m.text}&rdquo;
                     </blockquote>
                     {m.infoSlide && (
                       <div className="mt-2 p-3 bg-amber-50/50 rounded border border-amber-200 text-xs text-amber-950">
                         <div className="flex items-center justify-between mb-1">
                           <strong className="block text-[10px] uppercase font-bold text-amber-800">
-                            Infoslide:
+                            {t("public.infoslide")}
                           </strong>
                           {assignedRoundNames && (
                             <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
-                              Round: {assignedRoundNames}
+                              {t("public.motionRounds", { rounds: assignedRoundNames })}
                             </span>
                           )}
                         </div>
@@ -873,15 +873,15 @@ export default function PublicTournamentPage() {
                 className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden"
               >
                 <div className="p-3 bg-purple-50 border-b border-purple-200 font-bold text-xs text-purple-900">
-                  {res.category.name} Breaking Teams (Top {res.category.breakSize})
+                  {t("public.breakTitle", { category: res.category.name, size: res.category.breakSize })}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left tabby-table">
+                  <table className="w-full text-start tabby-table">
                     <thead>
                       <tr>
-                        <th className="w-16 text-center">Seed</th>
-                        <th>Team</th>
-                        <th>Institution</th>
+                        <th className="w-16 text-center">{t("public.col.seed")}</th>
+                        <th>{t("public.col.team")}</th>
+                        <th>{t("public.col.institution")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -916,57 +916,57 @@ export default function PublicTournamentPage() {
       {isMotionPresentation && releasedMotions[motionSlideIndex] && (() => {
         const currentMotion = releasedMotions[motionSlideIndex];
         const currentAssignedRounds = rounds.filter((r) => currentMotion.rounds && currentMotion.rounds.includes(r.id));
-        const currentRoundNames = currentAssignedRounds.map((r) => r.name).join(", ");
+        const currentRoundNames = formatList(currentAssignedRounds.map((r) => r.name));
 
         return (
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Motion presentation"
+            aria-label={t("public.presentation.label")}
             className="fixed inset-0 z-[60] flex flex-col bg-[#111820] text-white"
           >
             <header className="flex items-center justify-between border-b border-white/15 px-5 py-4 sm:px-8">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-[11px] font-bold uppercase text-amber-300">
-                    Motion {motionSlideIndex + 1} of {releasedMotions.length}
+                    {t("public.presentation.position", { index: motionSlideIndex + 1, total: releasedMotions.length })}
                   </p>
                   {currentRoundNames && (
                     <span className="text-[11px] font-semibold text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-400/30">
-                      Round: {currentRoundNames}
+                      {t("public.motionRounds", { rounds: currentRoundNames })}
                     </span>
                   )}
                 </div>
                 <p className="mt-1 truncate text-sm font-semibold text-gray-200">
-                  {currentMotion.reference || "Tournament motion"}
+                  {currentMotion.reference || t("public.presentation.fallback")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsMotionPresentation(false)}
-                aria-label="Close presentation"
-                title="Close presentation"
+                aria-label={t("public.presentation.close")}
+                title={t("public.presentation.close")}
                 className="p-2 text-gray-300 hover:bg-white/10 hover:text-white rounded"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </header>
             <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10 text-center sm:px-14">
               {currentRoundNames && (
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/30 text-xs font-semibold text-amber-300 uppercase tracking-wider">
-                  <span>Assigned to: {currentRoundNames}</span>
+                  <span>{t("public.presentation.assignedTo", { rounds: currentRoundNames })}</span>
                 </div>
               )}
               <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">
                 {currentMotion.text}
               </p>
               {currentMotion.infoSlide && (
-                <div className="w-full max-w-4xl border-t border-amber-300/50 pt-6 text-left">
+                <div className="w-full max-w-4xl border-t border-amber-300/50 pt-6 text-start">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold uppercase text-amber-300">Information slide</p>
+                    <p className="text-xs font-bold uppercase text-amber-300">{t("public.presentation.infoSlide")}</p>
                     {currentRoundNames && (
                       <span className="text-xs font-semibold text-amber-200 bg-amber-500/20 px-2.5 py-0.5 rounded border border-amber-400/30">
-                        Round: {currentRoundNames}
+                        {t("public.motionRounds", { rounds: currentRoundNames })}
                       </span>
                     )}
                   </div>
@@ -983,9 +983,9 @@ export default function PublicTournamentPage() {
                 disabled={motionSlideIndex === 0}
                 className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
               >
-                <ChevronLeft className="w-4 h-4" /> Previous
+                <ChevronLeft className="w-4 h-4 rtl:-scale-x-100" aria-hidden="true" /> {t("public.presentation.previous")}
               </button>
-              <div className="flex items-center gap-1.5" aria-label={`Slide ${motionSlideIndex + 1}`}>
+              <div className="flex items-center gap-1.5" aria-label={t("public.presentation.slide", { index: motionSlideIndex + 1 })}>
                 {releasedMotions.map((motion, index) => (
                   <span
                     key={motion.id}
@@ -999,7 +999,7 @@ export default function PublicTournamentPage() {
                 disabled={motionSlideIndex === releasedMotions.length - 1}
                 className="inline-flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-white/10 rounded disabled:opacity-40"
               >
-                Next <ChevronRight className="w-4 h-4" />
+                {t("public.presentation.next")} <ChevronRight className="w-4 h-4 rtl:-scale-x-100" aria-hidden="true" />
               </button>
             </footer>
           </div>
@@ -1008,7 +1008,7 @@ export default function PublicTournamentPage() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
-        CrabbyTab Debate Tabulation System &bull; Live Real-Time Tab
+        {t("public.footer")}
       </footer>
     </div>
   );
