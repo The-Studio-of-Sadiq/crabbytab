@@ -79,8 +79,9 @@ describe("generateDrawCommand", () => {
         },
       },
       cloudRepository: {
-        async replaceRoundDraw(roundId, removedDebates, debates, updatedRound) {
+        async replaceRoundDraw(roundId, removedDebates, debates, updatedRound, discardedBallots) {
           calls.push("cloud");
+          expect(discardedBallots).toEqual([]);
           expect(roundId).toBe(round.id);
           expect(removedDebates).toEqual([]);
           expect(debates).toEqual([]);
@@ -152,5 +153,21 @@ describe("regenerating a draw that already has results", () => {
   it("only counts undiscarded ballots on this round's current draw", () => {
     expect(roundResults(round.id, [oldDebate], [ballot({}), ballot({ id: "x", discarded: true }), ballot({ id: "y", debateId: "other" })]).map((item) => item.id)).toEqual(["b1"]);
     expect(withGenerationIds([{ id: "debate-r-1" }], 35)[0].id).toBe("debate-r-1-gz");
+  });
+
+  it("sends the discarded ballots to the cloud in the same replacement as the new draw", async () => {
+    const { dependencies, saved } = setup([ballot({}), ballot({ id: "b2", confirmed: false })]);
+    let cloud: { removed: Debate[]; debates: Debate[]; ballots: BallotSubmission[] } | undefined;
+    dependencies.cloudRepository = {
+      async replaceRoundDraw(_roundId, removed, debates, _round, discardedBallots) {
+        cloud = { removed, debates, ballots: discardedBallots };
+      },
+    };
+    await generateDrawCommand(round.id, dependencies, { discardExistingResults: true });
+    expect(cloud!.removed.map((debate) => debate.id)).toEqual([oldDebate.id]);
+    expect(cloud!.debates).toEqual(saved.debates!.filter((debate) => debate.roundId === round.id));
+    const locallyDiscarded = saved.ballots!.filter((item) => item.discarded);
+    expect(cloud!.ballots).toEqual(locallyDiscarded);
+    expect(cloud!.ballots.map((item) => item.id).sort()).toEqual(["b1", "b2"]);
   });
 });

@@ -39,7 +39,13 @@ export interface GenerateDrawDependencies {
     saveRounds(rounds: Round[], activeRound: Round): void;
   };
   cloudRepository?: {
-    replaceRoundDraw(roundId: string, removedDebates: Debate[], debates: Debate[], round: Round): Promise<void>;
+    replaceRoundDraw(
+      roundId: string,
+      removedDebates: Debate[],
+      debates: Debate[],
+      round: Round,
+      discardedBallots: BallotSubmission[]
+    ): Promise<void>;
   };
   recordAuditEvent(event: DrawAuditEvent): Promise<void>;
 }
@@ -124,21 +130,28 @@ export async function generateDrawCommand(
   const updatedRounds = rounds.map((item) => item.id === round.id ? updatedRound : item);
 
   // Results of the replaced draw are kept as discarded versions, never re-attached to new matchups.
-  if (existingResults.length > 0) {
-    const discardedIds = new Set(existingResults.map((ballot) => ballot.id));
-    const discardedTimestamp = new Date().toISOString();
-    dependencies.localRepository.saveBallots(
-      ballots.map((ballot) =>
-        discardedIds.has(ballot.id)
-          ? { ...ballot, confirmed: false, discarded: true, discardedBy: "draw regenerated", discardedTimestamp }
-          : ballot
-      )
-    );
+  const discardedTimestamp = new Date().toISOString();
+  const discardedBallots = existingResults.map((ballot) => ({
+    ...ballot,
+    confirmed: false,
+    discarded: true,
+    discardedBy: "draw regenerated",
+    discardedTimestamp,
+  }));
+  if (discardedBallots.length > 0) {
+    const byId = new Map(discardedBallots.map((ballot) => [ballot.id, ballot]));
+    dependencies.localRepository.saveBallots(ballots.map((ballot) => byId.get(ballot.id) ?? ballot));
   }
   dependencies.localRepository.saveDebates(updatedDebates);
   dependencies.localRepository.saveRounds(updatedRounds, updatedRound);
   if (dependencies.cloudRepository) {
-    await dependencies.cloudRepository.replaceRoundDraw(roundId, removedDebates, generated, updatedRound);
+    await dependencies.cloudRepository.replaceRoundDraw(
+      roundId,
+      removedDebates,
+      generated,
+      updatedRound,
+      discardedBallots
+    );
   }
 
   await dependencies.recordAuditEvent({
