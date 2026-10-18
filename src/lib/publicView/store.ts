@@ -12,9 +12,13 @@ import {
   changedSections,
   chunkDocumentId,
   parseSectionChunks,
-  PUBLIC_VIEW_SECTIONS,
+  PUBLIC_VIEW_FORMAT,
+  roundSectionName,
+  sectionRoundIds,
+  splitByRound,
+  type PublicBaseSection,
+  type PublicRoundContent,
   type PublicViewRoot,
-  type PublicViewSection,
   type PublicViewSections,
 } from "@/lib/publicView/snapshot";
 import { hashValue } from "@/lib/publicView/hash";
@@ -23,9 +27,10 @@ import { hashValue } from "@/lib/publicView/hash";
  * Server-side storage and caching for published public views.
  *
  * Layout: `publicViews/{slug}` holds a PublicViewRoot; `publicViews/{slug}/chunks/{section}-{hash}-{i}`
- * holds section JSON. Readers go through the Vercel Data Cache: the root is tagged and invalidated
- * on publish, while section chunks are content-addressed and cached by hash, so a cache miss on a
- * published tournament costs one read per section rather than a scan of every collection.
+ * holds section JSON (base sections, plus one `round-{roundId}` section per public round). Readers
+ * go through the Vercel Data Cache: the root is tagged and invalidated on publish, while section
+ * chunks are content-addressed and cached by hash, one cache entry per section, so each entry stays
+ * far below the 2 MB entry limit and a cache miss costs one read per section.
  */
 
 export const PUBLIC_VIEWS_COLLECTION = "publicViews";
@@ -67,7 +72,7 @@ export interface PublishResult {
   status: "published" | "unchanged";
   slug: string;
   version: string;
-  changedSections: PublicViewSection[];
+  changedSections: string[];
 }
 
 /**
@@ -150,11 +155,9 @@ export async function publishPublicView(input: {
   if (staleRoot) {
     const cleanup = firestore.batch();
     let deletions = 0;
-    for (const section of PUBLIC_VIEW_SECTIONS) {
-      const before = staleRoot.sections?.[section];
-      if (!before) continue;
+    for (const [section, before] of Object.entries(staleRoot.sections || {})) {
       const after = root.sections[section];
-      if (before.hash === after.hash && before.chunks === after.chunks) continue;
+      if (after && before.hash === after.hash && before.chunks === after.chunks) continue;
       for (let index = 0; index < before.chunks; index += 1) {
         cleanup.delete(chunksRef.doc(chunkDocumentId(section, before.hash, index)));
         deletions += 1;
@@ -188,7 +191,7 @@ const readRootCached = (slug: string) =>
     { tags: [publicViewTag(slug)], revalidate: ROOT_REVALIDATE_SECONDS }
   )();
 
-const readSectionCached = (slug: string, section: PublicViewSection, hash: string, chunkCount: number) =>
+const readSectionCached = (slug: string, section: string, hash: string, chunkCount: number) =>
   unstable_cache(
     async (): Promise<unknown> => {
       const firestore = getAdminFirestore();
@@ -239,34 +242,81 @@ const readLiveFallbackCached = (slug: string) =>
     { tags: [publicViewTag(slug)], revalidate: LIVE_FALLBACK_REVALIDATE_SECONDS }
   )();
 
-export interface PublicSectionsResult {
+/**
+ * One published view, however it is stored: a current root (sections read on demand, each from its
+ * own cache entry), a root published before rounds had their own sections (its whole-tournament
+ * debates and ballots are split per round when read), or a tournament never published (built live).
+ */
+export interface PublicViewReader {
   version: string;
-  sections: Partial<PublicViewSections>;
+  /** Hash of each public round's section, by round id (also a content address for CDN caching). */
+  roundHashes: Record<string, string>;
+  readBase(section: PublicBaseSection): Promise<unknown>;
+  /** Undefined when the round has no public section. */
+  readRound(roundId: string): Promise<PublicRoundContent | undefined>;
+}
+
+function readerFromSections(version: string, sections: PublicViewSections): PublicViewReader {
+  return {
+    version,
+    roundHashes: Object.fromEntries(
+      sectionRoundIds(sections).map((roundId) => [roundId, hashValue(sections[roundSectionName(roundId)])])
+    ),
+    readBase: async (section) => sections[section],
+    readRound: async (roundId) => sections[roundSectionName(roundId)],
+  };
+}
+
+export async function getPublicViewReader(slug: string): Promise<PublicViewReader> {
+  if (!isValidPublicSlug(slug)) throw new PublicViewError("Tournament not found.", 404);
+  const root = await readRootCached(slug);
+  if (!root) {
+    const fallback = await readLiveFallbackCached(slug);
+    if (!fallback.ok) throw new PublicViewError(fallback.error, fallback.status);
+    return readerFromSections(hashValue(fallback.sections), fallback.sections);
+  }
+  const readSection = (section: string) => {
+    const meta = root.sections[section];
+    return meta ? readSectionCached(slug, section, meta.hash, meta.chunks) : Promise.resolve(undefined);
+  };
+  if (root.format === PUBLIC_VIEW_FORMAT) {
+    return {
+      version: root.version,
+      roundHashes: Object.fromEntries(
+        (root.roundIds || []).flatMap((roundId) => {
+          const meta = root.sections[roundSectionName(roundId)];
+          return meta ? [[roundId, meta.hash]] : [];
+        })
+      ),
+      readBase: (section) => readSection(section),
+      readRound: async (roundId) => (await readSection(roundSectionName(roundId))) as PublicRoundContent | undefined,
+    };
+  }
+  // Published before per-round sections: republishing converts it.
+  const [rounds, debates, ballots] = await Promise.all([readSection("rounds"), readSection("debates"), readSection("ballots")]);
+  const roundIds = ((rounds as Array<{ id?: unknown }> | undefined) || []).map((round) => String(round.id));
+  const byRound = splitByRound(
+    roundIds,
+    (debates as Record<string, unknown>[] | undefined) || [],
+    (ballots as Record<string, unknown>[] | undefined) || []
+  );
+  return {
+    version: root.version,
+    roundHashes: Object.fromEntries([...byRound].map(([roundId, content]) => [roundId, hashValue(content)])),
+    readBase: (section) => readSection(section),
+    readRound: async (roundId) => byRound.get(roundId),
+  };
 }
 
 export async function getPublicSections(
   slug: string,
-  wanted: readonly PublicViewSection[]
-): Promise<PublicSectionsResult> {
-  if (!isValidPublicSlug(slug)) throw new PublicViewError("Tournament not found.", 404);
-  const root = await readRootCached(slug);
-  if (root) {
-    const values = await Promise.all(
-      wanted.map((section) => {
-        const meta = root.sections[section];
-        return meta ? readSectionCached(slug, section, meta.hash, meta.chunks) : Promise.resolve(undefined);
-      })
-    );
-    return {
-      version: root.version,
-      sections: Object.fromEntries(wanted.map((section, index) => [section, values[index]])),
-    };
-  }
-  const fallback = await readLiveFallbackCached(slug);
-  if (!fallback.ok) throw new PublicViewError(fallback.error, fallback.status);
+  wanted: readonly PublicBaseSection[]
+): Promise<{ version: string; sections: Partial<Record<PublicBaseSection, unknown>> }> {
+  const reader = await getPublicViewReader(slug);
+  const values = await Promise.all(wanted.map((section) => reader.readBase(section)));
   return {
-    version: hashValue(fallback.sections),
-    sections: Object.fromEntries(wanted.map((section) => [section, fallback.sections[section]])),
+    version: reader.version,
+    sections: Object.fromEntries(wanted.map((section, index) => [section, values[index]])),
   };
 }
 

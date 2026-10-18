@@ -8,6 +8,15 @@ Everything the public page shows comes from the public projection
 (`src/lib/publicView/projection.ts`), published at upload time and served from the Vercel Data Cache
 through `/api/public/tournaments/[slug]`. No public page reads Firestore collections directly.
 
+The projection is paged by round so that neither a cache entry nor a response grows with the
+tournament (see [storage and scale](storage-and-scale.md#public-projection-paged-by-round)):
+`/api/public/tournaments/[slug]` returns everything except debates and ballots, plus the latest
+round's debates and ballots and a content hash per public round; `?round={id}&h={hash}` returns one
+round. Public pages show the latest round immediately and load the other rounds after it (standings
+and results update as they arrive); the projector loads a round when it is shown; private portals
+load every round before showing their own data. Pages still poll the tiny `/version` marker and
+reload only rounds whose hash changed.
+
 | Tab | Shown when | Data |
 | --- | --- | --- |
 | Draw, Results, Standings | existing per-round releases | unchanged |

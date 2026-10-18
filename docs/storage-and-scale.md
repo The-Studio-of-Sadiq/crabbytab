@@ -89,3 +89,24 @@ ballots instead of all ~2,250.
 
 Known limit: a debate written to the cloud by an older client after the marker exists has no index
 until the next admin upload that sends it.
+
+## Public projection paged by round
+
+The public view (`src/lib/publicView/*`) is stored as sections under `publicViews/{slug}`: base
+sections (`tournament`, `rounds`, `teams`, `adjudicators`, `venues`, `motions`, `breakCategories`,
+`institutions`, `checkins`) and one `round-{roundId}` section per public round holding that round's
+public debates and ballots. Each section is chunked into Firestore documents (≤700 KB each) and
+cached in the Vercel Data Cache as its own entry, keyed by content hash, so publishing a round's
+results rewrites and invalidates only that round's section and the sections it changed.
+
+- `GET /api/public/tournaments/[slug]`: base sections, the latest public round's debates and
+  ballots, `roundSections` (round id → hash) and `loadedRoundIds`.
+- `GET /api/public/tournaments/[slug]?round={id}&h={hash}`: one round. With the current hash the
+  response is cached by the CDN for a day (it is a content address); otherwise for 15 s.
+- Clients keep rounds whose hash did not change when a new version is published.
+- Roots published before this layout (no `format: 2`) are still served: their whole-tournament
+  `debates` and `ballots` sections are split by round when read, until the next publish rewrites them.
+
+Known limits: a tournament that was never published is still built live from its collections into
+one cache entry (too large to cache for very large events, so publish before sharing links), and
+publishing still rebuilds the projection by reading every public collection once.

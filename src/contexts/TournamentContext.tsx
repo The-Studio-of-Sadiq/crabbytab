@@ -85,8 +85,12 @@ import {
 } from "@/features/tournament/application/tournamentBackup";
 import { createDebateXmlArchive } from "@/features/tournament/application/debateXml";
 import {
+  fetchCompletePublicProjection,
   fetchPublicProjection,
+  fetchPublicRound,
   fetchPublicViewVersion,
+  publicRoundsToLoad,
+  replaceRoundRecords,
   PUBLIC_VIEW_POLL_MILLISECONDS,
   publishPublicViewCommand,
   type PublicProjectionResponse,
@@ -140,6 +144,8 @@ export interface TournamentContextType {
   privateSyncState: "idle" | "syncing" | "error";
   privateSyncMessage: string;
   localSaveError: string;
+  /** Shared views: earlier rounds' public debates and ballots are still loading. */
+  publicRoundsLoading: boolean;
   uploadToCloud: () => Promise<void>;
   /** Rebuilds the cached public view from the cloud copy; `force` skips the unchanged check. */
   publishPublicView: (force?: boolean) => Promise<void>;
@@ -386,12 +392,41 @@ export function TournamentProvider({
   );
 
   const publicVersionRef = useRef<string | null>(null);
+  // Shared views load the public projection by round: each round's content hash, and the hash of
+  // each round whose debates and ballots are in state.
+  const publicRoundsRef = useRef<{ hashes: Record<string, string>; loaded: Map<string, string> }>({
+    hashes: {},
+    loaded: new Map(),
+  });
+  const [publicViewVersion, setPublicViewVersion] = useState<string | null>(null);
+  const [publicRoundsLoading, setPublicRoundsLoading] = useState(false);
   const applyPublicProjection = useCallback(
     (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
       const publicRounds = (result.collections.rounds || []) as Round[];
       const latestRound =
         [...publicRounds].filter((round) => !round.cancelled).sort((a, b) => b.seq - a.seq)[0] || null;
       publicVersionRef.current = result.version ?? null;
+      const hashes = result.roundSections;
+      // Rounds loaded earlier whose content is unchanged stay as they are; the rest reload.
+      const kept = new Set<string>();
+      if (hashes) {
+        const fresh = new Set(result.loadedRoundIds || []);
+        const loaded = new Map<string, string>();
+        for (const [roundId, hash] of publicRoundsRef.current.loaded) {
+          if (hashes[roundId] === hash && !fresh.has(roundId)) {
+            kept.add(roundId);
+            loaded.set(roundId, hash);
+          }
+        }
+        for (const roundId of fresh) loaded.set(roundId, hashes[roundId]);
+        publicRoundsRef.current = { hashes, loaded };
+      } else {
+        publicRoundsRef.current = { hashes: {}, loaded: new Map() };
+      }
+      const withKeptRounds = <T extends { roundId: string }>(current: T[], incoming: T[]) => [
+        ...current.filter((record) => kept.has(record.roundId)),
+        ...incoming,
+      ];
       setTournament(result.tournament);
       setRounds(publicRounds);
       setActiveRound((current) =>
@@ -404,12 +439,13 @@ export function TournamentProvider({
       setVenues((result.collections.venues || []) as Venue[]);
       setMotions((result.collections.motions || []) as Motion[]);
       setBreakCategories((result.collections.breakCategories || []) as BreakCategory[]);
-      setDebates((result.collections.debates || []) as Debate[]);
-      setBallots((result.collections.ballots || []) as BallotSubmission[]);
+      setDebates((current) => withKeptRounds(current, (result.collections.debates || []) as Debate[]));
+      setBallots((current) => withKeptRounds(current, (result.collections.ballots || []) as BallotSubmission[]));
       setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
       setInstitutions((result.collections.institutions || []) as Institution[]);
       auditEventsRef.current = [];
       setAuditEvents([]);
+      setPublicViewVersion(result.version ?? null);
     },
     []
   );
@@ -450,6 +486,49 @@ export function TournamentProvider({
     pathname?.includes("/private/") ||
     pathname?.includes("/display")
   );
+  const isPrivatePortal = Boolean(pathname?.includes("/private/"));
+  const isProjectorView = Boolean(pathname?.includes("/display"));
+
+  // Public pages open with the latest round and load the others' debates and ballots after it
+  // (standings and results need them); the projector loads a round when it is shown. Private
+  // portals load every round up front instead, before merging their own data.
+  const activeRoundId = activeRound?.id;
+  useEffect(() => {
+    if (!db || !isSharedView || isPrivatePortal || !tournamentSlug || !publicViewVersion) return;
+    const { hashes, loaded } = publicRoundsRef.current;
+    const missing = publicRoundsToLoad(
+      hashes,
+      loaded,
+      isProjectorView ? (activeRoundId ? [activeRoundId] : []) : undefined
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    setPublicRoundsLoading(true);
+    void (async () => {
+      try {
+        for (let index = 0; index < missing.length; index += 3) {
+          const batch = await Promise.all(
+            missing.slice(index, index + 3).map((roundId) => fetchPublicRound(tournamentSlug, roundId, hashes[roundId]))
+          );
+          if (cancelled) return;
+          // A round republished meanwhile is skipped; the next version poll reloads it.
+          const current = batch.filter((round) => publicRoundsRef.current.hashes[round.roundId] === round.hash);
+          for (const round of current) publicRoundsRef.current.loaded.set(round.roundId, round.hash);
+          setDebates((records) => replaceRoundRecords(records, current.map((round) => ({ roundId: round.roundId, records: round.debates }))));
+          setBallots((records) => replaceRoundRecords(records, current.map((round) => ({ roundId: round.roundId, records: round.ballots }))));
+        }
+      } catch (error) {
+        // The rounds already shown stay; the next published version retries.
+        console.warn("Could not load earlier public rounds:", error);
+      } finally {
+        if (!cancelled) setPublicRoundsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      setPublicRoundsLoading(false);
+    };
+  }, [isSharedView, isPrivatePortal, isProjectorView, tournamentSlug, publicViewVersion, activeRoundId]);
 
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
   useEffect(() => {
@@ -486,7 +565,9 @@ export function TournamentProvider({
         let localTournament = readLocal<Tournament | null>("meta", null);
         setDivergedRecords(parseDivergedRecords(readLocal<unknown>("syncDiverged", [])));
         const loadPublicProjection = async () => {
-          const result = await fetchPublicProjection(tournamentSlug);
+          const result = isPrivatePortal
+            ? await fetchCompletePublicProjection(tournamentSlug)
+            : await fetchPublicProjection(tournamentSlug);
           if (!isMounted) return;
           applyPublicProjection(result, false);
           setLoading(false);
@@ -827,7 +908,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, user, authLoading, applyPublicProjection]);
+  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, isPrivatePortal, user, authLoading, applyPublicProjection]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
@@ -2281,6 +2362,7 @@ export function TournamentProvider({
         privateSyncState,
         privateSyncMessage,
         localSaveError,
+        publicRoundsLoading,
         uploadToCloud,
         publishPublicView,
         downloadFromCloud,

@@ -79,6 +79,7 @@ export default function PublicTournamentPage() {
     venues,
     adjudicators,
     institutions,
+    publicRoundsLoading,
   } = useTournament();
   const { t, plural, formatDecimal, formatList } = useI18n();
 
@@ -413,6 +414,11 @@ export default function PublicTournamentPage() {
             </button>
           ))}
         </nav>
+        {publicRoundsLoading && (
+          <p role="status" className="max-w-6xl mx-auto px-6 pb-2 text-xs text-gray-500">
+            {t("public.loadingRounds")}
+          </p>
+        )}
       </div>
 
       {/* Main Public Content */}
