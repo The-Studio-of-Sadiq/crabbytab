@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { addFeedbackCommand } from "./feedback";
+import type { Debate, FeedbackSubmission } from "@/types";
+import { addFeedbackCommand, adminFeedbackLinkError, reviewFeedbackCommand } from "./feedback";
 
 describe("addFeedbackCommand", () => {
   it("persists and queues private feedback before writing a redacted audit event", async () => {
@@ -72,5 +73,71 @@ describe("addFeedbackCommand", () => {
       async recordAuditEvent() {},
     })).rejects.toThrow("Please answer “Reason for score”.");
     expect(persisted).toBe(false);
+  });
+});
+describe("reviewFeedbackCommand", () => {
+  const base: FeedbackSubmission = {
+    id: "fb-1",
+    tournamentId: "t",
+    roundId: "r1",
+    debateId: "d1",
+    targetAdjudicatorId: "chair",
+    targetAdjudicatorName: "Chair",
+    sourceType: "team",
+    sourceId: "aff",
+    sourceName: "Aff",
+    score: 3,
+    confirmed: true,
+    timestamp: "",
+  };
+
+  it("ignores a submission without deleting it and audits the change", async () => {
+    let saved: FeedbackSubmission[] = [];
+    const audits: string[] = [];
+    await reviewFeedbackCommand("fb-1", { ignored: true }, {
+      feedback: [base],
+      repository: { saveFeedback(items) { saved = items; } },
+      async recordAuditEvent(event) { audits.push(event.summary); },
+    });
+    expect(saved).toEqual([{ ...base, ignored: true }]);
+    expect(audits).toEqual(["Feedback on Chair ignored"]);
+  });
+
+  it("does nothing when the state is unchanged and refuses unknown ids", async () => {
+    const audits: string[] = [];
+    const input = {
+      feedback: [base],
+      repository: { saveFeedback() { audits.push("saved"); } },
+      async recordAuditEvent() { audits.push("audit"); },
+    };
+    await reviewFeedbackCommand("fb-1", { confirmed: true }, input);
+    expect(audits).toEqual([]);
+    await expect(reviewFeedbackCommand("missing", { ignored: true }, input)).rejects.toThrow("no longer exists");
+  });
+});
+
+describe("adminFeedbackLinkError", () => {
+  const debate = {
+    id: "d1",
+    roundId: "r1",
+    teams: { AFF: { teamId: "aff", teamName: "Aff", side: "AFF" } },
+    adjudicators: { chairId: "chair", panellistIds: ["wing"], panellistNames: [], traineeIds: [], traineeNames: [] },
+  } as unknown as Debate;
+  const link = { roundId: "r1", debateId: "d1", targetAdjudicatorId: "chair", sourceType: "team" as const, sourceId: "aff" };
+
+  it("accepts a real round, debate, adjudicator and source", () => {
+    expect(adminFeedbackLinkError(link, [debate])).toBeNull();
+    expect(adminFeedbackLinkError({ ...link, sourceType: "adjudicator", sourceId: "wing" }, [debate])).toBeNull();
+  });
+
+  it("rejects placeholders and participants from elsewhere", () => {
+    expect(adminFeedbackLinkError({ ...link, debateId: "direct-feedback", roundId: "r-all" }, [debate]))
+      .toBe("Choose a debate from the selected round.");
+    expect(adminFeedbackLinkError({ ...link, targetAdjudicatorId: "other" }, [debate]))
+      .toBe("The adjudicator did not sit on that debate.");
+    expect(adminFeedbackLinkError({ ...link, sourceId: "neg" }, [debate]))
+      .toBe("The source did not take part in that debate.");
+    expect(adminFeedbackLinkError({ ...link, sourceType: "adjudicator", sourceId: "chair" }, [debate]))
+      .toBe("An adjudicator cannot give feedback on themselves.");
   });
 });

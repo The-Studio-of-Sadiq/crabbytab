@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { exportStandingsToCsv } from "@/lib/csv/importer";
+import { ReleasePanel } from "@/features/tournament/components/ReleasePanel";
 import {
   Trophy,
   Award,
@@ -89,6 +90,8 @@ export default function StandingsPage() {
           </button>
         </div>
       </div>
+
+      <ReleasePanel />
 
       {/* Tab Switcher & Search Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">

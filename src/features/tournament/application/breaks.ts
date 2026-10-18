@@ -2,6 +2,8 @@ import type {
   AuditCategory,
   BallotSubmission,
   BreakCategory,
+  BreakQualificationRule,
+  BreakTeamOverride,
   Debate,
   Round,
   Team,
@@ -9,8 +11,12 @@ import type {
 } from "@/types";
 import { applyEliminationAdvancement, getAdvancingTeamIds } from "@/lib/draw/elimination";
 import { getEligibleTeamsForRound } from "@/lib/draw/generator";
-import { applyBreakStatuses, type BreakCategoryResult } from "@/lib/breakqual/calculator";
-import { buildBreakCategorySchedule, eliminationRoundCount } from "@/lib/setup/presets";
+import {
+  applyCategoryBreakStatus,
+  snapshotBreak,
+  type BreakCategoryResult,
+} from "@/lib/breakqual/calculator";
+import { buildBreakCategorySchedule, eliminationRoundCount, slugify, validateBreakSize } from "@/lib/setup/presets";
 
 export interface BreakAuditEvent {
   action: string;
@@ -74,7 +80,10 @@ export async function saveBreakCategoriesCommand(
       previous.breakSize !== category.breakSize ||
       previous.reserveSize !== category.reserveSize ||
       previous.priority !== category.priority ||
-      previous.isGeneral !== category.isGeneral
+      previous.isGeneral !== category.isGeneral ||
+      previous.maxPerInstitution !== category.maxPerInstitution ||
+      previous.qualificationRule !== category.qualificationRule ||
+      JSON.stringify(previous.teamOverrides ?? {}) !== JSON.stringify(category.teamOverrides ?? {})
     ) {
       changes.push({
         type: "updated",
@@ -85,6 +94,9 @@ export async function saveBreakCategoriesCommand(
           reserveSize: previous.reserveSize,
           priority: previous.priority,
           isGeneral: previous.isGeneral,
+          maxPerInstitution: previous.maxPerInstitution,
+          qualificationRule: previous.qualificationRule,
+          teamOverrides: previous.teamOverrides ?? {},
         },
         current: {
           name: category.name,
@@ -92,6 +104,9 @@ export async function saveBreakCategoriesCommand(
           reserveSize: category.reserveSize,
           priority: category.priority,
           isGeneral: category.isGeneral,
+          maxPerInstitution: category.maxPerInstitution,
+          qualificationRule: category.qualificationRule,
+          teamOverrides: category.teamOverrides ?? {},
         },
       });
     }
@@ -158,14 +173,25 @@ export async function generateBreakCommand(
     throw new Error(`${category.name} does not fit the configured elimination-round sequence.`);
   }
 
-  const updatedTeams = applyBreakStatuses(teams, breakResults);
+  const categoryResult = breakResults.find((result) => result.category.id === categoryId);
+  if (!categoryResult) {
+    throw new Error(`The ${category.name} break has not been calculated yet.`);
+  }
+  // Only this category's statuses change; other categories keep their own generated break.
+  const updatedTeams = applyCategoryBreakStatus(teams, categoryResult);
+  const updatedCategories = breakCategories.map((item) =>
+    item.id === categoryId
+      ? { ...item, generatedBreak: snapshotBreak(categoryResult, new Date().toISOString()) }
+      : item
+  );
   dependencies.localRepository.saveTeams(updatedTeams);
   dependencies.localRepository.saveRounds(updatedRounds);
+  dependencies.localRepository.saveBreakCategories(updatedCategories);
   dependencies.localRepository.setActiveRound(firstCategoryRound);
   if (dependencies.cloudRepository) {
     await dependencies.cloudRepository.saveGeneratedBreak(updatedTeams, updatedRounds);
+    await dependencies.cloudRepository.saveBreakCategories(updatedCategories);
   }
-  const categoryResult = breakResults.find((result) => result.category.id === categoryId);
   await dependencies.recordAuditEvent({
     action: "break.generated",
     category: "break",
@@ -176,8 +202,9 @@ export async function generateBreakCommand(
       categoryName: category.name,
       breakSize: category.breakSize,
       reserveSize: category.reserveSize,
-      breakingTeamIds: categoryResult?.breakingTeams.map((entry) => entry.team.id) ?? [],
-      reserveTeamIds: categoryResult?.reserveTeams.map((entry) => entry.team.id) ?? [],
+      breakingTeamIds: categoryResult.breakingTeams.map((entry) => entry.team.id),
+      reserveTeamIds: categoryResult.reserveTeams.map((entry) => entry.team.id),
+      overrides: category.teamOverrides ?? {},
       eliminationRoundIds: updatedRounds
         .filter((round) => round.stage === "elimination" && !round.cancelled)
         .map((round) => round.id),
@@ -254,4 +281,103 @@ export async function proceedToNextEliminationRoundCommand(
     },
   });
   return nextRound;
+}
+export interface BreakCategoryDraft {
+  name: string;
+  breakSize: number;
+  reserveSize: number;
+  priority: number;
+  isGeneral: boolean;
+  maxPerInstitution: number;
+  qualificationRule: BreakQualificationRule;
+}
+
+/** Returns an error message, or "" when the draft can be saved. */
+export function validateBreakCategoryDraft(
+  draft: BreakCategoryDraft,
+  categories: BreakCategory[],
+  teamsInDebate: 4 | 2,
+  editingId?: string
+): string {
+  const name = draft.name.trim();
+  if (!name) return "Every break category needs a name.";
+  if (categories.some((category) => category.id !== editingId && category.name.trim().toLowerCase() === name.toLowerCase())) {
+    return `There is already a break category called "${name}".`;
+  }
+  const sizeError = validateBreakSize(draft.breakSize, teamsInDebate);
+  if (sizeError) return sizeError;
+  if (!Number.isInteger(draft.reserveSize) || draft.reserveSize < 0) return "Reserve size must be 0 or more.";
+  if (!Number.isInteger(draft.priority)) return "Priority must be a whole number.";
+  if (!Number.isInteger(draft.maxPerInstitution) || draft.maxPerInstitution < 0) {
+    return "The institution limit must be 0 (no limit) or more.";
+  }
+  return "";
+}
+
+/** Adds a category, or updates the one with `editingId`, keeping its id, overrides and generated break. */
+export function upsertBreakCategory(
+  categories: BreakCategory[],
+  draft: BreakCategoryDraft,
+  tournamentId: string,
+  editingId?: string,
+  createId: () => string = () => `bc-${Date.now()}`
+): BreakCategory[] {
+  const fields = {
+    name: draft.name.trim(),
+    breakSize: draft.breakSize,
+    reserveSize: draft.reserveSize,
+    priority: draft.priority,
+    isGeneral: draft.isGeneral,
+    maxPerInstitution: draft.maxPerInstitution > 0 ? draft.maxPerInstitution : undefined,
+    qualificationRule: draft.qualificationRule,
+  };
+  if (editingId) {
+    return categories.map((category) => (category.id === editingId ? { ...category, ...fields } : category));
+  }
+  const usedSlugs = new Set(categories.map((category) => category.slug));
+  const baseSlug = slugify(fields.name) || `break-${categories.length + 1}`;
+  let slug = baseSlug;
+  for (let suffix = 2; usedSlugs.has(slug); suffix++) slug = `${baseSlug}-${suffix}`;
+  return [
+    ...categories,
+    {
+      id: createId(),
+      tournamentId,
+      slug,
+      seq: Math.max(0, ...categories.map((category) => category.seq)) + 1,
+      ...fields,
+    },
+  ];
+}
+
+/** Sets (or with `null`, clears) a team's manual break override in one category. */
+export function withTeamOverride(
+  categories: BreakCategory[],
+  categoryId: string,
+  teamId: string,
+  override: BreakTeamOverride | null
+): BreakCategory[] {
+  return categories.map((category) => {
+    if (category.id !== categoryId) return category;
+    const teamOverrides = { ...(category.teamOverrides ?? {}) };
+    if (override) teamOverrides[teamId] = override;
+    else delete teamOverrides[teamId];
+    return { ...category, teamOverrides };
+  });
+}
+
+/** Returns why a category cannot be deleted, or "" when it can. */
+export function getBreakCategoryDeletionBlocker(
+  category: BreakCategory,
+  teams: Team[],
+  rounds: Round[]
+): string {
+  if (teams.some((team) => team.breakCategoryIds?.includes(category.id))) {
+    return `${category.name} has a generated break. Teams are breaking in it, so it cannot be deleted.`;
+  }
+  const usedBy = rounds.filter((round) => !round.cancelled && round.breakCategoryIds?.includes(category.id));
+  if (usedBy.some((round) => round.drawStatus !== "none")) {
+    return `${category.name} is used by an elimination round that already has a draw.`;
+  }
+  return "";
 }

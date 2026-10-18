@@ -38,8 +38,17 @@ import { createEntityId, createTournamentEntityCommands } from "@/features/tourn
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
-import { addFeedbackCommand } from "@/features/tournament/application/feedback";
-import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand } from "@/features/tournament/application/allocation";
+import {
+  addFeedbackCommand,
+  reviewFeedbackCommand,
+  type FeedbackReviewChange,
+} from "@/features/tournament/application/feedback";
+import {
+  autoAllocateCommand,
+  updateDebateCommand,
+  updateDebatesCommand,
+  type AutoAllocateSettings,
+} from "@/features/tournament/application/allocation";
 import {
   generateBreakCommand,
   proceedToNextEliminationRoundCommand,
@@ -130,7 +139,7 @@ export interface TournamentContextType {
   deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
   generateDraw: (roundId: string) => Promise<void>;
-  autoAllocate: (roundId: string, panelSize?: number) => Promise<void>;
+  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
@@ -147,6 +156,7 @@ export interface TournamentContextType {
   addAdjudicator: (adj: Omit<Adjudicator, "id" | "tournamentId">) => Promise<void>;
   addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<void>;
   updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
+  updateAdjudicators: (adjudicators: Adjudicator[]) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
   addVenue: (venue: Omit<Venue, "id" | "tournamentId">) => Promise<void>;
   addVenues: (venues: Omit<Venue, "id" | "tournamentId">[]) => Promise<void>;
@@ -164,6 +174,7 @@ export interface TournamentContextType {
     privatePasscode?: string,
     privateUrlKey?: string
   ) => Promise<void>;
+  reviewFeedback: (feedbackId: string, change: FeedbackReviewChange) => Promise<void>;
   recordAuditEvent: (event: {
     action: string;
     category: AuditCategory;
@@ -1027,6 +1038,7 @@ export function TournamentProvider({
     deleteTeam: deleteTeamCommand,
     addAdjudicators: addAdjudicatorsCommand,
     updateAdjudicator: updateAdjudicatorCommand,
+    updateAdjudicators,
     deleteAdjudicator: deleteAdjudicatorCommand,
     addVenues: addVenuesCommand,
     updateVenue: updateVenueCommand,
@@ -1377,8 +1389,8 @@ export function TournamentProvider({
     });
   };
 
-  const autoAllocate = async (roundId: string, panelSize: number = 1) => {
-    await autoAllocateCommand(roundId, panelSize, allocationDependencies);
+  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
+    await autoAllocateCommand(roundId, panelSize, allocationDependencies, settings);
   };
 
   const updateDebate = async (debate: Debate) => {
@@ -1536,6 +1548,19 @@ export function TournamentProvider({
       },
       queuePrivateRecord: (record, urlKey, passcode) =>
         queuePrivateRecord({ collection: "feedback", record }, urlKey, passcode),
+      recordAuditEvent,
+    });
+  };
+
+  const reviewFeedback = async (feedbackId: string, change: FeedbackReviewChange) => {
+    await reviewFeedbackCommand(feedbackId, change, {
+      feedback,
+      repository: {
+        saveFeedback: (items) => {
+          setFeedback(items);
+          persistLocal("feedback", items);
+        },
+      },
       recordAuditEvent,
     });
   };
@@ -1972,6 +1997,7 @@ export function TournamentProvider({
         addAdjudicator,
         addAdjudicators,
         updateAdjudicator,
+        updateAdjudicators,
         deleteAdjudicator,
         addVenue,
         addVenues,
@@ -1985,6 +2011,7 @@ export function TournamentProvider({
         generateBreak,
         proceedToNextEliminationRound,
         addFeedback,
+        reviewFeedback,
         recordAuditEvent,
         releaseAuditLog,
         generatePrivateUrlKeys,

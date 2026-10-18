@@ -393,7 +393,7 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(result[0].conflicts).toEqual([]);
   });
 
-  it("prefers a lower-rated chair over an adjudicator with a repeat-team clash", () => {
+  it("treats a repeat-team clash as a soft penalty weighed against strength", () => {
     const team = createTeam("team", "Team");
     const debate = createDebate("debate", [team]);
     const conflicted = createAdj("conflicted", "Conflicted", 10);
@@ -407,8 +407,7 @@ describe("Adjudicator Allocator Preferences", () => {
       traineeIds: [],
       traineeNames: [],
     };
-
-    const result = autoAllocateAdjudicators(
+    const allocate = (preferences?: Partial<TournamentPreferences>) => autoAllocateAdjudicators(
       [debate],
       new Map([[team.id, team]]),
       [conflicted, eligible],
@@ -419,6 +418,7 @@ describe("Adjudicator Allocator Preferences", () => {
         respectInstitutionConflicts: true,
         respectPersonalConflicts: true,
         respectHistoryConflicts: true,
+        preferences,
       },
       {
         allPastDebates: [pastDebate],
@@ -430,8 +430,15 @@ describe("Adjudicator Allocator Preferences", () => {
       }
     );
 
-    expect(result[0].chairId).toBe(eligible.id);
-    expect(result[0].conflicts).toEqual([]);
+    // Default weights: a six-point strength gap outweighs one repeat, which is reported.
+    const soft = allocate();
+    expect(soft[0].chairId).toBe(conflicted.id);
+    expect(soft[0].conflicts).toEqual(["Conflicted: Previously judged Team"]);
+
+    // A history penalty above the strength cost makes the allocator avoid the repeat.
+    const strict = allocate({ adjHistoryPenalty: 1_000_000 });
+    expect(strict[0].chairId).toBe(eligible.id);
+    expect(strict[0].conflicts).toEqual([]);
   });
 
   it("does not promote an institutionally conflicted panel member over a clean adjudicator", () => {

@@ -8,6 +8,7 @@ import {
   recordPrivateFailure,
 } from "@/lib/privateTeamRateLimit";
 import { passcodesMatch } from "@/lib/passcode";
+import { getPublicRelease, redactUnreleasedBreak } from "@/lib/publicRelease";
 import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 
 export const runtime = "nodejs";
@@ -133,9 +134,15 @@ export async function POST(request: NextRequest) {
         id: teamDocument.id,
         tournamentId,
         name: teamData.name,
-        breakStatus: teamData.breakStatus,
-        breakCategoryIds: teamData.breakCategoryIds,
-        eliminatedInRoundId: teamData.eliminatedInRoundId,
+        // A team only learns its break result once that category is released.
+        ...redactUnreleasedBreak(
+          {
+            breakStatus: teamData.breakStatus,
+            breakCategoryIds: teamData.breakCategoryIds,
+            eliminatedInRoundId: teamData.eliminatedInRoundId,
+          },
+          getPublicRelease(tournamentData.preferences)
+        ),
         codeName: teamData.codeName,
         institutionId: teamData.institutionId,
         institutionName: teamData.institutionName,

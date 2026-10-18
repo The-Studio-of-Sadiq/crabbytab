@@ -225,6 +225,28 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     });
   };
 
+  /** Saves several adjudicators in one write so later changes cannot overwrite earlier ones. */
+  const updateAdjudicators = async (changed: Adjudicator[]) => {
+    if (changed.length === 0) return;
+    const byId = new Map(changed.map((item) => [item.id, item]));
+    const previous = adjudicators.filter((item) => byId.has(item.id));
+    repositories.adjudicators.save(adjudicators.map((item) => byId.get(item.id) ?? item));
+    const withoutPrivateAccess = ({
+      privateUrlKey: _privateUrlKey,
+      privatePasscode: _privatePasscode,
+      ...safe
+    }: Adjudicator) => safe;
+    await recordAuditEvent({
+      action: "adjudicators.updated",
+      category: "tournament",
+      summary: `${changed.length} adjudicator(s) updated`,
+      details: {
+        previous: previous.map(withoutPrivateAccess),
+        current: changed.map(withoutPrivateAccess),
+      },
+    });
+  };
+
   const deleteAdjudicator = async (adjudicatorId: string) => {
     const deleted = adjudicators.find((item) => item.id === adjudicatorId);
     repositories.adjudicators.save(adjudicators.filter((item) => item.id !== adjudicatorId));
@@ -355,6 +377,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     deleteTeam,
     addAdjudicators,
     updateAdjudicator,
+    updateAdjudicators,
     deleteAdjudicator,
     addVenues,
     updateVenue,

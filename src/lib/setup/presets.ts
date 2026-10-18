@@ -125,11 +125,26 @@ export function isPowerOfTwo(n: number): boolean {
  * Number of elimination rounds needed to reduce `breakSize` teams to a winner.
  * BP rooms hold 4 teams and 2 advance, so 4 teams is already a final.
  * Two-team formats halve the field every round.
+ *
+ * Break sizes that do not halve cleanly (e.g. 12 or 24) start with a partial
+ * elimination round in which the top seeds get byes, so they need one extra
+ * round. BP breaks must be even, since two teams advance from each room.
  */
 export function eliminationRoundCount(breakSize: number, teamsInDebate: 4 | 2): number {
-  if (!isPowerOfTwo(breakSize) || breakSize < teamsInDebate) return 0;
-  const log = Math.log2(breakSize);
-  return teamsInDebate === 4 ? log - 1 : log;
+  if (!Number.isInteger(breakSize) || breakSize < teamsInDebate) return 0;
+  if (teamsInDebate === 4) {
+    if (breakSize % 2 !== 0) return 0;
+    return Math.ceil(Math.log2(breakSize / 4)) + 1;
+  }
+  return Math.ceil(Math.log2(breakSize));
+}
+
+/** Returns an error message, or "" when `breakSize` can be run as an elimination bracket. */
+export function validateBreakSize(breakSize: number, teamsInDebate: 4 | 2): string {
+  if (eliminationRoundCount(breakSize, teamsInDebate) > 0) return "";
+  return teamsInDebate === 4
+    ? "BP break sizes must be an even number of at least 4 teams."
+    : "Break sizes must be at least 2 teams.";
 }
 
 export function buildBreakCategorySchedule(
