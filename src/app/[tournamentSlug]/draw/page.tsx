@@ -6,6 +6,7 @@ import { SideBadge } from "@/components/ui/SideBadge";
 import {
   Shuffle,
   Printer,
+  Download,
   CheckCircle2,
   AlertTriangle,
   Lock,
@@ -20,6 +21,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
+import { csvFileStem, drawCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
@@ -437,6 +440,14 @@ export default function DrawPage() {
     setDraggingItem(null);
   };
 
+  const handleExportDrawCsv = () => {
+    if (!tournament || !activeRound) return;
+    downloadCsv(
+      `${csvFileStem(tournament.name, activeRound.abbreviation || activeRound.name)}_Draw.csv`,
+      drawCsv(roundDebates, { format: tournament.format, includeAdjudicators: true, includeMotion: true })
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Action Controls */}
@@ -503,6 +514,16 @@ export default function DrawPage() {
             )}
           </button>
           {drawReleaseError && <p role="alert" className="text-xs text-red-600">{drawReleaseError}</p>}
+
+          <button
+            onClick={handleExportDrawCsv}
+            disabled={roundDebates.length === 0}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
+            title="Download this round's draw, with adjudicators and motion, as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
 
           <button
             onClick={() => window.print()}

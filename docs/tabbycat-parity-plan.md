@@ -160,8 +160,9 @@ Room" link, projector draw display with motion reveal / info slide, alphabetical
 
 **Draw editor** — history/side-balance/repeat flags, adj search, touch/keyboard (click-to-place).
 
-**Data** — DebateXML **import**, speaker/reply CSV export, full JSON restore (not just merge),
-Tabbycat-compatible import.
+**Data** — done in step 6: DebateXML import into a new tournament (round-trips with the export),
+CSV exports (speaker/reply standings, draw, admin-only feedback and adjudicator scores), validated
+JSON backup restore with diff preview and replace. See `docs/data-import-export.md`.
 
 **Notifications** — automatic emails (draw released, ballot receipt, team points, private URLs to
 teams), QR codes on private-URL slips, self check-in via private URL.
@@ -184,10 +185,21 @@ teams), QR codes on private-URL slips, self check-in via private URL.
 
 ## Phase 5 — Polish
 
-i18n (Tabbycat ships ~15 languages; adopt `next-intl`), accessibility (dialog roles, focus traps,
+i18n (Tabbycat ships ~15 languages), accessibility (dialog roles, focus traps,
 labelled controls, keyboard DnD), mobile (round creation hidden below `md`), configurable analytics ranges.
 
 ## Suggested order
 
 Phase 0 → Phase 1 → Phase 4.1 sync model → Phase 2 (BP draw, allocator) ‖ Phase 3 ballots/release
 → rest of Phase 3 → Phase 5. Each numbered item is roughly one PR with tests.
+
+## i18n approach (for later)
+
+Not started, deliberately: translating touches every page. When it is picked up:
+
+- Use `next-intl` with the App Router, messages in `messages/<locale>.json`, and the locale kept in a
+  cookie rather than the URL so tournament slugs and existing links do not change.
+- Extract strings one feature area per PR, starting with public pages (participants see them most).
+- Keep tournament data (team names, motions, feedback answers) untranslated, and keep CSV headers
+  and DebateXML in English so exports stay stable for other tools.
+- Format numbers and dates with `Intl` through the library's formatters, never by hand.

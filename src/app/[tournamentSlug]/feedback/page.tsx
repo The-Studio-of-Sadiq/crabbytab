@@ -12,7 +12,10 @@ import {
   Printer,
   ClipboardList,
   Scale,
+  Download,
 } from "lucide-react";
+import { adjudicatorScoresCsv, csvFileStem, feedbackSubmissionsCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import type { FeedbackAnswer, FeedbackPath, FeedbackWeightKey } from "@/types";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
@@ -182,6 +185,37 @@ export default function FeedbackPage() {
   }, [feedback]);
   const filteredAdjs = adjudicators.filter((a) => a.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
+  // ─── Admin-only exports (sources, comments and scores are private) ───
+  const exportFeedbackCsv = () => {
+    downloadCsv(
+      `${csvFileStem(tournament?.name ?? "Tournament")}_Feedback_ADMIN_ONLY.csv`,
+      feedbackSubmissionsCsv(feedback, {
+        rounds,
+        teams,
+        adjudicators,
+        questions: [
+          ...(preferences?.teamFeedbackQuestions ?? []),
+          ...(preferences?.adjudicatorFeedbackQuestions ?? []),
+          ...(preferences?.feedbackQuestions ?? []),
+        ],
+      })
+    );
+  };
+  const exportScoresCsv = () => {
+    downloadCsv(
+      `${csvFileStem(tournament?.name ?? "Tournament")}_Adjudicator_Scores_ADMIN_ONLY.csv`,
+      adjudicatorScoresCsv(adjudicators.map((adj) => {
+        const summary = summaries.get(adj.id);
+        return {
+          adjudicator: adj,
+          feedbackCount: summary?.count ?? 0,
+          feedbackAverage: summary?.average,
+          score: blendAdjudicatorScore(adj, summary?.scaledAverage, activeRound?.feedbackWeight),
+        };
+      }))
+    );
+  };
+
   // ─── Progress ───
   const progressRound = roundsById.get(progressRoundId) ?? activeRound ?? orderedRounds[orderedRounds.length - 1];
   const progress = useMemo(
@@ -249,6 +283,28 @@ export default function FeedbackPage() {
             <Users2 className="w-3.5 h-3.5" />
             <span>View Submitted Forms</span>
           </Link>
+          {isOwnerOrAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={exportFeedbackCsv}
+                title="Admin only: includes sources, comments and unconfirmed submissions"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Feedback CSV (admin only)</span>
+              </button>
+              <button
+                type="button"
+                onClick={exportScoresCsv}
+                title={`Admin only: adjudicator scores using ${activeRound?.name ?? "the current round"}'s feedback weight`}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Scores CSV (admin only)</span>
+              </button>
+            </>
+          )}
           <Link
             href={`/${tournament?.slug}/print/feedback`}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded text-xs border border-gray-300 transition"

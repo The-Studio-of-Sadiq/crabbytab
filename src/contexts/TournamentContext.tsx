@@ -62,8 +62,14 @@ import { regeneratePrivateAccessCommand } from "@/features/tournament/applicatio
 import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
 import {
   createTournamentBackup,
+  diffTournamentBackup,
   mergeTournamentBackup,
   parseTournamentBackup,
+  planTournamentBackupReplace,
+  validateTournamentBackup,
+  type BackupCollections,
+  type BackupDiff,
+  type BackupValidation,
 } from "@/features/tournament/application/tournamentBackup";
 import { createDebateXmlArchive } from "@/features/tournament/application/debateXml";
 import {
@@ -121,9 +127,15 @@ export interface TournamentContextType {
   downloadFromCloud: () => Promise<void>;
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
-  exportTournamentBackup: () => void;
+  /** `fileSuffix` names the download, e.g. "pre-restore". */
+  exportTournamentBackup: (fileSuffix?: string) => void;
   exportTournamentArchive: () => void;
+  /** Merges a backup: records missing here are added; existing records win. */
   importTournamentBackup: (file: File) => Promise<void>;
+  /** Validates a backup file and compares it with this tournament's data, without changing anything. */
+  previewTournamentBackup: (file: File) => Promise<{ validation: BackupValidation; diff?: BackupDiff }>;
+  /** Replaces this tournament's data with a backup after downloading a pre-restore backup. */
+  replaceTournamentWithBackup: (file: File) => Promise<void>;
   syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
@@ -1857,7 +1869,7 @@ export function TournamentProvider({
     }
   };
 
-  const exportTournamentBackup = () => {
+  const exportTournamentBackup = (fileSuffix?: string) => {
     if (!tournament || !isOwnerOrAdmin) {
       throw new Error("Only a tournament administrator can export a full backup.");
     }
@@ -1866,7 +1878,7 @@ export function TournamentProvider({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${tournament.slug}-backup.json`;
+    link.download = `${tournament.slug}-${fileSuffix ? `${fileSuffix}-` : ""}backup.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -1897,13 +1909,18 @@ export function TournamentProvider({
     URL.revokeObjectURL(url);
   };
 
-  const importTournamentBackup = async (file: File) => {
-    if (!tournament || !isOwnerOrAdmin) {
-      throw new Error("Only a tournament administrator can restore a full backup.");
+  const BACKUP_MAX_BYTES = 50 * 1024 * 1024;
+
+  const readBackupFile = async (file: File): Promise<unknown> => {
+    if (file.size > BACKUP_MAX_BYTES) throw new Error("The backup file is larger than 50 MB.");
+    try {
+      return JSON.parse(await file.text()) as unknown;
+    } catch {
+      throw new Error("The backup file is not valid JSON.");
     }
-    const parsed = parseTournamentBackup(JSON.parse(await file.text()) as unknown, tournament.id);
-    const collections = mergeTournamentBackup({ current: getLocalCollections(), backup: parsed.collections });
-    const restoredTournament = { ...parsed.tournament, ...tournament, id: tournament.id, slug: tournament.slug };
+  };
+
+  const applyCollectionsLocally = (restoredTournament: Tournament, collections: BackupCollections) => {
     const roundsValue = collections.rounds as unknown as Round[];
     setTournament(restoredTournament);
     persistLocal("meta", restoredTournament);
@@ -1928,8 +1945,53 @@ export function TournamentProvider({
       auditEventsRef.current = events;
       setAuditEvents(events);
     });
+  };
+
+  const importTournamentBackup = async (file: File) => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can restore a full backup.");
+    }
+    const parsed = parseTournamentBackup(await readBackupFile(file), tournament.id);
+    const collections = mergeTournamentBackup({ current: getLocalCollections(), backup: parsed.collections });
+    const restoredTournament = { ...parsed.tournament, ...tournament, id: tournament.id, slug: tournament.slug };
+    applyCollectionsLocally(restoredTournament, collections);
     setCloudSyncState("success");
     setCloudSyncMessage("Backup merged. Existing local records were preserved where IDs matched.");
+  };
+
+  const previewTournamentBackup = async (file: File) => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can restore a full backup.");
+    }
+    const validation = validateTournamentBackup(await readBackupFile(file), tournament.id);
+    return {
+      validation,
+      ...(validation.backup
+        ? { diff: diffTournamentBackup({ currentTournament: tournament, current: getLocalCollections(), backup: validation.backup }) }
+        : {}),
+    };
+  };
+
+  const replaceTournamentWithBackup = async (file: File) => {
+    if (!tournament || !isOwnerOrAdmin) {
+      throw new Error("Only a tournament administrator can restore a full backup.");
+    }
+    const backup = parseTournamentBackup(await readBackupFile(file), tournament.id);
+    // Keep a copy of what is about to be replaced before touching anything.
+    exportTournamentBackup("pre-restore");
+    const plan = planTournamentBackupReplace({ currentTournament: tournament, current: getLocalCollections(), backup });
+    applyCollectionsLocally(plan.tournament, plan.collections);
+    // Removed records must also be deleted from the cloud copy on the next upload, and
+    // restored records must not be deleted by an older pending deletion.
+    clearSyncedTombstones(plan.restoredIds);
+    recordSyncTombstones(plan.removedIds);
+    await recordAuditEvent({
+      action: "backup.replaced",
+      category: "tournament",
+      summary: `Tournament data replaced with the backup exported ${backup.exportedAt}.`,
+    });
+    setCloudSyncState("success");
+    setCloudSyncMessage("Tournament data replaced with the backup. A pre-restore backup was downloaded. Upload to update the cloud copy.");
   };
 
   return (
@@ -1972,6 +2034,8 @@ export function TournamentProvider({
         exportTournamentBackup,
         exportTournamentArchive,
         importTournamentBackup,
+        previewTournamentBackup,
+        replaceTournamentWithBackup,
         syncPrivatePortal,
         loadPrivateTeamPortal,
         saveTournament,
