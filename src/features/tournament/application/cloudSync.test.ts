@@ -6,6 +6,7 @@ import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
   hasStaleSyncVersion,
+  mergeCloudIntoWorkingCopy,
   uploadTournamentCommand,
   type CloudCollectionName,
   type CloudRecord,
@@ -333,5 +334,66 @@ describe("tournament cloud synchronization", () => {
     expect(payload.collections.teams[0]).not.toHaveProperty("privatePasscode");
     const teamPayload = payload.collections.teams[0] as unknown as Record<string, unknown>;
     expect((teamPayload.speakers as Array<Record<string, unknown>>)[0]).not.toHaveProperty("email");
+  });
+
+  describe("opening a tournament that has a cloud copy", () => {
+    it("keeps unuploaded local edits and local-only records instead of replacing them", () => {
+      const local = emptyCollections();
+      local.teams = [
+        { id: "t1", name: "Renamed on this device", syncVersion: 2 } as CloudRecord,
+        { id: "t-new", name: "Added on this device" } as CloudRecord,
+      ];
+      local.ballots = [{ id: "b1", confirmed: true, syncVersion: 1 } as CloudRecord];
+      const cloud = emptyCollections();
+      cloud.teams = [{ id: "t1", name: "Old name", syncVersion: 2 } as CloudRecord];
+      cloud.ballots = [{ id: "b1", confirmed: false, syncVersion: 1 } as CloudRecord];
+
+      const merged = mergeCloudIntoWorkingCopy({ cloudCollections: cloud, localCollections: local });
+
+      expect(merged.teams).toEqual(local.teams);
+      expect(merged.ballots).toEqual(local.ballots);
+    });
+
+    it("adds cloud-only records, such as rows another device uploaded", () => {
+      const local = emptyCollections();
+      local.feedback = [{ id: "f-local" } as CloudRecord];
+      const cloud = emptyCollections();
+      cloud.feedback = [{ id: "f-cloud", syncVersion: 1 } as CloudRecord];
+
+      const merged = mergeCloudIntoWorkingCopy({ cloudCollections: cloud, localCollections: local });
+
+      expect(merged.feedback.map((record) => record.id).sort()).toEqual(["f-cloud", "f-local"]);
+    });
+
+    it("does not restore records pending local deletion or soft-deleted in the cloud", () => {
+      const local = emptyCollections();
+      local.venues = [{ id: "v-cloud-deleted" } as CloudRecord];
+      const cloud = emptyCollections();
+      cloud.venues = [
+        { id: "v-cloud-deleted", deletedAt: "2026-01-01T00:00:00.000Z" } as CloudRecord,
+        { id: "v-locally-deleted", syncVersion: 1 } as CloudRecord,
+      ];
+
+      const merged = mergeCloudIntoWorkingCopy({
+        cloudCollections: cloud,
+        localCollections: local,
+        deletions: { venues: ["v-locally-deleted"] },
+      });
+
+      expect(merged.venues).toEqual([]);
+    });
+
+    it("uses the cloud copy without soft-deleted records on a device with no local copy", () => {
+      const cloud = emptyCollections();
+      cloud.teams = [
+        { id: "t1", syncVersion: 1 } as CloudRecord,
+        { id: "t2", deletedAt: "2026-01-01T00:00:00.000Z" } as CloudRecord,
+      ];
+
+      const merged = mergeCloudIntoWorkingCopy({ cloudCollections: cloud, localCollections: null });
+
+      expect(merged.teams).toEqual([{ id: "t1", syncVersion: 1 }]);
+      expect(Object.keys(merged).sort()).toEqual([...CLOUD_COLLECTIONS].sort());
+    });
   });
 });

@@ -27,6 +27,7 @@ import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator
 import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
+  mergeCloudIntoWorkingCopy,
   uploadTournamentCommand,
   type CloudRecord,
   type CloudDeletionMap,
@@ -386,6 +387,14 @@ export function TournamentProvider({
     };
   }, [isPollingPublicView, tournamentSlug, applyPublicProjection]);
 
+  // Only the shared-view flag depends on the route. Keying the load effect on it (not on
+  // `pathname`) stops every in-tournament navigation from re-reading the cloud copy.
+  const isSharedView = Boolean(
+    pathname?.includes("/public") ||
+    pathname?.includes("/private/") ||
+    pathname?.includes("/display")
+  );
+
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
   useEffect(() => {
     let isMounted = true;
@@ -395,10 +404,6 @@ export function TournamentProvider({
       auditEventsRef.current = [];
       setAuditEvents([]);
       if (authLoading) return () => { isMounted = false; };
-      const isSharedView =
-        pathname?.includes("/public") ||
-        pathname?.includes("/private/") ||
-        pathname?.includes("/display");
       if (!user && !isSharedView) {
         setTournament(null);
         setRounds([]);
@@ -495,21 +500,6 @@ export function TournamentProvider({
                   isAssistant = access.role === "dataEntry";
                 }
               }
-              let cloudCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
-              if (isAssistant) {
-                const projection = await loadAssistantProjection(cloudTournamentDoc.id);
-                localTournament = projection.tournament;
-                cloudCollections = projection.collections;
-              } else {
-                localTournament = {
-                  ...data,
-                  id: cloudTournamentDoc.id,
-                  slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
-                } as Tournament;
-                cloudCollections = await repository.getCollections(cloudTournamentDoc.id);
-              }
-              if (!isMounted) return;
-
               const localCollectionNames: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
                 rounds: "rounds",
                 teams: "teams",
@@ -523,6 +513,37 @@ export function TournamentProvider({
                 institutions: "institutions",
                 auditEvents: "auditEvents",
               };
+              let cloudCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
+              if (isAssistant) {
+                const projection = await loadAssistantProjection(cloudTournamentDoc.id);
+                localTournament = projection.tournament;
+                cloudCollections = projection.collections;
+              } else {
+                // Uploads are manual, so the local working copy may hold changes the cloud has
+                // never seen. Merge instead of replacing: local records win, cloud-only records are
+                // added, and cloud soft-deletions and pending local deletions are dropped.
+                const hasLocalCopy = localTournament?.id === cloudTournamentDoc.id;
+                const cloudTournament = {
+                  ...data,
+                  id: cloudTournamentDoc.id,
+                  slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
+                } as Tournament;
+                localTournament = hasLocalCopy && localTournament
+                  ? { ...cloudTournament, ...localTournament, id: cloudTournament.id, slug: cloudTournament.slug }
+                  : cloudTournament;
+                cloudCollections = mergeCloudIntoWorkingCopy({
+                  cloudCollections: await repository.getCollections(cloudTournamentDoc.id),
+                  localCollections: hasLocalCopy
+                    ? Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [
+                        name,
+                        readLocal<CloudRecord[]>(localCollectionNames[name], []),
+                      ])) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>
+                    : null,
+                  deletions: hasLocalCopy ? readSyncTombstones() : {},
+                });
+              }
+              if (!isMounted) return;
+
               const storeCloudCollection = <T,>(
                 name: (typeof CLOUD_COLLECTIONS)[number],
                 setValue: (items: T[]) => void
@@ -548,6 +569,7 @@ export function TournamentProvider({
                     .sort((a, b) => b.seq - a.seq)[0]
                 : undefined;
               setRounds(loadedRounds);
+              persistLocal("rounds", loadedRounds);
               setActiveRound(
                 publicRound || loadedRounds.find((round) => !round.cancelled) || null
               );
@@ -700,7 +722,7 @@ export function TournamentProvider({
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not read tournament data.";
         console.error("Error reading tournament data:", e);
-        if (pathname?.includes("/public") || pathname?.includes("/private/")) {
+        if (isSharedView) {
           setCloudLoadError(`Could not load tournament data: ${message}`);
         }
       } finally {
@@ -712,7 +734,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, pathname, user, authLoading, applyPublicProjection]);
+  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, user, authLoading, applyPublicProjection]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
