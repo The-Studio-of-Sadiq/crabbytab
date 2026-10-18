@@ -1,23 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { LocalStore, createMemoryBackend } from "@/lib/offline/localStore";
 import type { ImportedTournament } from "./debateXmlImport";
 import { isSlugUsedOnDevice, saveImportedTournamentLocally } from "./importedTournamentStorage";
 
-class MemoryStorage {
-  readonly data = new Map<string, string>();
-  failOn?: string;
-
-  getItem(key: string) {
-    return this.data.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string) {
-    if (this.failOn && key.endsWith(this.failOn)) throw new Error("QuotaExceededError");
-    this.data.set(key, value);
-  }
-
-  removeItem(key: string) {
-    this.data.delete(key);
-  }
+function memoryStore(initial: Record<string, string> = {}) {
+  const backend = createMemoryBackend(initial);
+  return { backend, store: new LocalStore(Promise.resolve(backend)) };
 }
 
 function imported(slug = "spring"): ImportedTournament {
@@ -39,27 +27,27 @@ function imported(slug = "spring"): ImportedTournament {
 }
 
 describe("saving an imported tournament on the device", () => {
-  it("writes every collection under the tournament's keys", () => {
-    const storage = new MemoryStorage();
-    saveImportedTournamentLocally(storage, imported());
-    expect(isSlugUsedOnDevice(storage, "spring")).toBe(true);
-    expect(JSON.parse(storage.getItem("crabbytab_t_spring_breaks")!)).toEqual([{ id: "open" }]);
-    expect(JSON.parse(storage.getItem("crabbytab_t_spring_rounds")!)).toEqual([{ id: "round-1" }]);
-    expect(storage.getItem("crabbytab_t_spring_auditEvents")).toBe("[]");
-    expect(storage.data.size).toBe(12);
+  it("writes every collection under the tournament's keys", async () => {
+    const { backend, store } = memoryStore();
+    await saveImportedTournamentLocally(store, imported());
+    expect(await isSlugUsedOnDevice(store, "spring")).toBe(true);
+    expect(JSON.parse(backend.data.get("crabbytab_t_spring_breaks")!)).toEqual([{ id: "open" }]);
+    expect(JSON.parse(backend.data.get("crabbytab_t_spring_rounds")!)).toEqual([{ id: "round-1" }]);
+    expect(backend.data.get("crabbytab_t_spring_auditEvents")).toBe("[]");
+    expect(backend.data.size).toBe(12);
   });
 
-  it("never overwrites an existing tournament", () => {
-    const storage = new MemoryStorage();
-    storage.setItem("crabbytab_t_spring_meta", "{}");
-    expect(() => saveImportedTournamentLocally(storage, imported())).toThrow("already exists");
-    expect(storage.data.size).toBe(1);
+  it("never overwrites an existing tournament", async () => {
+    const { backend, store } = memoryStore({ crabbytab_t_spring_meta: "{}" });
+    await expect(saveImportedTournamentLocally(store, imported())).rejects.toThrow("already exists");
+    expect(backend.data.size).toBe(1);
   });
 
-  it("removes partial writes when storage fails", () => {
-    const storage = new MemoryStorage();
-    storage.failOn = "_ballots";
-    expect(() => saveImportedTournamentLocally(storage, imported())).toThrow("Nothing was imported");
-    expect(storage.data.size).toBe(0);
+  it("leaves nothing behind when storage fails", async () => {
+    const { backend, store } = memoryStore();
+    backend.failWrites = new Error("QuotaExceededError");
+    await expect(saveImportedTournamentLocally(store, imported())).rejects.toThrow("Nothing was imported");
+    expect(backend.data.size).toBe(0);
+    expect(await isSlugUsedOnDevice(store, "spring")).toBe(false);
   });
 });

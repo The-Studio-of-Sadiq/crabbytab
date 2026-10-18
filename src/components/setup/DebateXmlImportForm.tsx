@@ -13,6 +13,7 @@ import {
   type DebateXmlImportResult,
 } from "@/features/tournament/application/debateXmlImport";
 import { isSlugUsedOnDevice, saveImportedTournamentLocally } from "@/features/tournament/application/importedTournamentStorage";
+import { getLocalStore } from "@/lib/offline/localStore";
 
 const COUNT_LABELS: Array<[keyof DebateXmlImportCounts, string]> = [
   ["institutions", "Institutions"],
@@ -85,7 +86,7 @@ export function DebateXmlImportForm() {
   const errors = preview?.issues.filter((issue) => issue.severity === "error") ?? [];
   const warnings = preview?.issues.filter((issue) => issue.severity === "warning") ?? [];
 
-  const handleCreate = (event: React.FormEvent) => {
+  const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     if (!isGlobalAdmin) {
@@ -103,12 +104,12 @@ export function DebateXmlImportForm() {
     }
     setBusy(true);
     try {
-      if (isSlugUsedOnDevice(localStorage, slug)) {
+      if (await isSlugUsedOnDevice(getLocalStore(), slug)) {
         throw new Error(`"${slug}" already exists on this device. Choose a different URL.`);
       }
       const result = runImport(xml, { slug, name: name.trim(), shortName: shortName.trim() });
       if (!result.data) throw new Error("The file has errors and cannot be imported.");
-      saveImportedTournamentLocally(localStorage, result.data);
+      await saveImportedTournamentLocally(getLocalStore(), result.data);
       router.push(`/${slug}`);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "The import failed. Nothing was saved.");

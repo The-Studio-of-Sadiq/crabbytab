@@ -6,8 +6,8 @@ Health check run on beta (2026-10-18): `vitest` 301/301 pass · `next lint` pass
 
 ## Where CrabbyTab stands
 
-**Architecture.** Next.js 15 + React 19, client-side compute. Working copy lives in `localStorage`
-per tournament; Firestore is a manually-triggered upload/download mirror (`AUTOMATIC_CLOUD_WRITES = false`).
+**Architecture.** Next.js 15 + React 19, client-side compute. Working copy lives in IndexedDB
+per tournament (see `storage-and-scale.md`); Firestore is a manually-triggered upload/download mirror (`AUTOMATIC_CLOUD_WRITES = false`).
 Private URLs, assistants and public pages go through server routes (firebase-admin). Beta began a
 clean `features/tournament/{application,infrastructure}` split; `TournamentContext` is down to ~1.9k lines.
 

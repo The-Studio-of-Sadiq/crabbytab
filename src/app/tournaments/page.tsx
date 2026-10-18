@@ -17,6 +17,16 @@ import {
 import type { Tournament } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
+import { getLocalStore, readLocalTournamentMetas } from "@/lib/offline/localStore";
+
+async function readDeviceTournaments() {
+  try {
+    return await readLocalTournamentMetas(getLocalStore());
+  } catch (error) {
+    console.warn("Could not read tournaments saved on this device:", error);
+    return [];
+  }
+}
 import { getFormatPreset } from "@/lib/setup/presets";
 import { SetupShell } from "@/components/setup/SetupShell";
 
@@ -92,11 +102,9 @@ export default function TournamentsHubPage() {
       if (!user) {
         if (typeof window !== "undefined") {
           const local: Summary[] = [];
-          for (let index = 0; index < localStorage.length; index++) {
-            const key = localStorage.key(index);
-            if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
+          for (const { key, raw } of await readDeviceTournaments()) {
             try {
-              const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
+              const value = JSON.parse(raw) as Partial<Tournament> | null;
               if (value?.id && value.slug && value.name && value.format && value.createdAt) {
                 local.push({
                   id: value.id,
@@ -127,11 +135,9 @@ export default function TournamentsHubPage() {
         const accessible = result.tournaments || [];
         const merged = new Map(accessible.map((tournament) => [tournament.id, tournament]));
         if (typeof window !== "undefined") {
-          for (let index = 0; index < localStorage.length; index++) {
-            const key = localStorage.key(index);
-            if (!key?.startsWith("crabbytab_t_") || !key.endsWith("_meta")) continue;
+          for (const { key, raw } of await readDeviceTournaments()) {
             try {
-              const value = JSON.parse(localStorage.getItem(key) || "null") as Partial<Tournament> | null;
+              const value = JSON.parse(raw) as Partial<Tournament> | null;
               if (
                 value?.id && value.slug && value.name && value.format && value.createdAt &&
                 isGlobalAdmin &&

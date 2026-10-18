@@ -43,6 +43,7 @@ import {
   type WorkingCopyMerge,
 } from "@/features/tournament/application/cloudSync";
 import { safeJsonParse } from "@/lib/safeJson";
+import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
@@ -279,7 +280,8 @@ export function TournamentProvider({
     (key: string, data: any) => {
       if (typeof window === "undefined") return;
       try {
-        localStorage.setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
+        // In memory now, on disk (IndexedDB) a moment later; disk failures arrive via onWriteError below.
+        getLocalStore().setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Local storage is unavailable.";
         setLocalSaveError(`Could not save ${key} locally: ${message}`);
@@ -289,13 +291,25 @@ export function TournamentProvider({
     [storagePrefix]
   );
 
-  // Per-device sync queues kept in localStorage: ids to delete from the cloud ("syncTombstones")
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const keyPrefix = `${storagePrefix}_`;
+    return getLocalStore().onWriteError((keys, error) => {
+      const names = keys.filter((key) => key.startsWith(keyPrefix)).map((key) => key.slice(keyPrefix.length));
+      if (names.length === 0) return;
+      const message = error instanceof Error ? error.message : "Device storage is unavailable.";
+      setLocalSaveError(`Could not save ${names.join(", ")} locally: ${message}`);
+      console.error("Local save failed:", error);
+    });
+  }, [storagePrefix]);
+
+  // Per-device sync queues kept in the working copy: ids to delete from the cloud ("syncTombstones")
   // and ids restored from a backup that must overwrite the cloud copy ("syncOverwrites").
   type SyncIdQueue = "syncTombstones" | "syncOverwrites";
 
   const readSyncIds = (queue: SyncIdQueue): CloudDeletionMap => {
     if (typeof window === "undefined") return {};
-    const raw = localStorage.getItem(`${storagePrefix}_${queue}`);
+    const raw = getLocalStore().getItem(`${storagePrefix}_${queue}`);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -348,7 +362,7 @@ export function TournamentProvider({
   const readSyncBaseline = (): SyncBaseline =>
     typeof window === "undefined"
       ? {}
-      : parseSyncBaseline(safeJsonParse<unknown>(localStorage.getItem(`${storagePrefix}_syncBaseline`), {}));
+      : parseSyncBaseline(safeJsonParse<unknown>(getLocalStore().getItem(`${storagePrefix}_syncBaseline`), {}));
 
   const saveSyncState = (baseline: SyncBaseline, diverged?: DivergedRecord[]) => {
     persistLocal("syncBaseline", baseline);
@@ -464,8 +478,11 @@ export function TournamentProvider({
       }
       try {
         if (typeof window === "undefined" || !isMounted) return;
+        const localStore = getLocalStore();
+        await localStore.loadPrefix(`${storagePrefix}_`);
+        if (!isMounted) return;
         const readLocal = <T,>(key: string, fallback: T): T =>
-          safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
+          safeJsonParse<T>(localStore.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
         setDivergedRecords(parseDivergedRecords(readLocal<unknown>("syncDiverged", [])));
         const loadPublicProjection = async () => {
@@ -828,7 +845,7 @@ export function TournamentProvider({
     setPrivateSyncMessage("Syncing submissions and downloading saved ballots and feedback…");
     try {
       const pending = safeJsonParse<PrivateSyncItem[]>(
-        typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+        typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
         []
       );
       const response = await fetch("/api/private/sync", {
@@ -992,7 +1009,7 @@ export function TournamentProvider({
     passcode?: string
   ) => {
     const current = safeJsonParse<PrivateSyncItem[]>(
-      typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+      typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
       []
     );
     const queued = [
@@ -1048,9 +1065,9 @@ export function TournamentProvider({
           throw new Error(result.error || `Access verification failed (${response.status}).`);
         }
         if (active && result.role === "dataEntry" && typeof window !== "undefined") {
-          const safeTeams = safeJsonParse<Team[]>(localStorage.getItem(`${storagePrefix}_teams`), [])
+          const safeTeams = safeJsonParse<Team[]>(getLocalStore().getItem(`${storagePrefix}_teams`), [])
             .map(sanitizeAssistantTeam);
-          const safeAdjudicators = safeJsonParse<Adjudicator[]>(localStorage.getItem(`${storagePrefix}_adjudicators`), [])
+          const safeAdjudicators = safeJsonParse<Adjudicator[]>(getLocalStore().getItem(`${storagePrefix}_adjudicators`), [])
             .map(sanitizeAssistantAdjudicator);
           setTeams(safeTeams);
           persistLocal("teams", safeTeams);

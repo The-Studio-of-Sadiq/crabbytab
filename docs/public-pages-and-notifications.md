@@ -46,7 +46,7 @@ Home / End jump, Esc returns to the draw.
 
 Public viewers only see released motions (the projection holds nothing else). Signed-in users whose
 administrator role is confirmed by `/api/tournaments/[id]/access` can preview unreleased motions;
-those come from the administrator's own working copy in this browser's local storage, never from a
+those come from the administrator's own working copy on this device (IndexedDB), never from a
 server response.
 
 ## Automatic notifications
