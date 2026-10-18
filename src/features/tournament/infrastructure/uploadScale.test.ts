@@ -104,8 +104,9 @@ describe("upload cost for a 1000-team tournament", () => {
     const records = count(collections);
     const initial = await measuredUpload(collections, {});
     expect(initial.conflicts).toBe(0);
-    // One write per record plus the settings; audit events are created without reading them.
-    expect(initial.writes).toBeLessThanOrEqual(records + 2);
+    // One write per record plus the settings and the participant-index marker; audit events are
+    // created without reading them.
+    expect(initial.writes).toBeLessThanOrEqual(records + 3);
     expect(initial.reads).toBeLessThanOrEqual(records - collections.auditEvents.length + 10);
     // Many records per commit instead of one transaction per record.
     expect(initial.commits).toBeLessThan(records / 100);

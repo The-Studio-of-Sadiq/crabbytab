@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate } from "@/types";
-import { isTabRoomConfirmed, planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "./privateSync";
+import {
+  debateParticipantIds,
+  hasCurrentParticipantIds,
+  isTabRoomConfirmed,
+  planPrivateBallotWrites,
+  selectAssignedDebates,
+  supersededBallotUpdate,
+  withoutParticipantIds,
+} from "./privateSync";
 
 function debate(id: string, overrides: Partial<Debate> = {}): Debate {
   return {
@@ -129,5 +137,30 @@ describe("supersededBallotUpdate", () => {
   it("discards the earlier ballot and moves its sync version on", () => {
     expect(supersededBallotUpdate({ confirmed: true, discarded: false })).toEqual({ confirmed: false, discarded: true, syncVersion: 1 });
     expect(supersededBallotUpdate({ confirmed: true, syncVersion: 4 })).toEqual({ confirmed: false, discarded: true, syncVersion: 5 });
+  });
+});
+
+describe("debate participant index", () => {
+  it("lists every team and adjudicator in the room once, sorted", () => {
+    expect(debateParticipantIds(debate("d1"))).toEqual(["chair", "panel", "team-a", "team-b", "trainee"]);
+    expect(debateParticipantIds(debate("d2", {
+      adjudicators: { chairId: "team-a", panellistIds: [] } as unknown as Debate["adjudicators"],
+    }))).toEqual(["team-a", "team-b"]);
+    expect(debateParticipantIds({ teams: {} as Debate["teams"], adjudicators: undefined as unknown as Debate["adjudicators"] })).toEqual([]);
+  });
+
+  it("is current only when it matches the room exactly", () => {
+    const record = debate("d1") as unknown as Record<string, unknown>;
+    expect(hasCurrentParticipantIds(record)).toBe(false);
+    expect(hasCurrentParticipantIds({ ...record, participantIds: ["chair", "panel", "team-a", "team-b", "trainee"] })).toBe(true);
+    // A panel change makes it stale.
+    expect(hasCurrentParticipantIds({ ...record, participantIds: ["chair", "team-a", "team-b"] })).toBe(false);
+  });
+
+  it("is stripped without touching other fields", () => {
+    const record = { id: "d1", participantIds: ["a"], roundId: "r1" };
+    expect(withoutParticipantIds(record)).toEqual({ id: "d1", roundId: "r1" });
+    const plain = { id: "d2" };
+    expect(withoutParticipantIds(plain)).toBe(plain);
   });
 });

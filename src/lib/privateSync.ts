@@ -3,6 +3,39 @@ import type { BallotSubmission, Debate } from "@/types";
 export type PrivateActorType = "adjudicator" | "team";
 
 /**
+ * Debates in Firestore carry `participantIds` (every team and adjudicator in the room), so a private
+ * portal can query `array-contains` its own id instead of reading every debate. It is derived from
+ * the debate, written by the cloud writers and ignored by sync hashing; the device's working copy
+ * never needs it. `data/participantIndex` records that every debate of a tournament has it.
+ */
+export const PARTICIPANT_IDS_FIELD = "participantIds";
+export const PARTICIPANT_INDEX_DOCUMENT = "participantIndex";
+export const PARTICIPANT_INDEX_VERSION = 1;
+
+export function debateParticipantIds(debate: Pick<Debate, "teams" | "adjudicators">): string[] {
+  const ids = new Set<string>();
+  for (const slot of Object.values(debate.teams || {})) if (slot?.teamId) ids.add(slot.teamId);
+  const panel = debate.adjudicators;
+  if (panel?.chairId) ids.add(panel.chairId);
+  for (const id of panel?.panellistIds || []) ids.add(id);
+  for (const id of panel?.traineeIds || []) ids.add(id);
+  return [...ids].sort();
+}
+
+/** The index is up to date when it holds exactly the debate's participants. */
+export function hasCurrentParticipantIds(record: Record<string, unknown>): boolean {
+  const stored = record[PARTICIPANT_IDS_FIELD];
+  const expected = debateParticipantIds(record as unknown as Debate);
+  return Array.isArray(stored) && stored.length === expected.length && stored.every((id, index) => id === expected[index]);
+}
+
+export function withoutParticipantIds<T extends object>(record: T): T {
+  if (!(PARTICIPANT_IDS_FIELD in record)) return record;
+  const { [PARTICIPANT_IDS_FIELD]: _ignored, ...rest } = record as Record<string, unknown>;
+  return rest as T;
+}
+
+/**
  * Debates the private-URL actor may see or submit for. Built only from live
  * (non-deleted) debates so a soft-deleted debate can never crash the lookup.
  */

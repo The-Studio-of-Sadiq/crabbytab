@@ -6,6 +6,7 @@ import {
   limit,
   query,
   runTransaction,
+  setDoc,
   where,
   writeBatch,
   type DocumentReference,
@@ -25,6 +26,14 @@ import type {
 } from "@/features/tournament/application/cloudSync";
 import { hasStaleSyncVersion } from "@/features/tournament/application/cloudSync";
 import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
+import {
+  PARTICIPANT_IDS_FIELD,
+  PARTICIPANT_INDEX_DOCUMENT,
+  PARTICIPANT_INDEX_VERSION,
+  debateParticipantIds,
+  hasCurrentParticipantIds,
+  withoutParticipantIds,
+} from "@/lib/privateSync";
 import { cleanUndefined } from "./firestore";
 
 function canonicalize(value: unknown): unknown {
@@ -44,9 +53,18 @@ function recordsEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
+/** Content compared between versions: without the cloud's stamps and derived participant index. */
 function withoutUpdatedAt(data: Record<string, unknown>): Record<string, unknown> {
-  const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = data;
+  const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = withoutParticipantIds(data);
   return rest;
+}
+
+/** What is stored in the cloud for a record: debates also get their participant index. */
+function cloudRecordFor(collectionName: CloudCollectionName, item: CloudRecord): CloudRecord {
+  const clean = cleanUndefined(withoutParticipantIds(item));
+  return collectionName === "debates"
+    ? { ...clean, [PARTICIPANT_IDS_FIELD]: debateParticipantIds(clean as never) } as CloudRecord
+    : clean;
 }
 
 /**
@@ -82,7 +100,7 @@ function writeRecordInTransaction(input: {
   newConflictRef: () => DocumentReference;
 }): { conflict: boolean; syncVersion: number } {
   const { transaction, collectionName, item, snapshot, restored, recordRef } = input;
-  const cleanRecord = cleanUndefined(item);
+  const cleanRecord = cloudRecordFor(collectionName, item);
   if (collectionName === "auditEvents" && snapshot.exists()) {
     return { conflict: false, syncVersion: Number(snapshot.data()?.syncVersion) || 0 };
   }
@@ -111,6 +129,10 @@ function writeRecordInTransaction(input: {
     return { conflict: true, syncVersion: currentVersion };
   }
   if (recordsEqual(withoutUpdatedAt(current), withoutUpdatedAt(cleanRecord))) {
+    // Same content; only bring a missing or outdated participant index up to date.
+    if (collectionName === "debates" && !hasCurrentParticipantIds(current)) {
+      transaction.update(recordRef, { [PARTICIPANT_IDS_FIELD]: debateParticipantIds(current as never) });
+    }
     return { conflict: false, syncVersion: currentVersion };
   }
   if (!restored && hasStaleSyncVersion(incomingVersion, currentVersion)) {
@@ -256,8 +278,9 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       return Object.fromEntries(
         CLOUD_COLLECTIONS.map((name, index) => [
           name,
+          // The participant index is cloud-only; the working copy never holds it.
           snapshots[index].docs.map((document) => ({
-            ...document.data(),
+            ...withoutParticipantIds(document.data()),
             id: document.id,
           })),
         ])
@@ -353,6 +376,27 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         }
       }
       return archivedConflictCount;
+    },
+    async ensureParticipantIndex(tournamentId, options = {}) {
+      const firestoreDb = getFirestore();
+      const markerRef = doc(firestoreDb, "tournaments", tournamentId, "data", PARTICIPANT_INDEX_DOCUMENT);
+      const marker = await getDoc(markerRef);
+      if (marker.exists() && marker.data()?.version === PARTICIPANT_INDEX_VERSION) return 0;
+      // One pass over the tournament's debates (once per tournament): give every debate the index
+      // without changing its syncVersion, since its content is unchanged.
+      const stale = options.createdByThisUpload
+        ? []
+        : (await getDocs(collection(firestoreDb, "tournaments", tournamentId, "debates"))).docs
+          .filter((document) => !hasCurrentParticipantIds(document.data()));
+      for (const chunk of chunked(stale, UPLOAD_BATCH_SIZE)) {
+        const batch = writeBatch(firestoreDb);
+        for (const document of chunk) {
+          batch.update(document.ref, { [PARTICIPANT_IDS_FIELD]: debateParticipantIds(document.data() as never) });
+        }
+        await batch.commit();
+      }
+      await setDoc(markerRef, { version: PARTICIPANT_INDEX_VERSION, indexedAt: new Date().toISOString() });
+      return stale.length;
     },
     async getSyncConflicts(tournamentId) {
       const firestoreDb = getFirestore();

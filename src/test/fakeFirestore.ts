@@ -167,6 +167,14 @@ export function writeBatch(_db: unknown) {
       paths.push(ref.path);
       writes.push(() => fakeStore.documents.set(ref.path, structuredClone(data)));
     },
+    update: (ref: DocRef, data: Data) => {
+      paths.push(ref.path);
+      writes.push(() => {
+        const current = fakeStore.documents.get(ref.path);
+        if (current === undefined) throw new Error(`not-found: ${ref.path}`);
+        fakeStore.documents.set(ref.path, { ...current, ...structuredClone(data) });
+      });
+    },
     delete: (ref: DocRef) => {
       paths.push(ref.path);
       writes.push(() => fakeStore.documents.delete(ref.path));

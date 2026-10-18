@@ -63,3 +63,29 @@ adjudicators, 8 rounds played, 10,299 records):
 Writes are already proportional to changes; the initial upload of a 1000-team event (~10k writes)
 fits in Spark's 20k writes/day, but several full uploads a day do not, so plan on Blaze for events
 of that size. Security-rule `get()` lookups are billed per request, so batching also cuts those.
+
+## Private portals: participant-scoped reads
+
+Each debate in Firestore carries `participantIds`: the ids of every team and adjudicator in the
+room (`debateParticipantIds` in `src/lib/privateSync.ts`). It is derived, cloud-only data:
+
+- The admin upload writes it on every debate it sends and refreshes it when a panel or draw
+  changes; when only the index is missing or outdated it is updated without bumping `syncVersion`
+  or archiving a conflict. Sync hashing and comparisons ignore it, and downloads strip it, so the
+  working copy (and the public projection built from it) never holds it.
+- **Backfill.** `tournaments/{id}/data/participantIndex` (`{ version: 1 }`) records that every
+  debate has the index. The first upload after this change reads the tournament's debates once,
+  updates those without a current index in batches, then writes the marker; later uploads only read
+  the marker. A tournament first created by an upload is marked without the scan.
+- `/api/private/sync` and `/api/private/team` read the participant's debates with
+  `array-contains` once the marker exists (and every debate before that), the teams of those
+  debates by id, and their ballots with `debateId in [...]` (30 per query). Assignment, draw release,
+  adjudicator reveal and result-release checks still run on the debate content itself, so a stale
+  index can hide a debate but never expose or authorise one.
+
+For a 1000-team BP event (2,250 debates over 9 rounds) a team portal load reads ~10 debates
+instead of 2,250, plus its ~30 opponents' team documents instead of 1,000, and its ~9 debates'
+ballots instead of all ~2,250.
+
+Known limit: a debate written to the cloud by an older client after the marker exists has no index
+until the next admin upload that sends it.

@@ -39,6 +39,12 @@ export interface TournamentCloudRepository {
     overwrites?: CloudOverwriteMap
   ): Promise<number>;
   getSyncConflicts(tournamentId: string): Promise<SyncConflict[]>;
+  /**
+   * Makes sure every cloud debate carries its participant index (one pass per tournament, then a
+   * single read per upload). `createdByThisUpload`: the tournament was new in the cloud, so every
+   * debate in it was just written with the index. Returns how many debates it updated.
+   */
+  ensureParticipantIndex?(tournamentId: string, options?: { createdByThisUpload?: boolean }): Promise<number>;
 }
 
 export interface SyncConflict {
@@ -142,6 +148,12 @@ export async function uploadTournamentCommand(input: {
       deletions,
       overwrites
     );
+    try {
+      await repository.ensureParticipantIndex?.(tournament.id, { createdByThisUpload: !cloudTournament });
+    } catch (error) {
+      // The records are uploaded; private portals read every debate until a later upload indexes them.
+      console.warn("Could not index debates by participant:", error);
+    }
   } finally {
     const baseline = baselineAfterUpload(input.baseline || {}, localCollections, versionsBeforeUpload);
     // The settings were written (or already matched the cloud) unless the upload hit a newer version.
@@ -234,8 +246,9 @@ function stableStringify(value: unknown): string {
  * unchanged, and then the record takes the cloud version, which is a real state of the record.
  */
 export function syncContentHash(record: CloudRecord): string {
-  const { syncVersion: _syncVersion, updatedAt: _updatedAt, ...content } = record as CloudRecord & {
+  const { syncVersion: _syncVersion, updatedAt: _updatedAt, participantIds: _participantIds, ...content } = record as CloudRecord & {
     updatedAt?: unknown;
+    participantIds?: unknown;
   };
   const text = stableStringify(content);
   let h1 = 0xdeadbeef;
