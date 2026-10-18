@@ -7,6 +7,13 @@ together in one interface.
 
 CrabbyTab is an independent project and is not affiliated with Tabbycat.
 
+## Documentation
+
+The [CrabbyTab wiki](https://github.com/The-Studio-of-Sadiq/crabbytab/wiki)
+has installation and deployment guides, an organiser guide for running a
+tournament, a settings reference, a comparison with Tabbycat and developer
+notes. Algorithm details live in [`docs/`](./docs).
+
 ## What it can do
 
 - Create tournaments with a guided setup wizard and configurable formats,
