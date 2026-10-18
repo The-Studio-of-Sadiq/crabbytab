@@ -1417,6 +1417,7 @@ export function TournamentProvider({
           setBallots(items);
           persistLocal("ballots", items);
         },
+        markDebatesRemoved: (debateIds) => recordSyncTombstones({ debates: debateIds }),
         saveRounds: (items, active) => {
           setRounds(items);
           setActiveRound(active);
