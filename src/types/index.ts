@@ -352,6 +352,8 @@ export interface DebateTeamSlot {
   speakerScoreTotal?: number;
   /** Set by the draw generator when this team was moved up from a lower bracket to fill a room. */
   pulledUp?: boolean;
+  /** Elimination rounds: bracket position (break seed, then inherited from the room the team advanced from). */
+  bracketPosition?: number;
 }
 
 export interface DebateAdjudicatorSlot {
