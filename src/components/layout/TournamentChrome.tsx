@@ -6,6 +6,28 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { ToastProvider } from "@/components/ui/Toast";
+import { Alert } from "@/components/ui/Feedback";
+import { cn } from "@/components/ui/cn";
+
+/**
+ * Tournament pages already rebuilt on the design system (docs/design-system.md).
+ * Every other page renders inside a `.theme-light` panel so its hard-coded
+ * light colours stay legible when the shell is in dark mode. Add a route here
+ * once it has been migrated.
+ */
+const THEMED_SUBPATHS = new Set(["", "/results", "/standings"]);
+
+function isThemedRoute(pathname: string | null, tournamentSlug: string) {
+  if (!pathname) return false;
+  const prefix = `/${tournamentSlug}`;
+  if (!pathname.startsWith(prefix)) return false;
+  return THEMED_SUBPATHS.has(pathname.slice(prefix.length).replace(/\/$/, ""));
+}
+
+function ShellMessage({ children }: { children: React.ReactNode }) {
+  return <div className="themed flex min-h-screen items-start justify-center p-6">{children}</div>;
+}
 
 export function TournamentChrome({
   tournamentSlug,
@@ -26,6 +48,7 @@ export function TournamentChrome({
     staffAccessLoading,
     staffAccessError,
   } = useTournament();
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const isDisplay = pathname?.includes("/display");
   const isPublicRoute = Boolean(pathname && (
     /\/(public|display)(\/|$)/.test(pathname) ||
@@ -44,6 +67,10 @@ export function TournamentChrome({
     }
   }, [authLoading, isPublicRoute, pathname, router, tournamentSlug, user]);
 
+  React.useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
   if (isPublicRoute) {
     return isDisplay
       ? <div className="min-h-screen bg-[#1b1f23]">{children}</div>
@@ -51,45 +78,77 @@ export function TournamentChrome({
   }
 
   if (authLoading || !user) {
-    return <div role="status" className="p-6 text-sm text-gray-600">Redirecting to sign in…</div>;
+    return (
+      <ShellMessage>
+        <p role="status" className="text-[13px] text-fg-muted">Redirecting to sign in…</p>
+      </ShellMessage>
+    );
   }
 
   if (tournamentLoading || staffAccessLoading) {
-    return <div role="status" className="p-6 text-sm text-gray-600">Checking tournament access…</div>;
+    return (
+      <ShellMessage>
+        <p role="status" className="text-[13px] text-fg-muted">Checking tournament access…</p>
+      </ShellMessage>
+    );
   }
 
   if (!tournament || (!isOwnerOrAdmin && !isDataEntryAssistant)) {
     return (
-      <div role="alert" className="m-6 max-w-2xl space-y-2 border border-red-200 bg-red-50 p-5 text-sm text-red-900">
-        <h1 className="font-semibold">Tournament access denied</h1>
-        <p>{staffAccessError || cloudLoadError || "Your account is not assigned to this tournament."}</p>
-        <p>Ask a tournament administrator to grant your account access.</p>
-      </div>
+      <ShellMessage>
+        <Alert role="alert" tone="danger" title={<span className="text-sm">Tournament access denied</span>} className="w-full max-w-2xl">
+          <p>{staffAccessError || cloudLoadError || "Your account is not assigned to this tournament."}</p>
+          <p className="mt-1">Ask a tournament administrator to grant your account access.</p>
+        </Alert>
+      </ShellMessage>
     );
   }
 
-  if (isAdminRoute && !isOwnerOrAdmin) {
-    return (
-      <div role="alert" className="m-6 max-w-2xl space-y-2 border border-red-200 bg-red-50 p-5 text-sm text-red-900">
-        <h1 className="font-semibold">Tournament access could not be confirmed</h1>
-        <p>{staffAccessError || "Your signed-in account is not authorized for this operation."}</p>
-        <p className="text-red-800">
-          Private URLs, email tools, draws, allocations, and settings require a verified tournament administrator.
-          If you own this tournament, check the server Firebase credentials and that your account is listed as its owner or admin.
-        </p>
-      </div>
-    );
-  }
+  const themed = isThemedRoute(pathname, tournamentSlug);
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
-      <Navbar tournamentSlug={tournamentSlug} />
-      <div className="flex flex-1 overflow-hidden max-md:flex-col max-md:overflow-visible">
-        <Sidebar tournamentSlug={tournamentSlug} />
-        <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-6 bg-white max-w-7xl mx-auto w-full max-md:overflow-visible max-sm:px-3 max-sm:py-4">
-          {children}
-        </main>
+    <ToastProvider>
+      <div className="themed flex min-h-screen flex-col">
+        <a
+          href="#main-content"
+          className="sr-only z-[90] rounded-md bg-surface px-3 py-2 text-[13px] font-medium text-fg focus:not-sr-only focus:fixed focus:left-3 focus:top-2 focus:outline-none focus:ring-2 focus:ring-accent"
+        >
+          Skip to content
+        </a>
+        <Navbar
+          tournamentSlug={tournamentSlug}
+          navOpen={mobileNavOpen}
+          onOpenNav={() => setMobileNavOpen(true)}
+        />
+        <div className="flex flex-1">
+          <Sidebar
+            tournamentSlug={tournamentSlug}
+            mobileOpen={mobileNavOpen}
+            onMobileClose={() => setMobileNavOpen(false)}
+          />
+          <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+            <div className="mx-auto w-full max-w-content px-3 py-4 sm:px-4 lg:px-6 lg:py-6">
+              {isAdminRoute && !isOwnerOrAdmin ? (
+                <Alert role="alert" tone="danger" title={<span className="text-sm">Tournament access could not be confirmed</span>} className="max-w-2xl">
+                  <p>{staffAccessError || "Your signed-in account is not authorized for this operation."}</p>
+                  <p className="mt-1">
+                    Private URLs, email tools, draws, allocations, and settings require a verified tournament administrator.
+                    If you own this tournament, check the server Firebase credentials and that your account is listed as its owner or admin.
+                  </p>
+                </Alert>
+              ) : (
+                <div
+                  className={cn(
+                    !themed && "theme-light rounded-lg border border-border bg-white p-4 text-gray-900 md:p-6"
+                  )}
+                >
+                  {children}
+                </div>
+              )}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }

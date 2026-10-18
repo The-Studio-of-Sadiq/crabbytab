@@ -7,23 +7,96 @@ import { useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { BackupRestoreDialog } from "@/features/tournament/components/BackupRestoreDialog";
+import { Button, iconButtonClasses, IconButton } from "@/components/ui/Button";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Dialog } from "@/components/ui/Dialog";
+import { Input, Select } from "@/components/ui/Field";
 import {
-  ExternalLink,
-  Plus,
-  Layers,
-  ChevronDown,
-  LogOut,
-  Shield,
+  DropdownMenu,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/DropdownMenu";
+import { ThemeMenuItems, ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
+import { describeRoundStatus } from "@/components/layout/roundStatus";
+import {
+  ChevronsUpDown,
   Cloud,
-  CloudOff,
-  Upload,
   CloudDownload,
+  CloudOff,
   CloudUpload,
   Download,
+  ExternalLink,
+  FilePlus2,
+  Import,
   KeyRound,
+  Layers,
+  Loader2,
+  LogOut,
+  Menu,
+  Plus,
+  Shield,
+  Upload,
 } from "lucide-react";
 
-export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
+type RoundStage = "preliminary" | "elimination";
+
+function SyncStatus({ isOnline }: { isOnline: boolean }) {
+  const { cloudSyncState, cloudSyncMessage, localSaveError } = useTournament();
+
+  const pill = localSaveError ? (
+    <StatusPill tone="danger" title={localSaveError}>
+      <span className="max-sm:sr-only">Not saved</span>
+    </StatusPill>
+  ) : cloudSyncState === "syncing" ? (
+    <StatusPill tone="info" icon={<Loader2 className="animate-spin" aria-hidden="true" />}>
+      <span className="max-sm:sr-only">Syncing…</span>
+    </StatusPill>
+  ) : cloudSyncState === "error" ? (
+    <StatusPill tone="danger" title={cloudSyncMessage}>
+      <span className="max-sm:sr-only">Sync failed</span>
+    </StatusPill>
+  ) : !isOnline ? (
+    <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title="Offline; changes are saved locally">
+      <span className="max-sm:sr-only">Offline</span>
+    </StatusPill>
+  ) : (
+    <StatusPill tone="neutral" icon={<Cloud aria-hidden="true" />} title="Offline-first; changes are saved locally">
+      <span className="max-sm:sr-only">Local copy</span>
+    </StatusPill>
+  );
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {pill}
+      {cloudSyncMessage && (
+        <span
+          role="status"
+          className={`hidden max-w-[220px] truncate text-xs xl:inline ${cloudSyncState === "error" ? "text-danger" : "text-fg-muted"}`}
+          title={cloudSyncMessage}
+        >
+          {cloudSyncMessage}
+        </span>
+      )}
+      {localSaveError && (
+        <span role="alert" className="hidden max-w-[220px] truncate text-xs text-danger xl:inline" title={localSaveError}>
+          {localSaveError}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function Navbar({
+  tournamentSlug,
+  onOpenNav,
+  navOpen,
+}: {
+  tournamentSlug: string;
+  onOpenNav: () => void;
+  navOpen: boolean;
+}) {
   const router = useRouter();
   const {
     tournament,
@@ -32,8 +105,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     setActiveRound,
     createRound,
     cloudSyncState,
-    cloudSyncMessage,
-    localSaveError,
     isOwnerOrAdmin,
     isDataEntryAssistant,
     uploadToCloud,
@@ -45,12 +116,12 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     syncDataEntry,
   } = useTournament();
   const { user, logout } = useAuth();
+  const { preference, setPreference } = useThemePreference();
   const [isOnline, setIsOnline] = useState(true);
   const [showRoundModal, setShowRoundModal] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [newRoundName, setNewRoundName] = useState("");
   const [newRoundAbbr, setNewRoundAbbr] = useState("");
-  const [newRoundStage, setNewRoundStage] = useState<"preliminary" | "elimination">("preliminary");
+  const [newRoundStage, setNewRoundStage] = useState<RoundStage>("preliminary");
   const [isCreatingRound, setIsCreatingRound] = useState(false);
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
 
@@ -64,6 +135,8 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
       window.removeEventListener("offline", updateOnlineStatus);
     };
   }, []);
+
+  const isSyncing = cloudSyncState === "syncing";
 
   const handleUpload = async () => {
     if (!window.confirm(
@@ -94,7 +167,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   };
 
   const handleRepublish = async () => {
-    setShowUserMenu(false);
     try {
       await publishPublicView(true);
     } catch {
@@ -103,7 +175,6 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
   };
 
   const handleExportRecovery = async () => {
-    setShowUserMenu(false);
     try {
       await exportSyncRecovery();
     } catch {
@@ -142,343 +213,291 @@ export function Navbar({ tournamentSlug }: { tournamentSlug: string }) {
     }
   };
 
+  const tournamentName = tournament?.shortName || tournament?.name || tournamentSlug;
+  const formatLabel = tournament?.format === "bp" ? "BP (4-Team)" : "UADC (2-Team)";
+  const activeStatus = activeRound ? describeRoundStatus(activeRound) : null;
+  const userInitial = user?.displayName ? user.displayName.charAt(0).toUpperCase() : "T";
+
   return (
-    <header className="bg-[#24292e] text-white border-b border-[#1b1f23] sticky top-0 z-50 select-none">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {showRestoreDialog && <BackupRestoreDialog onClose={() => setShowRestoreDialog(false)} />}
-        <div className="flex items-center justify-between h-14 max-md:h-auto max-md:min-h-14 max-md:flex-wrap max-md:gap-y-2 max-md:py-2">
-          {/* Brand & Tournament Name */}
-          <div className="flex min-w-0 items-center space-x-2 sm:space-x-4">
-            <Link
-              href="/"
-              className="flex shrink-0 items-center space-x-2 text-white font-bold tracking-tight text-lg hover:text-gray-200 transition"
-            >
-              <Image src="/crabbytab.svg" alt="" width={32} height={32} className="h-8 w-8" />
-              <span className="hidden sm:inline">CrabbyTab</span>
-            </Link>
+    <header className="sticky top-0 z-50 h-topbar shrink-0 border-b border-border bg-surface">
+      {showRestoreDialog && <BackupRestoreDialog onClose={() => setShowRestoreDialog(false)} />}
+      <div className="flex h-full items-center gap-1 px-2 sm:gap-2 sm:px-3">
+        <IconButton
+          label="Open navigation"
+          icon={<Menu />}
+          onClick={onOpenNav}
+          aria-expanded={navOpen}
+          aria-controls="tournament-navigation"
+          className="lg:hidden"
+        />
 
-            <span className="text-gray-600 hidden sm:inline">/</span>
+        <Link
+          href="/"
+          className={iconButtonClasses({ className: "max-sm:hidden" })}
+          aria-label="CrabbyTab home"
+          title="CrabbyTab home"
+        >
+          <Image src="/crabbytab.svg" alt="" width={24} height={24} className="h-6 w-6" />
+        </Link>
 
-            <div className="flex min-w-0 items-center space-x-2">
-              <span className="font-semibold text-gray-100 text-sm md:text-base truncate max-w-[200px] md:max-w-[320px]">
-                {tournament?.shortName || tournament?.name || tournamentSlug}
+        {/* Tournament switcher */}
+        <DropdownMenu
+          triggerLabel={`Tournament: ${tournamentName}`}
+          triggerClassName="h-8 min-w-0 max-w-[30vw] px-2 sm:max-w-[320px]"
+          trigger={
+            <>
+              <span className="truncate font-semibold">{tournamentName}</span>
+              <Badge className="max-md:hidden">{formatLabel}</Badge>
+              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
+            </>
+          }
+        >
+          <DropdownMenuLabel>{formatLabel}</DropdownMenuLabel>
+          <DropdownMenuItem href="/" icon={<Layers />}>All tournaments</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/new" icon={<FilePlus2 />}>New tournament</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/import" icon={<Import />}>Import tournament</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem href={`/${tournamentSlug}/public`} external icon={<ExternalLink />}>
+            Open public tab
+          </DropdownMenuItem>
+        </DropdownMenu>
+
+        <span className="text-fg-subtle max-sm:hidden" aria-hidden="true">/</span>
+
+        {/* Round switcher (visible at every width so rounds can be changed and created on mobile) */}
+        <DropdownMenu
+          triggerLabel={activeRound ? `Round: ${activeRound.name}` : "Select round"}
+          triggerClassName="h-8 shrink-0 px-2"
+          menuClassName="w-64"
+          trigger={
+            <>
+              <span className="font-medium">
+                {activeRound ? (
+                  activeRound.abbreviation || `R${activeRound.seq}`
+                ) : rounds.length ? (
+                  "Round"
+                ) : (
+                  <>
+                    <span className="sm:hidden">Rounds</span>
+                    <span className="max-sm:hidden">No rounds</span>
+                  </>
+                )}
               </span>
-              <span className="bg-blue-900/60 text-blue-300 text-xs px-2 py-0.5 rounded uppercase font-semibold border border-blue-700/50">
-                {tournament?.format === "bp" ? "BP (4-Team)" : "UADC (2-Team)"}
-              </span>
-            </div>
-          </div>
-
-          {/* Round Selector Pill */}
-          <div className="hidden md:flex items-center space-x-1 bg-[#1c2128] p-1 rounded-lg border border-gray-700/60">
-            {rounds.map((r) => {
-              const isActive = activeRound?.id === r.id;
-              const isConfirmed = r.drawStatus === "confirmed" || r.resultsReleased;
-              const isDraft = r.drawStatus === "draft";
-
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => setActiveRound(r)}
-                  className={`px-3 py-1 text-xs font-medium rounded transition flex items-center space-x-1.5 ${
-                    isActive
-                      ? "bg-blue-600 text-white shadow-sm font-semibold"
-                      : "text-gray-300 hover:text-white hover:bg-gray-700/50"
-                  }`}
-                >
-                  <span>{r.abbreviation || `R${r.seq}`}</span>
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isConfirmed
-                        ? "bg-emerald-400"
-                        : isDraft
-                        ? "bg-amber-400"
-                        : "bg-gray-500"
-                    }`}
-                  />
-                </button>
-              );
-            })}
-
-            {isOwnerOrAdmin && (
-              <button
-                onClick={() => setShowRoundModal(true)}
-                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded text-xs ml-1"
-                title="Add New Round"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Right Actions */}
-          <div className="flex items-center space-x-3 max-md:w-full max-md:justify-between max-md:gap-2 max-md:space-x-0">
-            <span
-              className={`hidden sm:inline-flex items-center space-x-1 text-[10px] ${
-                isOnline ? "text-emerald-300" : "text-amber-300"
-              }`}
-              title={isOnline ? "Offline-first; changes are saved locally" : "Offline; changes are saved locally"}
-            >
-              {isOnline ? <Cloud className="w-3 h-3" /> : <CloudOff className="w-3 h-3" />}
-              <span>{isOnline ? "Local copy" : "Offline"}</span>
-            </span>
-            {user && isOwnerOrAdmin ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  disabled={!isOnline || cloudSyncState === "syncing"}
-                  title="Merge cloud records with this device's local copy"
-                  className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
-                >
-                  <CloudDownload className="w-3 h-3" />
-                  <span className="max-sm:hidden">{cloudSyncState === "syncing" ? "Syncing…" : "Download"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleUpload}
-                  disabled={!isOnline || cloudSyncState === "syncing"}
-                  title="Merge this device's records into Firestore; archive any conflicting cloud versions"
-                  className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50"
-                >
-                  <Upload className="w-3 h-3" />
-                  <span className="max-sm:hidden">{cloudSyncState === "syncing" ? "Syncing…" : "Upload"}</span>
-                </button>
-              </>
-            ) : user && isDataEntryAssistant ? (
-              <button
-                type="button"
-                onClick={handleStaffSync}
-                disabled={!isOnline || cloudSyncState === "syncing"}
-                title="Upload approved participant, ballot, feedback, and result records"
-                className="inline-flex items-center space-x-1 px-2 py-1 text-[10px] font-semibold rounded bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50"
-              >
-                <Upload className="w-3 h-3" />
-                <span>{cloudSyncState === "syncing" ? "Uploading…" : "Upload"}</span>
-              </button>
-            ) : !user ? (
-              <Link
-                href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}
-                title="Sign in only when you want to upload your local copy"
-                className="text-[10px] text-blue-200 hover:text-white underline"
-              >
-                Sign in to upload
-              </Link>
-            ) : null}
-            {cloudSyncMessage && (
-              <span
-                role="status"
-                className={`hidden lg:inline max-w-[220px] truncate text-[10px] ${
-                  cloudSyncState === "error" ? "text-red-300" : "text-emerald-200"
-                }`}
-              >
-                {cloudSyncMessage}
-              </span>
-            )}
-            {localSaveError && (
-              <span role="alert" className="hidden lg:inline max-w-[220px] truncate text-[10px] text-red-300">
-                {localSaveError}
-              </span>
-            )}
-            {/* Public View Link */}
-            <Link
-              href={`/${tournamentSlug}/public`}
-              target="_blank"
-              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium rounded bg-gray-700/80 hover:bg-gray-600 text-gray-200 border border-gray-600 transition max-sm:px-2"
-            >
-              <span className="max-sm:hidden">Public Tab</span>
-              <ExternalLink className="w-3 h-3" />
-            </Link>
-
-            {/* User Profile */}
-            <div className="relative">
-              <button
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center space-x-1.5 text-xs text-gray-300 hover:text-white focus:outline-none p-1 rounded hover:bg-gray-700"
-              >
-                <div className="w-6 h-6 rounded-full bg-blue-600/80 flex items-center justify-center text-white font-bold">
-                  {user?.displayName ? user.displayName.charAt(0).toUpperCase() : "T"}
-                </div>
-                <ChevronDown className="w-3 h-3 text-gray-400" />
-              </button>
-
-              {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg py-1 border border-gray-200 z-50 text-gray-800">
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <p className="text-xs font-semibold text-gray-900">{user?.displayName || "Tab Director"}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.email || "director@tabbycat.local"}</p>
-                  </div>
-                  <Link
-                    href="/"
-                    className="block px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                    onClick={() => setShowUserMenu(false)}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>All Tournaments</span>
-                  </Link>
-                  <Link
-                    href={`/${tournamentSlug}/config/draw`}
-                    className="block px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                    onClick={() => setShowUserMenu(false)}
-                  >
-                    <Shield className="w-3.5 h-3.5" />
-                    <span>Tournament Settings</span>
-                  </Link>
-                  {isOwnerOrAdmin && (
-                    <Link
-                      href={`/${tournamentSlug}/api`}
-                      className="block px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                      onClick={() => setShowUserMenu(false)}
-                    >
-                      <KeyRound className="w-3.5 h-3.5" />
-                      <span>API Access</span>
-                    </Link>
-                  )}
-                  {isOwnerOrAdmin && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          try {
-                            exportTournamentBackup();
-                          } catch (error) {
-                            window.alert(error instanceof Error ? error.message : "Could not export backup.");
-                          }
-                        }}
-                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export Tournament Backup</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          try {
-                            exportTournamentArchive();
-                          } catch (error) {
-                            window.alert(error instanceof Error ? error.message : "Could not export DebateXML archive.");
-                          }
-                        }}
-                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export DebateXML Archive</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          setShowRestoreDialog(true);
-                        }}
-                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 flex items-center space-x-2"
-                      >
-                        <CloudDownload className="w-3.5 h-3.5" />
-                        <span>Restore Tournament Backup…</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleExportRecovery}
-                        disabled={!isOnline || cloudSyncState === "syncing"}
-                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export Sync Recovery</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleRepublish}
-                        disabled={!isOnline || cloudSyncState === "syncing"}
-                        className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 flex items-center space-x-2"
-                      >
-                        <CloudUpload className="w-3.5 h-3.5" />
-                        <span>Republish Public Pages</span>
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={async () => {
-                      setShowUserMenu(false);
-                      await logout();
-                      router.push("/");
-                    }}
-                    className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
+              {activeStatus && (
+                <StatusPill tone={activeStatus.tone} className="max-md:hidden">
+                  {activeStatus.short}
+                </StatusPill>
               )}
+              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
+            </>
+          }
+        >
+          {rounds.length > 0 && <DropdownMenuLabel>Rounds</DropdownMenuLabel>}
+          {rounds.map((round) => (
+            <DropdownMenuRadioItem
+              key={round.id}
+              checked={activeRound?.id === round.id}
+              onSelect={() => setActiveRound(round)}
+              description={describeRoundStatus(round).label}
+            >
+              <span className="font-medium">{round.abbreviation || `R${round.seq}`}</span>
+              <span className="text-fg-muted"> · {round.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
+          {rounds.length === 0 && (
+            <p className="px-2 py-1.5 text-xs text-fg-muted">No rounds have been created yet.</p>
+          )}
+          {isOwnerOrAdmin && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem icon={<Plus />} onSelect={() => setShowRoundModal(true)}>
+                New round…
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenu>
+
+        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
+          <SyncStatus isOnline={isOnline} />
+
+          {user && isOwnerOrAdmin ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleDownload}
+                disabled={!isOnline || isSyncing}
+                title="Merge cloud records with this device's local copy"
+              >
+                <CloudDownload aria-hidden="true" />
+                <span className="sr-only md:not-sr-only">{isSyncing ? "Syncing…" : "Download"}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleUpload}
+                disabled={!isOnline || isSyncing}
+                title="Merge this device's records into Firestore; archive any conflicting cloud versions"
+              >
+                <Upload aria-hidden="true" />
+                <span className="sr-only md:not-sr-only">{isSyncing ? "Syncing…" : "Upload"}</span>
+              </Button>
+            </>
+          ) : user && isDataEntryAssistant ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleStaffSync}
+              disabled={!isOnline || isSyncing}
+              title="Upload approved participant, ballot, feedback, and result records"
+            >
+              <Upload aria-hidden="true" />
+              <span>{isSyncing ? "Uploading…" : "Upload"}</span>
+            </Button>
+          ) : !user ? (
+            <Link
+              href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}
+              title="Sign in only when you want to upload your local copy"
+              className="whitespace-nowrap text-xs text-accent-text max-sm:hidden underline-offset-2 hover:underline"
+            >
+              Sign in to upload
+            </Link>
+          ) : null}
+
+          <Link
+            href={`/${tournamentSlug}/public`}
+            target="_blank"
+            rel="noreferrer"
+            className={iconButtonClasses({ className: "max-md:hidden" })}
+            aria-label="Open public tab in a new tab"
+            title="Public tab"
+          >
+            <ExternalLink aria-hidden="true" />
+          </Link>
+
+          <ThemeToggle preference={preference} onChange={setPreference} className="max-sm:hidden" />
+
+          {/* User menu */}
+          <DropdownMenu
+            align="end"
+            triggerLabel="Account menu"
+            triggerClassName="h-8 px-1"
+            menuClassName="w-64"
+            trigger={
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-accent-fg"
+                aria-hidden="true"
+              >
+                {userInitial}
+              </span>
+            }
+          >
+            <div role="presentation" className="-mx-1 mb-1 border-b border-border px-3 pb-2 pt-1.5">
+              <p className="truncate text-[13px] font-medium text-fg">{user?.displayName || "Tab Director"}</p>
+              <p className="truncate text-xs text-fg-muted">{user?.email || "director@tabbycat.local"}</p>
             </div>
-          </div>
+            <DropdownMenuItem href="/" icon={<Layers />}>All tournaments</DropdownMenuItem>
+            <DropdownMenuItem href={`/${tournamentSlug}/config/draw`} icon={<Shield />}>Tournament settings</DropdownMenuItem>
+            {isOwnerOrAdmin && (
+              <DropdownMenuItem href={`/${tournamentSlug}/api`} icon={<KeyRound />}>API access</DropdownMenuItem>
+            )}
+            {isOwnerOrAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  icon={<Download />}
+                  onSelect={() => {
+                    try {
+                      exportTournamentBackup();
+                    } catch (error) {
+                      window.alert(error instanceof Error ? error.message : "Could not export backup.");
+                    }
+                  }}
+                >
+                  Export tournament backup
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  icon={<Download />}
+                  onSelect={() => {
+                    try {
+                      exportTournamentArchive();
+                    } catch (error) {
+                      window.alert(error instanceof Error ? error.message : "Could not export DebateXML archive.");
+                    }
+                  }}
+                >
+                  Export DebateXML archive
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<CloudDownload />} onSelect={() => setShowRestoreDialog(true)}>
+                  Restore tournament backup…
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Download />} onSelect={handleExportRecovery} disabled={!isOnline || isSyncing}>
+                  Export sync recovery
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<CloudUpload />} onSelect={handleRepublish} disabled={!isOnline || isSyncing}>
+                  Republish public pages
+                </DropdownMenuItem>
+              </>
+            )}
+            <DropdownMenuSeparator />
+            <ThemeMenuItems preference={preference} onChange={setPreference} />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              tone="danger"
+              icon={<LogOut />}
+              onSelect={async () => {
+                await logout();
+                router.push("/");
+              }}
+            >
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* Add Round Modal */}
-      {showRoundModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Plus className="w-5 h-5 text-blue-600" />
-              <span>Create New Tournament Round</span>
-            </h3>
-            <form onSubmit={handleCreateRound} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Round Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={`Round ${rounds.length + 1}`}
-                  value={newRoundName}
-                  onChange={(e) => setNewRoundName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Abbreviation (e.g. R4, QF, SF, GF)</label>
-                <input
-                  type="text"
-                  placeholder={`R${rounds.length + 1}`}
-                  value={newRoundAbbr}
-                  onChange={(e) => setNewRoundAbbr(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Round Stage</label>
-                <select
-                  value={newRoundStage}
-                  onChange={(e) => setNewRoundStage(e.target.value as any)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="preliminary">Preliminary (In-Rounds)</option>
-                  <option value="elimination">Elimination (Out-Rounds / Break)</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowRoundModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreatingRound}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  {isCreatingRound ? "Creating..." : "Create Round"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={showRoundModal}
+        onClose={() => setShowRoundModal(false)}
+        dismissible={!isCreatingRound}
+        title="Create new round"
+        description="Rounds are added after the existing ones. You can change their settings later."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowRoundModal(false)} disabled={isCreatingRound}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" form="create-round-form" loading={isCreatingRound} loadingText="Creating...">
+              Create round
+            </Button>
+          </>
+        }
+      >
+        <form id="create-round-form" onSubmit={handleCreateRound} className="space-y-4">
+          <Input
+            label="Round name"
+            required
+            placeholder={`Round ${rounds.length + 1}`}
+            value={newRoundName}
+            onChange={(e) => setNewRoundName(e.target.value)}
+          />
+          <Input
+            label="Abbreviation"
+            help="For example R4, QF, SF or GF. Defaults to the next round number."
+            placeholder={`R${rounds.length + 1}`}
+            value={newRoundAbbr}
+            onChange={(e) => setNewRoundAbbr(e.target.value)}
+          />
+          <Select
+            label="Round stage"
+            value={newRoundStage}
+            onChange={(e) => setNewRoundStage(e.target.value === "elimination" ? "elimination" : "preliminary")}
+          >
+            <option value="preliminary">Preliminary (In-Rounds)</option>
+            <option value="elimination">Elimination (Out-Rounds / Break)</option>
+          </Select>
+        </form>
+      </Dialog>
     </header>
   );
 }
