@@ -127,6 +127,12 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // Published public views are written and served only by server routes (Admin SDK), which
+    // cache them; clients never read them directly.
+    match /publicViews/{document=**} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if isGlobalAdmin();
     }
