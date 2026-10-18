@@ -38,7 +38,11 @@ import { createEntityId, createTournamentEntityCommands } from "@/features/tourn
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
-import { addFeedbackCommand } from "@/features/tournament/application/feedback";
+import {
+  addFeedbackCommand,
+  reviewFeedbackCommand,
+  type FeedbackReviewChange,
+} from "@/features/tournament/application/feedback";
 import {
   autoAllocateCommand,
   updateDebateCommand,
@@ -161,6 +165,7 @@ export interface TournamentContextType {
     privatePasscode?: string,
     privateUrlKey?: string
   ) => Promise<void>;
+  reviewFeedback: (feedbackId: string, change: FeedbackReviewChange) => Promise<void>;
   recordAuditEvent: (event: {
     action: string;
     category: AuditCategory;
@@ -1510,6 +1515,19 @@ export function TournamentProvider({
     });
   };
 
+  const reviewFeedback = async (feedbackId: string, change: FeedbackReviewChange) => {
+    await reviewFeedbackCommand(feedbackId, change, {
+      feedback,
+      repository: {
+        saveFeedback: (items) => {
+          setFeedback(items);
+          persistLocal("feedback", items);
+        },
+      },
+      recordAuditEvent,
+    });
+  };
+
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
     await regeneratePrivateAccessCommand(teams, adjudicators, forceRegenerate, {
       localRepository: {
@@ -1912,6 +1930,7 @@ export function TournamentProvider({
         generateBreak,
         proceedToNextEliminationRound,
         addFeedback,
+        reviewFeedback,
         recordAuditEvent,
         releaseAuditLog,
         generatePrivateUrlKeys,
