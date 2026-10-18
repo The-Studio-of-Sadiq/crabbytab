@@ -7,6 +7,7 @@ import {
   Tournament,
 } from "@/types";
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
+import { consensusTeamScores } from "@/lib/ballots/result";
 
 const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
@@ -83,7 +84,6 @@ export function buildPrivateBallot(
   }
 
   const speakerScores = {} as BallotSubmission["speakerScores"];
-  const teamScores = {} as BallotSubmission["teamScores"];
   for (const side of sides) {
     const slot = debate.teams?.[side];
     const team = slot && teams.get(slot.teamId);
@@ -119,9 +119,13 @@ export function buildPrivateBallot(
 
     if (replyEnabled) {
       const entry = submitted[team.speakers.length];
+      // The reply is given by one of the first (n - 1) substantive speakers.
+      const replySpeaker = team.speakers
+        .slice(0, Math.max(1, team.speakers.length - 1))
+        .find((speaker) => isRecord(entry) && speaker.id === entry.speakerId);
       if (
         !isRecord(entry) ||
-        entry.speakerId !== `reply-${side}` ||
+        !replySpeaker ||
         entry.position !== 4 ||
         typeof entry.score !== "number" ||
         !validateReplyScore(entry.score, tournament.preferences).valid
@@ -129,42 +133,20 @@ export function buildPrivateBallot(
         throw new Error("The reply score is invalid.");
       }
       scores.push({
-        speakerId: `reply-${side}`,
-        speakerName: `${team.name} Reply`,
+        speakerId: replySpeaker.id,
+        speakerName: replySpeaker.name,
         position: 4,
         score: entry.score,
       });
     }
     speakerScores[side] = scores;
-
-    const includeGhosts = tournament.preferences?.teamScoreIncludesGhosts ?? false;
-    const substantiveScores = includeGhosts
-      ? scores.slice(0, team.speakers.length)
-      : scores
-          .slice(0, team.speakers.length)
-          .filter((entry, index, all) =>
-            all.findIndex((candidate) => candidate.speakerId === entry.speakerId) === index
-          );
-    const totalSpeakerScore =
-      substantiveScores.reduce((sum, entry) => sum + entry.score, 0) +
-      (replyEnabled ? scores[team.speakers.length].score : 0);
-    const rank = ranks.get(side)!;
-    const points =
-      tournament.format === "bp"
-        ? sides.length - rank
-        : rank === 1
-          ? 1
-          : 0;
-    teamScores[side] = {
-      side,
-      teamId: slot.teamId,
-      points,
-      totalSpeakerScore,
-      rank,
-      win: points > 0,
-      ...(tournament.format === "bp" ? {} : { margin: rank === 1 ? 2 : -2 }),
-    };
   }
+  const teamScores = consensusTeamScores(
+    speakerScores,
+    Object.fromEntries(ranks),
+    Object.fromEntries(sides.map((side) => [side, debate.teams?.[side]?.teamId || ""])),
+    { format: tournament.format, preferences: tournament.preferences }
+  );
 
   const timestamp = new Date().toISOString();
   const isChair = debate.adjudicators?.chairId === adjudicatorId;

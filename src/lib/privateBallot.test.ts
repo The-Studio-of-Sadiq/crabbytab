@@ -197,3 +197,59 @@ describe("buildPrivateBallot", () => {
     ).toThrow("The ballot rankings must be unique.");
   });
 });
+
+describe("two-team private ballots", () => {
+  const twoTeamTournament: Tournament = {
+    ...tournament,
+    format: "wsdc",
+    preferences: { ...tournament.preferences, teamsInDebate: 2, substantiveSpeakers: 3, replyScoresEnabled: true },
+  };
+  const roster = (side: string) => [1, 2, 3].map((index) => ({ id: `${side}-${index}`, name: `${side} ${index}` }));
+  const twoTeamDebate: Debate = {
+    ...debate,
+    teams: {
+      AFF: { side: "AFF", teamId: "team-AFF", teamName: "AFF" },
+      NEG: { side: "NEG", teamId: "team-NEG", teamName: "NEG" },
+    } as Debate["teams"],
+  };
+  const twoTeamRosters = new Map(
+    ["AFF", "NEG"].map((side) => [
+      `team-${side}`,
+      { id: `team-${side}`, tournamentId: "t1", name: side, speakers: roster(side), breakCategories: [], speakerCategories: [] } satisfies Team,
+    ])
+  );
+  const input = (replySpeakerId: string) => ({
+    id: "ballot-d1-adj-chair-456",
+    submitterType: "judge",
+    submitterId: "chair",
+    speakerScores: Object.fromEntries(
+      ["AFF", "NEG"].map((side) => [
+        side,
+        [
+          ...roster(side).map((speaker, index) => ({ speakerId: speaker.id, position: index + 1, score: side === "AFF" ? 76 : 72 })),
+          { speakerId: side === "AFF" ? replySpeakerId : "NEG-2", position: 4, score: 38 },
+        ],
+      ])
+    ),
+    teamScores: { AFF: { rank: 1 }, NEG: { rank: 2 } },
+  });
+  const context = {
+    tournament: twoTeamTournament,
+    adjudicator: { id: "chair", name: "Chair", trainee: false } as Adjudicator,
+    debate: twoTeamDebate,
+    teams: twoTeamRosters,
+    tournamentId: "t1",
+  };
+
+  it("attributes the reply to a real speaker and records the real margin", () => {
+    const ballot = buildPrivateBallot(input("AFF-1"), context);
+    expect(ballot.speakerScores.AFF[3]).toMatchObject({ speakerId: "AFF-1", speakerName: "AFF 1", position: 4 });
+    expect(ballot.teamScores.AFF).toMatchObject({ win: true, totalSpeakerScore: 266, margin: 12 });
+    expect(ballot.teamScores.NEG.margin).toBe(-12);
+  });
+
+  it("rejects a reply from the last speaker or an unknown speaker", () => {
+    expect(() => buildPrivateBallot(input("AFF-3"), context)).toThrow(/reply score is invalid/);
+    expect(() => buildPrivateBallot(input("reply-AFF"), context)).toThrow(/reply score is invalid/);
+  });
+});
