@@ -7,6 +7,9 @@ import { useRouter } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { BackupRestoreDialog } from "@/features/tournament/components/BackupRestoreDialog";
+import { SyncConflictsDialog } from "@/features/tournament/components/SyncConflictsDialog";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { Button, iconButtonClasses, IconButton } from "@/components/ui/Button";
 import { Badge, StatusPill } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
@@ -43,7 +46,7 @@ import {
 
 type RoundStage = "preliminary" | "elimination";
 
-function SyncStatus({ isOnline }: { isOnline: boolean }) {
+function SyncStatus({ isOnline, onOpenConflicts }: { isOnline: boolean; onOpenConflicts: () => void }) {
   const { cloudSyncState, cloudSyncMessage, localSaveError, divergedRecords } = useTournament();
 
   const pill = localSaveError ? (
@@ -59,15 +62,18 @@ function SyncStatus({ isOnline }: { isOnline: boolean }) {
       <span className="max-sm:sr-only">Sync failed</span>
     </StatusPill>
   ) : divergedRecords.length > 0 ? (
-    <StatusPill
-      tone="warning"
-      icon={<AlertTriangle aria-hidden="true" />}
-      title="Records changed both on this device and in the cloud. Choose a version from the account menu."
+    <button
+      type="button"
+      onClick={onOpenConflicts}
+      className={cn("rounded-full", focusRing)}
+      title="Records changed both on this device and in the cloud. Choose which version to keep."
     >
-      <span className="max-sm:sr-only">
-        {divergedRecords.length} conflict{divergedRecords.length === 1 ? "" : "s"}
-      </span>
-    </StatusPill>
+      <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+        <span className="max-sm:sr-only">
+          {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
+        </span>
+      </StatusPill>
+    </button>
   ) : !isOnline ? (
     <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title="Offline; changes are saved locally">
       <span className="max-sm:sr-only">Offline</span>
@@ -123,7 +129,6 @@ export function Navbar({
     downloadFromCloud,
     exportSyncRecovery,
     divergedRecords,
-    resolveDivergedRecords,
     exportTournamentBackup,
     exportTournamentArchive,
     syncDataEntry,
@@ -137,6 +142,7 @@ export function Navbar({
   const [newRoundStage, setNewRoundStage] = useState<RoundStage>("preliminary");
   const [isCreatingRound, setIsCreatingRound] = useState(false);
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+  const [showConflictsDialog, setShowConflictsDialog] = useState(false);
 
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine);
@@ -195,23 +201,6 @@ export function Navbar({
     }
   };
 
-  const handleResolveDiverged = (keep: "cloud" | "local") => {
-    const counts = new Map<string, number>();
-    for (const record of divergedRecords) {
-      counts.set(record.collectionName, (counts.get(record.collectionName) || 0) + 1);
-    }
-    const summary = [...counts].map(([name, count]) => `${name}: ${count}`).join(", ");
-    const prompt = keep === "cloud"
-      ? `Replace this device's version of ${divergedRecords.length} conflicting record(s) (${summary}) with the cloud version? This device's changes to them are discarded. Export a tournament backup first to keep a copy.`
-      : `Keep this device's version of ${divergedRecords.length} conflicting record(s) (${summary})? The next upload replaces the cloud versions, which are archived for recovery.`;
-    if (!window.confirm(prompt)) return;
-    try {
-      resolveDivergedRecords(keep);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Could not resolve the conflicts.");
-    }
-  };
-
   const handleStaffSync = async () => {
     if (!window.confirm(
       "Upload participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
@@ -251,6 +240,7 @@ export function Navbar({
   return (
     <header className="sticky top-0 z-50 h-topbar shrink-0 border-b border-border bg-surface">
       {showRestoreDialog && <BackupRestoreDialog onClose={() => setShowRestoreDialog(false)} />}
+      <SyncConflictsDialog open={showConflictsDialog} onClose={() => setShowConflictsDialog(false)} />
       <div className="flex h-full items-center gap-1 px-2 sm:gap-2 sm:px-3">
         <IconButton
           label="Open navigation"
@@ -348,7 +338,7 @@ export function Navbar({
         </DropdownMenu>
 
         <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
-          <SyncStatus isOnline={isOnline} />
+          <SyncStatus isOnline={isOnline} onOpenConflicts={() => setShowConflictsDialog(true)} />
 
           {user && isOwnerOrAdmin ? (
             <>
@@ -464,30 +454,16 @@ export function Navbar({
                 <DropdownMenuItem icon={<Download />} onSelect={handleExportRecovery} disabled={!isOnline || isSyncing}>
                   Export sync recovery
                 </DropdownMenuItem>
-                {divergedRecords.length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>
-                      {divergedRecords.length} record(s) changed here and in the cloud
-                    </DropdownMenuLabel>
-                    <DropdownMenuItem
-                      icon={<CloudDownload />}
-                      onSelect={() => handleResolveDiverged("cloud")}
-                      disabled={isSyncing}
-                    >
-                      Use cloud versions…
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      icon={<CloudUpload />}
-                      onSelect={() => handleResolveDiverged("local")}
-                      disabled={isSyncing}
-                    >
-                      Keep this device&apos;s versions…
-                    </DropdownMenuItem>
-                  </>
-                )}
                 <DropdownMenuItem icon={<CloudUpload />} onSelect={handleRepublish} disabled={!isOnline || isSyncing}>
                   Republish public pages
+                </DropdownMenuItem>
+              </>
+            )}
+            {(isOwnerOrAdmin || isDataEntryAssistant) && divergedRecords.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem icon={<AlertTriangle />} onSelect={() => setShowConflictsDialog(true)}>
+                  Resolve sync conflicts ({divergedRecords.length})…
                 </DropdownMenuItem>
               </>
             )}

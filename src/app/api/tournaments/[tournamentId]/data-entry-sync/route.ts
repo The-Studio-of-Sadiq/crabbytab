@@ -132,6 +132,8 @@ export async function POST(
 
   try {
     let archivedConflictCount = 0;
+    // Records archived for the tab room instead of written, so the device keeps them as local edits.
+    const rejected: Array<{ collectionName: DataEntryCollection; recordId: string }> = [];
     const { tournament, user } = authorization;
     const actor = { uid: user.uid, name: authorization.actorName };
     const referencedDebateIds = [...new Set(records
@@ -152,7 +154,7 @@ export async function POST(
     for (const { collectionName, record, createOnly } of records) {
       const recordRef = authorization.tournamentRef.collection(collectionName).doc(record.id as string);
       const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
-      const archived = await authorization.firestore.runTransaction(async (transaction) => {
+      const outcome = await authorization.firestore.runTransaction(async (transaction): Promise<"unchanged" | "written" | "superseded" | "rejected"> => {
         const staffSnapshot = await transaction.get(authorization.staffRef);
         if (staffSnapshot.data()?.role !== "dataEntry") throw new Error("Data-entry access was revoked.");
         const snapshot = await transaction.get(recordRef);
@@ -161,7 +163,7 @@ export async function POST(
           : null;
         // Records the assistant did not change (including ones pulled from the cloud) are left alone.
         if (current && Object.keys(record).every((key) => recordsEqual(current[key], record[key]))) {
-          return false;
+          return "unchanged";
         }
         const archiveIncoming = (resolution: "deleted" | "rejected") => {
           transaction.create(conflictRef, {
@@ -174,7 +176,7 @@ export async function POST(
             archivedAt: new Date().toISOString(),
             archivedBy: user.uid,
           });
-          return true;
+          return "rejected" as const;
         };
         if (current && typeof current.deletedAt === "string") return archiveIncoming("deleted");
 
@@ -217,7 +219,10 @@ export async function POST(
           next.privateUrlKey = typeof next.privateUrlKey === "string" ? next.privateUrlKey : generatePrivateKey("adj");
           next.privatePasscode = typeof next.privatePasscode === "string" ? next.privatePasscode : generatePrivateKey();
         }
-        if (current && recordsEqual(current, next)) return false;
+        if (current && recordsEqual(current, next)) return "unchanged";
+        // Every write bumps the version, so an administrator's stale upload of this record is
+        // archived as a conflict instead of overwriting it, and their next download picks it up.
+        next.syncVersion = (Number(current?.syncVersion) || 0) + 1;
         if (current) {
           transaction.create(conflictRef, {
             id: conflictRef.id,
@@ -229,9 +234,10 @@ export async function POST(
           });
         }
         transaction.set(recordRef, next);
-        return Boolean(current);
+        return current ? "superseded" : "written";
       });
-      archivedConflictCount += Number(archived);
+      if (outcome === "rejected") rejected.push({ collectionName, recordId: record.id as string });
+      archivedConflictCount += Number(outcome === "rejected" || outcome === "superseded");
     }
 
     for (const debate of body.debates as Record<string, unknown>[]) {
@@ -256,13 +262,13 @@ export async function POST(
           archivedAt: new Date().toISOString(),
           archivedBy: user.uid,
         });
-        transaction.update(debateRef, { resultStatus });
+        transaction.update(debateRef, { resultStatus, syncVersion: (Number(current.syncVersion) || 0) + 1 });
         return true;
       });
       archivedConflictCount += Number(archived);
     }
 
-    return NextResponse.json({ archivedConflictCount });
+    return NextResponse.json({ archivedConflictCount, rejected });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not sync assistant data." },

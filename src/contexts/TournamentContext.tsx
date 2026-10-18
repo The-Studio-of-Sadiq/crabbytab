@@ -26,14 +26,18 @@ import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import {
   buildDataEntrySyncPayload,
+  DATA_ENTRY_COLLECTIONS,
   downloadTournamentCommand,
+  baselineAfterDataEntrySync,
   mergeCloudIntoWorkingCopy,
+  mergeCloudTournament,
   parseDivergedRecords,
   parseSyncBaseline,
   resolveDivergedRecords,
   uploadTournamentCommand,
   type CloudRecord,
   type CloudDeletionMap,
+  divergedRecordKey,
   type DivergedRecord,
   type SyncBaseline,
   type WorkingCopyMerge,
@@ -98,6 +102,7 @@ import { createFirestoreDrawRepository } from "@/features/tournament/infrastruct
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
+import { summarizeDivergedRecord, type DivergedRecordSummary } from "@/features/tournament/application/syncConflicts";
 import {
   isViewerTournamentAdmin,
   sanitizeAssistantAdjudicator,
@@ -142,8 +147,10 @@ export interface TournamentContextType {
   exportSyncRecovery: () => Promise<void>;
   /** Records changed both on this device and in the cloud since they were last synced. */
   divergedRecords: DivergedRecord[];
-  /** Keeps the cloud or this device's version of every diverged record. */
-  resolveDivergedRecords: (keep: "cloud" | "local") => void;
+  /** `divergedRecords` described for choosing a version: name and the fields that differ. */
+  divergedRecordSummaries: DivergedRecordSummary[];
+  /** Keeps the cloud or this device's version of the diverged records with these keys (default: all). */
+  resolveDivergedRecords: (keep: "cloud" | "local", keys?: string[]) => void;
   /** `fileSuffix` names the download, e.g. "pre-restore". */
   exportTournamentBackup: (fileSuffix?: string) => void;
   exportTournamentArchive: () => void;
@@ -495,19 +502,32 @@ export function TournamentProvider({
             institutions: "institutions",
             auditEvents: "auditEvents",
           };
-          const mergedCollections = Object.fromEntries(CLOUD_COLLECTIONS.map((name) => {
-            const recordsById = new Map((result.collections[name] || []).map((record) => [record.id, record]));
-            for (const record of readLocal<CloudRecord[]>(localKeys[name], [])) recordsById.set(record.id, record);
-            return [name, [...recordsById.values()]];
-          })) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
-          mergedCollections.teams = mergedCollections.teams.map((record) => {
+          // Sanitised before merging, so the baseline describes records exactly as stored here.
+          const cloudCollections = Object.fromEntries(
+            CLOUD_COLLECTIONS.map((name) => [name, result.collections[name] || []])
+          ) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
+          cloudCollections.teams = cloudCollections.teams.map((record) => {
             return sanitizeAssistantTeam(record as unknown as Team) as unknown as CloudRecord;
           });
-          mergedCollections.adjudicators = mergedCollections.adjudicators.map((record) => {
+          cloudCollections.adjudicators = cloudCollections.adjudicators.map((record) => {
             return sanitizeAssistantAdjudicator(record as unknown as Adjudicator) as unknown as CloudRecord;
           });
-          mergedCollections.auditEvents = [];
-          return { tournament: result.tournament, collections: mergedCollections };
+          cloudCollections.auditEvents = [];
+          // The same baseline merge as an administrator's device. The projection leaves deleted
+          // and hidden records out, so local copies of those are dropped unless edited here.
+          const hasLocalCopy = localTournament?.id === tournamentId;
+          const merge = mergeCloudIntoWorkingCopy({
+            cloudCollections,
+            localCollections: hasLocalCopy
+              ? Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [
+                  name,
+                  name === "auditEvents" ? [] : readLocal<CloudRecord[]>(localKeys[name], []),
+                ])) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>
+              : null,
+            baseline: hasLocalCopy ? readSyncBaseline() : {},
+            cloudOmitsDeleted: true,
+          });
+          return { tournament: result.tournament, merge };
         };
 
         if (db) {
@@ -550,11 +570,12 @@ export function TournamentProvider({
                 auditEvents: "auditEvents",
               };
               let cloudCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
-              let cloudMerge: WorkingCopyMerge | null = null;
+              let cloudMerge: WorkingCopyMerge;
               if (isAssistant) {
                 const projection = await loadAssistantProjection(cloudTournamentDoc.id);
                 localTournament = projection.tournament;
-                cloudCollections = projection.collections;
+                cloudMerge = projection.merge;
+                cloudCollections = cloudMerge.collections;
               } else {
                 // Uploads are manual, so the local working copy may hold changes the cloud has
                 // never seen. Merge instead of replacing: records edited here since their synced
@@ -562,15 +583,18 @@ export function TournamentProvider({
                 // records take the cloud version, cloud-only records are added, and cloud
                 // soft-deletions and pending local deletions are dropped.
                 const hasLocalCopy = localTournament?.id === cloudTournamentDoc.id;
-                const cloudTournament = {
-                  ...data,
-                  id: cloudTournamentDoc.id,
-                  slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
-                } as Tournament;
-                localTournament = hasLocalCopy && localTournament
-                  ? { ...cloudTournament, ...localTournament, id: cloudTournament.id, slug: cloudTournament.slug }
-                  : cloudTournament;
-                cloudMerge = mergeCloudIntoWorkingCopy({
+                const baseline = hasLocalCopy ? readSyncBaseline() : {};
+                const settings = mergeCloudTournament({
+                  cloudTournament: {
+                    ...data,
+                    id: cloudTournamentDoc.id,
+                    slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
+                  } as Tournament,
+                  localTournament: hasLocalCopy ? localTournament : null,
+                  base: baseline.tournament,
+                });
+                localTournament = settings.tournament;
+                const recordMerge = mergeCloudIntoWorkingCopy({
                   cloudCollections: await repository.getCollections(cloudTournamentDoc.id),
                   localCollections: hasLocalCopy
                     ? Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [
@@ -578,10 +602,17 @@ export function TournamentProvider({
                         readLocal<CloudRecord[]>(localCollectionNames[name], []),
                       ])) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>
                     : null,
-                  baseline: hasLocalCopy ? readSyncBaseline() : {},
+                  baseline,
                   deletions: hasLocalCopy ? readSyncTombstones() : {},
                   overwrites: hasLocalCopy ? readSyncIds("syncOverwrites") : {},
                 });
+                cloudMerge = {
+                  collections: recordMerge.collections,
+                  baseline: { ...recordMerge.baseline, tournament: settings.baseline },
+                  divergedRecords: settings.diverged
+                    ? [settings.diverged, ...recordMerge.divergedRecords]
+                    : recordMerge.divergedRecords,
+                };
                 cloudCollections = cloudMerge.collections;
               }
               if (!isMounted) return;
@@ -630,7 +661,7 @@ export function TournamentProvider({
               });
               // After the records: a baseline saved without them would mark the old local
               // versions as edits here.
-              if (cloudMerge) saveSyncState(cloudMerge.baseline, cloudMerge.divergedRecords);
+              saveSyncState(cloudMerge.baseline, cloudMerge.divergedRecords);
               setLoading(false);
               return;
             }
@@ -1252,6 +1283,28 @@ export function TournamentProvider({
   const replyStandings = standingsResult.replies;
 
   // Dynamic Break Qualification Calculation
+  const divergedRecordSummaries = useMemo(() => {
+    const local: Record<(typeof CLOUD_COLLECTIONS)[number], Array<{ id: string }>> = {
+      rounds,
+      teams,
+      adjudicators,
+      venues,
+      motions,
+      breakCategories,
+      debates,
+      ballots,
+      feedback,
+      institutions,
+      auditEvents,
+    };
+    return divergedRecords.map((diverged) => {
+      const localRecord = diverged.collectionName === "tournament"
+        ? tournament ?? undefined
+        : local[diverged.collectionName].find((record) => record.id === diverged.recordId);
+      return summarizeDivergedRecord(diverged, localRecord as CloudRecord | undefined, divergedRecordKey(diverged));
+    });
+  }, [divergedRecords, tournament, rounds, teams, adjudicators, venues, motions, breakCategories, debates, ballots, feedback, institutions, auditEvents]);
+
   const breakResults = useMemo(() => {
     if (breakCategories.length === 0 || teamStandings.length === 0) return [];
     return calculateBreaks(breakCategories, teams, teamStandings, tournament?.format);
@@ -1724,6 +1777,7 @@ export function TournamentProvider({
     setCloudSyncMessage("Syncing participant, ballot, feedback, and result records…");
     try {
       const token = await user.getIdToken();
+      const localCollections = getLocalCollections();
       const response = await fetch(
         `/api/tournaments/${encodeURIComponent(tournament.id)}/data-entry-sync`,
         {
@@ -1732,11 +1786,24 @@ export function TournamentProvider({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(buildDataEntrySyncPayload({ localCollections: getLocalCollections() })),
+          body: JSON.stringify(buildDataEntrySyncPayload({ localCollections })),
         }
       );
-      const result = await response.json() as { error?: string; archivedConflictCount?: number };
+      const result = await response.json() as {
+        error?: string;
+        archivedConflictCount?: number;
+        rejected?: Array<{ collectionName: string; recordId: string }>;
+      };
       if (!response.ok) throw new Error(result.error || "Data-entry sync failed.");
+      // The records the server applied count as synced, so the next load takes its result.
+      saveSyncState(baselineAfterDataEntrySync({
+        baseline: readSyncBaseline(),
+        sentCollections: {
+          ...Object.fromEntries(DATA_ENTRY_COLLECTIONS.map((name) => [name, localCollections[name]])),
+          debates: localCollections.debates,
+        },
+        rejected: Array.isArray(result.rejected) ? result.rejected : [],
+      }));
       const archivedConflictCount = result.archivedConflictCount || 0;
       setCloudSyncState("success");
       setCloudSyncMessage(
@@ -2057,13 +2124,21 @@ export function TournamentProvider({
     }
   };
 
-  const applyCollectionsLocally = (restoredTournament: Tournament, collections: BackupCollections) => {
+  const applyCollectionsLocally = (
+    restoredTournament: Tournament,
+    collections: BackupCollections,
+    keepActiveRoundId?: string
+  ) => {
     const roundsValue = collections.rounds as unknown as Round[];
     setTournament(restoredTournament);
     persistLocal("meta", restoredTournament);
     setRounds(roundsValue);
     persistLocal("rounds", roundsValue);
-    setActiveRound(roundsValue.find((round) => !round.cancelled) || null);
+    setActiveRound(
+      roundsValue.find((round) => round.id === keepActiveRoundId && !round.cancelled) ||
+      roundsValue.find((round) => !round.cancelled) ||
+      null
+    );
     const apply = <T,>(name: (typeof CLOUD_COLLECTIONS)[number], localKey: string, setter: (items: T[]) => void) => {
       const items = collections[name] as unknown as T[];
       setter(items);
@@ -2084,24 +2159,27 @@ export function TournamentProvider({
     });
   };
 
-  const resolveDiverged = (keep: "cloud" | "local") => {
-    if (!tournament || !isOwnerOrAdmin) {
-      throw new Error("Only a tournament administrator can resolve sync conflicts.");
+  const resolveDiverged = (keep: "cloud" | "local", keys?: string[]) => {
+    if (!tournament || !(isOwnerOrAdmin || isDataEntryAssistant)) {
+      throw new Error("Only tournament staff can resolve sync conflicts.");
     }
-    if (divergedRecords.length === 0) return;
     const resolved = resolveDivergedRecords({
+      localTournament: tournament,
       localCollections: getLocalCollections(),
       baseline: readSyncBaseline(),
       divergedRecords,
+      keys,
       keep,
     });
-    applyCollectionsLocally(tournament, resolved.collections);
-    saveSyncState(resolved.baseline, []);
+    const count = divergedRecords.length - resolved.remaining.length;
+    if (count === 0) return;
+    applyCollectionsLocally(resolved.tournament, resolved.collections, activeRound?.id);
+    saveSyncState(resolved.baseline, resolved.remaining);
     setCloudSyncState("success");
     setCloudSyncMessage(
       keep === "cloud"
-        ? `Used the cloud version of ${divergedRecords.length} record(s).`
-        : `Kept this device's version of ${divergedRecords.length} record(s). Upload to replace the cloud versions; they are archived for recovery.`
+        ? `Used the cloud version of ${count} record(s).`
+        : `Kept this device's version of ${count} record(s). Upload to replace the cloud versions; they are archived for recovery.`
     );
   };
 
@@ -2192,6 +2270,7 @@ export function TournamentProvider({
         syncDataEntry,
         exportSyncRecovery,
         divergedRecords,
+        divergedRecordSummaries,
         resolveDivergedRecords: resolveDiverged,
         exportTournamentBackup,
         exportTournamentArchive,

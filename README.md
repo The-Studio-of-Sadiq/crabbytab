@@ -124,13 +124,15 @@ archives both versions rather than silently replacing the newer copy. Use the
 tournament's sync-recovery export to inspect archived versions. Deleted cloud
 records receive recoverable tombstones, so later downloads do not restore them
 and stale uploads cannot remove the tombstone. Each device remembers every
-record as it last uploaded or downloaded it (its synced baseline). Downloading,
-or opening a tournament that has a cloud copy, gives records unchanged on this
-device since then the newer cloud version (self check-ins, private-URL ballot
-discards, assistant edits, other devices' uploads) and adds cloud-only records.
-Records edited on this device are kept for upload; if the cloud changed them
-too, they are shown as sync conflicts until you choose the cloud or this
-device's version from the account menu. Team portals show ballots only
+record, and the tournament settings, as it last uploaded or downloaded them (its
+synced baseline). Downloading, or opening a tournament that has a cloud copy,
+gives records unchanged on this device since then the newer cloud version (self
+check-ins, private-URL ballot discards, assistant edits, other devices' uploads)
+and adds cloud-only records; data-entry assistants' devices get organiser changes
+the same way when they open the tournament. Records edited on this device are
+kept for upload; if the cloud changed them too, they are listed as sync
+conflicts (the warning in the top bar, or the account menu) with the fields that
+differ, until you keep this device's or the cloud version of each. Team portals show ballots only
 after results are released on a non-silent round, and hide speaker scores until
 team speaks are released.
 
