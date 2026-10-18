@@ -245,3 +245,33 @@ describe("confirmBallotCommand", () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe("resubmitting a saved ballot version", () => {
+  it("confirms the resubmitted scores, not the version that was saved before", async () => {
+    const debate = {
+      id: "debate-1",
+      roundId: "round-1",
+      resultStatus: "draft",
+      teams: { AFF: { teamId: "team-AFF", teamName: "A", side: "AFF" }, NEG: { teamId: "team-NEG", teamName: "N", side: "NEG" } },
+    } as unknown as import("@/types").Debate;
+    const draft = makeBallot({ id: "ballot-1", confirmed: false });
+    const corrected = makeBallot({
+      id: "ballot-1",
+      confirmed: true,
+      teamScores: {
+        ...draft.teamScores,
+        AFF: { side: "AFF", teamId: "team-AFF", points: 1, totalSpeakerScore: 230, win: true },
+        NEG: { side: "NEG", teamId: "team-NEG", points: 0, totalSpeakerScore: 225, win: false },
+      },
+    });
+    let saved: BallotSubmission[] = [];
+    const { dependencies } = makeDependencies({ ballots: [draft], debates: [debate] });
+    dependencies.repository.saveBallots = (ballots) => { saved = ballots; };
+
+    await submitBallotCommand(corrected, undefined, dependencies);
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({ id: "ballot-1", confirmed: true, discarded: false });
+    expect(saved[0].teamScores.AFF).toMatchObject({ points: 1, totalSpeakerScore: 230 });
+  });
+});
