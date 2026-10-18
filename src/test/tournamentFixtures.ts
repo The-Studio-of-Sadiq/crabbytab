@@ -217,7 +217,10 @@ export interface SimulatedBallotOptions {
   id?: string;
   version?: number;
   confirmed?: boolean;
-  /** Side whose last substantive speech is given again by its first speaker (an iron-person speech). */
+  /**
+   * Side whose last substantive speech is given again by its first speaker (an iron-person speech).
+   * That side places last, since the repeated speech does not count towards its total.
+   */
   ironPersonSide?: DebateSide;
   forfeitSide?: DebateSide;
   submitterId?: string;
@@ -242,7 +245,11 @@ export function simulateBallot(
   const sides = ballotSides(tournament.format);
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const teamIds = Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamId]));
-  const ranking = shuffle(sides, rng);
+  const shuffled = shuffle(sides, rng);
+  // A ghost speech does not count towards the team total, so the iron-person team places last.
+  const ranking = options.ironPersonSide
+    ? [...shuffled.filter((side) => side !== options.ironPersonSide), options.ironPersonSide]
+    : shuffled;
   let entry: BallotEntry;
   if (options.forfeitSide) {
     entry = { speakerScores: {}, forfeitSide: options.forfeitSide };
