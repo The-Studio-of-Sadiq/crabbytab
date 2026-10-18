@@ -73,6 +73,7 @@ import {
   publishPublicViewCommand,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
+import type { SelfCheckInRequest, SelfCheckInStatus } from "@/lib/selfCheckIn";
 import {
   describeNotificationSummary,
   hasAutomaticRoundNotifications,
@@ -129,7 +130,13 @@ export interface TournamentContextType {
   exportTournamentBackup: () => void;
   exportTournamentArchive: () => void;
   importTournamentBackup: (file: File) => Promise<void>;
-  syncPrivatePortal: (privateUrlKey: string, passcode: string) => Promise<void>;
+  syncPrivatePortal: (
+    privateUrlKey: string,
+    passcode: string,
+    options?: { checkIn?: SelfCheckInRequest }
+  ) => Promise<void>;
+  /** The private portal participant's check-in status for the current round, from the last sync. */
+  privateSelfCheckIn: SelfCheckInStatus | null;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
 
   // Mutations
@@ -227,6 +234,7 @@ export function TournamentProvider({
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
   const [staffAccessError, setStaffAccessError] = useState("");
+  const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
   const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
@@ -695,7 +703,8 @@ export function TournamentProvider({
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
-    passcode
+    passcode,
+    options
   ) => {
     if (!tournament || !db) {
       throw new Error("Cloud sync is unavailable for this tournament.");
@@ -719,6 +728,7 @@ export function TournamentProvider({
           privateUrlKey,
           passcode,
           pending,
+          ...(options?.checkIn ? { checkIn: options.checkIn } : {}),
         }),
       });
       const responseBody = await response.text();
@@ -733,6 +743,7 @@ export function TournamentProvider({
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
+        selfCheckIn?: SelfCheckInStatus | null;
       };
 
       try {
@@ -811,6 +822,7 @@ export function TournamentProvider({
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
       persistLocal("feedback", mergedFeedback);
+      setPrivateSelfCheckIn(result.selfCheckIn ?? null);
       setPrivateSyncState("idle");
       setPrivateSyncMessage(
         `Synced ${result.uploadedCount || 0} pending item(s); downloaded ${downloadedBallots.length} ballot(s) and ${downloadedFeedback.length} feedback item(s).`
@@ -1992,6 +2004,7 @@ export function TournamentProvider({
         importTournamentBackup,
         syncPrivatePortal,
         loadPrivateTeamPortal,
+        privateSelfCheckIn,
         saveTournament,
         createRound,
         setPreliminaryRoundCount,
