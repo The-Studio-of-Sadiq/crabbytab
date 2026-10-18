@@ -5,11 +5,11 @@ import { Mail, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
-  ADJUDICATOR_RECIPIENT_GROUPS,
   EMAIL_RECIPIENT_GROUPS,
+  findCredentialEmailConflict,
   renderEmailTemplate,
   resolveEmailRecipients,
-  usesAdjudicatorCredentials,
+  usesPrivateCredentials,
   MAX_CAMPAIGN_RECIPIENTS,
 } from "@/lib/email/messaging";
 import type {
@@ -64,6 +64,11 @@ const EMAIL_TEMPLATES = {
     label: "Adjudicator private portal credentials",
     subject: "{{tournament}} — your private adjudicator portal",
     body: "Hi {{name}},\n\nUse your personal link and passcode to access your adjudicator portal for {{tournament}}.\n\nPrivate link: {{private_url}}\nPasscode: {{passcode}}\n\nPlease keep these details private and do not forward this email.\n\nBest,\nTournament Staff",
+  },
+  team_private_portal: {
+    label: "Team private portal credentials",
+    subject: "{{tournament}} — your team's private portal",
+    body: "Hi {{name}},\n\nUse your team's link and passcode to see your draw, check in and submit feedback for {{tournament}}.\n\nTeam: {{team}}\nPrivate link: {{private_url}}\nPasscode: {{passcode}}\n\nPlease share these details only with your teammates.\n\nBest,\nTournament Staff",
   },
 } as const;
 
@@ -121,8 +126,7 @@ export default function EmailSettingsPage() {
   }, [refreshCampaignHistory]);
 
   const selectedRound = rounds.find((round) => round.id === roundId);
-  const includesPrivateCredentials = usesAdjudicatorCredentials(subject, body);
-  const isAdjudicatorRecipientGroup = ADJUDICATOR_RECIPIENT_GROUPS.includes(recipientGroup);
+  const includesPrivateCredentials = usesPrivateCredentials(subject, body);
   const requiresRound = ROUND_RECIPIENT_GROUPS.includes(recipientGroup);
   const recipients = useMemo(
     () =>
@@ -133,7 +137,7 @@ export default function EmailSettingsPage() {
         debates,
         rounds.find((round) => round.id === roundId),
         {
-          includeAdjudicatorCredentials: includesPrivateCredentials,
+          includePrivateCredentials: includesPrivateCredentials,
           privateUrlOrigin: typeof window === "undefined" ? undefined : window.location.origin,
           tournamentSlug: tournament?.slug,
           preserveDuplicateEmails: includesPrivateCredentials,
@@ -151,6 +155,7 @@ export default function EmailSettingsPage() {
     ]
   );
 
+  const credentialConflict = includesPrivateCredentials ? findCredentialEmailConflict(recipients) : null;
   let preview: { subject: string; body: string } | null = null;
   let previewError = "";
   if (recipients[0] && tournament) {
@@ -379,6 +384,9 @@ export default function EmailSettingsPage() {
                   if (nextId === "adjudicator_private_portal") {
                     setRecipientGroup("all_adjudicators");
                   }
+                  if (nextId === "team_private_portal") {
+                    setRecipientGroup("all_teams");
+                  }
                 }
                 clearCampaignResult();
               }}
@@ -395,19 +403,14 @@ export default function EmailSettingsPage() {
         {requiresRound && !roundId && (
           <p className="text-sm text-amber-700">Choose a round to resolve this recipient group.</p>
         )}
-        {includesPrivateCredentials && !isAdjudicatorRecipientGroup && (
+        {credentialConflict && (
           <p role="alert" className="text-sm text-red-700">
-            Private URLs and passcodes can only be sent to adjudicators. Select an adjudicator recipient group.
+            {credentialConflict} belongs to more than one participant. Each participant needs their own email
+            address to receive a private URL and passcode.
           </p>
         )}
-        {includesPrivateCredentials &&
-          new Set(recipients.map((recipient) => recipient.email.toLowerCase())).size < recipients.length && (
-            <p role="alert" className="text-sm text-red-700">
-              Each adjudicator must have a unique email address to receive their own private URL and passcode.
-            </p>
-          )}
         <p className={`text-sm font-medium ${recipients.length > MAX_CAMPAIGN_RECIPIENTS ? "text-red-700" : "text-gray-700"}`}>
-          {recipients.length} {includesPrivateCredentials ? "adjudicator recipient" : "unique recipient"}{recipients.length === 1 ? "" : "s"} with an email address
+          {recipients.length} {includesPrivateCredentials ? "individual recipient" : "unique recipient"}{recipients.length === 1 ? "" : "s"} with an email address
           {recipients.length > MAX_CAMPAIGN_RECIPIENTS ? ` — over the ${MAX_CAMPAIGN_RECIPIENTS}-recipient limit` : ""}
         </p>
         <p className="text-xs text-gray-500">
@@ -445,11 +448,12 @@ export default function EmailSettingsPage() {
         <div className="rounded-md bg-gray-50 p-3 text-xs text-gray-700">
           <p className="font-semibold">Template variables</p>
           <p className="mt-1 font-mono">
-            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{chair}} {{panellists}} {{private_url}} {{passcode}}"}
+            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
           </p>
           <p className="mt-1 text-gray-500">
             Round, debate, and adjudicator details are populated when a round is selected and assignments exist.
-            {" "}Private portal credentials are populated individually for adjudicators and are excluded from campaign history.
+            {" "}Private portal credentials are populated individually for adjudicators and teams and are excluded from campaign history.
+            {" "}Side, result, points and ballot are only filled by automatic notifications.
           </p>
         </div>
 
@@ -486,9 +490,7 @@ export default function EmailSettingsPage() {
             !confirmedSend ||
             recipients.length === 0 ||
             recipients.length > MAX_CAMPAIGN_RECIPIENTS ||
-            (includesPrivateCredentials && !isAdjudicatorRecipientGroup) ||
-            (includesPrivateCredentials &&
-              new Set(recipients.map((recipient) => recipient.email.toLowerCase())).size < recipients.length) ||
+            Boolean(credentialConflict) ||
             (requiresRound && !roundId) ||
             Boolean(previewError)
           }

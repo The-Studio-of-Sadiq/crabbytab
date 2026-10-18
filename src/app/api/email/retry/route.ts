@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Adjudicator, Tournament } from "@/types";
+import { Adjudicator, Team, Tournament } from "@/types";
 import {
   authorizeTournamentEmailRequest,
   EmailAuthorizationError,
 } from "@/lib/email/authorize";
 import {
-  ADJUDICATOR_RECIPIENT_GROUPS,
   EmailCampaignInputError,
   EmailRecipient,
   StoredEmailCampaign,
   prepareEmailMessages,
   sendEmailCampaign,
-  usesAdjudicatorCredentials,
+  privateCredentials,
+  usesPrivateCredentials,
 } from "@/lib/email/messaging";
 import {
   createSmtpEmailProvider,
@@ -19,7 +19,6 @@ import {
 } from "@/lib/email/provider";
 import { createEmailCampaign } from "@/lib/email/history";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
-import { getAdjudicatorPrivatePath } from "@/lib/privateUrls";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -78,42 +77,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
     }
     const tournament = tournamentSnapshot.data() as Tournament;
-    const includesPrivateCredentials = usesAdjudicatorCredentials(
+    const includesPrivateCredentials = usesPrivateCredentials(
       source.subjectTemplate,
       source.bodyTemplate
     );
     if (includesPrivateCredentials) {
-      if (!ADJUDICATOR_RECIPIENT_GROUPS.includes(source.recipientGroup)) {
-        throw new EmailCampaignInputError(
-          "Private URL and passcode campaigns must target adjudicators."
-        );
-      }
-
-      const adjudicatorSnapshot = await firestore
-        .collection("tournaments")
-        .doc(tournamentId)
-        .collection("adjudicators")
-        .get();
+      // Credentials are never stored in campaign history; look each participant up again.
+      const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
+      const needsTeams = recipients.some((recipient) => recipient.teamId);
+      const needsAdjudicators = recipients.some((recipient) => recipient.adjudicatorId);
+      const [adjudicatorSnapshot, teamSnapshot] = await Promise.all([
+        needsAdjudicators ? tournamentRef.collection("adjudicators").get() : Promise.resolve(null),
+        needsTeams ? tournamentRef.collection("teams").get() : Promise.resolve(null),
+      ]);
       const adjudicators = new Map(
-        adjudicatorSnapshot.docs.map((document) => [
+        (adjudicatorSnapshot?.docs ?? []).map((document) => [
           document.id,
           { ...document.data(), id: document.id } as Adjudicator,
         ])
       );
+      const teams = new Map(
+        (teamSnapshot?.docs ?? []).map((document) => [document.id, { ...document.data(), id: document.id } as Team])
+      );
+      const linkOptions = { tournamentSlug: tournament.slug, privateUrlOrigin: request.nextUrl.origin };
       recipients = recipients.map((recipient) => {
-        const adjudicator = recipient.adjudicatorId
-          ? adjudicators.get(recipient.adjudicatorId)
-          : undefined;
-        return {
-          ...recipient,
-          privateUrl: adjudicator?.privateUrlKey
-            ? new URL(
-                getAdjudicatorPrivatePath(tournament.slug, adjudicator.privateUrlKey),
-                request.nextUrl.origin
-              ).toString()
-            : "",
-          passcode: adjudicator?.privatePasscode || "",
-        };
+        const adjudicator = recipient.adjudicatorId ? adjudicators.get(recipient.adjudicatorId) : undefined;
+        const team = recipient.teamId ? teams.get(recipient.teamId) : undefined;
+        const credentials = adjudicator
+          ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, linkOptions)
+          : team
+            ? privateCredentials("team", team.privateUrlKey, team.privatePasscode, linkOptions)
+            : { privateUrl: "", passcode: "" };
+        return { ...recipient, ...credentials };
       });
     }
     prepareEmailMessages(

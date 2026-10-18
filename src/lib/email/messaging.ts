@@ -1,6 +1,6 @@
 import { Adjudicator, Debate, Round, Team } from "@/types";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
-import { getAdjudicatorPrivatePath } from "@/lib/privateUrls";
+import { getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
 
 export const MAX_CAMPAIGN_RECIPIENTS = 100;
 
@@ -20,19 +20,12 @@ export const EMAIL_RECIPIENT_GROUPS = [
 
 export type EmailRecipientGroup = (typeof EMAIL_RECIPIENT_GROUPS)[number];
 
-export const ADJUDICATOR_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
-  "all_adjudicators",
-  "checked_in_adjudicators",
-  "trainees",
-  "round_adjudicators",
-  "chairs",
-  "panellists",
-];
-
 export interface EmailRecipient {
   email: string;
   name: string;
   adjudicatorId?: string;
+  /** Set for team speakers, so a retry can look the team's private credentials up again. */
+  teamId?: string;
   team?: string;
   institution?: string;
   round?: string;
@@ -42,6 +35,11 @@ export interface EmailRecipient {
   panellists?: string;
   privateUrl?: string;
   passcode?: string;
+  /** Automatic notifications: the recipient's side, round result, running points and ballot summary. */
+  side?: string;
+  result?: string;
+  points?: string;
+  ballot?: string;
 }
 
 export interface EmailCampaignResult {
@@ -72,6 +70,8 @@ export interface StoredEmailCampaign {
   retryOf?: string;
   retriedBy?: string;
   retryInProgress?: boolean;
+  /** Set when the campaign was sent automatically (draw release, results, ballot receipt). */
+  notificationKey?: string;
 }
 
 function describeSendError(error: unknown): string {
@@ -109,7 +109,8 @@ export function resolveEmailRecipients(
   debates: Debate[],
   round?: Round,
   options: {
-    includeAdjudicatorCredentials?: boolean;
+    /** Fill {{private_url}} / {{passcode}} with each adjudicator's or team's own credentials. */
+    includePrivateCredentials?: boolean;
     privateUrlOrigin?: string;
     tournamentSlug?: string;
     preserveDuplicateEmails?: boolean;
@@ -174,11 +175,15 @@ export function resolveEmailRecipients(
         addRecipient({
           email: speaker.email,
           name: speaker.name,
+          teamId: team.id,
           team: team.name,
           institution: team.institutionName,
           round: round?.name,
           ...debateVariables(teamDebate, adjudicators),
           ...(assignedTeamSlot?.pulledUp ? { team: `${team.name} (pulled up)` } : {}),
+          ...(options.includePrivateCredentials
+            ? privateCredentials("team", team.privateUrlKey, team.privatePasscode, options)
+            : {}),
         });
       }
     }
@@ -216,37 +221,60 @@ export function resolveEmailRecipients(
         institution: adjudicator.institutionName,
         round: round?.name,
         ...debateVariables(assignedDebate, adjudicators),
-        ...(options.includeAdjudicatorCredentials
-          ? {
-              privateUrl: adjudicator.privateUrlKey &&
-                options.privateUrlOrigin &&
-                options.tournamentSlug
-                ? new URL(
-                    getAdjudicatorPrivatePath(
-                      options.tournamentSlug,
-                      adjudicator.privateUrlKey
-                    ),
-                    options.privateUrlOrigin
-                  ).toString()
-                : "",
-              passcode: adjudicator.privatePasscode || "",
-            }
+        ...(options.includePrivateCredentials
+          ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, options)
           : {}),
       });
     }
   }
 
-  if (options.preserveDuplicateEmails) return recipients;
-
+  // With credentials, an address shared by two participants is kept twice (with different links) so
+  // findCredentialEmailConflict can refuse the send; speakers of one team share one link.
   const unique = new Map<string, EmailRecipient>();
   for (const recipient of recipients) {
-    const key = recipient.email.toLowerCase();
+    const email = recipient.email.toLowerCase();
+    const key = options.preserveDuplicateEmails ? `${email}
+${recipient.privateUrl ?? ""}` : email;
     if (!unique.has(key)) unique.set(key, recipient);
   }
   return [...unique.values()];
 }
 
-export function usesAdjudicatorCredentials(subject: string, body: string): boolean {
+/** The private portal link and passcode for one participant. */
+export function privateCredentials(
+  type: "adjudicator" | "team",
+  privateUrlKey: string | undefined,
+  passcode: string | undefined,
+  options: { privateUrlOrigin?: string; tournamentSlug?: string }
+): Pick<EmailRecipient, "privateUrl" | "passcode"> {
+  const path = privateUrlKey && options.tournamentSlug
+    ? type === "adjudicator"
+      ? getAdjudicatorPrivatePath(options.tournamentSlug, privateUrlKey)
+      : getTeamPrivatePath(options.tournamentSlug, privateUrlKey)
+    : "";
+  return {
+    privateUrl: path && options.privateUrlOrigin ? new URL(path, options.privateUrlOrigin).toString() : "",
+    passcode: passcode || "",
+  };
+}
+
+/**
+ * An email address that would receive two different private links (for example a speaker
+ * registered in two teams), or null. Such sends are refused so nobody gets another person's portal.
+ */
+export function findCredentialEmailConflict(recipients: EmailRecipient[]): string | null {
+  const linkByEmail = new Map<string, string>();
+  for (const recipient of recipients) {
+    const email = recipient.email.toLowerCase();
+    const link = recipient.privateUrl ?? "";
+    const previous = linkByEmail.get(email);
+    if (previous !== undefined && previous !== link) return recipient.email;
+    linkByEmail.set(email, link);
+  }
+  return null;
+}
+
+export function usesPrivateCredentials(subject: string, body: string): boolean {
   return templateUsesVariable(`${subject}\n${body}`, "private_url") ||
     templateUsesVariable(`${subject}\n${body}`, "passcode");
 }
@@ -274,6 +302,10 @@ export function renderEmailTemplate(
     panellists: recipient.panellists || "",
     private_url: recipient.privateUrl || "",
     passcode: recipient.passcode || "",
+    side: recipient.side || "",
+    result: recipient.result || "",
+    points: recipient.points || "",
+    ballot: recipient.ballot || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {
@@ -325,14 +357,14 @@ export function prepareEmailMessages(
         needsPrivateUrl && !recipient.privateUrl
       ) {
         throw new EmailCampaignInputError(
-          `A private URL is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+          `A private URL is missing for ${recipient.name}. Generate private URLs and try again.`
         );
       }
       if (
         needsPasscode && !recipient.passcode
       ) {
         throw new EmailCampaignInputError(
-          `A passcode is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+          `A passcode is missing for ${recipient.name}. Generate private URLs and try again.`
         );
       }
     }
