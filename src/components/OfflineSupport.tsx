@@ -1,26 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
+import { claimChunkReload, isChunkLoadError } from "@/lib/offline/chunkRecovery";
 
 export function OfflineSupport() {
   useEffect(() => {
-    const reloadForChunkError = (error: unknown) => {
-      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      if (!message.includes("ChunkLoadError") && !/Loading chunk \d+ failed/i.test(message)) return;
-
-      const reloadKey = "crabbytab:chunk-reload";
-      const now = Date.now();
+    const reloadForChunkError = (...sources: unknown[]) => {
+      if (!isChunkLoadError(...sources)) return;
+      let storage: Storage | undefined;
       try {
-        const previousReload = Number(sessionStorage.getItem(reloadKey));
-        if (previousReload && now - previousReload < 30_000) return;
-        sessionStorage.setItem(reloadKey, String(now));
+        storage = window.sessionStorage;
       } catch {
-        return;
+        storage = undefined;
       }
-      window.location.reload();
+      if (claimChunkReload(storage, Date.now())) window.location.reload();
     };
 
-    const handleError = (event: ErrorEvent) => reloadForChunkError(event.error ?? event.message);
+    // The failure can be described on the error object, in the event message, or both.
+    const handleError = (event: ErrorEvent) => reloadForChunkError(event.error, event.message);
     const handleRejection = (event: PromiseRejectionEvent) => reloadForChunkError(event.reason);
     window.addEventListener("error", handleError);
     window.addEventListener("unhandledrejection", handleRejection);
