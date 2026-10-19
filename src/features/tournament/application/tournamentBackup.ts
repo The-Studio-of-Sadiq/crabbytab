@@ -60,7 +60,11 @@ const REQUIRED_FIELDS: Record<CloudCollectionName, Record<string, FieldKind>> = 
   feedback: { roundId: "string", debateId: "string", score: "number", sourceType: "string", sourceId: "string" },
   institutions: { name: "string" },
   auditEvents: { timestamp: "string", action: "string" },
+  ballotIntake: { roundId: "string", debateId: "string", sheetCode: "string", receivedAt: "string" },
 };
+
+/** Collections added after the v1 format: a backup written before them simply has none. */
+const OPTIONAL_COLLECTIONS: ReadonlySet<CloudCollectionName> = new Set(["ballotIntake"]);
 
 function kindOf(value: unknown): FieldKind | "missing" | "other" {
   if (value === undefined || value === null) return "missing";
@@ -135,11 +139,12 @@ export function validateTournamentBackup(value: unknown, expectedTournamentId?: 
     add({ severity: "error", collection: "tournament", message: `Unknown tournament format "${tournament.format.slice(0, 30)}".` });
   }
 
-  const collectionsValue = value.collections;
-  if (!isRecord(collectionsValue)) {
+  if (!isRecord(value.collections)) {
     add({ severity: "error", collection: "file", message: "The backup is missing tournament records." });
     return finish();
   }
+  const collectionsValue: Record<string, unknown> = { ...value.collections };
+  for (const name of OPTIONAL_COLLECTIONS) collectionsValue[name] ??= [];
 
   const ids = {} as Record<CloudCollectionName, Set<string>>;
   let structurallyValid = true;
@@ -240,8 +245,12 @@ export function validateTournamentBackup(value: unknown, expectedTournamentId?: 
     check("error", "feedback", record.id, "adjudicators", [fields.targetAdjudicatorId as string | undefined], "adjudicator");
     check("warning", "feedback", record.id, fields.sourceType === "team" ? "teams" : "adjudicators", [fields.sourceId as string], "source");
   }
+  for (const record of collections.ballotIntake) {
+    const fields = asFields(record);
+    check("warning", "ballotIntake", record.id, "debates", [fields.debateId as string], "debate");
+  }
 
-  return finish(value as unknown as TournamentBackup);
+  return finish({ ...value, collections: collectionsValue } as unknown as TournamentBackup);
 }
 
 export function backupHasErrors(validation: BackupValidation): boolean {

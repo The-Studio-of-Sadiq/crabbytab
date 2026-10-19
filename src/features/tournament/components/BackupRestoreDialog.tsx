@@ -18,6 +18,7 @@ const COLLECTION_LABELS: Record<CloudCollectionName, string> = {
   feedback: "Feedback",
   institutions: "Institutions",
   auditEvents: "Audit log (always merged)",
+  ballotIntake: "Ballot intake",
 };
 
 /** Validates a backup, shows how it differs from this tournament, then merges or replaces. */

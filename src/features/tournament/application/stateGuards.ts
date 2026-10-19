@@ -813,6 +813,16 @@ export function checkBallotSubmission(ballot: BallotSubmission, state: RoundGuar
   return dedupe(violations);
 }
 
+/**
+ * Recording that a paper ballot arrived (ballot intake). Late paper is still recorded for completed
+ * rounds; only a cancelled (or missing) round has no ballots to receive.
+ */
+export function checkBallotIntake(round: Round | undefined, debateId?: string): GuardViolation[] {
+  if (!round) return [hard("round_cancelled", "This ballot sheet's round was cancelled or deleted.", { debateId })];
+  if (round.cancelled) return [hard("round_cancelled", `${round.name} is cancelled.`, { roundId: round.id, debateId })];
+  return [];
+}
+
 /** Whether the private portal may confirm or supersede ballots in this round. */
 export function isRoundLockedForPortalBallots(round: Round | undefined): boolean {
   return (

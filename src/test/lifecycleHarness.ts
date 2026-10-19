@@ -146,6 +146,7 @@ export class TournamentHarness {
       feedback: asRecords(this.feedback),
       institutions: asRecords(this.institutions),
       auditEvents: this.audit.map((event, index) => ({ id: `audit-${this.deviceId}-${index}`, ...event })) as unknown as CloudRecord[],
+      ballotIntake: [],
     };
   }
 
@@ -167,7 +168,7 @@ export class TournamentHarness {
 
   publicProjection() {
     const source = Object.fromEntries(
-      CLOUD_COLLECTIONS.filter((name) => name !== "auditEvents" && name !== "feedback").map((name) => [name, this.collections()[name]])
+      CLOUD_COLLECTIONS.filter((name) => name !== "auditEvents" && name !== "feedback" && name !== "ballotIntake").map((name) => [name, this.collections()[name]])
     ) as unknown as PublicSourceData;
     return buildPublicProjection(this.tournament as unknown as SourceRecord, source);
   }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
 import type { Debate, Round, Tournament } from "@/types";
-import { remoteBallotSubmissionBlocker } from "@/features/tournament/application/stateGuards";
+import { checkBallotIntake, remoteBallotSubmissionBlocker } from "@/features/tournament/application/stateGuards";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
   DATA_ENTRY_FIELDS,
@@ -138,7 +138,7 @@ export async function POST(
     const { tournament, user } = authorization;
     const actor = { uid: user.uid, name: authorization.actorName };
     const referencedDebateIds = [...new Set(records
-      .filter(({ collectionName }) => collectionName === "ballots" || collectionName === "feedback")
+      .filter(({ collectionName }) => collectionName === "ballots" || collectionName === "feedback" || collectionName === "ballotIntake")
       .map(({ record }) => record.debateId)
       .filter(validId))];
     const debateSnapshots: DocumentSnapshot[] = referencedDebateIds.length > 0
@@ -206,6 +206,18 @@ export async function POST(
             preferences: tournament.preferences,
             actor,
           }) };
+        } else if (collectionName === "ballotIntake") {
+          // The first receipt of a sheet stands; the same sheet scanned again changes nothing.
+          if (current) return "unchanged";
+          const debate = debatesById.get(String(record.debateId));
+          if (
+            !debate ||
+            debate.roundId !== record.roundId ||
+            checkBallotIntake(roundsById.get(debate.roundId), debate.id).length > 0
+          ) {
+            return archiveIncoming("rejected");
+          }
+          next = { ...record, receivedBy: user.uid, receivedByName: authorization.actorName };
         } else if (collectionName === "feedback") {
           validateAssistantFeedback(record, debatesById.get(String(record.debateId)), tournament.preferences);
           next = current ? { ...current, ...record } : { ...record, confirmed: false };

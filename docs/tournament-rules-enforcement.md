@@ -82,6 +82,7 @@ Enforced in `updateDebateCommand`, `updateDebatesCommand` and `autoAllocateComma
 | Confirm, or discard the confirmed, ballot | Not in a cancelled (`round_cancelled`) or advanced elimination (`elimination_advanced`) round. | Hard | `submitBallotCommand`, `confirmBallotCommand`, `discardBallotCommand` |
 | Confirm, or discard the confirmed, ballot | Not in a completed round (`round_completed`); the message names later rounds drawn from its results. | Overridable | same |
 | Save a ballot | Never overwrite a confirmed or discarded version, or another debate's ballot, in place (`ballot_locked`). Save a new version instead. Rewriting an unconfirmed draft is allowed. | Hard | `submitBallotCommand` |
+| Record that a paper ballot sheet arrived (ballot intake) | Not for a cancelled or deleted round (`round_cancelled`). Late paper for a completed round is still recorded. | Hard | `createIntakeRecord` (`checkBallotIntake`); `data-entry-sync` route for assistants |
 | Confirm a tab-room ballot when double entry is on | A different signed-in person checks it: you cannot confirm a version you entered, and a ballot saved as confirmed must be a check (`checksVersion`) of someone else's pending version (`same_person_check`). Judges' private-URL ballots and signed-out single-device use are exempt. | Overridable | `confirmBallotCommand`, `submitBallotCommand` (`checkIndependentConfirmation`) |
 
 Entering an unconfirmed ballot version is always allowed: it changes no result. Confirming or

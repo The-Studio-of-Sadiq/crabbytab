@@ -109,6 +109,29 @@ describe("sanitizeDataEntryRecord", () => {
     expect(record).not.toHaveProperty("confirmedBy");
   });
 
+  it("keeps only sheet fields of ballot receipts; the server stamps who received them", () => {
+    const { record } = sanitizeDataEntryRecord("ballotIntake", {
+      id: "intake-ABCDEFGH",
+      tournamentId: "t1",
+      roundId: "r1",
+      debateId: "d1",
+      sheetCode: "ABCDEFGH",
+      adjudicatorId: "chair",
+      receivedAt: "2026-10-19T10:00:00.000Z",
+      receivedBy: "spoofed",
+      receivedByName: "Someone else",
+    }, "t1");
+    expect(record).toEqual({
+      id: "intake-ABCDEFGH",
+      tournamentId: "t1",
+      roundId: "r1",
+      debateId: "d1",
+      sheetCode: "ABCDEFGH",
+      adjudicatorId: "chair",
+      receivedAt: "2026-10-19T10:00:00.000Z",
+    });
+  });
+
   it("rejects records for another tournament", () => {
     expect(() => sanitizeDataEntryRecord("teams", { id: "x", tournamentId: "other" }, "t1")).toThrow();
   });

@@ -540,6 +540,24 @@ export interface Motion {
   released: boolean;
 }
 
+/**
+ * Receipt of one printed paper ballot sheet in the tab room. The id is derived from the sheet
+ * (see ballotIntake.ts), so scanning the same sheet on two devices records one receipt.
+ */
+export interface BallotIntakeRecord {
+  id: string;
+  tournamentId: string;
+  roundId: string;
+  debateId: string;
+  /** The sheet's code, without the round prefix (see `ballotSheetCode`). */
+  sheetCode: string;
+  /** Voting ballots: the adjudicator whose sheet this is. Absent for a debate's single sheet. */
+  adjudicatorId?: string;
+  receivedAt: string;
+  receivedBy?: string;
+  receivedByName?: string;
+}
+
 export interface FeedbackSubmission {
   id: string;
   tournamentId: string;

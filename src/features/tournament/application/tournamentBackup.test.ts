@@ -88,6 +88,19 @@ describe("tournament file backup", () => {
     expect(messages(noTeams)).toContain("error teams: The backup has no teams list.");
   });
 
+  it("accepts backups written before ballot intake existed, reading them as having no receipts", () => {
+    const older = backupOf() as unknown as { collections: Record<string, unknown> };
+    delete older.collections.ballotIntake;
+    const validation = validateTournamentBackup(older, tournament.id);
+    expect(validation.issues).toEqual([]);
+    expect(validation.backup?.collections.ballotIntake).toEqual([]);
+    const withReceipt = populated();
+    withReceipt.ballotIntake = [record({ id: "intake-1", roundId: "r1", debateId: "gone", sheetCode: "ABCDEFGH", receivedAt: "2026-10-10T00:00:00.000Z" })];
+    expect(messages(backupOf(withReceipt))).toEqual([
+      'warning ballotIntake/intake-1: Refers to debate "gone", which is not in the backup.',
+    ]);
+  });
+
   it("checks required fields, duplicate ids and records from another tournament", () => {
     const collections = populated();
     collections.teams.push(record({ id: "a", name: "Alpha again", speakers: [] }));

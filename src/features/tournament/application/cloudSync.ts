@@ -25,6 +25,7 @@ export const DATA_ENTRY_COLLECTIONS = [
   "institutions",
   "ballots",
   "feedback",
+  "ballotIntake",
 ] as const satisfies readonly CloudCollectionName[];
 
 export interface TournamentCloudRepository {

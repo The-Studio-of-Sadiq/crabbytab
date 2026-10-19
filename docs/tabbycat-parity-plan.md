@@ -114,6 +114,7 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
   current-round listeners, starting with ballots, check-ins and allocation.
 - **#7 Paper-ballot intake board** (M): per-round status (missing / received / entered / awaiting
   check / confirmed / disputed), one printed ballot per adjudicator with a barcode, scan on arrival.
+  Done: see [ballot-intake.md](ballot-intake.md).
 - **#8 Standings and break depth** (M): ties at the break cutoff, minimum-speeches eligibility,
   trimmed mean dropping highest and lowest, who-beat-whom, votes carried, show the configured
   "extra" columns. **#9** (S): ballot mode per stage (prelims vs elims) and the missing presets
