@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { BallotSubmission, DebateSide, TeamScoreEntry } from "@/types";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/Badge";
@@ -128,11 +129,7 @@ export default function ResultsOverviewPage() {
   ).length;
   const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
   const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publicationError, setPublicationError] = useState("");
   const [pendingTeamSpeaksPublication, setPendingTeamSpeaksPublication] = useState<boolean | null>(null);
-  const [isPublishingTeamSpeaks, setIsPublishingTeamSpeaks] = useState(false);
-  const [teamSpeaksPublicationError, setTeamSpeaksPublicationError] = useState("");
   const [isAdvancingRound, setIsAdvancingRound] = useState(false);
   const [advancementError, setAdvancementError] = useState("");
   const [pendingAdvancement, setPendingAdvancement] = useState(false);
@@ -154,34 +151,6 @@ export default function ResultsOverviewPage() {
       setCompletionError(error instanceof Error ? error.message : "The round status could not be saved. Please try again.");
     } finally {
       setIsSavingCompletion(false);
-    }
-  };
-
-  const confirmPublication = async () => {
-    if (!activeRound || pendingPublication === null) return;
-    setIsPublishing(true);
-    setPublicationError("");
-    try {
-      await updateRound({ ...activeRound, resultsReleased: pendingPublication });
-      setPendingPublication(null);
-    } catch {
-      setPublicationError("The round publication could not be saved. Please try again.");
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
-  const confirmTeamSpeaksPublication = async () => {
-    if (!activeRound || pendingTeamSpeaksPublication === null) return;
-    setIsPublishingTeamSpeaks(true);
-    setTeamSpeaksPublicationError("");
-    try {
-      await updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication });
-      setPendingTeamSpeaksPublication(null);
-    } catch {
-      setTeamSpeaksPublicationError("Team-speaks publication could not be saved. Please try again.");
-    } finally {
-      setIsPublishingTeamSpeaks(false);
     }
   };
 
@@ -382,7 +351,6 @@ export default function ResultsOverviewPage() {
                   ? "Ballots are saved; publish when ready."
                   : "Confirm every ballot or record a bye before publishing."
               }
-              error={publicationError}
               action={
                 <Button
                   variant={activeRound.resultsReleased ? "secondary" : "primary"}
@@ -404,7 +372,6 @@ export default function ResultsOverviewPage() {
                   ? "Publish team scores separately when ready."
                   : "Confirm every ballot or record a bye before publishing team scores."
               }
-              error={teamSpeaksPublicationError}
               action={
                 <Button
                   variant="secondary"
@@ -475,29 +442,25 @@ export default function ResultsOverviewPage() {
         </Card>
       )}
       {pendingPublication !== null && activeRound && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={pendingPublication ? "Publish round results?" : "Unpublish round results?"}
           description={pendingPublication
             ? `Publishing ${activeRound.name} makes its team outcomes visible on the public tab. Team scores are controlled separately.`
-            : `Unpublishing ${activeRound.name} immediately hides its outcomes from the public tab.`}
-          confirmLabel={pendingPublication ? "Yes, publish results" : "Yes, unpublish results"}
-          onConfirm={confirmPublication}
-          onCancel={() => setPendingPublication(null)}
-          isBusy={isPublishing}
-          error={publicationError}
+            : `Unpublishing ${activeRound.name} hides its outcomes from the public tab.`}
+          confirmLabel={pendingPublication ? "Publish results" : "Unpublish results"}
+          apply={() => updateRound({ ...activeRound, resultsReleased: pendingPublication })}
+          onClose={() => setPendingPublication(null)}
         />
       )}
       {pendingTeamSpeaksPublication !== null && activeRound && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={pendingTeamSpeaksPublication ? "Publish team speaks?" : "Unpublish team speaks?"}
           description={pendingTeamSpeaksPublication
             ? `Publishing team speaks for ${activeRound.name} makes team score values available on the public tab.`
             : `Unpublishing team speaks for ${activeRound.name} hides its team score values from the public tab.`}
-          confirmLabel={pendingTeamSpeaksPublication ? "Yes, publish team speaks" : "Yes, unpublish team speaks"}
-          onConfirm={confirmTeamSpeaksPublication}
-          onCancel={() => setPendingTeamSpeaksPublication(null)}
-          isBusy={isPublishingTeamSpeaks}
-          error={teamSpeaksPublicationError}
+          confirmLabel={pendingTeamSpeaksPublication ? "Publish team speaks" : "Unpublish team speaks"}
+          apply={() => updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication })}
+          onClose={() => setPendingTeamSpeaksPublication(null)}
         />
       )}
       {pendingCompletion !== null && activeRound && (

@@ -24,6 +24,14 @@ import {
 import { ThemeMenuItems, ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
 import { LanguageMenuItems } from "@/components/ui/LanguageSwitcher";
 import { describeRoundStatus } from "@/components/layout/roundStatus";
+import { useBeforeUnloadWarning } from "@/components/layout/useBeforeUnloadWarning";
+import { db } from "@/lib/firebase";
+import {
+  describePendingCollection,
+  describeUploadIssue,
+  planRepublish,
+  shouldWarnBeforeUnload,
+} from "@/features/tournament/application/syncStatus";
 import {
   AlertTriangle,
   ChevronsUpDown,
@@ -47,59 +55,173 @@ import {
 
 type RoundStage = "preliminary" | "elimination";
 
-function SyncStatus({ isOnline, onOpenConflicts }: { isOnline: boolean; onOpenConflicts: () => void }) {
-  const { cloudSyncState, cloudSyncMessage, localSaveError, divergedRecords } = useTournament();
+function SyncStatus({
+  isOnline,
+  cloudSyncEnabled,
+  onOpenConflicts,
+  onUpload,
+  onDownload,
+  onExportRecovery,
+}: {
+  isOnline: boolean;
+  /** Signed in as tournament staff with Firebase configured, so this device syncs with the cloud. */
+  cloudSyncEnabled: boolean;
+  onOpenConflicts: () => void;
+  onUpload: () => void;
+  onDownload?: () => void;
+  onExportRecovery?: () => void;
+}) {
+  const { cloudSyncState, cloudSyncMessage, localSaveError, divergedRecords, pendingChanges, uploadIssue } =
+    useTournament();
+  const isSyncing = cloudSyncState === "syncing";
 
-  const pill = localSaveError ? (
-    <StatusPill tone="danger" title={localSaveError}>
-      <span className="max-sm:sr-only">Not saved</span>
-    </StatusPill>
-  ) : cloudSyncState === "syncing" ? (
+  if (localSaveError) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusPill tone="danger" title={localSaveError}>
+          <span className="max-sm:sr-only">Not saved</span>
+        </StatusPill>
+        <span role="alert" className="hidden max-w-[220px] truncate text-xs text-danger xl:inline" title={localSaveError}>
+          {localSaveError}
+        </span>
+      </div>
+    );
+  }
+
+  if (!cloudSyncEnabled) {
+    const pill = isSyncing ? (
+      <StatusPill tone="info" icon={<Loader2 className="animate-spin" aria-hidden="true" />}>
+        <span className="max-sm:sr-only">Syncing…</span>
+      </StatusPill>
+    ) : divergedRecords.length > 0 ? (
+      <button
+        type="button"
+        onClick={onOpenConflicts}
+        className={cn("rounded-full", focusRing)}
+        title="Records changed both on this device and in the cloud. Choose which version to keep."
+      >
+        <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+          <span className="max-sm:sr-only">
+            {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
+          </span>
+        </StatusPill>
+      </button>
+    ) : !isOnline ? (
+      <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title="Offline; changes are saved locally">
+        <span className="max-sm:sr-only">Offline</span>
+      </StatusPill>
+    ) : (
+      <StatusPill tone="neutral" icon={<Cloud aria-hidden="true" />} title="Offline-first; changes are saved on this device">
+        <span className="max-sm:sr-only">Local copy</span>
+      </StatusPill>
+    );
+    return <div className="flex min-w-0 items-center gap-2">{pill}</div>;
+  }
+
+  const pendingLabel = `${pendingChanges.total} change${pendingChanges.total === 1 ? "" : "s"} not uploaded`;
+  const pill = isSyncing ? (
     <StatusPill tone="info" icon={<Loader2 className="animate-spin" aria-hidden="true" />}>
       <span className="max-sm:sr-only">Syncing…</span>
     </StatusPill>
-  ) : cloudSyncState === "error" ? (
-    <StatusPill tone="danger" title={cloudSyncMessage}>
-      <span className="max-sm:sr-only">Sync failed</span>
+  ) : uploadIssue ? (
+    <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+      <span className="max-sm:sr-only">
+        {uploadIssue.kind === "conflicts"
+          ? `${uploadIssue.count} upload conflict${uploadIssue.count === 1 ? "" : "s"}`
+          : "Upload incomplete"}
+      </span>
     </StatusPill>
   ) : divergedRecords.length > 0 ? (
-    <button
-      type="button"
-      onClick={onOpenConflicts}
-      className={cn("rounded-full", focusRing)}
-      title="Records changed both on this device and in the cloud. Choose which version to keep."
-    >
-      <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
-        <span className="max-sm:sr-only">
-          {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
-        </span>
-      </StatusPill>
-    </button>
+    <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+      <span className="max-sm:sr-only">
+        {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
+      </span>
+    </StatusPill>
+  ) : cloudSyncState === "error" ? (
+    <StatusPill tone="danger">
+      <span className="max-sm:sr-only">Sync failed</span>
+    </StatusPill>
+  ) : pendingChanges.total > 0 ? (
+    <StatusPill tone="warning" icon={<CloudUpload aria-hidden="true" />}>
+      <span className="max-sm:sr-only">{pendingLabel}</span>
+    </StatusPill>
   ) : !isOnline ? (
-    <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title="Offline; changes are saved locally">
+    <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />}>
       <span className="max-sm:sr-only">Offline</span>
     </StatusPill>
   ) : (
-    <StatusPill tone="neutral" icon={<Cloud aria-hidden="true" />} title="Offline-first; changes are saved locally">
-      <span className="max-sm:sr-only">Local copy</span>
+    <StatusPill tone="success" icon={<Cloud aria-hidden="true" />}>
+      <span className="max-sm:sr-only">Uploaded</span>
     </StatusPill>
   );
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      {pill}
+      <DropdownMenu
+        align="end"
+        triggerLabel="Cloud sync status"
+        triggerClassName="h-8 px-1"
+        menuClassName="w-80 max-w-[calc(100vw-2rem)]"
+        trigger={pill}
+      >
+        <DropdownMenuLabel>Cloud sync</DropdownMenuLabel>
+        <div role="presentation" className="space-y-2 px-2 pb-2 text-xs text-fg-muted">
+          {uploadIssue && (
+            <p className="text-warning">{describeUploadIssue(uploadIssue)}</p>
+          )}
+          {divergedRecords.length > 0 && (
+            <p className="text-warning">
+              {divergedRecords.length} record(s) changed both here and in the cloud. Choose which version to keep before uploading.
+            </p>
+          )}
+          {pendingChanges.total > 0 ? (
+            <>
+              <p>
+                {pendingLabel}. They are saved on this device, but the cloud and public pages do not have them yet.
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4">
+                {pendingChanges.collections.map((item) => (
+                  <li key={item.collection}>{describePendingCollection(item)}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>Everything on this device has been uploaded.</p>
+          )}
+          {!isOnline && <p>You are offline. Changes stay on this device until you upload.</p>}
+          {cloudSyncMessage && (
+            <p className={cloudSyncState === "error" ? "text-danger" : undefined}>
+              Last result: {cloudSyncMessage}
+            </p>
+          )}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem icon={<Upload />} onSelect={onUpload} disabled={!isOnline || isSyncing}>
+          Upload now
+        </DropdownMenuItem>
+        {onDownload && (
+          <DropdownMenuItem icon={<CloudDownload />} onSelect={onDownload} disabled={!isOnline || isSyncing}>
+            Download and compare
+          </DropdownMenuItem>
+        )}
+        {divergedRecords.length > 0 && (
+          <DropdownMenuItem icon={<AlertTriangle />} onSelect={onOpenConflicts}>
+            Resolve sync conflicts ({divergedRecords.length})…
+          </DropdownMenuItem>
+        )}
+        {onExportRecovery && (uploadIssue?.kind === "conflicts" || divergedRecords.length > 0) && (
+          <DropdownMenuItem icon={<Download />} onSelect={onExportRecovery} disabled={!isOnline || isSyncing}>
+            Export archived cloud versions
+          </DropdownMenuItem>
+        )}
+      </DropdownMenu>
       {cloudSyncMessage && (
         <span
-          role="status"
           className={`hidden max-w-[220px] truncate text-xs xl:inline ${cloudSyncState === "error" ? "text-danger" : "text-fg-muted"}`}
           title={cloudSyncMessage}
+          role="status"
         >
           {cloudSyncMessage}
-        </span>
-      )}
-      {localSaveError && (
-        <span role="alert" className="hidden max-w-[220px] truncate text-xs text-danger xl:inline" title={localSaveError}>
-          {localSaveError}
         </span>
       )}
     </div>
@@ -133,6 +255,8 @@ export function Navbar({
     exportTournamentBackup,
     exportTournamentArchive,
     syncDataEntry,
+    pendingChanges,
+    uploadIssue,
   } = useTournament();
   const { user, logout } = useAuth();
   const { preference, setPreference } = useThemePreference();
@@ -157,10 +281,16 @@ export function Navbar({
   }, []);
 
   const isSyncing = cloudSyncState === "syncing";
+  const cloudSyncEnabled = Boolean(db && user && (isOwnerOrAdmin || isDataEntryAssistant));
+  const [republishPlan, setRepublishPlan] = useState<ReturnType<typeof planRepublish> | null>(null);
+
+  useBeforeUnloadWarning(
+    shouldWarnBeforeUnload({ cloudSyncEnabled, pendingTotal: pendingChanges.total, cloudBusy: isSyncing })
+  );
 
   const handleUpload = async () => {
     if (!window.confirm(
-      "Merge this device's records into Firestore? Cloud-only records are retained. Different cloud versions are archived before replacement. Local deletions are not applied to cloud."
+      "Upload this device's changes and publish public pages? Cloud-only records are retained. Different cloud versions are archived before replacement. If any record conflicts with a newer cloud version, public pages are not updated until you resolve it."
     )) {
       return;
     }
@@ -186,9 +316,28 @@ export function Navbar({
     }
   };
 
-  const handleRepublish = async () => {
+  const handleRepublish = () => {
+    const plan = planRepublish({ pendingTotal: pendingChanges.total, uploadIssue });
+    if (plan.kind === "publish") {
+      void republish(false);
+      return;
+    }
+    setRepublishPlan(plan);
+  };
+
+  const republish = async (publishWithPendingChanges: boolean) => {
+    setRepublishPlan(null);
     try {
-      await publishPublicView(true);
+      await publishPublicView(true, { publishWithPendingChanges });
+    } catch {
+      // The sync state displays the specific failure.
+    }
+  };
+
+  const uploadFromRepublish = async () => {
+    setRepublishPlan(null);
+    try {
+      await uploadToCloud();
     } catch {
       // The sync state displays the specific failure.
     }
@@ -339,7 +488,14 @@ export function Navbar({
         </DropdownMenu>
 
         <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
-          <SyncStatus isOnline={isOnline} onOpenConflicts={() => setShowConflictsDialog(true)} />
+          <SyncStatus
+            isOnline={isOnline}
+            cloudSyncEnabled={cloudSyncEnabled}
+            onOpenConflicts={() => setShowConflictsDialog(true)}
+            onUpload={isOwnerOrAdmin ? handleUpload : handleStaffSync}
+            onDownload={isOwnerOrAdmin ? handleDownload : undefined}
+            onExportRecovery={isOwnerOrAdmin ? handleExportRecovery : undefined}
+          />
 
           {user && isOwnerOrAdmin ? (
             <>
@@ -486,6 +642,45 @@ export function Navbar({
           </DropdownMenu>
         </div>
       </div>
+
+      <Dialog
+        open={republishPlan !== null}
+        onClose={() => setRepublishPlan(null)}
+        role="alertdialog"
+        title={republishPlan?.kind === "blocked" ? "Public pages cannot be republished yet" : "Upload changes before republishing?"}
+        description={
+          republishPlan?.kind === "blocked"
+            ? republishPlan.reason
+            : `Republishing publishes the cloud copy. ${republishPlan?.kind === "confirm-pending" ? republishPlan.pendingTotal : 0} change(s) on this device are not uploaded, so the public would see an older version.`
+        }
+        icon={<AlertTriangle className="text-warning" aria-hidden="true" />}
+        footer={
+          republishPlan?.kind === "blocked" ? (
+            <>
+              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>Close</Button>
+              {uploadIssue?.kind === "partial" ? (
+                <Button variant="primary" onClick={uploadFromRepublish}>Upload again</Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setRepublishPlan(null);
+                    void handleDownload();
+                  }}
+                >
+                  Download and compare
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => republish(true)}>Publish cloud copy anyway</Button>
+              <Button variant="primary" onClick={uploadFromRepublish}>Upload and publish</Button>
+            </>
+          )
+        }
+      />
 
       <Dialog
         open={showRoundModal}
