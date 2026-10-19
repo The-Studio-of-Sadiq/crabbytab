@@ -51,7 +51,7 @@ means the sync/publish hardening PR that added this section.
 | 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | FIXED | #11, wave 2 #8 | reserves, per-category status and partial elims; cutoff ties at the break and reserve cutoff reported (`BreakCategoryResult.cutoffTies`) and block generation until resolved with overrides (docs/standings-and-breaks.md) |
 | 1.11 venue re-allocation not persisted | OPEN | — | `application/allocation.ts` cloud save still passes `updatedRoundDebates` (latent while `AUTOMATIC_CLOUD_WRITES=false`; local save is correct) |
 | 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` still unused |
-| 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15 | `draw/powerPaired.ts` (golden tests are hand-derived, not recorded Tabbycat output) |
+| 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15, wave 2 #10 | `draw/powerPaired.ts`; same pull-up counts and Tabbycat position cost as recorded Tabbycat v2.12.1 draws (`tools/tabbycat-diff`) |
 | 2 two-team draw (intermediate, bubble, min_cost, seeded, preallocated) | FIXED | #15 | `twoTeamDraw.ts`, `oddBrackets.ts`, `minCostPairing.ts`, `weightedMatching.ts`, `rng.ts` |
 | 2 allocator: importance-weighted cost, soft history, user weights | FIXED | #12 | `draw/allocator.ts`; `prioritizeClashAvoidance` removed |
 | 2 allocator: adj↔adj conflicts, trainees conflict-checked | FIXED | #12 | `allocator.ts` `adjudicatorsConflict` |
@@ -82,7 +82,7 @@ means the sync/publish hardening PR that added this section.
 | 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.6k lines; provider value is an inline object |
 | 4.3 bound local `auditEvents` | OPEN | — | no limit |
 | 4.4 heavy compute in Web Workers | FIXED | #32 | draw generation and allocation run in `compute.worker.ts` |
-| 4.5 rules / API-route / e2e / golden tests | PARTIAL | #23 | Vitest BP+WSDC lifecycles and fake-Firestore sync tests; no rules-emulator, route or Playwright tests |
+| 4.5 rules / API-route / e2e / golden tests | PARTIAL | #23, wave 2 #10 | Vitest BP+WSDC lifecycles, fake-Firestore sync tests, differential test against recorded Tabbycat output (`tools/tabbycat-diff`); no rules-emulator, route or Playwright tests |
 | 4.6 cleanup (`metadata.json`, lockfiles, README sync) | PARTIAL | #24, #25, #27 | README sync text updated; `metadata.json` and both lockfiles remain |
 | 5 i18n | PARTIAL | #28 | in-house `lib/i18n`; public pages and portals only |
 | 5 accessibility | PARTIAL | #22 | `Dialog` focus trap and labelled primitives; legacy pages not migrated; no keyboard drag-and-drop |
@@ -124,7 +124,46 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
   Tabbycat does; Tabbycat has no Japan BP preset (BP is used); APDA, Public Speaking and Karl
   Popper presets are not offered because CrabbyTab lacks the features they need.*
 - **#10 Differential testing against real Tabbycat** (M): identical fixtures through Tabbycat
-  (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations.
+  (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations. *Done:
+  `tools/tabbycat-diff` (README there) with three seeded fixtures, golden output from Tabbycat
+  v2.12.1, and a classified report run in `npm test`. Findings below.*
+
+### Differential test findings (wave 2 #10, Tabbycat v2.12.1)
+
+Full list with evidence: [tools/tabbycat-diff/report/REPORT.md](../tools/tabbycat-diff/report/REPORT.md).
+In the three fixtures, breaks, BP draws (bracket composition, pull-ups, Tabbycat position cost),
+Australs draws, BP standings ranks and hard allocation constraints agree with Tabbycat.
+
+Fixed in that PR:
+- Speaker standings lost a reply speaker's substantive scores up to and including their first reply
+  (the first reply reset the speaker's score list), so in reply formats the speakers who reply were
+  ranked too low (`standings/calculator.ts`).
+
+CrabbyTab defects left open (follow-ups):
+- **Voting precision.** Averaged voting ballots are rounded to 0.01 (`ballots/result.ts`), so margins,
+  standard deviations and averages drift from Tabbycat and real ties split (three speakers on
+  224/3 ranked 38th and 39th). The fix changes stored ballot data, so it needs a migration decision.
+- **Side cap refuses feasible draws.** With "max times per side", two-team draws apply the cap after
+  pairing (`sideAllocator.ts`) and refuse the round (7 of 8 seeds in the fixture) when fold pairs two
+  teams that both need the same side, although valid pairings exist. The cap should constrain the pairing.
+- **Votes carried after import.** The DebateXML importer stores a debate with one per-adjudicator
+  ballot as a consensus ballot, which carries no votes, so `num_adjs` is 0 for sole-adjudicator debates.
+
+Rule differences worth deciding on:
+- Round-1 byes go to the first teams in the list (CrabbyTab) or the last imported (Tabbycat); neither
+  is random. CrabbyTab should break the tie with the draw's seeded RNG.
+- BP draw strength counts opponents' wins in CrabbyTab and opponents' points in Tabbycat (already
+  left out of the BP preset).
+- Teams tied inside the break get consecutive seeds in standings (name) order in CrabbyTab; Tabbycat
+  gives them equal break ranks.
+- The DebateXML importer totals ballots with CrabbyTab's defaults (ghost speeches excluded) before the
+  style's preset can apply; Tabbycat's importer applies the preset first.
+
+Upstream Tabbycat behaviour seen (not CrabbyTab issues): its standard break rule marks teams tied for
+the last place as reserves despite its code saying they all break (`breakqual/base.py`
+`add_reserve_teams`); "max times per side" is only enforced by min-cost conflict avoidance, and
+`graph.py` checks `t1_negs` twice instead of `t2_negs`; random-draw byes always go to the last teams
+in database order.
 
 **Wave 3 — P2/P3.** #11 staff invitations; #12 import preview, duplicate detection,
 institution auto-create, conflicts CSV; #13 speaker categories as entities driving eligibility;

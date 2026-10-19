@@ -49,11 +49,16 @@ export function reportMarkdown(reports: FixtureReport[]): string {
   );
 
   lines.push("## Summary", "");
+  lines.push(
+    "\"Checks agreed\" counts rule-bound checks only; informational ones (identical rooms, properties no " +
+      "rule in force constrains) are listed per fixture below.",
+    ""
+  );
   lines.push("| Fixture | Area | Checks agreed | " + ORDER.slice(1).join(" | ") + " |");
   lines.push("|---|---|---|" + ORDER.slice(1).map(() => "---").join("|") + "|");
   for (const report of reports) {
     for (const area of ["config", "standings", "draw", "break", "allocation"] as const) {
-      const checks = report.checks.filter((check) => check.area === area);
+      const checks = report.checks.filter((check) => check.area === area && !check.informational);
       const items = report.discrepancies.filter((item) => item.area === area);
       if (checks.length === 0 && items.length === 0) continue;
       const compared = checks.reduce((sum, check) => sum + check.compared, 0);
@@ -83,7 +88,7 @@ export function reportMarkdown(reports: FixtureReport[]): string {
     lines.push(`### ${report.fixture}: ${report.title}`, "", report.description, "");
     lines.push("| Area | Check | Agreed |", "|---|---|---|");
     for (const check of report.checks) {
-      lines.push(`| ${check.area} | ${cell(check.subject, 200)} | ${check.agreed}/${check.compared} |`);
+      lines.push(`| ${check.area} | ${check.informational ? "(info) " : ""}${cell(check.subject, 240)} | ${check.agreed}/${check.compared} |`);
     }
     lines.push("");
   }

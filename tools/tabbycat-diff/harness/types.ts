@@ -71,6 +71,8 @@ export interface BreakResult {
   error?: string;
   breaking?: { team: string; rank: number | null; breakRank: number | null }[];
   reserves?: { team: string; rank: number | null }[];
+  /** CrabbyTab only: tied groups held out of the break until the tab director resolves them. */
+  cutoffTies?: { cutoff: "break" | "reserve"; places: number; teams: string[] }[];
   /** Tabbycat remark codes: D = different break, C = capped, I = ineligible, ... */
   excluded?: { team: string; rank: number | null; remark: string }[];
 }

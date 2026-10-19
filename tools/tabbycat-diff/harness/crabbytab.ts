@@ -62,6 +62,8 @@ export const TEAM_METRIC_MAP: Record<string, TeamMetricId> = {
   seconds: "seconds",
   thirds: "thirds",
   npullups: "pullups",
+  num_adjs: "num_adjs",
+  num_iron: "num_iron",
 };
 
 export const SPEAKER_METRIC_MAP: Record<string, SpeakerMetricId> = {
@@ -121,10 +123,10 @@ export function translatePreferences(
     if (!mapped) unmapped.push(`speaker precedence metric ${metric}`);
     return mapped ? [mapped] : [];
   });
-  const missed = value("standings__standings_missed_debates");
-  if (typeof missed === "number" && missed >= 0) {
-    unmapped.push(`standings__standings_missed_debates=${missed} (CrabbyTab ranks every speaker)`);
-  }
+  const missed = Number(value("standings__standings_missed_debates"));
+  if (Number.isFinite(missed) && missed >= 0) preferences.standingsMissedDebates = missed;
+  const missedReplies = Number(value("standings__standings_missed_replies"));
+  if (Number.isFinite(missedReplies) && missedReplies >= 0) preferences.standingsMissedReplies = missedReplies;
 
   preferences.byeTeamSelectionMethod = pick("draw_rules__bye_team_selection", {
     off: "none",
@@ -194,6 +196,13 @@ export function translatePreferences(
     preferences.pullupPenalty = Number(value("draw_rules__draw_pullup_penalty"));
   }
 
+  if (value("debate_rules__ballots_per_debate_prelim") === "per-adj" && format !== "bp") preferences.ballotMode = "voting";
+  const conflictPenalty = Number(value("draw_rules__adj_conflict_penalty"));
+  if (Number.isFinite(conflictPenalty)) preferences.adjConflictPenalty = conflictPenalty;
+  const minVotingScore = Number(value("draw_rules__adj_min_voting_score"));
+  if (Number.isFinite(minVotingScore)) preferences.minAdjScoreToVote = minVotingScore;
+  const historyPenalty = Number(value("draw_rules__adj_history_penalty"));
+  if (Number.isFinite(historyPenalty)) preferences.adjHistoryPenalty = historyPenalty;
   preferences.marginIncludesDissenters = Boolean(value("scoring__margin_includes_dissenters"));
   preferences.teamScoreIncludesGhosts = Boolean(value("scoring__teamscore_includes_ghosts"));
   return { preferences, unmapped };
@@ -334,8 +343,9 @@ function speakerTable(rows: SpeakerStandingRow[], map: Record<string, SpeakerMet
   return {
     precedence,
     rows: rows
-      .map((row) => ({ speaker: row.speakerId, rank: row.rank, metrics: metricsOut(row.metrics, map) }))
-      .sort((a, b) => a.rank - b.rank || a.speaker.localeCompare(b.speaker)),
+      // Ineligible speakers (too many missed speeches) are unranked, as Tabbycat's null rank.
+      .map((row) => ({ speaker: row.speakerId, rank: row.ineligible ? null : row.rank, metrics: metricsOut(row.metrics, map) }))
+      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.speaker.localeCompare(b.speaker)),
   };
 }
 
@@ -430,6 +440,11 @@ function breaksFor(fixture: LoadedFixture): BreakResult[] {
       reserveSize: result.category.reserveSize ?? 0,
       breaking: result.breakingTeams.map((entry) => ({ team: entry.team.id, rank: entry.rank, breakRank: entry.seed })),
       reserves: result.reserveTeams.map((entry) => ({ team: entry.team.id, rank: entry.rank })),
+      cutoffTies: result.cutoffTies.map((tie) => ({
+        cutoff: tie.cutoff,
+        places: tie.places,
+        teams: tie.teams.map((entry) => entry.team.id),
+      })),
       excluded: result.excludedTeams.map((entry) => ({
         team: entry.team.id,
         rank: entry.rank,
@@ -458,8 +473,11 @@ function allocationFor(fixture: LoadedFixture): AllocationResult {
       : debate
   );
   const roundDebateCount = debates.filter((debate) => debate.roundId === round.id && !debate.byeTeamId).length;
+  // Tabbycat's voting allocator makes solos and trios only (CrabbyTab's "by_priority" sizing); its
+  // consensus allocator spreads every adjudicator over the panels (CrabbyTab's "fixed" sizing).
   const voting = tournament.preferences?.ballotMode === "voting";
   const panelSize = voting ? 3 : Math.ceil(data.adjudicators.length / Math.max(1, roundDebateCount));
+  const panelSizing = voting ? "by_priority" : "fixed";
   const standings = standingsUpTo(fixture, seq - 1).teams;
   try {
     const result = computeAutoAllocation({
@@ -474,10 +492,11 @@ function allocationFor(fixture: LoadedFixture): AllocationResult {
       venues: data.venues,
       roundId: round.id,
       panelSize,
+      settings: { panelSizing },
     });
     return {
       round: seq,
-      allocator: `crabbytab panelSize=${panelSize}`,
+      allocator: `crabbytab ${panelSizing} panelSize=${panelSize}`,
       debates: (result?.panelledDebates ?? [])
         .filter((debate) => !debate.byeTeamId)
         .map((debate) => ({

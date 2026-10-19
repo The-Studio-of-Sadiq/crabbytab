@@ -42,6 +42,8 @@ export interface Check {
   subject: string;
   compared: number;
   agreed: number;
+  /** Shown for context only: no rule requires the engines to agree on it. */
+  informational?: boolean;
 }
 
 /** Facts about the fixture the comparison needs, read from the imported archive. */
@@ -448,6 +450,7 @@ function compareDraws(
         subject: `round ${draw.round}: ${property}, not constrained by the rules in force (Tabbycat ${JSON.stringify(spread(tabbycatProps.map((props) => props[property])))}, CrabbyTab ${JSON.stringify(spread(crabbyProps.map((props) => props[property])))})`,
         compared: 1,
         agreed: JSON.stringify(a[property]) === JSON.stringify(b[property]) ? 1 : 0,
+        informational: true,
       });
     }
 
@@ -461,6 +464,7 @@ function compareDraws(
       subject: `round ${draw.round}: identical rooms, primary seed (same teams; ${sameRooms(true)} also on the same sides)`,
       compared: a.rooms,
       agreed: sameRooms(false),
+      informational: true,
     });
   }
 }
@@ -494,10 +498,14 @@ function compareBreaks(fixture: string, tabbycat: EngineOutput, crabbytab: Engin
         agreed++;
         continue;
       }
+      const cutoff = name === "breaking" ? "break" : name === "reserves" ? "reserve" : undefined;
+      const heldOut = (other.cutoffTies ?? []).filter((tie) => tie.cutoff === cutoff);
       out.discrepancies.push(discrepancy(fixture, "break", `${base}/${name}`,
-        `Break ${entry.category}: ${name} teams differ`,
-        { onlyTabbycat: leftSorted.filter((team) => !right.includes(team)), onlyCrabbyTab: rightSorted.filter((team) => !left.includes(team)) },
-        leftSorted, rightSorted));
+        `Break ${entry.category}: ${name} teams differ` +
+          (heldOut.length ? ` (CrabbyTab holds ${heldOut.map((tie) => `${tie.teams.length} tied teams for ${tie.places} place(s)`).join(", ")} out for the tab director)` : ""),
+        undefined,
+        { teams: leftSorted, onlyTabbycat: leftSorted.filter((team) => !right.includes(team)) },
+        { teams: rightSorted, onlyCrabbyTab: rightSorted.filter((team) => !left.includes(team)), ...(heldOut.length ? { cutoffTies: heldOut } : {}) }));
     }
     // Seeding order inside the break, for the teams both engines break.
     const common = (entry.breaking ?? []).map((row) => row.team).filter((team) => (other.breaking ?? []).some((row) => row.team === team));

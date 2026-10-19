@@ -1,0 +1,1261 @@
+{
+  "tabbycatVersion": "v2.12.1",
+  "fixtures": [
+    {
+      "fixture": "australs-voting",
+      "checks": [
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "teams: metric values",
+          "compared": 960,
+          "agreed": 837
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "teams: ranks",
+          "compared": 80,
+          "agreed": 80
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "speakers: metric values",
+          "compared": 1200,
+          "agreed": 1130
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "speakers: ranks",
+          "compared": 240,
+          "agreed": 235
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "replies: metric values",
+          "compared": 240,
+          "agreed": 240
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "standings",
+          "subject": "replies: ranks",
+          "compared": 80,
+          "agreed": 80
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 1: rooms, coverageErrors, institutionClashes, byes (8 seeds each)",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 1: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":0,\"max\":0}, CrabbyTab {\"min\":0,\"max\":0})",
+          "compared": 1,
+          "agreed": 1,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 1: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 10,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 2: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 9
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 2: identical rooms, primary seed (same teams; 8 also on the same sides)",
+          "compared": 10,
+          "agreed": 8,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 3: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 9
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 3: identical rooms, primary seed (same teams; 10 also on the same sides)",
+          "compared": 10,
+          "agreed": 10,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 4: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 9
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 4: identical rooms, primary seed (same teams; 8 also on the same sides)",
+          "compared": 10,
+          "agreed": 10,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 5: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 9
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "draw",
+          "subject": "round 5: identical rooms, primary seed (same teams; 10 also on the same sides)",
+          "compared": 10,
+          "agreed": 10,
+          "informational": true
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "break",
+          "subject": "BC1: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "break",
+          "subject": "BC2: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "australs-voting",
+          "area": "allocation",
+          "subject": "round 4: debatesWithoutChair, personalConflicts, institutionConflicts, adjudicatorConflicts, panelSizes, adjudicatorsUsed, historyRepeats, chairScoreSum",
+          "compared": 8,
+          "agreed": 7
+        }
+      ],
+      "discrepancies": [
+        {
+          "id": "australs-voting/config/unmapped/scoring__teamscore_includes_ghosts",
+          "fixture": "australs-voting",
+          "area": "config",
+          "summary": "Tabbycat setting has no CrabbyTab equivalent: scoring__teamscore_includes_ghosts (the DebateXML importer totals ballots with CrabbyTab's default, false; Tabbycat's default is true; the harness recomputes the totals)",
+          "classification": "configuration difference",
+          "note": "CrabbyTab's DebateXML importer totals each imported ballot with CrabbyTab's defaults, so iron-person (ghost) speeches are left out of team scores. Tabbycat's default, and WUDC 35.9.3.2, is to include them, and Tabbycat's importer applies the style preset first. The harness recomputes the imported totals with Tabbycat's setting so every later comparison starts from equal team scores. Follow-up: have the importer apply the style's preset (RULES_PRESETS) before totalling ballots."
+        },
+        {
+          "id": "australs-voting/standings/teams/metric/margin_avg",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "teams: \"margin_avg\" differs for 25 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T14",
+                "tabbycat": 2.666667,
+                "crabbytab": 2.67
+              },
+              {
+                "afterRound": 1,
+                "team": "T16",
+                "tabbycat": -2.666667,
+                "crabbytab": -2.67
+              },
+              {
+                "afterRound": 2,
+                "team": "T14",
+                "tabbycat": 3.416667,
+                "crabbytab": 3.42
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "Voting ballots are averaged across the majority and then rounded to 0.01 (round2 in aggregateVotingSheets and consensusTeamScores, src/lib/ballots/result.ts), so a 3-judge margin of 8/3 is stored as 2.67. Tabbycat keeps full precision. Not fixed here because it changes stored ballot data; see the parity plan."
+        },
+        {
+          "id": "australs-voting/standings/teams/metric/margin_sum",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "teams: \"margin_sum\" differs for 25 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T14",
+                "tabbycat": 2.666667,
+                "crabbytab": 2.67
+              },
+              {
+                "afterRound": 1,
+                "team": "T16",
+                "tabbycat": -2.666667,
+                "crabbytab": -2.67
+              },
+              {
+                "afterRound": 2,
+                "team": "T14",
+                "tabbycat": 6.833333,
+                "crabbytab": 6.84
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "Voting ballots are averaged across the majority and then rounded to 0.01 (round2 in aggregateVotingSheets and consensusTeamScores, src/lib/ballots/result.ts), so a 3-judge margin of 8/3 is stored as 2.67. Tabbycat keeps full precision. Not fixed here because it changes stored ballot data; see the parity plan."
+        },
+        {
+          "id": "australs-voting/standings/teams/metric/num_adjs",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "teams: \"num_adjs\" differs for 49 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T11",
+                "tabbycat": 3,
+                "crabbytab": 0
+              },
+              {
+                "afterRound": 1,
+                "team": "T17",
+                "tabbycat": 3,
+                "crabbytab": 0
+              },
+              {
+                "afterRound": 1,
+                "team": "T3",
+                "tabbycat": 3,
+                "crabbytab": 0
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "CrabbyTab's DebateXML importer treats a debate with one per-adjudicator ballot as a consensus ballot, and consensus ballots record no votes, so 'votes/ballots carried' is 0 for every sole-adjudicator debate. Tabbycat counts a unanimous vote, normalised to 3. Only the importer path is shown to be affected; ballots entered in the app were not checked by this harness. Not in any fixture's precedence, so no rank is affected."
+        },
+        {
+          "id": "australs-voting/standings/teams/metric/speaks_stddev",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "teams: \"speaks_stddev\" differs for 24 row(s), first after round 2",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 2,
+                "team": "T14",
+                "tabbycat": 1.25,
+                "crabbytab": 1.2450000000000045
+              },
+              {
+                "afterRound": 2,
+                "team": "T3",
+                "tabbycat": 1.833333,
+                "crabbytab": 1.8300000000000125
+              },
+              {
+                "afterRound": 2,
+                "team": "T19",
+                "tabbycat": 1,
+                "crabbytab": 0.9950000000000045
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "Same cause as the margins: averaged voting scores are rounded to 0.01 before the standard deviation is taken."
+        },
+        {
+          "id": "australs-voting/standings/speakers/metric/stdev",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "speakers: \"stdev\" differs for 70 row(s), first after round 2",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 2,
+                "speaker": "S42",
+                "tabbycat": 0.166667,
+                "crabbytab": 0.16499999999999915
+              },
+              {
+                "afterRound": 2,
+                "speaker": "S41",
+                "tabbycat": 0.666667,
+                "crabbytab": 0.6649999999999991
+              },
+              {
+                "afterRound": 2,
+                "speaker": "S13",
+                "tabbycat": 0.833333,
+                "crabbytab": 0.8350000000000009
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "Same cause as the margins: each speech's average across the panel is rounded to 0.01 when the voting ballot is aggregated."
+        },
+        {
+          "id": "australs-voting/standings/speakers/rank",
+          "fixture": "australs-voting",
+          "area": "standings",
+          "summary": "speakers: rank differs for 5 row(s)",
+          "tabbycat": {
+            "examples": [
+              {
+                "round": 2,
+                "id": "S17",
+                "tabbycat": 38,
+                "crabbytab": 39
+              },
+              {
+                "round": 2,
+                "id": "S37",
+                "tabbycat": 38,
+                "crabbytab": 39
+              },
+              {
+                "round": 3,
+                "id": "S17",
+                "tabbycat": 33,
+                "crabbytab": 34
+              },
+              {
+                "round": 3,
+                "id": "S30",
+                "tabbycat": 33,
+                "crabbytab": 34
+              },
+              {
+                "round": 3,
+                "id": "S39",
+                "tabbycat": 33,
+                "crabbytab": 34
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "The 0.01 rounding of averaged voting scores splits real ties: after round 2, S17, S37 and S55 all average 224/3 in Tabbycat and share 38th place, but CrabbyTab stores 74.665 for two of them and 74.67 for the third, so it ranks them 38th and 39th."
+        },
+        {
+          "id": "australs-voting/allocation/r4/historyRepeats",
+          "fixture": "australs-voting",
+          "area": "allocation",
+          "summary": "Round 4 allocation: historyRepeats differs",
+          "tabbycat": 1,
+          "crabbytab": 2,
+          "classification": "valid alternative",
+          "note": "Adjudicator-team history is a soft penalty in both engines (Tabbycat's adj_history_penalty, mapped to CrabbyTab's adjHistoryPenalty). Neither allocation breaks a hard constraint and chair quality is within the 10% band. CrabbyTab's allocation has one more repeat in both voting fixtures, which is worth watching but is not a rule violation."
+        }
+      ]
+    },
+    {
+      "fixture": "bp-uneven",
+      "checks": [
+        {
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "subject": "teams: metric values",
+          "compared": 1144,
+          "agreed": 970
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "subject": "teams: ranks",
+          "compared": 104,
+          "agreed": 104
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "subject": "speakers: metric values",
+          "compared": 1040,
+          "agreed": 1040
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "subject": "speakers: ranks",
+          "compared": 208,
+          "agreed": 208
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 1: rooms, coverageErrors, byes (8 seeds each)",
+          "compared": 3,
+          "agreed": 2
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 1: institutionClashes, not constrained by the rules in force (Tabbycat {\"min\":2,\"max\":7}, CrabbyTab {\"min\":0,\"max\":3})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 1: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":0,\"max\":0}, CrabbyTab {\"min\":0,\"max\":0})",
+          "compared": 1,
+          "agreed": 1,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 1: positionCost, not constrained by the rules in force (Tabbycat {\"min\":384,\"max\":384}, CrabbyTab {\"min\":384,\"max\":384})",
+          "compared": 1,
+          "agreed": 1,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 1: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 6,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 2: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, positionCost, byes (8 seeds each)",
+          "compared": 7,
+          "agreed": 6
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 2: institutionClashes, not constrained by the rules in force (Tabbycat {\"min\":1,\"max\":7}, CrabbyTab {\"min\":2,\"max\":5})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 2: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":1,\"max\":3}, CrabbyTab {\"min\":1,\"max\":4})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 2: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 6,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 3: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, positionCost, byes (8 seeds each)",
+          "compared": 7,
+          "agreed": 7
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 3: institutionClashes, not constrained by the rules in force (Tabbycat {\"min\":2,\"max\":6}, CrabbyTab {\"min\":3,\"max\":8})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 3: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":5,\"max\":8}, CrabbyTab {\"min\":5,\"max\":9})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 3: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 6,
+          "agreed": 2,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 4: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, positionCost, byes (8 seeds each)",
+          "compared": 7,
+          "agreed": 6
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 4: institutionClashes, not constrained by the rules in force (Tabbycat {\"min\":2,\"max\":5}, CrabbyTab {\"min\":2,\"max\":5})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 4: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":10,\"max\":12}, CrabbyTab {\"min\":8,\"max\":14})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 4: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 6,
+          "agreed": 1,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 5: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, positionCost, byes (8 seeds each)",
+          "compared": 7,
+          "agreed": 7
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 5: institutionClashes, not constrained by the rules in force (Tabbycat {\"min\":3,\"max\":5}, CrabbyTab {\"min\":3,\"max\":5})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 5: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":15,\"max\":19}, CrabbyTab {\"min\":16,\"max\":18})",
+          "compared": 1,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "subject": "round 5: identical rooms, primary seed (same teams; 2 also on the same sides)",
+          "compared": 6,
+          "agreed": 4,
+          "informational": true
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "break",
+          "subject": "BC1: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "break",
+          "subject": "BC2: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "break",
+          "subject": "BC3: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 4
+        },
+        {
+          "fixture": "bp-uneven",
+          "area": "allocation",
+          "subject": "round 4: debatesWithoutChair, personalConflicts, institutionConflicts, adjudicatorConflicts, panelSizes, adjudicatorsUsed, historyRepeats, chairScoreSum",
+          "compared": 8,
+          "agreed": 8
+        }
+      ],
+      "discrepancies": [
+        {
+          "id": "bp-uneven/config/unmapped/scoring__teamscore_includes_ghosts",
+          "fixture": "bp-uneven",
+          "area": "config",
+          "summary": "Tabbycat setting has no CrabbyTab equivalent: scoring__teamscore_includes_ghosts (the DebateXML importer totals ballots with CrabbyTab's default, false; Tabbycat's default is true; the harness recomputes the totals)",
+          "classification": "configuration difference",
+          "note": "CrabbyTab's DebateXML importer totals each imported ballot with CrabbyTab's defaults, so iron-person (ghost) speeches are left out of team scores. Tabbycat's default, and WUDC 35.9.3.2, is to include them, and Tabbycat's importer applies the style preset first. The harness recomputes the imported totals with Tabbycat's setting so every later comparison starts from equal team scores. Follow-up: have the importer apply the style's preset (RULES_PRESETS) before totalling ballots."
+        },
+        {
+          "id": "bp-uneven/standings/teams/metric/draw_strength",
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "summary": "teams: \"draw_strength\" differs for 98 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T1",
+                "tabbycat": 3,
+                "crabbytab": 1
+              },
+              {
+                "afterRound": 1,
+                "team": "T10",
+                "tabbycat": 3,
+                "crabbytab": 1
+              },
+              {
+                "afterRound": 1,
+                "team": "T21",
+                "tabbycat": 3,
+                "crabbytab": 1
+              }
+            ]
+          },
+          "classification": "rule difference",
+          "note": "In BP, Tabbycat's draw strength sums opponents' points; CrabbyTab's draw_strength_wins counts opponents' wins (a 1st or 2nd). The BP rules preset already lists this as unsupported and leaves draw strength out of the BP precedence (src/lib/setup/presets.ts), so BP ranks still agree. Follow-up: compute BP draw strength from points.",
+          "dependsOn": [
+            "PR #36 (BP preset precedence)"
+          ]
+        },
+        {
+          "id": "bp-uneven/standings/teams/metric/wins",
+          "fixture": "bp-uneven",
+          "area": "standings",
+          "summary": "teams: \"wins\" differs for 76 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T1",
+                "tabbycat": 0,
+                "crabbytab": 1
+              },
+              {
+                "afterRound": 1,
+                "team": "T10",
+                "tabbycat": 0,
+                "crabbytab": 1
+              },
+              {
+                "afterRound": 1,
+                "team": "T21",
+                "tabbycat": 0,
+                "crabbytab": 1
+              }
+            ]
+          },
+          "classification": "rule difference",
+          "note": "Tabbycat records no wins in BP preliminary rounds (0 for every team); CrabbyTab counts a 1st or 2nd as a win. 'wins' is not in any BP precedence, but it feeds the draw-strength difference above."
+        },
+        {
+          "id": "bp-uneven/draw/r1/byes",
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "summary": "Round 1: byes differs",
+          "tabbycat": {
+            "primary": [
+              "T25",
+              "T26"
+            ],
+            "seeds": [
+              [
+                "T25",
+                "T26"
+              ]
+            ]
+          },
+          "crabbytab": {
+            "primary": [
+              "T1",
+              "T2"
+            ],
+            "seeds": [
+              [
+                "T1",
+                "T2"
+              ]
+            ]
+          },
+          "classification": "rule difference",
+          "note": "Before any results every team is tied, and neither engine picks round-1 byes at random. Tabbycat's random draw manager takes the last teams in database order (the last imported); CrabbyTab's lowest_ranked rule keeps list order, so the first teams always sit out. Both are arbitrary, fixed preferences; AGENTS.md section 7.2 asks for an explicit random tie-break. Follow-up: break the bye tie with the draw's seeded RNG."
+        },
+        {
+          "id": "bp-uneven/draw/r2/bracketSignature",
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "summary": "Round 2: bracketSignature differs (within seed-to-seed variation)",
+          "tabbycat": {
+            "primary": "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,2,2] [3,3,3,3]",
+            "seeds": [
+              "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,2,2] [3,3,3,3]",
+              "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,3,2] [3,3,3,2]",
+              "[0,0,0,0] [1,1,0,0] [1,1,1,1] [2,2,2,2] [3,3,2,2] [3,3,3,3]",
+              "[0,0,0,0] [1,1,0,0] [1,1,1,1] [2,2,2,2] [3,3,3,2] [3,3,3,2]"
+            ]
+          },
+          "crabbytab": {
+            "primary": "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,3,2] [3,3,3,2]",
+            "seeds": [
+              "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,3,2] [3,3,3,2]",
+              "[0,0,0,0] [1,1,0,0] [1,1,1,1] [2,2,2,2] [3,3,3,2] [3,3,3,2]",
+              "[0,0,0,0] [1,1,1,0] [1,1,1,0] [2,2,2,2] [3,3,2,2] [3,3,3,3]",
+              "[0,0,0,0] [1,1,0,0] [1,1,1,1] [2,2,2,2] [3,3,2,2] [3,3,3,3]"
+            ]
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "With bp_pullup_distribution 'anywhere', a pulled-up team may sit in any room of the bracket above, and the rooms are chosen by position cost. Both engines reach the same total position cost (positionCost agrees) with the same number of pull-ups; the rooms just differ."
+        },
+        {
+          "id": "bp-uneven/draw/r4/bracketSignature",
+          "fixture": "bp-uneven",
+          "area": "draw",
+          "summary": "Round 4: bracketSignature differs (within seed-to-seed variation)",
+          "tabbycat": {
+            "primary": "[3,2,2,1] [3,3,3,3] [5,5,4,3] [5,5,5,4] [6,6,6,5] [8,7,7,7]",
+            "seeds": [
+              "[3,2,2,1] [3,3,3,3] [5,5,4,3] [5,5,5,4] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,1] [3,3,3,2] [5,5,4,3] [5,5,5,4] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,1] [3,3,3,2] [5,5,4,4] [5,5,5,3] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,1] [3,3,3,2] [5,4,4,3] [5,5,5,5] [6,6,6,5] [8,7,7,7]"
+            ]
+          },
+          "crabbytab": {
+            "primary": "[3,3,2,1] [3,3,3,2] [5,5,4,4] [5,5,5,3] [6,6,6,5] [8,7,7,7]",
+            "seeds": [
+              "[3,3,2,1] [3,3,3,2] [5,5,4,4] [5,5,5,3] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,2] [3,3,3,1] [5,4,4,3] [5,5,5,5] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,1] [3,3,3,2] [5,4,4,3] [5,5,5,5] [6,6,6,5] [8,7,7,7]",
+              "[3,2,2,1] [3,3,3,3] [5,5,4,4] [5,5,5,3] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,1] [3,3,3,2] [5,5,4,3] [5,5,5,4] [6,6,6,5] [8,7,7,7]",
+              "[3,3,2,2] [3,3,3,1] [5,5,4,3] [5,5,5,4] [6,6,6,5] [8,7,7,7]"
+            ]
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "With bp_pullup_distribution 'anywhere', a pulled-up team may sit in any room of the bracket above, and the rooms are chosen by position cost. Both engines reach the same total position cost (positionCost agrees) with the same number of pull-ups; the rooms just differ."
+        }
+      ]
+    },
+    {
+      "fixture": "twoteam-odd-ties",
+      "checks": [
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "teams: metric values",
+          "compared": 912,
+          "agreed": 856
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "teams: ranks",
+          "compared": 76,
+          "agreed": 76
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "speakers: metric values",
+          "compared": 1140,
+          "agreed": 1140
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "speakers: ranks",
+          "compared": 228,
+          "agreed": 228
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "replies: metric values",
+          "compared": 216,
+          "agreed": 216
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "subject": "replies: ranks",
+          "compared": 72,
+          "agreed": 72
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 1: rooms, coverageErrors, institutionClashes, byes (8 seeds each)",
+          "compared": 4,
+          "agreed": 3
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 1: repeatPairings, not constrained by the rules in force (Tabbycat {\"min\":0,\"max\":0}, CrabbyTab {\"min\":0,\"max\":0})",
+          "compared": 1,
+          "agreed": 1,
+          "informational": true
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 1: identical rooms, primary seed (same teams; 2 also on the same sides)",
+          "compared": 9,
+          "agreed": 2,
+          "informational": true
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 2: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 6
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 2: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "compared": 9,
+          "agreed": 0,
+          "informational": true
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 3: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 8
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 3: identical rooms, primary seed (same teams; 2 also on the same sides)",
+          "compared": 9,
+          "agreed": 2,
+          "informational": true
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 4: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
+          "compared": 9,
+          "agreed": 6
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 4: identical rooms, primary seed (same teams; 2 also on the same sides)",
+          "compared": 9,
+          "agreed": 2,
+          "informational": true
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "subject": "round 5: both engines draw (or both refuse)",
+          "compared": 1,
+          "agreed": 0
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "break",
+          "subject": "BC1: breaking, reserve and different-break sets, seeds",
+          "compared": 4,
+          "agreed": 1
+        },
+        {
+          "fixture": "twoteam-odd-ties",
+          "area": "allocation",
+          "subject": "round 4: debatesWithoutChair, personalConflicts, institutionConflicts, adjudicatorConflicts, panelSizes, adjudicatorsUsed, historyRepeats, chairScoreSum",
+          "compared": 8,
+          "agreed": 7
+        }
+      ],
+      "discrepancies": [
+        {
+          "id": "twoteam-odd-ties/standings/teams/metric/num_adjs",
+          "fixture": "twoteam-odd-ties",
+          "area": "standings",
+          "summary": "teams: \"num_adjs\" differs for 56 row(s), first after round 1",
+          "tabbycat": {
+            "examples": [
+              {
+                "afterRound": 1,
+                "team": "T1",
+                "tabbycat": 3,
+                "crabbytab": 0
+              },
+              {
+                "afterRound": 1,
+                "team": "T10",
+                "tabbycat": 3,
+                "crabbytab": 0
+              },
+              {
+                "afterRound": 1,
+                "team": "T11",
+                "tabbycat": 3,
+                "crabbytab": 0
+              }
+            ]
+          },
+          "classification": "CrabbyTab defect",
+          "note": "CrabbyTab's DebateXML importer treats a debate with one per-adjudicator ballot as a consensus ballot, and consensus ballots record no votes, so 'votes/ballots carried' is 0 for every sole-adjudicator debate. Tabbycat counts a unanimous vote, normalised to 3. Only the importer path is shown to be affected; ballots entered in the app were not checked by this harness. Not in any fixture's precedence, so no rank is affected."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r1/byes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 1: byes differs",
+          "tabbycat": {
+            "primary": [
+              "T19"
+            ],
+            "seeds": [
+              [
+                "T19"
+              ]
+            ]
+          },
+          "crabbytab": {
+            "primary": [
+              "T1"
+            ],
+            "seeds": [
+              [
+                "T1"
+              ]
+            ]
+          },
+          "classification": "rule difference",
+          "note": "Before any results every team is tied, and neither engine picks round-1 byes at random. Tabbycat's random draw manager takes the last teams in database order (the last imported); CrabbyTab's lowest_ranked rule keeps list order, so the first teams always sit out. Both are arbitrary, fixed preferences; AGENTS.md section 7.2 asks for an explicit random tie-break. Follow-up: break the bye tie with the draw's seeded RNG."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r2/sideImbalance",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 2: sideImbalance differs (within seed-to-seed variation)",
+          "tabbycat": {
+            "primary": 4,
+            "seeds": {
+              "min": 4,
+              "max": 4
+            }
+          },
+          "crabbytab": {
+            "primary": 2,
+            "seeds": {
+              "min": 2,
+              "max": 4
+            }
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "With wins as the only ranking metric, every bracket is a large tie that each engine shuffles at random. CrabbyTab's value is inside the range its own seeds produce and overlaps Tabbycat's; it is not consistently worse."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r2/institutionClashes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 2: institutionClashes differs",
+          "tabbycat": {
+            "primary": 1,
+            "seeds": {
+              "min": 1,
+              "max": 1
+            }
+          },
+          "crabbytab": {
+            "primary": 0,
+            "seeds": {
+              "min": 0,
+              "max": 0
+            }
+          },
+          "classification": "valid alternative",
+          "note": "This follows from the different bye, which leaves different teams in the field. Tabbycat pulls T2 up to face T1 (both University A) and one-up-one-down does not swap a pull-up debate. CrabbyTab gave T2 the bye and has no clash. Both are permitted by the configured rules."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r2/byes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 2: byes differs",
+          "tabbycat": {
+            "primary": [
+              "T17"
+            ],
+            "seeds": [
+              [
+                "T17"
+              ]
+            ]
+          },
+          "crabbytab": {
+            "primary": [
+              "T2"
+            ],
+            "seeds": [
+              [
+                "T2"
+              ]
+            ]
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r3/byes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 3: byes differs",
+          "tabbycat": {
+            "primary": [
+              "T17"
+            ],
+            "seeds": [
+              [
+                "T17"
+              ]
+            ]
+          },
+          "crabbytab": {
+            "primary": [
+              "T4"
+            ],
+            "seeds": [
+              [
+                "T4"
+              ]
+            ]
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r4/sideImbalance",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 4: sideImbalance differs (within seed-to-seed variation)",
+          "tabbycat": {
+            "primary": 4,
+            "seeds": {
+              "min": 4,
+              "max": 4
+            }
+          },
+          "crabbytab": {
+            "primary": 6,
+            "seeds": {
+              "min": 4,
+              "max": 8
+            }
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "With wins as the only ranking metric, every bracket is a large tie that each engine shuffles at random. CrabbyTab's value is inside the range its own seeds produce and overlaps Tabbycat's; it is not consistently worse."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r4/institutionClashes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 4: institutionClashes differs",
+          "tabbycat": {
+            "primary": 0,
+            "seeds": {
+              "min": 0,
+              "max": 0
+            }
+          },
+          "crabbytab": {
+            "primary": 1,
+            "seeds": {
+              "min": 1,
+              "max": 2
+            }
+          },
+          "classification": "valid alternative",
+          "note": "This follows from the different bye. CrabbyTab gives T4 the bye, which leaves T16 and T17 (both University G) as the only 0-win teams, so the clash is forced. Tabbycat's bye to T17 avoids it. Choosing a bye that avoids a forced clash would need clash-aware bye selection, which neither engine has."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r4/byes",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 4: byes differs",
+          "tabbycat": {
+            "primary": [
+              "T17"
+            ],
+            "seeds": [
+              [
+                "T17"
+              ]
+            ]
+          },
+          "crabbytab": {
+            "primary": [
+              "T4"
+            ],
+            "seeds": [
+              [
+                "T4"
+              ]
+            ]
+          },
+          "autoClassification": "valid alternative",
+          "classification": "valid alternative",
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+        },
+        {
+          "id": "twoteam-odd-ties/draw/r5/error",
+          "fixture": "twoteam-odd-ties",
+          "area": "draw",
+          "summary": "Round 5: only CrabbyTab refused to draw",
+          "tabbycat": {
+            "seeds": "0/8 seeds refused"
+          },
+          "crabbytab": {
+            "error": "No side assignment for University A A vs University D B satisfies the configured side limits (at most 3 times per side).",
+            "seeds": "7/8 seeds refused"
+          },
+          "classification": "CrabbyTab defect",
+          "note": "With max 3 debates per side, T13 and T19 have both been affirmative three times and fold pairs them together. CrabbyTab pairs first and checks side limits afterwards (sideAllocator.ts), so it refuses the draw in 7 of 8 seeds even though valid pairings exist within the bracket. Tabbycat enforces the cap only in its min-cost ('graph') conflict avoidance (draw/generator/graph.py, which also checks t1_negs twice instead of t2_negs), so with one-up-one-down it draws and silently gives one of them a fourth affirmative. Follow-up: treat the side cap as a pairing constraint for fold and one-up-one-down."
+        },
+        {
+          "id": "twoteam-odd-ties/break/BC1/breaking",
+          "fixture": "twoteam-odd-ties",
+          "area": "break",
+          "summary": "Break BC1: breaking teams differ (CrabbyTab holds 8 tied teams for 1 place(s) out for the tab director)",
+          "tabbycat": {
+            "teams": [
+              "T1",
+              "T11",
+              "T18",
+              "T2",
+              "T5",
+              "T8"
+            ],
+            "onlyTabbycat": [
+              "T2"
+            ]
+          },
+          "crabbytab": {
+            "teams": [
+              "T1",
+              "T11",
+              "T18",
+              "T5",
+              "T8"
+            ],
+            "onlyCrabbyTab": [],
+            "cutoffTies": [
+              {
+                "cutoff": "break",
+                "places": 1,
+                "teams": [
+                  "T2",
+                  "T3",
+                  "T7",
+                  "T9",
+                  "T10",
+                  "T12",
+                  "T14",
+                  "T15"
+                ]
+              }
+            ]
+          },
+          "classification": "rule difference",
+          "note": "Eight teams are tied on wins for the last of six places. Tabbycat 2.12.1 breaks one of them, picked by its random standings tie-break, and marks the other seven as reserves. Its code says every team tied for the last place should break, but add_reserve_teams then overwrites them as reserves (breakqual/base.py). CrabbyTab holds the whole tie out of the break and blocks generation until the tab director resolves it, so it breaks five teams and reports the tie.",
+          "dependsOn": [
+            "PR #36 (cutoffTies)"
+          ]
+        },
+        {
+          "id": "twoteam-odd-ties/break/BC1/reserves",
+          "fixture": "twoteam-odd-ties",
+          "area": "break",
+          "summary": "Break BC1: reserves teams differ",
+          "tabbycat": {
+            "teams": [
+              "T10",
+              "T12",
+              "T14",
+              "T15",
+              "T3",
+              "T7",
+              "T9"
+            ],
+            "onlyTabbycat": [
+              "T10",
+              "T12",
+              "T14",
+              "T15",
+              "T3",
+              "T7",
+              "T9"
+            ]
+          },
+          "crabbytab": {
+            "teams": [],
+            "onlyCrabbyTab": []
+          },
+          "classification": "rule difference",
+          "note": "Same tie as above: Tabbycat lists the seven tied teams it did not break as reserves. CrabbyTab picks no reserves until the break cutoff tie is resolved.",
+          "dependsOn": [
+            "PR #36 (cutoffTies)"
+          ]
+        },
+        {
+          "id": "twoteam-odd-ties/break/BC1/seeds",
+          "fixture": "twoteam-odd-ties",
+          "area": "break",
+          "summary": "Break BC1: break ranks (seeds) differ for teams both engines break",
+          "tabbycat": [
+            "T1@1",
+            "T11@2",
+            "T18@2",
+            "T5@2",
+            "T8@2"
+          ],
+          "crabbytab": [
+            "T1@1",
+            "T5@2",
+            "T8@3",
+            "T11@4",
+            "T18@5"
+          ],
+          "classification": "rule difference",
+          "note": "T5, T8, T11 and T18 are tied (3 wins, the only metric). Tabbycat gives them the same break rank (2); CrabbyTab numbers them 2 to 5 in standings order, which is team-name order inside a tie, so elimination seeding among tied teams is decided by name and the tie is not shown. Follow-up: carry equal seeds into elimination pairing or mark the tie.",
+          "dependsOn": [
+            "PR #36 (break tie handling)"
+          ]
+        },
+        {
+          "id": "twoteam-odd-ties/allocation/r4/historyRepeats",
+          "fixture": "twoteam-odd-ties",
+          "area": "allocation",
+          "summary": "Round 4 allocation: historyRepeats differs",
+          "tabbycat": 0,
+          "crabbytab": 1,
+          "classification": "valid alternative",
+          "note": "Adjudicator-team history is a soft penalty in both engines (Tabbycat's adj_history_penalty, mapped to CrabbyTab's adjHistoryPenalty). Neither allocation breaks a hard constraint and chair quality is within the 10% band. CrabbyTab's allocation has one more repeat in both voting fixtures, which is worth watching but is not a rule violation."
+        }
+      ]
+    }
+  ]
+}

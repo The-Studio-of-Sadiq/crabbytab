@@ -15,7 +15,7 @@ importer does not read), and then asks Tabbycat's own code for:
 
 Everything for a fixture happens inside one transaction that is rolled back at the end, and every
 "what if" (a regenerated draw, a re-allocation) inside a savepoint that is rolled back too, so the
-database is left empty and runs are repeatable. Python's `random` is seeded per step.
+database is left empty. Python's and PostgreSQL's RNGs are seeded per step, so runs are repeatable.
 
 Output uses the archive's ids (T1, S1, A1, D1_1, BC1, ...), so the CrabbyTab side can be compared
 without any id mapping.
@@ -31,13 +31,13 @@ from xml.etree import ElementTree
 
 TEAM_METRICS = {
     "bp": ["points", "wins", "speaks_sum", "speaks_avg", "speaks_stddev", "draw_strength",
-           "draw_strength_speaks", "firsts", "seconds", "thirds"],
+           "draw_strength_speaks", "firsts", "seconds", "thirds", "num_iron"],
     "two_team": ["wins", "points", "speaks_sum", "speaks_avg", "speaks_ind_avg", "speaks_stddev",
-                 "margin_sum", "margin_avg", "draw_strength", "draw_strength_speaks", "num_adjs"],
+                 "margin_sum", "margin_avg", "draw_strength", "draw_strength_speaks", "num_adjs", "num_iron"],
 }
 SPEAKER_METRICS = {
-    "bp": ["total", "average", "stdev", "count"],
-    "two_team": ["total", "average", "stdev", "count"],
+    "bp": ["total", "average", "stdev", "count", "trimmed_mean"],
+    "two_team": ["total", "average", "stdev", "count", "trimmed_mean"],
 }
 REPLY_METRICS = ["replies_sum", "replies_avg", "replies_count"]
 # Draws per round: the primary one plus this many minus one with other seeds.
@@ -76,6 +76,15 @@ def rank_of(info):
     return ranking[0] if isinstance(ranking, (tuple, list)) else ranking
 
 
+def seed_everything(seed):
+    """Seeds Python's RNG and PostgreSQL's random(), which Tabbycat's random standings tie-break
+    can use through ORDER BY ?, so every run is repeatable."""
+    from django.db import connection
+    random.seed(seed)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT setseed(%s)", [((seed % 20000) / 10000.0) - 1.0])
+
+
 def number(value):
     if value is None:
         return None
@@ -85,7 +94,6 @@ def number(value):
 class FixtureRun:
 
     def __init__(self, fixture_dir):
-        from django.db import transaction  # noqa: F401 (Django must be set up first)
         self.dir = Path(fixture_dir)
         self.config = json.loads((self.dir / "config.json").read_text(encoding="utf-8"))
         self.xml = ElementTree.fromstring((self.dir / "tournament.xml").read_bytes())
@@ -108,7 +116,7 @@ class FixtureRun:
         """Settings the DebateXML importer leaves at defaults (see README, "Configuration fixups")."""
         from availability.models import RoundAvailability
         from django.contrib.contenttypes.models import ContentType
-        from results.models import SpeakerScore, SpeakerScoreByAdj
+        from results.models import SpeakerScore, SpeakerScoreByAdj, TeamScore
 
         for key, value in self.config["tabbycatPreferences"].items():
             self.t.preferences[key] = value
@@ -145,9 +153,12 @@ class FixtureRun:
                         SpeakerScore.objects.filter(
                             ballot_submission__debate=debate_obj, debate_team=dt, position=position,
                         ).update(ghost=True)
-                        SpeakerScoreByAdj.objects.filter(
-                            ballot_submission__debate=debate_obj, debate_team=dt, position=position,
-                        ).update(ghost=True) if hasattr(SpeakerScoreByAdj, "ghost") else None
+                        if any(field.name == "ghost" for field in SpeakerScoreByAdj._meta.get_fields()):
+                            SpeakerScoreByAdj.objects.filter(
+                                ballot_submission__debate=debate_obj, debate_team=dt, position=position,
+                            ).update(ghost=True)
+                        # What DebateResult.save() records when a ghost is marked at entry time.
+                        TeamScore.objects.filter(ballot_submission__debate=debate_obj, debate_team=dt).update(has_ghost=True)
 
     # -------------------------------------------------------------- standings
 
@@ -186,12 +197,17 @@ class FixtureRun:
             rank_filter = (field, prelims - missable)
         generator = SpeakerStandingsGenerator(precedence, ("rank",), extra, rank_filter=rank_filter)
         standings = generator.generate(Speaker.objects.filter(team__tournament=self.t), round=round)
+
+        def eligible(info):
+            # Tabbycat ranks ineligible speakers tied last and hides the rank (Standings.rank_eligible).
+            return rank_filter[0] is None or (info.metrics.get(rank_filter[0]) or 0) >= rank_filter[1]
+
         return {
             "precedence": precedence,
             "minimumForRank": rank_filter[1],
             "rows": sorted([{
                 "speaker": self.speaker_ids[info.speaker.id],
-                "rank": rank_of(info),
+                "rank": rank_of(info) if eligible(info) else None,
                 "metrics": {key: number(value) for key, value in info.metrics.items()},
             } for info in standings], key=lambda row: (row["rank"] or 10 ** 6, row["speaker"])),
         }
@@ -200,7 +216,7 @@ class FixtureRun:
         out = []
         for seq in self.config["standingsAfterRounds"]:
             round = self.rounds[seq]
-            random.seed(self.config["seed"] * 100 + seq)
+            seed_everything(self.config["seed"] * 100 + seq)
             entry = {
                 "afterRound": seq,
                 "teams": self.team_standings(round),
@@ -231,7 +247,7 @@ class FixtureRun:
                 round.draw_type = Round.DrawType.RANDOM if seq == 1 else Round.DrawType.POWERPAIRED
                 round.completed = False
                 round.save()
-                random.seed(seed)
+                seed_everything(seed)
                 try:
                     DrawManager(round).create()
                 except DrawUserError as error:
@@ -278,7 +294,7 @@ class FixtureRun:
         out = []
         categories = sorted(self.t.breakcategory_set.all(), key=lambda c: (-c.priority, c.seq))
         for category in categories:
-            random.seed(self.config["seed"] * 10 + category.seq)
+            seed_everything(self.config["seed"] * 10 + category.seq)
             entry = {"category": self.category_ids[category.id], "rule": category.rule,
                      "breakSize": category.break_size, "reserveSize": category.reserve_size}
             try:
@@ -313,9 +329,10 @@ class FixtureRun:
                 Debate.objects.filter(round__tournament=self.t, round__seq__gt=seq).delete()
                 DebateAdjudicator.objects.filter(debate__round=self.rounds[seq]).delete()
                 round = self.rounds[seq]
-                random.seed(self.config["seed"] * 7 + seq)
-                debates = round.debate_set.all()
-                adjs = round.active_adjudicators.all()
+                seed_everything(self.config["seed"] * 7 + seq)
+                # Ordered, so the allocator sees the same input order on every run.
+                debates = round.debate_set.all().order_by("id")
+                adjs = round.active_adjudicators.all().order_by("id")
                 klass = VotingHungarianAllocator if round.ballots_per_debate == "per-adj" else ConsensusHungarianAllocator
                 result["allocator"] = klass.key
                 allocation, warnings = klass(debates, adjs, round).allocate()
@@ -347,7 +364,8 @@ class FixtureRun:
                     "preferences": {
                         key: self.t.pref(key.split("__", 1)[1]) for key in [
                             "standings__team_standings_precedence", "standings__speaker_standings_precedence",
-                            "standings__standings_missed_debates", "draw_rules__draw_odd_bracket",
+                            "standings__standings_missed_debates", "standings__standings_missed_replies",
+                            "draw_rules__draw_odd_bracket",
                             "draw_rules__draw_pairing_method", "draw_rules__draw_avoid_conflicts",
                             "draw_rules__draw_side_allocations", "draw_rules__avoid_same_institution",
                             "draw_rules__avoid_team_history", "draw_rules__bye_team_selection",
@@ -360,6 +378,8 @@ class FixtureRun:
                             "debate_rules__substantive_speakers", "debate_rules__reply_scores_enabled",
                             "scoring__margin_includes_dissenters", "scoring__teamscore_includes_ghosts",
                             "feedback__adj_min_score", "feedback__adj_max_score",
+                            "draw_rules__adj_conflict_penalty", "draw_rules__adj_history_penalty",
+                            "draw_rules__adj_min_voting_score",
                         ]
                     },
                     "standings": self.standings(),
