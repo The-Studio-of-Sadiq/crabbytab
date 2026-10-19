@@ -108,11 +108,16 @@ export interface BallotSheet {
 }
 
 /**
- * One sheet per voting adjudicator, or one per debate. Read through this (not the raw preference)
- * so ballot-mode resolution stays in `usesVotingBallots`.
+ * One sheet per voting adjudicator, or one per debate, for a round. Read through this (not the raw
+ * preference) so ballot-mode resolution, including per-stage modes, stays in `usesVotingBallots`.
  */
-export function usesPerAdjudicatorSheets(rules: BallotRules): boolean {
-  return usesVotingBallots(rules);
+export function usesPerAdjudicatorSheets(
+  round: Pick<Round, "stage"> | null | undefined,
+  rules: BallotRules
+): boolean {
+  // The round's stage decides the mode where stages have their own (elimination ballot mode).
+  const staged = { ...rules, ...(round?.stage ? { stage: round.stage } : {}) };
+  return usesVotingBallots(staged);
 }
 
 function voterIds(debate: Pick<Debate, "adjudicators">): string[] {

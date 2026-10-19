@@ -138,9 +138,10 @@ describe("expected sheets", () => {
   });
 
   it("uses voting sheets only for two-team voting ballots", () => {
-    expect(usesPerAdjudicatorSheets({ format: "wsdc", preferences: { ballotMode: "voting" } })).toBe(true);
-    expect(usesPerAdjudicatorSheets({ format: "bp", preferences: { ballotMode: "voting" } })).toBe(false);
-    expect(usesPerAdjudicatorSheets({ format: "wsdc", preferences: {} })).toBe(false);
+    const prelim = { stage: "preliminary" as const };
+    expect(usesPerAdjudicatorSheets(prelim, { format: "wsdc", preferences: { ballotMode: "voting" } })).toBe(true);
+    expect(usesPerAdjudicatorSheets(prelim, { format: "bp", preferences: { ballotMode: "voting" } })).toBe(false);
+    expect(usesPerAdjudicatorSheets(undefined, { format: "wsdc", preferences: {} })).toBe(false);
   });
 });
 

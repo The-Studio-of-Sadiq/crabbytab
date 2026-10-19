@@ -18,8 +18,9 @@ export function useRoundIntake(roundId: string | undefined): {
   summary: IntakeSummary;
   perAdjudicator: boolean;
 } {
-  const { tournament, debates, adjudicators, ballots, ballotIntake } = useTournament();
-  const perAdjudicator = usesPerAdjudicatorSheets({
+  const { tournament, rounds, debates, adjudicators, ballots, ballotIntake } = useTournament();
+  const round = rounds.find((item) => item.id === roundId);
+  const perAdjudicator = usesPerAdjudicatorSheets(round, {
     format: tournament?.format || "bp",
     preferences: tournament?.preferences,
   });

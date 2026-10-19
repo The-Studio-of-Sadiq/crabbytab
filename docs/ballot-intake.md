@@ -24,9 +24,9 @@ The logic is in `src/features/tournament/application/ballotIntake.ts` (pure func
   adjudicator, chair first, then panellists. Trainees never vote and get no sheet. A voting
   panel with no adjudicators yet still gets one debate sheet. Byes get no sheet.
 
-Which of the two applies is decided by `usesPerAdjudicatorSheets(rules)`, which delegates to
-`usesVotingBallots` in `src/lib/ballots/result.ts`, so any change to how the ballot mode is
-resolved (for example per stage) applies to printing and intake too.
+Which of the two applies is decided per round by `usesPerAdjudicatorSheets(round, rules)`, which
+passes the round's stage to `usesVotingBallots` in `src/lib/ballots/result.ts`, so the ballot-mode
+resolution there (including a separate elimination ballot mode) applies to printing and intake too.
 
 Each sheet shows the round, room, debate number, motion, the adjudicator it belongs to (voting
 ballots, "sheet 2 of 3") and a Code 39 barcode of its **sheet id**, which is also printed in

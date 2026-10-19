@@ -23,7 +23,7 @@ export default function PrintableBallotsPage() {
   const speakerCount = tournament?.preferences?.substantiveSpeakers ?? (isBP ? 2 : 3);
   const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
   // Voting panels get one sheet per voting adjudicator; consensus panels one per debate.
-  const perAdjudicator = usesPerAdjudicatorSheets({
+  const perAdjudicator = usesPerAdjudicatorSheets(activeRound, {
     format: tournament?.format || "bp",
     preferences: tournament?.preferences,
   });
