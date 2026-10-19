@@ -1,0 +1,67 @@
+{
+  "name": "bp-uneven",
+  "title": "BP Uneven Open",
+  "description": "British Parliamentary, 26 teams (two byes a round, one bye in round 3 when a team is unavailable), three break categories with different priorities, an iron-person speech, adjudicator conflicts.",
+  "style": "bp",
+  "format": "bp",
+  "seed": 20261019,
+  "rounds": {
+    "played": 4,
+    "total": 5
+  },
+  "drawRounds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "standingsAfterRounds": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "allocationRound": 4,
+  "unavailableTeams": {
+    "3": [
+      "T26"
+    ],
+    "5": [
+      "T8"
+    ]
+  },
+  "breakCategories": [
+    {
+      "id": "BC1",
+      "name": "Open",
+      "general": true,
+      "breakSize": 8,
+      "reserveSize": 2,
+      "priority": 3,
+      "rule": "standard"
+    },
+    {
+      "id": "BC2",
+      "name": "ESL",
+      "general": false,
+      "breakSize": 4,
+      "reserveSize": 1,
+      "priority": 2,
+      "rule": "standard"
+    },
+    {
+      "id": "BC3",
+      "name": "EFL",
+      "general": false,
+      "breakSize": 2,
+      "reserveSize": 0,
+      "priority": 1,
+      "rule": "standard"
+    }
+  ],
+  "tabbycatPreferences": {
+    "draw_rules__bye_team_selection": "lowest",
+    "draw_rules__bye_team_results": "none"
+  }
+}

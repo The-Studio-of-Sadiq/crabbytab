@@ -351,7 +351,10 @@ export function calculateStandings(
               scoresByRound: [],
               metrics: {} as any,
             });
-            speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
+            // Reply speakers usually also gave a substantive speech: keep the scores already collected.
+            if (!speakerScoresByRound.has(entry.speakerId)) {
+              speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
+            }
           }
           const repRow = replyRowsMap.get(entry.speakerId)!;
           repRow.totalScore += entry.score;
@@ -377,7 +380,9 @@ export function calculateStandings(
               metrics: {} as any,
             };
             speakerRowsMap.set(entry.speakerId, spkRow);
-            speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
+            if (!speakerScoresByRound.has(entry.speakerId)) {
+              speakerScoresByRound.set(entry.speakerId, { substantive: [], reply: [] });
+            }
           }
           spkRow.totalScore += entry.score;
           spkRow.speechesCount++;
