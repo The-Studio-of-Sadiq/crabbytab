@@ -27,6 +27,7 @@ import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui
 import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
+import { checkResultsRelease } from "@/features/tournament/application/stateGuards";
 import {
   getRoundCompletionBlockers,
   setRoundCompletion,
@@ -105,6 +106,7 @@ export default function ResultsOverviewPage() {
     adjudicators,
     updateRound,
     proceedToNextEliminationRound,
+    isOwnerOrAdmin,
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
@@ -128,6 +130,10 @@ export default function ResultsOverviewPage() {
     (d) => d.byeTeamId || ballotMap.get(d.id)?.confirmed
   ).length;
   const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
+  // Hard rules disable publishing; overridable ones (unchecked ballot versions) ask for a reason.
+  const releaseBlocker = activeRound
+    ? checkResultsRelease(activeRound, { rounds, debates, ballots }).find((violation) => !violation.overridable)
+    : undefined;
   const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
   const [pendingTeamSpeaksPublication, setPendingTeamSpeaksPublication] = useState<boolean | null>(null);
   const [isAdvancingRound, setIsAdvancingRound] = useState(false);
@@ -322,7 +328,7 @@ export default function ResultsOverviewPage() {
         </TableContainer>
       )}
 
-      {activeRound && (
+      {activeRound && isOwnerOrAdmin && (
         <Card>
           <CardHeader title="Round publication" description={`Public visibility and lifecycle for ${activeRound.name}.`} />
           <div className="divide-y divide-border">
@@ -347,7 +353,7 @@ export default function ResultsOverviewPage() {
               status={
                 activeRound.resultsReleased
                   ? "Round results are published."
-                  : allBallotsConfirmed
+                  : !releaseBlocker
                   ? "Ballots are saved; publish when ready."
                   : "Confirm every ballot or record a bye before publishing."
               }
@@ -355,7 +361,7 @@ export default function ResultsOverviewPage() {
                 <Button
                   variant={activeRound.resultsReleased ? "secondary" : "primary"}
                   onClick={() => setPendingPublication(!activeRound.resultsReleased)}
-                  disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
+                  disabled={!activeRound.resultsReleased && Boolean(releaseBlocker)}
                 >
                   {activeRound.resultsReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
                   {activeRound.resultsReleased ? "Unpublish round results" : "Publish round results"}
@@ -368,7 +374,7 @@ export default function ResultsOverviewPage() {
               status={
                 activeRound.teamSpeaksReleased
                   ? "Team scores are published for this round."
-                  : allBallotsConfirmed
+                  : !releaseBlocker
                   ? "Publish team scores separately when ready."
                   : "Confirm every ballot or record a bye before publishing team scores."
               }
@@ -376,7 +382,7 @@ export default function ResultsOverviewPage() {
                 <Button
                   variant="secondary"
                   onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
-                  disabled={!activeRound.teamSpeaksReleased && !allBallotsConfirmed}
+                  disabled={!activeRound.teamSpeaksReleased && Boolean(releaseBlocker)}
                 >
                   {activeRound.teamSpeaksReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
                   {activeRound.teamSpeaksReleased ? "Unpublish team speaks" : "Publish team speaks"}

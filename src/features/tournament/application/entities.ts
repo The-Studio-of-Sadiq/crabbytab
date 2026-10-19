@@ -1,11 +1,21 @@
 import type {
   Adjudicator,
   AuditCategory,
+  BallotSubmission,
+  Debate,
+  FeedbackSubmission,
   Institution,
   Motion,
   Team,
   Venue,
 } from "@/types";
+import {
+  checkAdjudicatorDeletion,
+  checkInstitutionDeletion,
+  checkTeamDeletion,
+  checkVenueDeletion,
+  enforceGuards,
+} from "./stateGuards";
 
 export interface EntityAuditEvent {
   action: string;
@@ -25,6 +35,10 @@ export interface EntityCommandDependencies {
   adjudicators: Adjudicator[];
   venues: Venue[];
   motions: Motion[];
+  /** Records that may reference a participant or venue; referenced ones cannot be deleted. */
+  debates: Debate[];
+  ballots: BallotSubmission[];
+  feedback: FeedbackSubmission[];
   repositories: {
     institutions: EntityCollectionRepository<Institution>;
     teams: EntityCollectionRepository<Team>;
@@ -55,6 +69,9 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     adjudicators,
     venues,
     motions,
+    debates,
+    ballots,
+    feedback,
     repositories,
     recordAuditEvent,
     createId,
@@ -101,6 +118,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
 
   const deleteInstitution = async (institutionId: string) => {
     const deleted = institutions.find((item) => item.id === institutionId);
+    if (deleted) enforceGuards(checkInstitutionDeletion(deleted, { debates, ballots, teams, adjudicators }));
     repositories.institutions.save(institutions.filter((item) => item.id !== institutionId));
     await recordAuditEvent({
       action: "institution.deleted",
@@ -167,6 +185,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
 
   const deleteTeam = async (teamId: string) => {
     const deleted = teams.find((item) => item.id === teamId);
+    if (deleted) enforceGuards(checkTeamDeletion(deleted, { debates, ballots, feedback }));
     repositories.teams.save(teams.filter((item) => item.id !== teamId));
     await recordAuditEvent({
       action: "team.deleted",
@@ -249,6 +268,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
 
   const deleteAdjudicator = async (adjudicatorId: string) => {
     const deleted = adjudicators.find((item) => item.id === adjudicatorId);
+    if (deleted) enforceGuards(checkAdjudicatorDeletion(deleted, { debates, ballots, feedback }));
     repositories.adjudicators.save(adjudicators.filter((item) => item.id !== adjudicatorId));
     await recordAuditEvent({
       action: "adjudicator.deleted",
@@ -309,6 +329,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
 
   const deleteVenue = async (venueId: string) => {
     const deleted = venues.find((item) => item.id === venueId);
+    if (deleted) enforceGuards(checkVenueDeletion(deleted, { debates, ballots }));
     repositories.venues.save(venues.filter((item) => item.id !== venueId));
     await recordAuditEvent({
       action: "venue.deleted",

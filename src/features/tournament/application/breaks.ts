@@ -17,6 +17,13 @@ import {
   type BreakCategoryResult,
 } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount, slugify, validateBreakSize } from "@/lib/setup/presets";
+import {
+  applyGuards,
+  checkBreakCategoryDeletion,
+  checkBreakGeneration,
+  enforceGuards,
+  type RuleOverride,
+} from "./stateGuards";
 
 export interface BreakAuditEvent {
   action: string;
@@ -53,6 +60,10 @@ export async function saveBreakCategoriesCommand(
   dependencies: BreakDependencies
 ): Promise<void> {
   const previousById = new Map(dependencies.breakCategories.map((category) => [category.id, category]));
+  // A category with a generated break, or used by a drawn elimination round, stays.
+  enforceGuards(dependencies.breakCategories
+    .filter((category) => !categories.some((next) => next.id === category.id))
+    .flatMap((category) => checkBreakCategoryDeletion(category, dependencies.teams, dependencies.rounds)));
   dependencies.localRepository.saveBreakCategories(categories);
   if (dependencies.cloudRepository) {
     await dependencies.cloudRepository.saveBreakCategories(categories);
@@ -133,7 +144,8 @@ export async function saveBreakCategoriesCommand(
 
 export async function generateBreakCommand(
   categoryId: string,
-  dependencies: BreakDependencies
+  dependencies: BreakDependencies,
+  override?: RuleOverride
 ): Promise<Round | null> {
   const { tournament, breakCategories, breakResults, rounds, teams } = dependencies;
   if (breakResults.length === 0 || !tournament) return null;
@@ -160,12 +172,20 @@ export async function generateBreakCommand(
     if (round.stage !== "elimination" || round.cancelled) return round;
     const index = roundIndexById.get(round.id);
     if (index === undefined) return round;
+    const breakCategoryIds = index < roundCount ? schedule[index] : [];
+    const unchanged = JSON.stringify(round.breakCategoryIds ?? []) === JSON.stringify(breakCategoryIds);
+    // The guard below refuses to touch a started round, so only an unstarted round is reset.
     return {
       ...round,
-      breakCategoryIds: index < roundCount ? schedule[index] : [],
-      eliminationAdvanced: false,
+      breakCategoryIds,
+      eliminationAdvanced: unchanged ? round.eliminationAdvanced ?? false : false,
     };
   });
+  await applyGuards(
+    checkBreakGeneration(category, dependencies, updatedRounds),
+    override,
+    { action: "break.generated", category: "break", record: dependencies.recordAuditEvent }
+  );
   const firstCategoryRound = updatedRounds.find(
     (round) => round.stage === "elimination" && round.breakCategoryIds?.includes(categoryId)
   );
@@ -372,12 +392,5 @@ export function getBreakCategoryDeletionBlocker(
   teams: Team[],
   rounds: Round[]
 ): string {
-  if (teams.some((team) => team.breakCategoryIds?.includes(category.id))) {
-    return `${category.name} has a generated break. Teams are breaking in it, so it cannot be deleted.`;
-  }
-  const usedBy = rounds.filter((round) => !round.cancelled && round.breakCategoryIds?.includes(category.id));
-  if (usedBy.some((round) => round.drawStatus !== "none")) {
-    return `${category.name} is used by an elimination round that already has a draw.`;
-  }
-  return "";
+  return checkBreakCategoryDeletion(category, teams, rounds).map((violation) => violation.message).join(" ");
 }

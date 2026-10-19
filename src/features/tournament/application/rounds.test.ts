@@ -93,7 +93,7 @@ describe("round management commands", () => {
             activeRound = active;
           },
         },
-        async recordAuditEvent(event) {
+      async recordAuditEvent(event) {
           calls.push("audit");
           expect(event).toMatchObject({
             action: "round.created",
@@ -110,7 +110,7 @@ describe("round management commands", () => {
 
   it("preserves cloud, local, and audit ordering for updates", async () => {
     const calls: string[] = [];
-    const updatedRound = { ...round, drawStatus: "released" as const };
+    const updatedRound = { ...round, drawStatus: "draft" as const };
 
     await updateRoundCommand(updatedRound, [round], round, {
       cloudRepository: {
@@ -126,6 +126,7 @@ describe("round management commands", () => {
           expect(activeRound).toEqual(updatedRound);
         },
       },
+      guards: { debates: [], ballots: [], drawIssues: () => [] },
       async recordAuditEvent(event) {
         calls.push("audit");
         expect(event).toMatchObject({
@@ -141,7 +142,7 @@ describe("round management commands", () => {
 
   it("does not update local state or audit when cloud persistence fails", async () => {
     const calls: string[] = [];
-    const updatedRound = { ...round, drawStatus: "released" as const };
+    const updatedRound = { ...round, drawStatus: "draft" as const };
 
     await expect(
       updateRoundCommand(updatedRound, [round], round, {
@@ -156,7 +157,8 @@ describe("round management commands", () => {
             calls.push("local");
           },
         },
-        async recordAuditEvent() {
+        guards: { debates: [], ballots: [], drawIssues: () => [] },
+      async recordAuditEvent() {
           calls.push("audit");
         },
       })

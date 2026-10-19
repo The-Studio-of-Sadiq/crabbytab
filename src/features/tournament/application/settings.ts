@@ -1,4 +1,5 @@
-import type { AuditCategory, Tournament } from "@/types";
+import type { AuditCategory, BallotSubmission, Tournament } from "@/types";
+import { applyGuards, checkSettingsChange, type RuleOverride } from "./stateGuards";
 
 export interface TournamentSettingsAuditEvent {
   action: string;
@@ -11,12 +12,20 @@ export async function saveTournamentCommand(
   tournament: Tournament,
   previous: Tournament | null,
   dependencies: {
+    /** Entered ballots lock the settings that shape or score them (see stateGuards). */
+    ballots: BallotSubmission[];
     localRepository: { saveTournament(tournament: Tournament): void };
     cloudRepository?: { saveTournament(tournamentId: string, tournament: Tournament): Promise<void | boolean> };
     recordAuditEvent(event: TournamentSettingsAuditEvent): Promise<void>;
     warn(message: string, error: unknown): void;
-  }
+  },
+  override?: RuleOverride
 ): Promise<void> {
+  await applyGuards(checkSettingsChange(previous, tournament, dependencies.ballots), override, {
+    action: "tournament.settings_updated",
+    category: "tournament",
+    record: dependencies.recordAuditEvent,
+  });
   dependencies.localRepository.saveTournament(tournament);
   try {
     if (dependencies.cloudRepository) {

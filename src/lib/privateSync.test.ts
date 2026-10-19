@@ -123,6 +123,21 @@ describe("planPrivateBallotWrites", () => {
     expect(plan.discardExistingIds).toEqual([]);
     expect(plan.writes[0]).toMatchObject({ id: "chair-ballot-v2", version: 2, confirmed: false });
   });
+
+  it("keeps the result of a locked round and stores a late chair ballot for review", () => {
+    // Even an earlier chair self-confirmed ballot stays: the round is completed or published.
+    const earlier = ballot("earlier", { confirmed: true, confirmedBy: "Chair", version: 1 });
+    const plan = planPrivateBallotWrites(
+      [chairFinal],
+      new Map([["d1", [{ id: "earlier", data: earlier }]]]),
+      new Set(["d1"])
+    );
+    expect(plan.discardExistingIds).toEqual([]);
+    expect(plan.writes).toEqual([
+      expect.objectContaining({ id: "chair-ballot", version: 2, confirmed: false, discarded: false }),
+    ]);
+    expect(plan.writes[0].confirmedBy).toBeUndefined();
+  });
 });
 
 describe("supersededBallotUpdate", () => {

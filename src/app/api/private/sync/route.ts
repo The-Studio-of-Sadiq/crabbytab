@@ -24,6 +24,7 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
+import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
@@ -176,10 +177,10 @@ export async function POST(request: NextRequest) {
     }
 
     const actorDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
-    // Teams never see (or act on) debates from unpublished draws.
-    const assignedDebates = actorType === "team"
-      ? new Map(filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate]))
-      : actorDebates;
+    // Participants never see (or submit for) debates from unpublished draws.
+    const assignedDebates = new Map(
+      filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate])
+    );
 
     const batch = firestore.batch();
     let uploadedCount = 0;
@@ -379,7 +380,11 @@ export async function POST(request: NextRequest) {
               id: document.id,
               data: document.data() as Partial<BallotSubmission>,
             })),
-          ]))
+          ])),
+          // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
+          new Set(debateIds.filter((debateId) =>
+            isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
+          ))
         );
         const existingById = new Map(
           [...existingBallotsByDebate.values()].flatMap((snapshot) =>

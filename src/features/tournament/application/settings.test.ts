@@ -42,6 +42,7 @@ describe("saveTournamentCommand", () => {
     const updated = { ...tournament, name: "Updated Tournament" };
 
     await saveTournamentCommand(updated, tournament, {
+      ballots: [],
       localRepository: { saveTournament() { calls.push("local"); } },
       cloudRepository: { async saveTournament() { calls.push("cloud"); } },
       async recordAuditEvent(event) {
@@ -57,6 +58,7 @@ describe("saveTournamentCommand", () => {
   it("keeps local settings if the optional cloud write fails", async () => {
     const calls: string[] = [];
     await saveTournamentCommand(tournament, null, {
+      ballots: [],
       localRepository: { saveTournament() { calls.push("local"); } },
       cloudRepository: {
         async saveTournament() {

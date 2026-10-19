@@ -293,7 +293,9 @@ export default function VenuesPage() {
                     </button>
                     <button
                       onClick={() => {
-                        if (confirm(`Delete venue ${venue.name}?`)) deleteVenue(venue.id);
+                        if (confirm(`Delete venue ${venue.name}?`)) {
+                          void deleteVenue(venue.id).catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not delete it."));
+                        }
                       }}
                       className="p-1 text-gray-400 hover:text-red-600 rounded transition"
                       title="Delete Venue"

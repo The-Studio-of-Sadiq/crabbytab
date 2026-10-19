@@ -10,6 +10,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { Alert } from "@/components/ui/Feedback";
 import { cn } from "@/components/ui/cn";
 import { useTournamentLocale } from "@/components/i18n/I18nProvider";
+import { RuleOverrideHost } from "@/features/tournament/components/RuleOverrideHost";
 
 /**
  * Tournament pages already rebuilt on the design system (docs/design-system.md).
@@ -154,6 +155,9 @@ export function TournamentChrome({
           </main>
         </div>
       </div>
+      {/* Overriding a tournament rule is an administrator decision; assistants are never asked.
+          Rendered last so it stacks above a dialog that triggered it (e.g. a release dialog). */}
+      {isOwnerOrAdmin && <RuleOverrideHost />}
     </ToastProvider>
   );
 }

@@ -16,6 +16,7 @@ function createDependencies(rounds: PreliminaryRoundCountDependencies["rounds"] 
   const dependencies: PreliminaryRoundCountDependencies = {
     rounds,
     debates: [],
+    ballots: [],
     tournamentId: "tournament-1",
     drawRule: "power_paired",
     localRepository: {
@@ -195,12 +196,20 @@ describe("deleteRoundCommand", () => {
       cloudRepository: {
         async deleteRoundAndSaveChanges(changes) { calls.push("cloud"); cloudChanges = changes; },
       },
-      async recordAuditEvent(event) { calls.push("audit"); expect(event.details).toMatchObject({ deletedDebateCount: 1, deletedBallotCount: 1, deletedFeedbackCount: 1 }); },
+      async recordAuditEvent(event) {
+        if (event.action === "rules.overridden") {
+          calls.push("override");
+          expect(event.details).toMatchObject({ reason: "Practice round created by mistake" });
+          return;
+        }
+        calls.push("audit");
+        expect(event.details).toMatchObject({ deletedDebateCount: 1, deletedBallotCount: 1, deletedFeedbackCount: 1 });
+      },
     };
 
-    await deleteRoundCommand(dependencies);
+    await deleteRoundCommand(dependencies, { reason: "Practice round created by mistake" });
 
-    expect(calls).toEqual(["cloud", "rounds", "debates", "ballots", "feedback", "motions", "active", "audit"]);
+    expect(calls).toEqual(["override", "cloud", "rounds", "debates", "ballots", "feedback", "motions", "active", "audit"]);
     expect(savedRounds).toHaveLength(1);
     expect(savedRounds[0]).toMatchObject({ id: remainingRound.id, seq: 1, name: "Round 1", abbreviation: "R1" });
     expect(savedDebates).toEqual([{ ...remainingDebate, roundSeq: 1 }]);

@@ -39,6 +39,8 @@ describe("updateDebatesCommand", () => {
     const calls: string[] = [];
 
     await updateDebatesCommand([updated], [previous], {
+      rounds: [],
+      ballots: [],
       repository: {
         saveDebates(debates) {
           calls.push("local");
@@ -112,6 +114,7 @@ describe("autoAllocateCommand", () => {
       rounds: [{ id: "r1", seq: 1, stage: "preliminary", feedbackWeight: 1, ...round } as Round],
       teams,
       debates: [twoTeamDebate("top", ["a", "b"], 10), twoTeamDebate("bottom", ["c", "d"], 0)],
+      ballots: [],
       adjudicators: [judge("rated", 4), judge("unrated", 6), judge("spare-1", 2), judge("spare-2", 2)],
       standings: [],
       breakCategories: [],

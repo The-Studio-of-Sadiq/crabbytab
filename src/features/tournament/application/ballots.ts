@@ -6,6 +6,7 @@ import type {
   DebateSide,
   Round,
 } from "@/types";
+import { applyGuards, checkBallotSubmission, checkResultChange, type RuleOverride } from "./stateGuards";
 
 export interface BallotAuditEvent {
   action: string;
@@ -37,8 +38,17 @@ export interface BallotWorkflowDependencies {
 export async function submitBallotCommand(
   ballot: BallotSubmission,
   privatePasscode: string | undefined,
-  dependencies: BallotWorkflowDependencies
+  dependencies: BallotWorkflowDependencies,
+  override?: RuleOverride
 ): Promise<void> {
+  // A stored confirmed or discarded version is never rewritten in place, and a confirmed result in
+  // a completed round needs an override (see stateGuards).
+  await applyGuards(checkBallotSubmission(ballot, dependencies), override, {
+    action: "ballot.submitted",
+    category: "ballot",
+    roundId: ballot.roundId,
+    record: dependencies.recordAuditEvent,
+  });
   const existingIndex = dependencies.ballots.findIndex(
     (item) => item.id === ballot.id || (!ballot.id && item.debateId === ballot.debateId)
   );
@@ -101,7 +111,7 @@ export async function submitBallotCommand(
   if (!finalBallot.confirmed) return;
   // Confirm against what was just saved: the dependencies still hold the state from before this
   // submission, in which a resubmitted ballot id carries its previous scores.
-  await confirmBallotCommand(finalBallot.id, finalBallot.debateId, finalBallot, {
+  await confirmCheckedBallot(finalBallot.id, finalBallot.debateId, finalBallot, {
     ...dependencies,
     ballots: updatedBallots,
     debates: updatedDebates,
@@ -116,6 +126,28 @@ export async function submitBallotCommand(
 }
 
 export async function confirmBallotCommand(
+  ballotId: string,
+  debateId: string,
+  submittedBallot: BallotSubmission | undefined,
+  dependencies: BallotWorkflowDependencies,
+  override?: RuleOverride
+): Promise<void> {
+  const ballot = submittedBallot?.id === ballotId
+    ? submittedBallot
+    : dependencies.ballots.find((item) => item.id === ballotId);
+  if (ballot) {
+    await applyGuards(checkResultChange({ roundId: ballot.roundId, debateId }, dependencies), override, {
+      action: "ballot.confirmed",
+      category: "ballot",
+      roundId: ballot.roundId,
+      record: dependencies.recordAuditEvent,
+    });
+  }
+  await confirmCheckedBallot(ballotId, debateId, submittedBallot, dependencies);
+}
+
+/** Confirms a ballot whose state rules were already checked by the calling command. */
+async function confirmCheckedBallot(
   ballotId: string,
   debateId: string,
   submittedBallot: BallotSubmission | undefined,
@@ -203,10 +235,20 @@ export async function confirmBallotCommand(
 export async function discardBallotCommand(
   ballotId: string,
   discardedBy: string | undefined,
-  dependencies: BallotWorkflowDependencies
+  dependencies: BallotWorkflowDependencies,
+  override?: RuleOverride
 ): Promise<void> {
   const ballot = dependencies.ballots.find((item) => item.id === ballotId);
   if (!ballot || ballot.discarded) return;
+  // Discarding an unconfirmed version changes no result; discarding the confirmed one does.
+  if (ballot.confirmed) {
+    await applyGuards(checkResultChange(ballot, dependencies), override, {
+      action: "ballot.discarded",
+      category: "ballot",
+      roundId: ballot.roundId,
+      record: dependencies.recordAuditEvent,
+    });
+  }
   const now = new Date().toISOString();
   const updatedBallots = dependencies.ballots.map((item) =>
     item.id === ballotId

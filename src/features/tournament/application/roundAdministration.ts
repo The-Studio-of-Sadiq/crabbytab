@@ -7,6 +7,14 @@ import type {
   Motion,
   Round,
 } from "@/types";
+import {
+  applyGuards,
+  checkPreliminaryRoundCount,
+  checkRoundCompletion,
+  checkRoundDeletion,
+  enforceGuards,
+  type RuleOverride,
+} from "./stateGuards";
 
 export interface RoundAdministrationAuditEvent {
   action: string;
@@ -19,6 +27,7 @@ export interface RoundAdministrationAuditEvent {
 export interface PreliminaryRoundCountDependencies {
   rounds: Round[];
   debates: Debate[];
+  ballots: BallotSubmission[];
   tournamentId: string;
   drawRule: DrawType | "bracket";
   localRepository: {
@@ -34,9 +43,16 @@ export interface PreliminaryRoundCountDependencies {
 
 export async function setPreliminaryRoundCountCommand(
   count: number,
-  dependencies: PreliminaryRoundCountDependencies
+  dependencies: PreliminaryRoundCountDependencies,
+  override?: RuleOverride
 ): Promise<void> {
   const { rounds, debates } = dependencies;
+  // Rounds this would cancel must not hold results; cancelling a drawn round needs an override.
+  await applyGuards(
+    checkPreliminaryRoundCount(count, { rounds, debates, ballots: dependencies.ballots }),
+    override,
+    { action: "rounds.preliminary_count_updated", category: "tournament", record: dependencies.recordAuditEvent }
+  );
   const previousCount = rounds.filter((round) => round.stage === "preliminary" && !round.cancelled).length;
   const targetCount = Math.max(0, Math.min(20, Math.floor(count)));
   const updated = [...rounds];
@@ -158,10 +174,19 @@ export interface DeleteRoundDependencies {
   recordAuditEvent(event: RoundAdministrationAuditEvent): Promise<void>;
 }
 
-export async function deleteRoundCommand(dependencies: DeleteRoundDependencies): Promise<void> {
+export async function deleteRoundCommand(
+  dependencies: DeleteRoundDependencies,
+  override?: RuleOverride
+): Promise<void> {
   const { roundId, rounds, debates, ballots, feedback, motions } = dependencies;
   const roundToDelete = rounds.find((round) => round.id === roundId);
   if (!roundToDelete) return;
+  await applyGuards(checkRoundDeletion(roundToDelete, { rounds, debates, ballots }), override, {
+    action: "round.deleted",
+    category: "tournament",
+    roundId,
+    record: dependencies.recordAuditEvent,
+  });
 
   let preliminarySeq = 0;
   const remainingRounds = rounds
@@ -241,70 +266,13 @@ export async function deleteRoundCommand(dependencies: DeleteRoundDependencies):
     },
   });
 }
-export type RoundCompletionBlockerReason =
-  | "no_draw"
-  | "postponed"
-  | "unconfirmed_ballot";
-
-export interface RoundCompletionBlocker {
-  reason: RoundCompletionBlockerReason;
-  debateId?: string;
-  message: string;
-}
-
-function debateLabel(debate: Debate): string {
-  const teamNames = Object.values(debate.teams)
-    .map((slot) => slot?.teamName)
-    .filter(Boolean)
-    .join(" vs ");
-  return debate.venueName || teamNames || debate.id;
-}
+export type { RoundCompletionBlocker, RoundCompletionBlockerReason } from "./stateGuards";
+export { getRoundCompletionBlockers } from "./stateGuards";
 
 /**
- * Lists what prevents a preliminary round from being marked complete. A round
- * is complete once every non-bye debate has a confirmed, non-discarded ballot
- * (with several ballot versions, only the confirmed one counts).
- */
-export function getRoundCompletionBlockers(
-  round: Round,
-  debates: Debate[],
-  ballots: BallotSubmission[]
-): RoundCompletionBlocker[] {
-  const roundDebates = debates.filter((debate) => debate.roundId === round.id);
-  if (roundDebates.length === 0) {
-    return [{ reason: "no_draw", message: `${round.name} has no draw yet.` }];
-  }
-  const confirmedDebateIds = new Set(
-    ballots
-      .filter((ballot) => ballot.roundId === round.id && ballot.confirmed && !ballot.discarded)
-      .map((ballot) => ballot.debateId)
-  );
-  const blockers: RoundCompletionBlocker[] = [];
-  for (const debate of [...roundDebates].sort((left, right) => left.roomRank - right.roomRank)) {
-    if (debate.byeTeamId) continue;
-    if (debate.postponed) {
-      blockers.push({
-        reason: "postponed",
-        debateId: debate.id,
-        message: `${debateLabel(debate)} is postponed.`,
-      });
-      continue;
-    }
-    if (!confirmedDebateIds.has(debate.id)) {
-      blockers.push({
-        reason: "unconfirmed_ballot",
-        debateId: debate.id,
-        message: `${debateLabel(debate)} has no confirmed ballot.`,
-      });
-    }
-  }
-  return blockers;
-}
-
-/**
- * Returns the round with `completed` set. Completing is guarded by
- * getRoundCompletionBlockers; reopening is always allowed. Elimination rounds
- * are completed by advancement, so they are rejected here.
+ * Returns the round with `completed` set. Completing requires every debate to have a confirmed
+ * result. Reopening is checked by updateRoundCommand (it needs an override once a later round is
+ * drawn). Elimination rounds are completed by advancement, so they are rejected here.
  */
 export function setRoundCompletion(
   round: Round,
@@ -315,16 +283,9 @@ export function setRoundCompletion(
   if (round.stage !== "preliminary") {
     throw new Error("Elimination rounds are completed by advancing teams to the next round.");
   }
-  if (round.cancelled) {
-    throw new Error(`${round.name} is cancelled.`);
-  }
-  if (completed) {
-    const blockers = getRoundCompletionBlockers(round, debates, ballots);
-    if (blockers.length > 0) {
-      throw new Error(
-        `${round.name} cannot be completed: ${blockers.map((blocker) => blocker.message).join(" ")}`
-      );
-    }
+  // A cancelled round is reported as such by the completion check, whichever way it is set.
+  if (completed || round.cancelled) {
+    enforceGuards(checkRoundCompletion(round, { rounds: [round], debates, ballots }));
   }
   return { ...round, completed };
 }

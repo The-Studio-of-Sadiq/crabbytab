@@ -50,12 +50,15 @@ export interface PrivateBallotWritePlan {
  * Decides how private-URL ballot submissions are stored.
  *
  * A chair's final ballot normally supersedes earlier ballots for the debate.
- * If the tab room has already confirmed a ballot, nothing is discarded and the
- * chair's ballot is stored unconfirmed as a new version for tab review.
+ * If the tab room has already confirmed a ballot, or the debate's round is
+ * locked (`lockedDebateIds`: completed, results published, advanced), nothing
+ * is discarded and the chair's ballot is stored unconfirmed as a new version
+ * for tab review.
  */
 export function planPrivateBallotWrites(
   submissions: readonly BallotSubmission[],
-  existingByDebate: ReadonlyMap<string, readonly ExistingBallotRecord[]>
+  existingByDebate: ReadonlyMap<string, readonly ExistingBallotRecord[]>,
+  lockedRoundDebateIds: ReadonlySet<string> = new Set()
 ): PrivateBallotWritePlan {
   const discardExistingIds: string[] = [];
   const pendingIdsToDiscard = new Set<string>();
@@ -64,7 +67,7 @@ export function planPrivateBallotWrites(
 
   for (const debateId of debateIds) {
     const existing = existingByDebate.get(debateId) ?? [];
-    if (existing.some((record) => isTabRoomConfirmed(record.data))) {
+    if (lockedRoundDebateIds.has(debateId) || existing.some((record) => isTabRoomConfirmed(record.data))) {
       lockedDebateIds.add(debateId);
       continue;
     }

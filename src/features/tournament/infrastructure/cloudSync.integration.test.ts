@@ -328,7 +328,10 @@ describe("tombstoned deletions", () => {
     await a.patchRound(round.id, { completed: false });
     a.drawCloudRepository = createFirestoreDrawRepository(a.tournament.id);
     fakeStore.failAfterCommits = fakeStore.commits; // the immediate cloud replacement fails
-    await expect(a.generateDraw(round.id, { discardExistingResults: true })).rejects.toBeInstanceOf(DrawCloudSyncIncompleteError);
+    await expect(a.generateDraw(round.id, {
+      discardExistingResults: true,
+      override: { reason: "Redraw after a check-in error" },
+    })).rejects.toBeInstanceOf(DrawCloudSyncIncompleteError);
     fakeStore.failAfterCommits = undefined;
     expect(a.tombstones.debates).toEqual(oldDebateIds);
 
@@ -501,7 +504,7 @@ describe("backup and restore", () => {
 
     // Later changes: a result discarded, a team renamed, a venue deleted, the break overridden.
     const confirmed = a.ballots.find((ballot) => ballot.confirmed)!;
-    await a.discardBallot(confirmed.id);
+    await a.discardBallot(confirmed.id, { reason: "Ballot entered for the wrong room" });
     a.teams = a.teams.map((team, index) => index === 0 ? { ...team, name: "Changed" } : team);
     a.venues = a.venues.slice(1);
     expect(summary(a)).not.toEqual(original);
@@ -538,7 +541,7 @@ describe("backup and restore", () => {
 
     // After the backup, a result is discarded and a venue deleted, and both are uploaded.
     const confirmed = a.ballots.find((ballot) => ballot.confirmed)!;
-    await a.discardBallot(confirmed.id);
+    await a.discardBallot(confirmed.id, { reason: "Ballot entered for the wrong room" });
     const removedVenue = a.venues[0].id;
     a.venues = a.venues.slice(1);
     a.tombstones = { venues: [removedVenue] };
