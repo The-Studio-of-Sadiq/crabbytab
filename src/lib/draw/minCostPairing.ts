@@ -139,7 +139,7 @@ export function minCostPairAllocatedSides(
       ? conflictCost(a, b, history, options) * conflictScale + (baseOpponent.get(a.id) === b.id ? 0 : deviationWeight)
       : 0
   ));
-  const disallowed = finite.flat().reduce((sum, c) => sum + c, 0) + 1;
+  const disallowed = finite.reduce((sum, row) => row.reduce((rowSum, c) => rowSum + c, sum), 0) + 1;
   const matrix = finite.map((row, i) => row.map((c, j) => (allowed[i][j] ? c : disallowed)));
   const assignment = solveHungarian(matrix);
   if (assignment.some((j, i) => j < 0 || !allowed[i][j])) throw noValidPairingError([...aff, ...neg]);

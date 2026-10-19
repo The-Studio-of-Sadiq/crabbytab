@@ -37,6 +37,7 @@ import {
   uploadTournamentCommand,
   type CloudRecord,
   type CloudDeletionMap,
+  type CloudOverwriteMap,
   divergedRecordKey,
   type DivergedRecord,
   type SyncBaseline,
@@ -93,6 +94,16 @@ import {
   publishPublicViewCommand,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
+import {
+  computePendingChanges,
+  NO_PENDING_CHANGES,
+  parseCloudIdMap,
+  parseUploadIssue,
+  planRepublish,
+  publishBlockerAfterUpload,
+  type PendingChanges,
+  type UploadIssue,
+} from "@/features/tournament/application/syncStatus";
 import type { SelfCheckInRequest, SelfCheckInStatus } from "@/lib/selfCheckIn";
 import {
   describeNotificationSummary,
@@ -142,9 +153,18 @@ export interface TournamentContextType {
   privateSyncState: "idle" | "syncing" | "error";
   privateSyncMessage: string;
   localSaveError: string;
-  uploadToCloud: () => Promise<void>;
-  /** Rebuilds the cached public view from the cloud copy; `force` skips the unchanged check. */
-  publishPublicView: (force?: boolean) => Promise<void>;
+  /** Uploads this device's records, then publishes public pages unless the upload left conflicts. */
+  uploadToCloud: () => Promise<UploadOutcome>;
+  /**
+   * Rebuilds the cached public view from the cloud copy; `force` skips the unchanged check.
+   * Refuses while the last upload left conflicts or stopped part-way, and while this device has
+   * changes the cloud lacks unless `publishWithPendingChanges` acknowledges them.
+   */
+  publishPublicView: (force?: boolean, options?: { publishWithPendingChanges?: boolean }) => Promise<void>;
+  /** Records changed on this device since they were last uploaded or downloaded. */
+  pendingChanges: PendingChanges;
+  /** Set when the last upload left records unsynced (conflicts) or stopped part-way. */
+  uploadIssue: UploadIssue | null;
   downloadFromCloud: () => Promise<void>;
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
@@ -232,6 +252,16 @@ export interface TournamentContextType {
   releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
 }
+export interface UploadOutcome {
+  /** Records archived as sync conflicts instead of being written. */
+  conflicts: number;
+  publish: "published" | "unchanged" | "refused" | "failed";
+  /** Why public pages were not updated, when `publish` is "refused" or "failed". */
+  publishError?: string;
+}
+
+const toCloudRecords = (records: Array<{ id: string }>): CloudRecord[] => records as unknown as CloudRecord[];
+
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
 const AUTOMATIC_CLOUD_WRITES = false;
@@ -270,6 +300,13 @@ export function TournamentProvider({
   const [staffAccessError, setStaffAccessError] = useState("");
   const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
   const [divergedRecords, setDivergedRecords] = useState<DivergedRecord[]>([]);
+  const [uploadIssue, setUploadIssue] = useState<UploadIssue | null>(null);
+  // The sync baseline and queues as stored in localStorage, mirrored so `pendingChanges` updates.
+  const [storedSyncState, setStoredSyncState] = useState<{
+    baseline: SyncBaseline;
+    deletions: CloudDeletionMap;
+    overwrites: CloudOverwriteMap;
+  }>({ baseline: {}, deletions: {}, overwrites: {} });
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
   const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
@@ -291,6 +328,16 @@ export function TournamentProvider({
     },
     [storagePrefix]
   );
+
+  const refreshStoredSyncState = () => {
+    if (typeof window === "undefined") return;
+    const readStored = (key: string) => safeJsonParse<unknown>(localStorage.getItem(`${storagePrefix}_${key}`), null);
+    setStoredSyncState({
+      baseline: parseSyncBaseline(readStored("syncBaseline")),
+      deletions: parseCloudIdMap(readStored("syncTombstones")),
+      overwrites: parseCloudIdMap(readStored("syncOverwrites")),
+    });
+  };
 
   // Per-device sync queues kept in localStorage: ids to delete from the cloud ("syncTombstones")
   // and ids restored from a backup that must overwrite the cloud copy ("syncOverwrites").
@@ -327,6 +374,7 @@ export function TournamentProvider({
       ];
     }
     persistLocal(queue, current);
+    refreshStoredSyncState();
   };
 
   const clearSyncIds = (queue: SyncIdQueue, uploaded: CloudDeletionMap) => {
@@ -343,6 +391,7 @@ export function TournamentProvider({
         Object.entries(remaining).filter(([, ids]) => ids && ids.length > 0)
       )
     );
+    refreshStoredSyncState();
   };
 
   // Each record as this device last uploaded or downloaded it ("syncBaseline"), and the records
@@ -355,10 +404,16 @@ export function TournamentProvider({
 
   const saveSyncState = (baseline: SyncBaseline, diverged?: DivergedRecord[]) => {
     persistLocal("syncBaseline", baseline);
+    refreshStoredSyncState();
     if (diverged) {
       persistLocal("syncDiverged", diverged);
       setDivergedRecords(diverged);
     }
+  };
+
+  const saveUploadIssue = (issue: UploadIssue | null) => {
+    persistLocal("syncUploadIssue", issue);
+    setUploadIssue(issue);
   };
 
   const readSyncTombstones = () => readSyncIds("syncTombstones");
@@ -440,6 +495,30 @@ export function TournamentProvider({
     pathname?.includes("/display")
   );
 
+  const pendingChanges = useMemo((): PendingChanges => {
+    if (isSharedView || !tournament) return NO_PENDING_CHANGES;
+    return computePendingChanges({
+      tournament,
+      collections: {
+        rounds: toCloudRecords(rounds),
+        teams: toCloudRecords(teams),
+        adjudicators: toCloudRecords(adjudicators),
+        venues: toCloudRecords(venues),
+        motions: toCloudRecords(motions),
+        breakCategories: toCloudRecords(breakCategories),
+        debates: toCloudRecords(debates),
+        ballots: toCloudRecords(ballots),
+        feedback: toCloudRecords(feedback),
+        institutions: toCloudRecords(institutions),
+        auditEvents: toCloudRecords(auditEvents),
+      },
+      ...storedSyncState,
+    });
+  }, [
+    isSharedView, tournament, storedSyncState, rounds, teams, adjudicators, venues, motions,
+    breakCategories, debates, ballots, feedback, institutions, auditEvents,
+  ]);
+
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
   useEffect(() => {
     let isMounted = true;
@@ -471,6 +550,8 @@ export function TournamentProvider({
           safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
         setDivergedRecords(parseDivergedRecords(readLocal<unknown>("syncDiverged", [])));
+        setUploadIssue(parseUploadIssue(readLocal<unknown>("syncUploadIssue", null)));
+        refreshStoredSyncState();
         const loadPublicProjection = async () => {
           const result = await fetchPublicProjection(tournamentSlug);
           if (!isMounted) return;
@@ -1875,7 +1956,9 @@ export function TournamentProvider({
     }
 
     setCloudSyncState("syncing");
-    setCloudSyncMessage("Merging this device's tournament records into Firestore…");
+    setCloudSyncMessage("Uploading this device's tournament records…");
+    // Set once records start being written: an error after that leaves the cloud partly updated.
+    let recordsSent = false;
     try {
       const localCollections = getLocalCollections();
       const deletions = readSyncTombstones();
@@ -1887,6 +1970,7 @@ export function TournamentProvider({
         syncedCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>,
         syncedBaseline: SyncBaseline
       ) => {
+        recordsSent = true;
         setTournament({ ...syncedTournament });
         persistLocal("meta", { ...syncedTournament });
         const persistSyncedCollection = <T,>(
@@ -1926,23 +2010,40 @@ export function TournamentProvider({
       clearSyncIds("syncOverwrites", overwrites);
       const syncSummary =
         archivedConflictCount > 0
-          ? `Synced records. Preserved ${archivedConflictCount} unresolved cloud conflict(s) for recovery.`
-          : `Synced records at ${new Date().toLocaleTimeString()}. Cloud-only records were retained.`;
+          ? `Uploaded, but ${archivedConflictCount} record(s) conflicted with newer cloud versions and were not written (the cloud versions are archived for recovery).`
+          : `Uploaded at ${new Date().toLocaleTimeString()}.`;
+      saveUploadIssue(
+        archivedConflictCount > 0
+          ? { kind: "conflicts", count: archivedConflictCount, at: new Date().toISOString() }
+          : null
+      );
+      const outcome: UploadOutcome = { conflicts: archivedConflictCount, publish: "refused" };
       let publishSummary: string;
-      try {
-        const published = await publishPublicViewCommand({
-          tournament,
-          collections: localCollections,
-          idToken: await user.getIdToken(),
-        });
-        publishSummary = published.status === "published"
-          ? " Public pages updated."
-          : " Public pages already up to date.";
-      } catch (publishError) {
-        // The upload itself succeeded; public pages keep serving the previous published view.
-        publishSummary = ` Public pages were not updated: ${
-          publishError instanceof Error ? publishError.message : "publish failed"
-        }`;
+      const publishBlocker = publishBlockerAfterUpload(archivedConflictCount);
+      if (publishBlocker) {
+        // Publishing now would show the public a mix of this device's changes and older versions.
+        outcome.publishError = publishBlocker;
+        publishSummary = ` ${publishBlocker}`;
+      } else {
+        setCloudSyncMessage("Uploaded. Publishing public pages…");
+        try {
+          const published = await publishPublicViewCommand({
+            tournament,
+            collections: localCollections,
+            idToken: await user.getIdToken(),
+          });
+          outcome.publish = published.status;
+          publishSummary = published.status === "published"
+            ? " Public pages updated."
+            : " Public pages already up to date.";
+        } catch (publishError) {
+          // The upload itself succeeded; public pages keep serving the previous published view.
+          outcome.publish = "failed";
+          outcome.publishError = `Public pages were not updated: ${
+            publishError instanceof Error ? publishError.message : "publish failed"
+          }. Use Republish public pages to retry.`;
+          publishSummary = ` ${outcome.publishError}`;
+        }
       }
       // Opted-in draw / results emails go out once their release is in the cloud copy.
       let notificationSummary = "";
@@ -1957,19 +2058,41 @@ export function TournamentProvider({
           }`;
         }
       }
-      setCloudSyncState("success");
+      setCloudSyncState(outcome.publish === "published" || outcome.publish === "unchanged" ? "success" : "error");
       setCloudSyncMessage(syncSummary + publishSummary + notificationSummary);
+      return outcome;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Cloud upload failed.";
+      const reason = (error instanceof Error ? error.message : "Cloud upload failed.").replace(/\.?$/, ".");
+      if (recordsSent) {
+        saveUploadIssue({ kind: "partial", message: reason, at: new Date().toISOString() });
+      }
+      const message = recordsSent
+        ? `Upload stopped part-way: ${reason} Public pages were not updated. Upload again to finish.`
+        : `Upload failed: ${reason} Nothing was changed in the cloud.`;
       setCloudSyncState("error");
       setCloudSyncMessage(message);
-      throw error;
+      throw new Error(message);
     }
   };
 
-  const publishPublicView = async (force = false) => {
+  const publishPublicView = async (
+    force = false,
+    options: { publishWithPendingChanges?: boolean } = {}
+  ) => {
     if (!user || !tournament || !isOwnerOrAdmin) {
       throw new Error("Sign in as a tournament administrator to publish public pages.");
+    }
+    const plan = planRepublish({ pendingTotal: pendingChanges.total, uploadIssue });
+    const refusal =
+      plan.kind === "blocked"
+        ? plan.reason
+        : plan.kind === "confirm-pending" && !options.publishWithPendingChanges
+          ? `${plan.pendingTotal} change(s) on this device are not uploaded, so publishing would show the public an older version. Upload first.`
+          : "";
+    if (refusal) {
+      setCloudSyncState("error");
+      setCloudSyncMessage(refusal);
+      throw new Error(refusal);
     }
     setCloudSyncState("syncing");
     setCloudSyncMessage("Publishing public pages from the cloud copy…");
@@ -2052,6 +2175,10 @@ export function TournamentProvider({
         setAuditEvents(events);
       });
       saveSyncState(baseline, diverged);
+      // Records an upload could not write are now either the cloud version or diverged records
+      // awaiting a choice, so the conflict notice is replaced by those. A part-way upload still
+      // needs another upload.
+      if (uploadIssue?.kind === "conflicts") saveUploadIssue(null);
       setCloudSyncState("success");
       setCloudSyncMessage(
         diverged.length > 0
@@ -2295,6 +2422,8 @@ export function TournamentProvider({
         localSaveError,
         uploadToCloud,
         publishPublicView,
+        pendingChanges,
+        uploadIssue,
         downloadFromCloud,
         syncDataEntry,
         exportSyncRecovery,

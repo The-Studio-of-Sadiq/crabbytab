@@ -35,7 +35,10 @@ export function maxWeightMatching(edges: WeightedEdge[], maxCardinality = false)
     if (j >= nvertex) nvertex = j + 1;
   }
 
-  const maxweight = Math.max(0, ...edges.map(([, , w]) => w));
+  // A loop, not Math.max(...spread): a complete graph on n teams has ~n²/2
+  // edges, which overflows the call stack as spread arguments from ~500 teams.
+  let maxweight = 0;
+  for (const [, , w] of edges) if (w > maxweight) maxweight = w;
   const endpoint: number[] = Array.from({ length: 2 * nedge }, (_, p) => edges[p >> 1][p % 2]);
   const neighbend: number[][] = Array.from({ length: nvertex }, () => []);
   edges.forEach(([i, j], k) => {
@@ -63,12 +66,18 @@ export function maxWeightMatching(edges: WeightedEdge[], maxCardinality = false)
     return dualvar[i] + dualvar[j] - 2 * wt;
   };
 
+  const minVertexDual = (): number => {
+    let min = Infinity;
+    for (let v = 0; v < nvertex; v++) if (dualvar[v] < min) min = dualvar[v];
+    return min;
+  };
+
   const blossomLeaves = (b: number): number[] => {
     if (b < nvertex) return [b];
     const leaves: number[] = [];
     for (const t of blossomchilds[b]!) {
       if (t < nvertex) leaves.push(t);
-      else leaves.push(...blossomLeaves(t));
+      else for (const leaf of blossomLeaves(t)) leaves.push(leaf);
     }
     return leaves;
   };
@@ -79,7 +88,7 @@ export function maxWeightMatching(edges: WeightedEdge[], maxCardinality = false)
     labelend[w] = labelend[b] = p;
     bestedge[w] = bestedge[b] = -1;
     if (t === 1) {
-      queue.push(...blossomLeaves(b));
+      for (const leaf of blossomLeaves(b)) queue.push(leaf);
     } else if (t === 2) {
       const base = blossombase[b];
       assignLabel(endpoint[mate[base]], 1, mate[base] ^ 1);
@@ -358,7 +367,7 @@ export function maxWeightMatching(edges: WeightedEdge[], maxCardinality = false)
 
       if (!maxCardinality) {
         deltatype = 1;
-        delta = Math.min(...dualvar.slice(0, nvertex));
+        delta = minVertexDual();
       }
       for (let v = 0; v < nvertex; v++) {
         if (label[inblossom[v]] === 0 && bestedge[v] !== -1) {
@@ -389,7 +398,7 @@ export function maxWeightMatching(edges: WeightedEdge[], maxCardinality = false)
       }
       if (deltatype === -1) {
         deltatype = 1;
-        delta = Math.max(0, Math.min(...dualvar.slice(0, nvertex)));
+        delta = Math.max(0, minVertexDual());
       }
 
       for (let v = 0; v < nvertex; v++) {

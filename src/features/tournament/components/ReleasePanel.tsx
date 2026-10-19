@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Eye, EyeOff, Megaphone } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
-import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { getPublicRelease, isTabRound, setRelease } from "@/lib/publicRelease";
 
 type ReleaseChange = Parameters<typeof setRelease>[1];
@@ -21,8 +21,6 @@ interface ReleaseItem {
 export function ReleasePanel() {
   const { tournament, rounds, breakCategories, teams, adjudicators, isOwnerOrAdmin, saveTournament } = useTournament();
   const [pending, setPending] = useState<{ item: ReleaseItem; released: boolean } | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
 
   if (!tournament || !isOwnerOrAdmin) return null;
 
@@ -98,21 +96,12 @@ export function ReleasePanel() {
       }),
   ];
 
-  const confirm = async () => {
+  const applyRelease = async () => {
     if (!pending) return;
-    setIsSaving(true);
-    setError("");
-    try {
-      await saveTournament({
-        ...tournament,
-        preferences: setRelease(tournament.preferences, pending.item.change(pending.released)),
-      });
-      setPending(null);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "The release could not be saved. Please try again.");
-    } finally {
-      setIsSaving(false);
-    }
+    await saveTournament({
+      ...tournament,
+      preferences: setRelease(tournament.preferences, pending.item.change(pending.released)),
+    });
   };
 
   return (
@@ -144,10 +133,7 @@ export function ReleasePanel() {
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setError("");
-                  setPending({ item, released: !item.released });
-                }}
+                onClick={() => setPending({ item, released: !item.released })}
                 className={`rounded px-2.5 py-1 text-[11px] font-bold ${
                   item.released
                     ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -161,20 +147,18 @@ export function ReleasePanel() {
         ))}
       </ul>
       {pending && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={`${pending.released ? "Release" : "Unrelease"} ${pending.item.label.toLowerCase()}?`}
           description={pending.released
-            ? `${pending.item.description} It becomes visible on the public page immediately${
+            ? `${pending.item.description}${
                 completedPrelims.length < prelims.length && pending.item.key.endsWith("Tab")
-                  ? `; only ${completedPrelims.length} of ${prelims.length} preliminary rounds are complete`
+                  ? ` Only ${completedPrelims.length} of ${prelims.length} preliminary rounds are complete.`
                   : ""
-              }.`
-            : "It is hidden from the public page immediately. Cached copies may remain visible briefly."}
-          confirmLabel={pending.released ? "Yes, release" : "Yes, unrelease"}
-          onConfirm={confirm}
-          onCancel={() => setPending(null)}
-          isBusy={isSaving}
-          error={error}
+              }`
+            : "It will be hidden from the public page."}
+          confirmLabel={pending.released ? "Release and publish" : "Unrelease and publish"}
+          apply={applyRelease}
+          onClose={() => setPending(null)}
         />
       )}
     </section>

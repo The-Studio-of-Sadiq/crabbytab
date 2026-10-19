@@ -97,3 +97,14 @@ describe("minCostPerfectMatching", () => {
     expect(minCostPerfectMatching(3, () => 1)).toBeNull();
   });
 });
+
+describe("minCostPerfectMatching at tournament scale", () => {
+  // ~500k edges: spreading them into Math.max overflowed the call stack from ~500 vertices.
+  it("matches a complete graph on 1000 vertices without overflowing the stack", () => {
+    const n = 1000;
+    const pairs = minCostPerfectMatching(n, (i, j) => (j - i) % 7);
+    expect(pairs).not.toBeNull();
+    expect(pairs!).toHaveLength(n / 2);
+    expect(new Set(pairs!.flat()).size).toBe(n);
+  }, 60_000);
+});

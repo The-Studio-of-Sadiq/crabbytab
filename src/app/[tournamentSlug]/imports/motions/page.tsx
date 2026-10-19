@@ -19,7 +19,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { Motion } from "@/types";
-import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 
 export default function MotionsPage() {
   const { tournament, motions, rounds, addMotion, addMotions, updateMotion, deleteMotion } = useTournament();
@@ -44,8 +44,6 @@ export default function MotionsPage() {
   const [newRef, setNewRef] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
   const [motionPendingRelease, setMotionPendingRelease] = useState<Motion | null>(null);
-  const [isSavingRelease, setIsSavingRelease] = useState(false);
-  const [releaseError, setReleaseError] = useState("");
 
   const filteredMotions = useMemo(() => {
     return motions.filter((m) => {
@@ -93,21 +91,6 @@ export default function MotionsPage() {
   // Toggle Release
   const toggleMotionRelease = async (motion: Motion) => {
     setMotionPendingRelease(motion);
-    setReleaseError("");
-  };
-
-  const confirmMotionRelease = async () => {
-    if (!motionPendingRelease) return;
-    setIsSavingRelease(true);
-    setReleaseError("");
-    try {
-      await updateMotion({ ...motionPendingRelease, released: !motionPendingRelease.released });
-      setMotionPendingRelease(null);
-    } catch {
-      setReleaseError("The motion visibility change could not be saved. Please try again.");
-    } finally {
-      setIsSavingRelease(false);
-    }
   };
 
   // CSV File Handler
@@ -330,8 +313,6 @@ export default function MotionsPage() {
           </div>
         )}
       </div>
-
-      {releaseError && <p role="alert" className="text-xs text-red-700">{releaseError}</p>}
 
       {/* Add Motion Modal */}
       {showAddModal && (
@@ -591,16 +572,14 @@ export default function MotionsPage() {
         </div>
       )}
       {motionPendingRelease && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={motionPendingRelease.released ? "Unpublish this motion?" : "Publish this motion?"}
           description={motionPendingRelease.released
-            ? `Unpublishing ${motionPendingRelease.reference || "this motion"} immediately removes it from the public motions page and presentation.`
+            ? `Unpublishing ${motionPendingRelease.reference || "this motion"} removes it from the public motions page and presentation.`
             : `Publishing ${motionPendingRelease.reference || "this motion"} makes it visible on the public motions page and presentation.`}
-          confirmLabel={motionPendingRelease.released ? "Yes, unpublish motion" : "Yes, publish motion"}
-          onConfirm={confirmMotionRelease}
-          onCancel={() => setMotionPendingRelease(null)}
-          isBusy={isSavingRelease}
-          error={releaseError}
+          confirmLabel={motionPendingRelease.released ? "Unpublish motion" : "Publish motion"}
+          apply={() => updateMotion({ ...motionPendingRelease, released: !motionPendingRelease.released })}
+          onClose={() => setMotionPendingRelease(null)}
         />
       )}
     </div>

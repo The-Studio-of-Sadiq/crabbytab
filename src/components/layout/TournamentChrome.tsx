@@ -121,8 +121,6 @@ export function TournamentChrome({
         >
           Skip to content
         </a>
-        {/* Overriding a tournament rule is an administrator decision; assistants are never asked. */}
-        {isOwnerOrAdmin && <RuleOverrideHost />}
         <Navbar
           tournamentSlug={tournamentSlug}
           navOpen={mobileNavOpen}
@@ -157,6 +155,9 @@ export function TournamentChrome({
           </main>
         </div>
       </div>
+      {/* Overriding a tournament rule is an administrator decision; assistants are never asked.
+          Rendered last so it stacks above a dialog that triggered it (e.g. a release dialog). */}
+      {isOwnerOrAdmin && <RuleOverrideHost />}
     </ToastProvider>
   );
 }
