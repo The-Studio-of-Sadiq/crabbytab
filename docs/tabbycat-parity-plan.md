@@ -4,6 +4,97 @@ Baseline: `origin/beta` @ `3ff7653` (14 commits ahead of `main`). All file refs 
 Health check run on beta (2026-10-18): `vitest` 301/301 pass · `next lint` pass (5 hook-deps warnings) ·
 `next build` pass · `tsc --noEmit` **fails: 33 errors, all in test files** (precedence/calculator/tournamentBackup/email tests).
 
+## Status as of 2026-10-19
+
+**Read this before re-reporting a finding.** Every item below was checked against the code at
+`origin/beta` f2abf35 plus the sync/publish hardening PR. The line refs in the sections further
+down are from the older baseline and are stale; the Notes column gives the current file. "This PR"
+means the sync/publish hardening PR that added this section.
+
+| Item | Status | PR | Notes |
+|---|---|---|---|
+| 0.1 private sync 503 on soft-deleted debate | FIXED | #9 | `lib/privateSync.ts` `selectAssignedDebates` |
+| 0.2 non-global-admin upload / `tournamentSlugs` rule | FIXED | #9 | `firestore.rules` `match /tournamentSlugs/{slug}` (not emulator-tested) |
+| 0.3 server writes don't bump `syncVersion` | FIXED | #23, #27 | `privateSync.ts` `supersededBallotUpdate`; `data-entry-sync/route.ts` bumps on every write |
+| 0.4 download keeps local over cloud (no convergence) | FIXED | #24, #25, #27 | `cloudSync.ts` `mergeCloudIntoWorkingCopy` with synced baseline and conflicts dialog |
+| 0.5 chair private ballot discards tab-confirmed ballot | FIXED | #9 | `privateSync.ts` `isTabRoomConfirmed` / `planPrivateBallotWrites` |
+| 0.6 unrevealed panels / unreleased draws leak to teams | FIXED | #9 | `privatePortalBallots.ts` gates on `adjudicatorsRevealed` / `motionsReleased` (confirmed draws still count as visible, see 0.11) |
+| 0.7 assistants write confirmed ballots etc.; `assistant-data` over-shares | FIXED | #9 | `lib/dataEntrySync.ts` field whitelists and forced `confirmed:false` |
+| 0.8 `ownerId` rewrite, open tournament create, slug squatting | FIXED | #9 | `firestore.rules`: create is global-admin only, `ownerId` immutable |
+| 0.9 passcode `===`; enumeration not rate-limited | FIXED | #9 | `lib/passcode.ts` `timingSafeEqual`; `checkPrivateFailureLimit` runs before key lookup |
+| 0.10 signed-out viewer of local tournament is admin | FIXED | #9 | `tournamentAccess.ts` `isViewerTournamentAdmin` |
+| 0.11 v1 `read:public` returns confirmed draws | OPEN | — | `api/v1/tournaments/[slug]/draws/route.ts` still allows `confirmed` |
+| 0.12 test-file TS errors; `tsc` in CI | FIXED | #9 | `.github/workflows/ci.yml` runs `npx tsc --noEmit` |
+| 0.13 CSP / security headers | FIXED | #9 | `securityHeaders.mjs` wired in `next.config.mjs` |
+| 0.5-1 publish-time snapshots | FIXED | #8, this PR | `lib/publicView/{snapshot,store}.ts`; releases now upload and publish in one step |
+| 0.5-2 Vercel Data Cache | FIXED | #8 | `store.ts` `unstable_cache` + `revalidateTag` |
+| 0.5-3 CDN `s-maxage` | FIXED | #8 | `store.ts` `publicCacheHeaders` |
+| 0.5-4 version polling | FIXED | #8 | `application/publicView.ts` polls `/version` every 45 s |
+| 0.5-5 check-in counts aggregate | PARTIAL | #8 | served from the snapshot's `checkins` section, refreshed only on publish; no per-check-in aggregate doc |
+| 0.5-6 private-URL query narrowing | OPEN | — | `api/private/sync/route.ts` still reads all teams/debates/rounds |
+| 0.5-7 v1 draws from snapshot | OPEN | — | v1 route still reads live collections |
+| 0.5-8 `preferredRegion` | OPEN | — | not set anywhere in `src` |
+| 0.5 note: fingerprint-only publish skip missed other devices' writes | FIXED | this PR | skip also needs a matching cloud source token (`snapshot.ts` `publicSourceToken`, `canSkipPublish`) |
+| Sync: releases looked public but were local until Upload | FIXED | this PR | `ReleaseActionDialog` saves, uploads and publishes in one step |
+| Sync: Republish ignored unuploaded local changes | FIXED | this PR | asks first (`syncStatus.ts` `planRepublish`, `Navbar.tsx`) |
+| Sync: upload published despite conflicts / part-way failure | FIXED | this PR | refused (`publishBlockerAfterUpload`, `UploadIssue`) |
+| Sync: no unsynced indicator or `beforeunload` warning | FIXED | this PR | `computePendingChanges`, top-bar sync status, `useBeforeUnloadWarning` |
+| 1.1 elimination rounds counted in standings | FIXED | #10 | `standings/calculator.ts` filters elimination and cancelled rounds |
+| 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
+| 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |
+| 1.4 ghost / iron-person | FIXED | #10 | `ballots/result.ts` ghost flagging and `teamScoreIncludesGhosts` |
+| 1.5 pullups persisted; metric direction | FIXED | #15 | `generator.ts` writes `pulledUp`; `metrics.ts` `pullups: -1` |
+| 1.6 bye win fabricates speaks | FIXED | #15 | `standings/calculator.ts` bye records team result only |
+| 1.7 rank-vs-score (low-point win) validation | FIXED | #10 | `ballots/result.ts` checks `allowLowPointWins` |
+| 1.8 round completion for prelims | FIXED | #11 | `roundAdministration.ts` `getRoundCompletionBlockers` / `setRoundCompletion` |
+| 1.9 availability mismatch (editors vs generator) | PARTIAL | #23 | generator, allocator and `validateDraw` use per-round availability; draw and allocation editor pools still filter global `checkedIn` |
+| 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | PARTIAL | #11 | reserves, per-category status and partial elims done; cutoff ties are not detected (manual remark only) |
+| 1.11 venue re-allocation not persisted | OPEN | — | `application/allocation.ts` cloud save still passes `updatedRoundDebates` (latent while `AUTOMATIC_CLOUD_WRITES=false`; local save is correct) |
+| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `preliminaryPanelsPerScheduleSlot` and `*StandingsExtra` still unused |
+| 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15 | `draw/powerPaired.ts` (golden tests are hand-derived, not recorded Tabbycat output) |
+| 2 two-team draw (intermediate, bubble, min_cost, seeded, preallocated) | FIXED | #15 | `twoTeamDraw.ts`, `oddBrackets.ts`, `minCostPairing.ts`, `weightedMatching.ts`, `rng.ts` |
+| 2 allocator: importance-weighted cost, soft history, user weights | FIXED | #12 | `draw/allocator.ts`; `prioritizeClashAvoidance` removed |
+| 2 allocator: adj↔adj conflicts, trainees conflict-checked | FIXED | #12 | `allocator.ts` `adjudicatorsConflict` |
+| 2 allocator: panel size by importance | FIXED | #12 | `allocator.ts` `by_priority` sizing |
+| 2 allocator: feedback weight and test score | FIXED | #12 | `feedback/scores.ts` `preFeedbackScore`; blend uses `feedbackWeight` |
+| 2 allocator: preformed panels | FIXED | #12 | `Round.preformedPanels`, `allocation/panels` page |
+| 2 allocator: iteration cap | FIXED | #12 | `allocator.ts` 50-pass cap plus evaluation budget |
+| 2 allocator: Web Worker | OPEN | — | no `Worker` usage in `src` |
+| 2 elim: partial eliminations / byes | FIXED | #11 | `draw/elimination.ts` `planEliminationRound` |
+| 2 elim: bracket position preserved | FIXED | #11 | `elimination.ts` `resolveBracketPositions` |
+| 2 elim: BP elim sides by seed | UNVERIFIED | — | sides are fixed in seed order (OG = top seed); no seed-choice option |
+| 2 elim: manual break overrides and remarks | FIXED | #11 | `BreakCategory.teamOverrides`, `breakqual/calculator.ts` |
+| 2 elim: adjudicator break | FIXED | #16 | `Adjudicator.breaking` and public breaking-adjudicators list |
+| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | OPEN | — | none in `standings/metrics.ts` |
+| 3 voting ballots | PARTIAL | #10 | majority, dissent, `marginIncludesDissenters` done; no per-round consensus option |
+| 3 blind double entry, version history, entered/checked by | FIXED | #10 | `ballotEntry.ts`, `BallotDiffDialog`, `BallotHistory` |
+| 3 vetoes, veto stats, motions by round, forfeits | FIXED | #10 | `BallotSubmission.vetoes` / `forfeitSide`; vetoes in analytics |
+| 3 feedback progress, weights, ignore/confirm, detail page, debate-linked, base/test scores | FIXED | #12 | `lib/feedback/*`, `feedback/adjudicator` page |
+| 3 conflicts UI; conflicts wiped on institution change | FIXED | #12 | `AdjudicatorConflictsEditor`, `changeAdjudicatorInstitution` |
+| 3 diversity | PARTIAL | #12 | fields, editor badges, per-panel summary done; no diversity stats page |
+| 3 round lifecycle and release | PARTIAL | #11, #16 | completion and per-tab/list release flags done; no motions-tab release; format change not guarded after draws exist |
+| 3 public site | PARTIAL | #11, #16 | tabs, lists, break per category, projector reveal, by-team view done; no public (non-private) feedback or ballot submission |
+| 3 draw editor flags / adj search / touch-keyboard | PARTIAL | #23 | `DrawCheckPanel` lists repeat/history warnings; no inline side-balance flags; team placement is drag-only |
+| 3 data (DebateXML import, CSV exports, backup restore) | FIXED | #14 | `debateXmlImport.ts`, `csv/exporters.ts`, `tournamentBackup.ts` |
+| 3 notifications, QR slips, self check-in | FIXED | #16 | `api/tournaments/[id]/notifications`, `lib/qr/qrcode.ts` |
+| 3 team break eligibility and speaker categories | FIXED | #11 | `TeamCategoryFields.tsx`; CSV `break_categories` |
+| 4.1 sync model B (Firestore source of truth) | PARTIAL | #24, #25, #27, this PR | stop-gap baseline merge, conflict resolution and honest publish only; no `persistentLocalCache` / `onSnapshot` |
+| 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.5k lines; provider value is an inline object |
+| 4.3 bound local `auditEvents` | OPEN | — | no limit |
+| 4.4 heavy compute in Web Workers | OPEN | — | BP Hungarian and allocator run on the main thread |
+| 4.5 rules / API-route / e2e / golden tests | PARTIAL | #23 | Vitest BP+WSDC lifecycles and fake-Firestore sync tests; no rules-emulator, route or Playwright tests |
+| 4.6 cleanup (`metadata.json`, lockfiles, README sync) | PARTIAL | #24, #25, #27 | README sync text updated; `metadata.json` and both lockfiles remain |
+| 5 i18n | PARTIAL | #28 | in-house `lib/i18n`; public pages and portals only |
+| 5 accessibility | PARTIAL | #22 | `Dialog` focus trap and labelled primitives; legacy pages not migrated; no keyboard drag-and-drop |
+| 5 mobile round creation below `md` | FIXED | #22 | `Navbar.tsx` round switcher with "New round…" at every width |
+| 5 configurable analytics ranges | OPEN | — | `analytics/page.tsx` hardcodes bins 68–84 |
+
+**Still open:** 0.11, 0.5-6, 0.5-7, 0.5-8, 1.11, allocator Web Worker, Phase 2 standings extras,
+4.2, 4.3, 4.4, analytics ranges. **Partial:** 0.5-5, 1.9, 1.10, 1.12, voting-ballot consensus
+option, diversity stats page, motions-tab release and format-change guard, public non-private
+submission, draw-editor side-balance flags and keyboard placement, 4.1, 4.5, 4.6, i18n,
+accessibility. **Unverified:** BP elimination sides by seed.
+
 ## Where CrabbyTab stands
 
 **Architecture.** Next.js 15 + React 19, client-side compute. Working copy lives in IndexedDB
@@ -54,7 +145,9 @@ tokens + v1 draws, DebateXML export, JSON backup, CI.
 `src/lib/publicView/{projection,snapshot,hash,store}.ts`, `POST /api/tournaments/[id]/public-view`,
 cached `GET /api/public/tournaments/[slug]` (+ `/version`, `/checkins`), publish-after-upload and a
 "Republish Public Pages" menu action, 45 s version polling on `/public` and `/display`.
-Behaviour notes: publish is skipped when the client's public fingerprint is unchanged (≈3 reads);
+Behaviour notes: publish is skipped when the client's public fingerprint is unchanged (≈3 reads)
+*(superseded: the skip now also requires an unchanged cloud source token, about one aggregation read
+per source collection, so other devices' writes are published; see the status table)*;
 data-entry-sync does not publish (assistant check-ins appear after the next admin upload); the
 existing rule that `confirmed` (not only `released`) draws are public is preserved and tracked as
 0.11. Remaining: items 6–8 (private-URL query narrowing, v1 draws from snapshot, `preferredRegion`).

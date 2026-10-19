@@ -37,7 +37,12 @@ export type PublicViewSection = PublicBaseSection | PublicRoundSection;
 export const PUBLIC_PROJECTION_BASE_SECTIONS = PUBLIC_BASE_SECTIONS.filter(
   (section) => section !== "checkins"
 ) as Exclude<PublicBaseSection, "checkins">[];
-/** Root layout version; roots without it hold whole-tournament `debates` and `ballots` sections. */
+/**
+ * Version of what a publish builds and how the root is laid out. Bump it when the projection or the
+ * layout changes, so views published by older code are rebuilt instead of skipped (it is part of
+ * the source token). Roots without it (format 1) hold whole-tournament `debates` and `ballots`
+ * sections; format 2 splits them by round.
+ */
 export const PUBLIC_VIEW_FORMAT = 2;
 
 export interface PublicRoundContent {
@@ -69,6 +74,8 @@ export interface PublicViewRoot {
   roundIds?: string[];
   /** Fingerprint reported by the publishing client, used to skip redundant rebuilds. */
   clientFingerprint?: string;
+  /** The cloud source state this view was built from (see `publicSourceToken`). */
+  sourceToken?: string;
   publishedAt: string;
 }
 
@@ -182,6 +189,7 @@ export function buildPublicViewRoot(input: {
   slug: string;
   sections: PublicViewSections;
   clientFingerprint?: string;
+  sourceToken?: string;
   publishedAt: string;
 }): { root: PublicViewRoot; chunks: Record<string, string[]> } {
   const chunks: Record<string, string[]> = {};
@@ -201,6 +209,7 @@ export function buildPublicViewRoot(input: {
       sections: sectionMeta,
       roundIds: sectionRoundIds(input.sections),
       ...(input.clientFingerprint ? { clientFingerprint: input.clientFingerprint } : {}),
+      ...(input.sourceToken ? { sourceToken: input.sourceToken } : {}),
       publishedAt: input.publishedAt,
     },
     chunks,
@@ -240,4 +249,42 @@ export function countCheckins(source: PublicCheckinsSource, now: number) {
     adjudicatorsPresent: present(source.adjudicators, round.id),
     adjudicatorsTotal: source.adjudicators.length,
   }));
+}
+
+/**
+ * Cheap aggregates of one source collection, read with Firestore aggregation queries (about one
+ * read per 1,000 documents) instead of reading every document. Every cloud write path bumps a
+ * record's `syncVersion` (the upload repository, data-entry sync, self check-in) or adds a record,
+ * so a change to the collection changes `count` or `versionSum`. Ballots are also written by the
+ * private-portal route, which increments the per-debate `version` instead.
+ */
+export interface PublicSourceCollectionStats {
+  count: number;
+  versionSum: number;
+  ballotVersionSum?: number;
+}
+
+export type PublicSourceStats = Record<string, PublicSourceCollectionStats>;
+
+/**
+ * Identifies the cloud state a public view is built from: the tournament document (without the
+ * `updatedAt` stamp every upload rewrites) plus each source collection's aggregates.
+ */
+export function publicSourceToken(tournamentData: Record<string, unknown>, stats: PublicSourceStats): string {
+  const { updatedAt: _updatedAt, ...tournament } = tournamentData;
+  return hashValue({ format: PUBLIC_VIEW_FORMAT, tournament, stats });
+}
+
+/**
+ * Whether a publish can keep the previous view instead of rebuilding it. The client fingerprint
+ * only describes the publishing device's records, so on its own it would skip changes another
+ * device or a server route wrote to the cloud. Skipping therefore also needs the cloud source
+ * token to match the one the previous view was built from.
+ */
+export function canSkipPublish(
+  previous: Pick<PublicViewRoot, "clientFingerprint" | "sourceToken"> | null | undefined,
+  input: { clientFingerprint?: string; sourceToken: string; force?: boolean }
+): boolean {
+  if (input.force || !previous || !input.clientFingerprint) return false;
+  return previous.clientFingerprint === input.clientFingerprint && previous.sourceToken === input.sourceToken;
 }

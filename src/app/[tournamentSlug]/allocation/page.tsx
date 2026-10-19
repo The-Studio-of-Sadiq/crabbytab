@@ -38,6 +38,10 @@ import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/fe
 import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
 import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
 
+function describeError(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function AllocationPage() {
   const {
     tournament,
@@ -442,11 +446,12 @@ export default function AllocationPage() {
   const handleAutoAllocate = async () => {
     if (!activeRound) return;
     setIsAllocating(true);
+    setManualAssignmentError("");
     try {
       await autoAllocate(activeRound.id, panelSize, { panelSizing });
     } catch (error) {
       if (!(error instanceof ComputeCancelledError)) {
-        window.alert(error instanceof Error ? error.message : "Could not allocate adjudicators.");
+        setManualAssignmentError(describeError(error, "Could not allocate adjudicators."));
       }
     } finally {
       setIsAllocating(false);
@@ -528,12 +533,16 @@ export default function AllocationPage() {
     if (!adj) return;
     setManualAssignmentError("");
 
-    if (targetRole === "chair") {
-      await assignChair(targetDebateId, adj);
-    } else if (targetRole === "panellist") {
-      await addPanellist(targetDebateId, adj);
-    } else if (targetRole === "trainee") {
-      await addTrainee(targetDebateId, adj);
+    try {
+      if (targetRole === "chair") {
+        await assignChair(targetDebateId, adj);
+      } else if (targetRole === "panellist") {
+        await addPanellist(targetDebateId, adj);
+      } else if (targetRole === "trainee") {
+        await addTrainee(targetDebateId, adj);
+      }
+    } catch (error) {
+      setManualAssignmentError(describeError(error, "Could not change the panel."));
     }
 
     setDraggingJudge(null);
@@ -549,12 +558,16 @@ export default function AllocationPage() {
     if (!payload) return;
 
     if (payload.sourceDebateId) {
-      if (payload.sourceType === "chair") {
-        await removeChair(payload.sourceDebateId);
-      } else if (payload.sourceType === "panellist") {
-        await removePanellist(payload.sourceDebateId, payload.adjId);
-      } else if (payload.sourceType === "trainee") {
-        await removeTrainee(payload.sourceDebateId, payload.adjId);
+      try {
+        if (payload.sourceType === "chair") {
+          await removeChair(payload.sourceDebateId);
+        } else if (payload.sourceType === "panellist") {
+          await removePanellist(payload.sourceDebateId, payload.adjId);
+        } else if (payload.sourceType === "trainee") {
+          await removeTrainee(payload.sourceDebateId, payload.adjId);
+        }
+      } catch (error) {
+        setManualAssignmentError(describeError(error, "Could not change the panel."));
       }
     }
     setDraggingJudge(null);
@@ -698,7 +711,8 @@ export default function AllocationPage() {
           </button>
 
           <button
-            onClick={handleClearAllocations}
+            onClick={() => void handleClearAllocations().catch((error: unknown) =>
+              setManualAssignmentError(describeError(error, "Could not clear the allocations.")))}
             disabled={roundDebates.length === 0 || assignedAdjIds.size === 0}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition disabled:opacity-50"
             title="Reset all judge assignments for this round"

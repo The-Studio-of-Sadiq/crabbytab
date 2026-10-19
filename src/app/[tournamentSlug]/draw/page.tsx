@@ -28,7 +28,7 @@ import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
-import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
 import { DrawCheckPanel } from "@/features/tournament/components/DrawCheckPanel";
@@ -56,12 +56,24 @@ export default function DrawPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
-  const [isSavingDrawRelease, setIsSavingDrawRelease] = useState(false);
-  const [drawReleaseError, setDrawReleaseError] = useState("");
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
 
   // Drag & Drop state
   const [draggingItem, setDraggingItem] = useState<TeamDragPayload | null>(null);
+  const [drawEditError, setDrawEditError] = useState("");
+
+  /** Shows why a manual draw edit was refused (e.g. a debate that already has a ballot). */
+  function reportingErrors<A extends unknown[]>(handler: (...args: A) => Promise<void>) {
+    return async (...args: A) => {
+      setDrawEditError("");
+      try {
+        await handler(...args);
+      } catch (error) {
+        setDraggingItem(null);
+        setDrawEditError(error instanceof Error ? error.message : "Could not change the draw.");
+      }
+    };
+  }
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   const isBP = tournament?.format === "bp";
@@ -172,25 +184,8 @@ export default function DrawPage() {
   };
 
   // Toggle release
-  const confirmDrawRelease = async () => {
-    if (!activeRound || pendingDrawRelease === null) return;
-    setIsSavingDrawRelease(true);
-    setDrawReleaseError("");
-    try {
-      await updateRound({
-        ...activeRound,
-        drawStatus: pendingDrawRelease ? "confirmed" : "draft",
-      });
-      setPendingDrawRelease(null);
-    } catch {
-      setDrawReleaseError("The draw visibility change could not be saved. Please try again.");
-    } finally {
-      setIsSavingDrawRelease(false);
-    }
-  };
-
   // Add new empty debate room
-  const handleAddDebateRoom = async () => {
+  const handleAddDebateRoom = reportingErrors(async () => {
     if (!activeRound) return;
     const nextRoomIdx = roundDebates.length + 1;
     const freeVenue = venues.find((v) => !roundDebates.some((d) => d.venueId === v.id));
@@ -227,13 +222,17 @@ export default function DrawPage() {
 
     const updated = [...debates, newDebate];
     await updateDebates(updated);
-  };
+  });
 
   // Delete a debate room
   const handleDeleteDebate = async (debateId: string) => {
     if (!confirm("Are you sure you want to delete this debate room? Assigned teams will return to the unassigned pool.")) return;
     const updated = debates.filter((d) => d.id !== debateId);
-    await updateDebates(updated);
+    try {
+      await updateDebates(updated);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Could not delete the debate room.");
+    }
   };
 
   // Change Venue
@@ -265,7 +264,11 @@ export default function DrawPage() {
       venueId: venue?.id,
       venueName: venue?.name || debate.venueName,
     };
-    await updateDebate(updated);
+    try {
+      await updateDebate(updated);
+    } catch (error) {
+      setVenueAssignmentError(error instanceof Error ? error.message : "Could not change the venue.");
+    }
   };
 
   const handleUpdateVenueRequirements = async (
@@ -304,7 +307,7 @@ export default function DrawPage() {
   };
 
   // Remove team from debate slot
-  const handleRemoveTeamFromSlot = async (debateId: string, side: DebateSide) => {
+  const handleRemoveTeamFromSlot = reportingErrors(async (debateId: string, side: DebateSide) => {
     const debate = roundDebates.find((d) => d.id === debateId);
     if (!debate) return;
 
@@ -316,7 +319,7 @@ export default function DrawPage() {
     };
 
     await updateDebate({ ...debate, teams: updatedTeams });
-  };
+  });
 
   // --- Drag and Drop Handlers ---
   const handleDragStartTeam = (
@@ -342,7 +345,7 @@ export default function DrawPage() {
     }
   };
 
-  const handleDropOnSlot = async (
+  const handleDropOnSlot = reportingErrors(async (
     e: React.DragEvent,
     targetDebateId: string,
     targetSide: DebateSide
@@ -443,9 +446,9 @@ export default function DrawPage() {
       await updateDebates(updatedDebatesList);
       setDraggingItem(null);
     }
-  };
+  });
 
-  const handleDropOnUnassigned = async (e: React.DragEvent) => {
+  const handleDropOnUnassigned = reportingErrors(async (e: React.DragEvent) => {
     e.preventDefault();
     setDragOverTarget(null);
 
@@ -458,7 +461,7 @@ export default function DrawPage() {
       await handleRemoveTeamFromSlot(payload.debateId, payload.side);
     }
     setDraggingItem(null);
-  };
+  });
 
   const handleExportDrawCsv = () => {
     if (!tournament || !activeRound) return;
@@ -534,7 +537,6 @@ export default function DrawPage() {
               </>
             )}
           </button>
-          {drawReleaseError && <p role="alert" className="text-xs text-red-600">{drawReleaseError}</p>}
 
           <button
             onClick={handleExportDrawCsv}
@@ -581,6 +583,11 @@ export default function DrawPage() {
       {venueAssignmentError && (
         <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {venueAssignmentError}
+        </p>
+      )}
+      {drawEditError && (
+        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {drawEditError}
         </p>
       )}
 
@@ -1040,16 +1047,14 @@ export default function DrawPage() {
         </div>
       )}
       {pendingDrawRelease !== null && activeRound && (
-        <ConfirmActionDialog
+        <ReleaseActionDialog
           title={pendingDrawRelease ? "Publish this draw?" : "Unpublish this draw?"}
           description={pendingDrawRelease
             ? `Publishing ${activeRound.name} makes its room and team assignments visible on the public tab.`
-            : `Unpublishing ${activeRound.name} immediately hides its draw from the public tab.`}
-          confirmLabel={pendingDrawRelease ? "Yes, publish draw" : "Yes, unpublish draw"}
-          onConfirm={confirmDrawRelease}
-          onCancel={() => setPendingDrawRelease(null)}
-          isBusy={isSavingDrawRelease}
-          error={drawReleaseError}
+            : `Unpublishing ${activeRound.name} hides its draw from the public tab.`}
+          confirmLabel={pendingDrawRelease ? "Publish draw" : "Unpublish draw"}
+          apply={() => updateRound({ ...activeRound, drawStatus: pendingDrawRelease ? "confirmed" : "draft" })}
+          onClose={() => setPendingDrawRelease(null)}
         />
       )}
     </div>

@@ -32,6 +32,7 @@ import {
 } from "@/features/tournament/application/breaks";
 import { generateDrawCommand, type GenerateDrawDependencies } from "@/features/tournament/application/draws";
 import { setRoundCompletion } from "@/features/tournament/application/roundAdministration";
+import type { RuleOverride } from "@/features/tournament/application/stateGuards";
 import {
   createRoundCommand,
   updateRoundCommand,
@@ -175,6 +176,19 @@ export class TournamentHarness {
 
   private roundDependencies() {
     return {
+      guards: {
+        debates: this.debates,
+        ballots: this.ballots,
+        drawIssues: (round: Round) => validateDraw({
+          tournament: this.tournament,
+          round,
+          rounds: this.rounds,
+          debates: this.debates,
+          teams: this.teams,
+          adjudicators: this.adjudicators,
+          venues: this.venues,
+        }),
+      },
       localRepository: {
         saveRounds: (rounds: Round[], active?: Round) => {
           this.rounds = rounds;
@@ -189,13 +203,13 @@ export class TournamentHarness {
     return createRoundCommand({ ...input, tournamentId: this.tournament.id }, this.rounds, this.roundDependencies());
   }
 
-  async updateRound(round: Round): Promise<void> {
-    await updateRoundCommand(round, this.rounds, this.activeRound, this.roundDependencies());
+  async updateRound(round: Round, override?: RuleOverride): Promise<void> {
+    await updateRoundCommand(round, this.rounds, this.activeRound, this.roundDependencies(), override);
   }
 
-  async patchRound(roundId: string, patch: Partial<Round>): Promise<Round> {
+  async patchRound(roundId: string, patch: Partial<Round>, override?: RuleOverride): Promise<Round> {
     const updated = { ...this.round(roundId), ...patch };
-    await this.updateRound(updated);
+    await this.updateRound(updated, override);
     return updated;
   }
 
@@ -209,7 +223,10 @@ export class TournamentHarness {
 
   /* Draws ------------------------------------------------------------------- */
 
-  async generateDraw(roundId: string, options: { discardExistingResults?: boolean } = {}): Promise<Debate[]> {
+  async generateDraw(
+    roundId: string,
+    options: { discardExistingResults?: boolean; override?: RuleOverride } = {}
+  ): Promise<Debate[]> {
     const round = this.round(roundId);
     await generateDrawCommand(roundId, {
       tournament: this.tournament,
@@ -254,6 +271,7 @@ export class TournamentHarness {
       rounds: this.rounds,
       teams: this.teams,
       debates: this.debates,
+      ballots: this.ballots,
       adjudicators: this.adjudicators,
       standings: this.standings().teams,
       breakCategories: this.breakCategories,
@@ -265,13 +283,13 @@ export class TournamentHarness {
     };
   }
 
-  async allocate(roundId: string, panelSize: number): Promise<Debate[]> {
-    await autoAllocateCommand(roundId, panelSize, this.allocationDependencies());
+  async allocate(roundId: string, panelSize: number, override?: RuleOverride): Promise<Debate[]> {
+    await autoAllocateCommand(roundId, panelSize, this.allocationDependencies(), {}, override);
     return this.roundDebates(roundId);
   }
 
-  async updateDebate(debate: Debate): Promise<void> {
-    await updateDebateCommand(debate, this.debates, this.allocationDependencies());
+  async updateDebate(debate: Debate, override?: RuleOverride): Promise<void> {
+    await updateDebateCommand(debate, this.debates, this.allocationDependencies(), override);
   }
 
   /* Ballots ----------------------------------------------------------------- */
@@ -292,16 +310,16 @@ export class TournamentHarness {
     };
   }
 
-  async submitBallot(ballot: BallotSubmission): Promise<void> {
-    await submitBallotCommand(ballot, undefined, this.ballotDependencies());
+  async submitBallot(ballot: BallotSubmission, override?: RuleOverride): Promise<void> {
+    await submitBallotCommand(ballot, undefined, this.ballotDependencies(), override);
   }
 
-  async confirmBallot(ballotId: string, debateId: string): Promise<void> {
-    await confirmBallotCommand(ballotId, debateId, undefined, this.ballotDependencies());
+  async confirmBallot(ballotId: string, debateId: string, override?: RuleOverride): Promise<void> {
+    await confirmBallotCommand(ballotId, debateId, undefined, this.ballotDependencies(), override);
   }
 
-  async discardBallot(ballotId: string): Promise<void> {
-    await discardBallotCommand(ballotId, "tab director", this.ballotDependencies());
+  async discardBallot(ballotId: string, override?: RuleOverride): Promise<void> {
+    await discardBallotCommand(ballotId, "tab director", this.ballotDependencies(), override);
   }
 
   /* Breaks ------------------------------------------------------------------ */
@@ -329,8 +347,8 @@ export class TournamentHarness {
     await saveBreakCategoriesCommand(categories, this.breakDependencies());
   }
 
-  async generateBreak(categoryId: string): Promise<Round | null> {
-    return generateBreakCommand(categoryId, this.breakDependencies());
+  async generateBreak(categoryId: string, override?: RuleOverride): Promise<Round | null> {
+    return generateBreakCommand(categoryId, this.breakDependencies(), override);
   }
 
   async advanceElimination(roundId: string): Promise<Round | null> {

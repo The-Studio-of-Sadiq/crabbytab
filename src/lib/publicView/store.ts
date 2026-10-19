@@ -1,4 +1,4 @@
-import type { DocumentReference, Firestore } from "firebase-admin/firestore";
+import { AggregateField, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
@@ -9,15 +9,18 @@ import {
 import {
   buildPublicViewRoot,
   buildPublicViewSections,
+  canSkipPublish,
   changedSections,
   chunkDocumentId,
   parseSectionChunks,
   PUBLIC_VIEW_FORMAT,
+  publicSourceToken,
   roundSectionName,
   sectionRoundIds,
   splitByRound,
   type PublicBaseSection,
   type PublicRoundContent,
+  type PublicSourceStats,
   type PublicViewRoot,
   type PublicViewSections,
 } from "@/lib/publicView/snapshot";
@@ -68,6 +71,35 @@ export async function readPublicSourceData(tournamentRef: DocumentReference): Pr
   ) as PublicSourceData;
 }
 
+/** Aggregates of every source collection; see `PublicSourceCollectionStats`. */
+export async function readPublicSourceStats(tournamentRef: DocumentReference): Promise<PublicSourceStats> {
+  const results = await Promise.all(
+    PUBLIC_SOURCE_COLLECTIONS.map((name) =>
+      tournamentRef
+        .collection(name)
+        .aggregate({
+          count: AggregateField.count(),
+          versionSum: AggregateField.sum("syncVersion"),
+          ...(name === "ballots" ? { ballotVersionSum: AggregateField.sum("version") } : {}),
+        })
+        .get()
+    )
+  );
+  return Object.fromEntries(
+    PUBLIC_SOURCE_COLLECTIONS.map((name, index) => {
+      const data = results[index].data() as { count: number; versionSum: number; ballotVersionSum?: number };
+      return [
+        name,
+        {
+          count: data.count,
+          versionSum: Number(data.versionSum) || 0,
+          ...(name === "ballots" ? { ballotVersionSum: Number(data.ballotVersionSum) || 0 } : {}),
+        },
+      ];
+    })
+  );
+}
+
 export interface PublishResult {
   status: "published" | "unchanged";
   slug: string;
@@ -76,9 +108,10 @@ export interface PublishResult {
 }
 
 /**
- * Rebuilds the public view of a tournament from Firestore and stores it. When the publishing
- * client's fingerprint matches the last publish, nothing public has changed on that device, so the
- * rebuild (a full read of every source collection) is skipped.
+ * Rebuilds the public view of a tournament from Firestore and stores it. The rebuild (a full read
+ * of every source collection) is skipped only when nothing public changed on the publishing device
+ * (its fingerprint matches the last publish) and nothing changed in the cloud either (the source
+ * token, from aggregation queries, matches); see `canSkipPublish`.
  */
 export async function publishPublicView(input: {
   tournamentId: string;
@@ -111,12 +144,8 @@ export async function publishPublicView(input: {
   }
   const ownPreviousRoot = previousRoot?.tournamentId === input.tournamentId ? previousRoot : null;
 
-  if (
-    !input.force &&
-    ownPreviousRoot &&
-    input.clientFingerprint &&
-    ownPreviousRoot.clientFingerprint === input.clientFingerprint
-  ) {
+  const sourceToken = publicSourceToken(tournamentData, await readPublicSourceStats(tournamentRef));
+  if (ownPreviousRoot && canSkipPublish(ownPreviousRoot, { ...input, sourceToken })) {
     return { status: "unchanged", slug, version: ownPreviousRoot.version, changedSections: [] };
   }
 
@@ -127,6 +156,7 @@ export async function publishPublicView(input: {
     slug,
     sections,
     clientFingerprint: input.clientFingerprint,
+    sourceToken,
     publishedAt: new Date().toISOString(),
   });
   const changed = changedSections(ownPreviousRoot, root);

@@ -1,4 +1,5 @@
-import type { AuditCategory, DrawType, Round, RoundStage } from "@/types";
+import type { AuditCategory, BallotSubmission, Debate, DrawType, Round, RoundStage } from "@/types";
+import { applyGuards, checkRoundUpdate, type DrawCheckIssue, type RuleOverride } from "./stateGuards";
 
 export interface CreateRoundRecordInput {
   tournamentId: string;
@@ -25,6 +26,14 @@ export interface RoundAuditEvent {
 export interface RoundManagementDependencies {
   localRepository: RoundLocalRepository;
   recordAuditEvent(event: RoundAuditEvent): Promise<void>;
+}
+
+/** What updateRoundCommand needs to check a status change (release, completion, cancellation). */
+export interface RoundGuardContext {
+  debates: Debate[];
+  ballots: BallotSubmission[];
+  /** The draw check for a round (validateDraw), run only when its draw is being published. */
+  drawIssues(round: Round): DrawCheckIssue[];
 }
 
 export interface RoundCloudRepository {
@@ -89,9 +98,21 @@ export async function updateRoundCommand(
   round: Round,
   rounds: Round[],
   activeRound: Round | null,
-  dependencies: RoundManagementDependencies & { cloudRepository?: RoundCloudRepository }
+  dependencies: RoundManagementDependencies & {
+    cloudRepository?: RoundCloudRepository;
+    guards: RoundGuardContext;
+  },
+  override?: RuleOverride
 ): Promise<void> {
   const previous = rounds.find((item) => item.id === round.id);
+  if (previous) {
+    const { debates, ballots, drawIssues } = dependencies.guards;
+    await applyGuards(
+      checkRoundUpdate(previous, round, { rounds, debates, ballots }, () => drawIssues(round)),
+      override,
+      { action: "round.updated", category: "tournament", roundId: round.id, record: dependencies.recordAuditEvent }
+    );
+  }
   if (dependencies.cloudRepository) {
     await dependencies.cloudRepository.saveRound(round);
   }

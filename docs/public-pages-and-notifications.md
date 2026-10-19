@@ -27,6 +27,40 @@ reload only rounds whose hash changed.
 | Institutions | `publicInstitutionsList` | name, code, region; team/adjudicator counts only if participants are public too |
 | Adjudication core / Breaking adjudicators | `publicAdjudicatorCore` / `publicBreakingAdjudicators` | adjudicators flagged `adjCore` / `breaking` |
 
+### When public pages change
+
+Public pages show the last **published** cloud copy, never an organiser device's local state.
+
+- **Releases publish in one step.** Releasing or unreleasing a draw, round results, team speaks, a
+  motion, a tab, a break or a participant list saves the change, uploads this device's pending
+  changes and publishes public pages (`ReleaseActionDialog`, `planReleaseSync`). The dialog says how
+  many other changes go with it, stays open while it works, and if the upload or publish fails it
+  says the change is saved on this device but **not public yet**. A release is refused while offline
+  or while records are known to conflict with the cloud (resolve them first). Without cloud sync on
+  the device (Firebase not configured, or not signed in as an administrator) the change is saved on
+  this device only, and the dialog says so. We chose this over "refuse while anything is pending"
+  because organisers release under time pressure; refusing would force a separate upload anyway,
+  and the one-step flow still discloses what else is uploaded.
+- **Upload publishes only a consistent cloud copy.** If any record conflicted with a newer cloud
+  version (archived for recovery) or the upload stopped part-way, public pages are not updated. The
+  top bar shows *N upload conflicts* or *Upload incomplete* with the recovery path (Download and
+  compare, resolve, upload again; or upload again to finish). Republish is refused in that state.
+- **Republish public pages** publishes the cloud copy as it is; when this device has changes that
+  are not uploaded it asks first (*Upload and publish*, or *Publish cloud copy anyway*).
+- **Unchanged publishes are skipped only when nothing changed anywhere.** The server skips the
+  rebuild when the publishing device's fingerprint *and* a cloud source token both match the last
+  publish. The token hashes the tournament document (minus `updatedAt`) and, per source collection,
+  Firestore aggregation results (document count and the sum of `syncVersion`; for ballots also the
+  sum of `version`), about one read per collection. So uploads by other devices, assistant syncs,
+  check-ins and private-URL ballots are published by the next upload or republish. Limitation: a
+  write that changes a record without adding a document or increasing `syncVersion` (or a ballot's
+  `version`) is not detected; every current write path does one of those. Bump
+  `PUBLIC_VIEW_FORMAT` (`src/lib/publicView/snapshot.ts`) when the projection's output changes.
+- **Sync status.** The top bar shows how many changes on this device are not uploaded (from the
+  synced baseline; `computePendingChanges`), with a per-collection breakdown, and the browser asks
+  before leaving the page while there are such changes or a cloud operation is running. Records
+  synced before baselines existed count as changed until the next download.
+
 All list releases default to hidden and are switched in the **Public release** panel on the standings
 page. Adjudicators are flagged as core or breaking in the participant directory's edit dialog.
 

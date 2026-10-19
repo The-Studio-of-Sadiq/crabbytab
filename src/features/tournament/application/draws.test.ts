@@ -209,8 +209,9 @@ describe("regenerating a draw that already has results", () => {
 });
 
 describe("draws computed in the background", () => {
-  const round = createRoundRecord({ tournamentId: tournament.id, roundSeq: 2, name: "Round 2", abbr: "R2", stage: "preliminary" });
-  const otherRound = createRoundRecord({ tournamentId: tournament.id, roundSeq: 1, name: "Round 1", abbr: "R1", stage: "preliminary" });
+  // The round being drawn is the first one, so the rule guards have nothing to say about it.
+  const round = createRoundRecord({ tournamentId: tournament.id, roundSeq: 1, name: "Round 1", abbr: "R1", stage: "preliminary" });
+  const otherRound = createRoundRecord({ tournamentId: tournament.id, roundSeq: 2, name: "Round 2", abbr: "R2", stage: "preliminary" });
   const generated = { id: "room-1", roundId: round.id, teams: {}, adjudicators: {} } as unknown as Debate;
 
   function dependencies(latest: GenerateDrawDependencies["latest"], saved: { debates?: Debate[] }) {
@@ -238,14 +239,14 @@ describe("draws computed in the background", () => {
 
   it("keeps edits to other rounds made while it was computing", async () => {
     const saved: { debates?: Debate[] } = {};
-    const editedElsewhere = { id: "r1-room", roundId: otherRound.id } as Debate;
+    const editedElsewhere = { id: "r2-room", roundId: otherRound.id } as Debate;
     await generateDrawCommand(round.id, dependencies(() => ({ rounds: [otherRound, round], debates: [editedElsewhere], ballots: [] }), saved));
-    expect(saved.debates?.map((debate) => debate.id)).toEqual(["r1-room", expect.stringMatching(/^room-1-g/)]);
+    expect(saved.debates?.map((debate) => debate.id)).toEqual(["r2-room", expect.stringMatching(/^room-1-g/)]);
   });
 
   it("saves nothing when the round changed while it was computing", async () => {
     const saved: { debates?: Debate[] } = {};
-    const renamed = { ...round, name: "Round 2 (moved)" };
+    const renamed = { ...round, name: "Round 1 (moved)" };
     await expect(generateDrawCommand(round.id, dependencies(() => ({ rounds: [otherRound, renamed], debates: [], ballots: [] }), saved)))
       .rejects.toBeInstanceOf(RoundChangedDuringComputeError);
     expect(saved.debates).toBeUndefined();

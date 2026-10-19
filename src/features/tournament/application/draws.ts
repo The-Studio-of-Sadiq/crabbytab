@@ -12,6 +12,7 @@ import type {
 } from "@/types";
 import type { GenerateDrawParams } from "@/lib/draw/generator";
 import { randomSeed } from "@/lib/draw/rng";
+import { applyGuards, checkDrawGeneration, type RuleOverride } from "./stateGuards";
 
 export interface DrawAuditEvent {
   action: string;
@@ -134,11 +135,17 @@ export function withGenerationIds<T extends Pick<Debate, "id">>(generated: T[], 
 export async function generateDrawCommand(
   roundId: string,
   dependencies: GenerateDrawDependencies,
-  options: { discardExistingResults?: boolean } = {}
+  options: { discardExistingResults?: boolean; override?: RuleOverride } = {}
 ): Promise<void> {
   const { tournament, rounds, teams, institutions = [], venues, debates, ballots, motions, standings } = dependencies;
   const round = rounds.find((item) => item.id === roundId);
   if (!round || !tournament) return;
+  await applyGuards(checkDrawGeneration(round, { rounds, debates, ballots }), options.override, {
+    action: "draw.generated",
+    category: "draw",
+    roundId,
+    record: dependencies.recordAuditEvent,
+  });
 
   const existingResults = roundResults(roundId, debates, ballots);
   if (existingResults.length > 0 && !options.discardExistingResults) {
