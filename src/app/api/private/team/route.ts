@@ -10,6 +10,7 @@ import {
 import { passcodesMatch } from "@/lib/passcode";
 import { getPublicRelease, redactUnreleasedBreak } from "@/lib/publicRelease";
 import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import { loadParticipantDebates } from "@/lib/privateParticipantData";
 
 export const runtime = "nodejs";
 
@@ -96,8 +97,8 @@ export async function POST(request: NextRequest) {
     }
 
     const teamData = teamDocument.data();
-    const [debatesSnapshot, roundsSnapshot, feedbackSnapshot] = await Promise.all([
-      tournamentRef.collection("debates").get(),
+    const [{ debates: participantDebates }, roundsSnapshot, feedbackSnapshot] = await Promise.all([
+      loadParticipantDebates(tournamentRef, teamDocument.id),
       tournamentRef.collection("rounds").get(),
       tournamentRef.collection("feedback").where("sourceId", "==", teamDocument.id).get(),
     ]);
@@ -107,9 +108,7 @@ export async function POST(request: NextRequest) {
         .map((document) => [document.id, { ...document.data(), id: document.id } as Round] as const)
     );
     const debates: Debate[] = filterTeamVisibleDebates(
-      debatesSnapshot.docs
-        .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => ({ ...document.data(), id: document.id } as Debate))
+      [...participantDebates.values()]
         .filter((debate) =>
           Object.values(debate.teams || {}).some(
             (slot) => slot?.teamId === teamDocument.id

@@ -14,10 +14,45 @@ import type { Tournament } from "@/types";
 
 /**
  * Sections are stored as separate chunked documents so no single Firestore document approaches the
- * 1 MiB limit, and so an unchanged section is neither rewritten nor re-downloaded.
+ * 1 MiB limit, and so an unchanged section is neither rewritten nor re-downloaded. Debates and
+ * ballots are split by round (`round-{roundId}`): for a 1000-team tournament the whole projection
+ * is ~4 MB (ballots ~2.5 MB), over Vercel's 2 MB Data Cache entry limit, while one round's section
+ * is a few hundred KB. Base sections hold everything else.
  */
-export const PUBLIC_VIEW_SECTIONS = ["tournament", ...PUBLIC_COLLECTION_NAMES, "checkins"] as const;
-export type PublicViewSection = (typeof PUBLIC_VIEW_SECTIONS)[number];
+export const PUBLIC_BASE_SECTIONS = [
+  "tournament",
+  "rounds",
+  "teams",
+  "adjudicators",
+  "venues",
+  "motions",
+  "breakCategories",
+  "institutions",
+  "checkins",
+] as const;
+export type PublicBaseSection = (typeof PUBLIC_BASE_SECTIONS)[number];
+export type PublicRoundSection = `round-${string}`;
+export type PublicViewSection = PublicBaseSection | PublicRoundSection;
+/** Base sections of the participant-facing projection (check-in counts have their own route). */
+export const PUBLIC_PROJECTION_BASE_SECTIONS = PUBLIC_BASE_SECTIONS.filter(
+  (section) => section !== "checkins"
+) as Exclude<PublicBaseSection, "checkins">[];
+/**
+ * Version of what a publish builds and how the root is laid out. Bump it when the projection or the
+ * layout changes, so views published by older code are rebuilt instead of skipped (it is part of
+ * the source token). Roots without it (format 1) hold whole-tournament `debates` and `ballots`
+ * sections; format 2 splits them by round.
+ */
+export const PUBLIC_VIEW_FORMAT = 2;
+
+export interface PublicRoundContent {
+  debates: Record<string, unknown>[];
+  ballots: Record<string, unknown>[];
+}
+
+export function roundSectionName(roundId: string): PublicRoundSection {
+  return `round-${roundId}`;
+}
 
 /** Stay well below Firestore's 1 MiB document limit (strings are counted in UTF-8 bytes). */
 export const MAX_CHUNK_BYTES = 700_000;
@@ -28,11 +63,15 @@ export interface PublicViewSectionMeta {
 }
 
 export interface PublicViewRoot {
+  format?: number;
   tournamentId: string;
   slug: string;
   /** Combined hash of every section; changes whenever any public data changes. */
   version: string;
-  sections: Record<PublicViewSection, PublicViewSectionMeta>;
+  /** Base sections and one `round-{roundId}` section per public round. */
+  sections: Record<string, PublicViewSectionMeta>;
+  /** Public rounds with a section, in round order. */
+  roundIds?: string[];
   /** Fingerprint reported by the publishing client, used to skip redundant rebuilds. */
   clientFingerprint?: string;
   /** The cloud source state this view was built from (see `publicSourceToken`). */
@@ -40,7 +79,21 @@ export interface PublicViewRoot {
   publishedAt: string;
 }
 
-export type PublicViewSections = Record<PublicViewSection, unknown>;
+export type PublicViewSections = Record<PublicBaseSection, unknown> & {
+  [section: PublicRoundSection]: PublicRoundContent;
+};
+
+/** Groups a projection's debates and ballots into one section per public round (in round order). */
+export function splitByRound(
+  roundIds: string[],
+  debates: Record<string, unknown>[],
+  ballots: Record<string, unknown>[]
+): Map<string, PublicRoundContent> {
+  const byRound = new Map<string, PublicRoundContent>(roundIds.map((id) => [id, { debates: [], ballots: [] }]));
+  for (const debate of debates) byRound.get(String(debate.roundId))?.debates.push(debate);
+  for (const ballot of ballots) byRound.get(String(ballot.roundId))?.ballots.push(ballot);
+  return byRound;
+}
 
 export function buildPublicViewSections(
   tournamentRecord: SourceRecord,
@@ -48,21 +101,47 @@ export function buildPublicViewSections(
 ): PublicViewSections {
   const projection = buildPublicProjection(tournamentRecord, source);
   const checkins = buildPublicCheckinsSource(tournamentRecord, source);
-  return {
-    tournament: projection.tournament,
-    ...projection.collections,
-    checkins,
-  } as PublicViewSections;
+  const { debates, ballots, feedback: _feedback, ...base } = projection.collections;
+  const roundIds = base.rounds.map((round) => String(round.id));
+  const sections = { tournament: projection.tournament, ...base, checkins } as PublicViewSections;
+  for (const [roundId, content] of splitByRound(roundIds, debates, ballots)) sections[roundSectionName(roundId)] = content;
+  return sections;
 }
 
+/** Public rounds that have a section, in round order. */
+export function sectionRoundIds(sections: Partial<PublicViewSections>): string[] {
+  return ((sections.rounds as Array<{ id?: unknown }> | undefined) || [])
+    .map((round) => String(round.id))
+    .filter((roundId) => sections[roundSectionName(roundId)] !== undefined);
+}
+
+/** Every section name, base sections first, then rounds in order. */
+export function sectionNames(sections: PublicViewSections): PublicViewSection[] {
+  return [...PUBLIC_BASE_SECTIONS, ...sectionRoundIds(sections).map(roundSectionName)];
+}
+
+/** The projection from whichever sections are present; debates and ballots of absent rounds are left out. */
 export function assembleProjection(sections: Partial<PublicViewSections>): PublicProjection {
+  const rounds = sectionRoundIds(sections).map((roundId) => sections[roundSectionName(roundId)]!);
   const collections = Object.fromEntries(
-    PUBLIC_COLLECTION_NAMES.map((name) => [name, (sections[name] as Record<string, unknown>[] | undefined) || []])
+    PUBLIC_COLLECTION_NAMES.map((name) => [
+      name,
+      name === "debates" || name === "ballots"
+        ? rounds.flatMap((round) => round[name])
+        : (sections[name as PublicBaseSection] as Record<string, unknown>[] | undefined) || [],
+    ])
   ) as Record<PublicCollectionName, Record<string, unknown>[]>;
   return {
     tournament: sections.tournament as Tournament,
     collections: { ...collections, feedback: [] },
   };
+}
+
+/** The round public pages open on: the latest round that is not cancelled. */
+export function latestPublicRoundId(rounds: Array<Record<string, unknown>>): string | undefined {
+  return [...rounds]
+    .filter((round) => round.cancelled !== true)
+    .sort((left, right) => Number(right.seq) - Number(left.seq))[0]?.id as string | undefined;
 }
 
 /**
@@ -112,20 +191,23 @@ export function buildPublicViewRoot(input: {
   clientFingerprint?: string;
   sourceToken?: string;
   publishedAt: string;
-}): { root: PublicViewRoot; chunks: Record<PublicViewSection, string[]> } {
-  const chunks = {} as Record<PublicViewSection, string[]>;
-  const sectionMeta = {} as Record<PublicViewSection, PublicViewSectionMeta>;
-  for (const section of PUBLIC_VIEW_SECTIONS) {
+}): { root: PublicViewRoot; chunks: Record<string, string[]> } {
+  const chunks: Record<string, string[]> = {};
+  const sectionMeta: Record<string, PublicViewSectionMeta> = {};
+  const names = sectionNames(input.sections);
+  for (const section of names) {
     const sectionChunks = chunkSectionJson(input.sections[section]);
     chunks[section] = sectionChunks;
     sectionMeta[section] = { hash: hashValue(sectionChunks.join("")), chunks: sectionChunks.length };
   }
   return {
     root: {
+      format: PUBLIC_VIEW_FORMAT,
       tournamentId: input.tournamentId,
       slug: input.slug,
-      version: hashValue(PUBLIC_VIEW_SECTIONS.map((section) => sectionMeta[section].hash)),
+      version: hashValue(names.map((section) => [section, sectionMeta[section].hash])),
       sections: sectionMeta,
+      roundIds: sectionRoundIds(input.sections),
       ...(input.clientFingerprint ? { clientFingerprint: input.clientFingerprint } : {}),
       ...(input.sourceToken ? { sourceToken: input.sourceToken } : {}),
       publishedAt: input.publishedAt,
@@ -138,8 +220,8 @@ export function buildPublicViewRoot(input: {
 export function changedSections(
   previous: Pick<PublicViewRoot, "sections"> | null | undefined,
   next: Pick<PublicViewRoot, "sections">
-): PublicViewSection[] {
-  return PUBLIC_VIEW_SECTIONS.filter((section) => {
+): string[] {
+  return Object.keys(next.sections).filter((section) => {
     const before = previous?.sections?.[section];
     const after = next.sections[section];
     return !before || before.hash !== after.hash || before.chunks !== after.chunks;
@@ -150,8 +232,9 @@ export function changedSections(
  * Chunk documents are content-addressed by section hash: new chunks are written before the root
  * points at them, so a reader holding the previous root never sees a half-written section.
  */
-export function chunkDocumentId(section: PublicViewSection, hash: string, index: number): string {
-  return `${section}-${hash}-${index}`;
+export function chunkDocumentId(section: string, hash: string, index: number): string {
+  // Round ids come from the working copy; keep "/" (invalid in document ids) out.
+  return `${encodeURIComponent(section)}-${hash}-${index}`;
 }
 
 /** Per-round availability counts; computed per request because check-ins can expire over time. */
@@ -167,12 +250,6 @@ export function countCheckins(source: PublicCheckinsSource, now: number) {
     adjudicatorsTotal: source.adjudicators.length,
   }));
 }
-
-/**
- * Bump when the public projection changes what it builds from the same source data, so views
- * published by older code are rebuilt instead of skipped.
- */
-export const PUBLIC_VIEW_FORMAT = 1;
 
 /**
  * Cheap aggregates of one source collection, read with Firestore aggregation queries (about one

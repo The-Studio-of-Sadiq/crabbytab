@@ -18,23 +18,3 @@ export type CloudRecord = {
   syncVersion?: number;
   deletedAt?: string;
 };
-
-export interface CollectionReconciliationPlan {
-  recordsToWrite: CloudRecord[];
-}
-
-export function planCollectionReconciliation(
-  collectionName: CloudCollectionName,
-  remoteIds: string[],
-  localRecords: CloudRecord[]
-): CollectionReconciliationPlan {
-  if (collectionName === "auditEvents") {
-    const remoteIdSet = new Set(remoteIds);
-    return {
-      recordsToWrite: localRecords.filter((record) => !remoteIdSet.has(record.id)),
-    };
-  }
-  return {
-    recordsToWrite: localRecords,
-  };
-}

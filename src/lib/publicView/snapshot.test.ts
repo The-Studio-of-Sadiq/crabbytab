@@ -10,8 +10,12 @@ import {
   chunkSectionJson,
   countCheckins,
   fingerprintPublicSource,
+  latestPublicRoundId,
   parseSectionChunks,
-  PUBLIC_VIEW_SECTIONS,
+  PUBLIC_BASE_SECTIONS,
+  roundSectionName,
+  splitByRound,
+  type PublicViewSections,
 } from "@/lib/publicView/snapshot";
 
 const tournament: SourceRecord = {
@@ -257,7 +261,9 @@ describe("chunking and roots", () => {
       sections: buildPublicViewSections(tournament, source()),
       publishedAt: "2026-10-18T10:00:00.000Z",
     });
-    expect(changedSections(null, first.root)).toEqual([...PUBLIC_VIEW_SECTIONS]);
+    // Only round 1 is public (round 2's draw is a draft), so it is the only round section.
+    expect(changedSections(null, first.root)).toEqual([...PUBLIC_BASE_SECTIONS, "round-r1"]);
+    expect(first.root).toMatchObject({ format: 2, roundIds: ["r1"] });
 
     const data = source();
     data.motions[1] = { ...data.motions[1], released: true };
@@ -271,9 +277,38 @@ describe("chunking and roots", () => {
     expect(second.root.version).not.toBe(first.root.version);
 
     const sections = Object.fromEntries(
-      PUBLIC_VIEW_SECTIONS.map((section) => [section, parseSectionChunks(second.chunks[section])])
-    );
+      Object.keys(second.root.sections).map((section) => [section, parseSectionChunks(second.chunks[section])])
+    ) as PublicViewSections;
     expect(assembleProjection(sections)).toEqual(buildPublicProjection(tournament, data));
+  });
+
+  it("changes only the round's section when one round's results change", () => {
+    const data = source();
+    data.rounds[1] = { ...data.rounds[1], drawStatus: "released" };
+    const first = buildPublicViewRoot({ tournamentId: "t1", slug: "s", sections: buildPublicViewSections(tournament, data), publishedAt: "" });
+    expect(first.root.roundIds).toEqual(["r1", "r2"]);
+    const edited = source({ rounds: data.rounds });
+    edited.debates[1] = { ...edited.debates[1], venueName: "Hall B" };
+    const second = buildPublicViewRoot({ tournamentId: "t1", slug: "s", sections: buildPublicViewSections(tournament, edited), publishedAt: "" });
+    expect(changedSections(first.root, second.root)).toEqual(["round-r2"]);
+  });
+
+  it("assembles only the rounds that were loaded", () => {
+    const sections = buildPublicViewSections(tournament, source());
+    const { [roundSectionName("r1")]: _round1, ...withoutRounds } = sections;
+    const projection = assembleProjection(withoutRounds);
+    expect(projection.collections.debates).toEqual([]);
+    expect(projection.collections.rounds.map((round) => round.id)).toEqual(["r1"]);
+  });
+
+  it("groups by round and opens on the latest round that is not cancelled", () => {
+    const byRound = splitByRound(["r1", "r2"], [{ id: "d1", roundId: "r2" }, { id: "dx", roundId: "hidden" }], [{ id: "b1", roundId: "r1" }]);
+    expect(Object.fromEntries(byRound)).toEqual({
+      r1: { debates: [], ballots: [{ id: "b1", roundId: "r1" }] },
+      r2: { debates: [{ id: "d1", roundId: "r2" }], ballots: [] },
+    });
+    expect(latestPublicRoundId([{ id: "r1", seq: 1 }, { id: "r3", seq: 3, cancelled: true }, { id: "r2", seq: 2 }])).toBe("r2");
+    expect(latestPublicRoundId([])).toBeUndefined();
   });
 });
 

@@ -19,6 +19,7 @@ import {
 import type { TournamentFormat } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { safeJsonParse } from "@/lib/safeJson";
+import { getLocalStore, readLocalTournamentMetas, tournamentKeyPrefix } from "@/lib/offline/localStore";
 
 interface StoredTournamentSummary {
   id: string;
@@ -45,33 +46,31 @@ export default function HomePage() {
   // Tournament creation is reserved for global administrators.
   const goCreate = () => router.push("/tournaments/new");
 
-  // Scan localStorage for local copies
-  const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
+  // Tournaments saved on this device
+  const getLocalTournaments = useCallback(async (): Promise<StoredTournamentSummary[]> => {
     const list: StoredTournamentSummary[] = [];
 
     if (typeof window === "undefined") return list;
 
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("crabbytab_t_") && key.endsWith("_meta")) {
-        try {
-          const parsedItem = safeJsonParse<Record<string, any> | null>(localStorage.getItem(key), null);
-          if (parsedItem && typeof parsedItem === "object" && parsedItem.slug) {
-            const item = parsedItem as Record<string, any>;
-            list.push({
-              id: item.id || `tourn-${item.slug}`,
-              slug: item.slug,
-              name: item.name || item.slug,
-              format: item.format || "bp",
-              createdAt: item.createdAt || new Date().toISOString(),
-              ownerId: item.ownerId,
-              ownerEmail: item.ownerEmail,
-              isLocal: true,
-            });
-          }
-        } catch (e) {
-          // ignore parsing error
-        }
+    let metas: Array<{ key: string; raw: string }> = [];
+    try {
+      metas = await readLocalTournamentMetas(getLocalStore());
+    } catch (error) {
+      console.warn("Could not read tournaments saved on this device:", error);
+    }
+    for (const { raw } of metas) {
+      const item = safeJsonParse<Record<string, any> | null>(raw, null);
+      if (item && typeof item === "object" && item.slug) {
+        list.push({
+          id: item.id || `tourn-${item.slug}`,
+          slug: item.slug,
+          name: item.name || item.slug,
+          format: item.format || "bp",
+          createdAt: item.createdAt || new Date().toISOString(),
+          ownerId: item.ownerId,
+          ownerEmail: item.ownerEmail,
+          isLocal: true,
+        });
       }
     }
 
@@ -80,7 +79,7 @@ export default function HomePage() {
 
   // Local data remains available offline; signed-in accounts load only authorized cloud tournaments.
   const loadTournaments = useCallback(async () => {
-    const localList = getLocalTournaments();
+    const localList = await getLocalTournaments();
     setTournaments(localList.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ));
@@ -107,7 +106,7 @@ export default function HomePage() {
       };
       if (!response.ok) throw new Error(result.error || "Could not load your tournaments.");
 
-      const localItems = getLocalTournaments();
+      const localItems = await getLocalTournaments();
       const cloudItems = (result.tournaments || []).map((item) => ({
         ...item,
         isOwner: isGlobalAdmin || item.accessRole === "admin",
@@ -147,18 +146,11 @@ export default function HomePage() {
       return;
     }
 
-    // 1. Remove from localStorage
+    // 1. Remove from this device (only this slug: "spring" must not delete "springfield")
     try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(`crabbytab_t_${t.slug}`)) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      await getLocalStore().removePrefix(tournamentKeyPrefix(t.slug));
     } catch (e) {
-      console.warn("LocalStorage delete error:", e);
+      console.warn("Could not delete the tournament from this device:", e);
     }
 
     // Refresh list

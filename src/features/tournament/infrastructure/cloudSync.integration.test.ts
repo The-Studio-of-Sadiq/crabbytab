@@ -7,6 +7,7 @@ import type { BallotSubmission, BreakCategory, Round, Team, Tournament } from "@
 import { CLOUD_COLLECTIONS, type CloudCollectionName, type CloudRecord } from "@/features/tournament/collections";
 import {
   downloadTournamentCommand,
+  recordsChangedSinceBaseline,
   resolveDivergedRecords,
   uploadTournamentCommand,
   type CloudDeletionMap,
@@ -44,7 +45,7 @@ const TOURNAMENT_PATH = (tournament: Tournament) => `tournaments/${tournament.id
 function stripSync(records: CloudRecord[]): Record<string, unknown>[] {
   return records
     .map((record) => {
-      const { syncVersion: _syncVersion, ...rest } = record as CloudRecord & Record<string, unknown>;
+      const { syncVersion: _syncVersion, participantIds: _participantIds, ...rest } = record as CloudRecord & Record<string, unknown>;
       return JSON.parse(JSON.stringify(rest)) as Record<string, unknown>;
     })
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));
@@ -170,7 +171,8 @@ describe("upload and download", () => {
   it("resumes an interrupted upload with a second upload, without conflicts or duplicates", async () => {
     const a = await playedTournament();
     const before = a.collections();
-    fakeStore.failAfterCommits = 12;
+    // Settings, then rounds and teams (one transaction each), then the connection drops.
+    fakeStore.failAfterCommits = 3;
     await expect(upload(a)).rejects.toThrow("connection was lost");
     const partial = CLOUD_COLLECTIONS.reduce((count, name) => count + cloud(a.tournament, name).length, 0);
     expect(partial).toBeGreaterThan(0);
@@ -192,7 +194,7 @@ describe("upload and download", () => {
 
   it("uploads an edit to a record that was written before an upload was interrupted", async () => {
     const a = await playedTournament();
-    fakeStore.failAfterCommits = 40;
+    fakeStore.failAfterCommits = 2; // settings and rounds are written, then the connection drops
     await expect(upload(a)).rejects.toThrow();
     fakeStore.failAfterCommits = undefined;
     // The first round was written before the failure, and the device kept its cloud version.
@@ -308,9 +310,17 @@ describe("tombstoned deletions", () => {
       expect.objectContaining({ collectionName: "venues", recordId: removedVenue, resolution: "recoverable-delete" }),
     ]);
 
-    // B still holds the venue. Uploading does not bring it back, and downloading removes it.
+    // B still holds the venue, unchanged since it synced, so its upload does not even send it.
+    expect(await upload(b)).toBe(0);
+    expect(cloud(a.tournament, "venues").find((venue) => venue.id === removedVenue)?.deletedAt).toEqual(expect.any(String));
+    // An edit B made to it is refused and archived, not used to bring the venue back.
+    b.venues = b.venues.map((venue) => venue.id === removedVenue ? { ...venue, name: "Edited on B" } : venue);
     expect(await upload(b)).toBe(1);
     expect(cloud(a.tournament, "venues").find((venue) => venue.id === removedVenue)?.deletedAt).toEqual(expect.any(String));
+    expect(conflicts(a.tournament).find((item) => item.resolution === "deleted")).toMatchObject({
+      recordId: removedVenue,
+      incomingRecord: { name: "Edited on B" },
+    });
     await download(b);
     expect(b.venues.map((venue) => venue.id)).not.toContain(removedVenue);
   });
@@ -412,10 +422,8 @@ describe("private-URL ballots", () => {
     expect(cloudBallots.find((ballot) => ballot.id === "portal-1")).toMatchObject({ discarded: true, confirmed: false });
     expect(cloudBallots.filter((ballot) => ballot.confirmed === true && ballot.discarded !== true).map((ballot) => ballot.id))
       .toEqual(["portal-2"]);
-    // The admin's stale copy is archived, not lost.
-    expect(conflicts(a.tournament)).toEqual([
-      expect.objectContaining({ collectionName: "ballots", recordId: "portal-1", incomingRecord: expect.objectContaining({ confirmed: true }) }),
-    ]);
+    // The admin never edited that ballot, so the upload did not send its stale copy at all.
+    expect(conflicts(a.tournament)).toEqual([]);
     // The admin never edited that ballot, so a download replaces it with the discarded version.
     await download(a);
     expect(a.ballots.find((ballot) => ballot.id === "portal-1")).toMatchObject({ discarded: true, confirmed: false });
@@ -574,5 +582,63 @@ describe("backup and restore", () => {
     // Once uploaded, the restore is done: later edits sync normally and conflicts work again.
     a.teams = a.teams.map((team, index) => index === 0 ? { ...team, name: "After restore" } : team);
     expect(await upload(a)).toBe(0);
+  });
+});
+
+describe("debate participant index", () => {
+  const indexMarker = (tournament: Tournament) => fakeStore.documents.get(`${TOURNAMENT_PATH(tournament)}/data/participantIndex`);
+
+  it("is written with every uploaded debate, kept out of the working copy, and follows panel changes", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    expect(indexMarker(a.tournament)).toMatchObject({ version: 1 });
+    for (const debate of liveCloud(a.tournament, "debates")) {
+      const teamIds = Object.values(debate.teams as Record<string, { teamId: string }>).map((slot) => slot.teamId);
+      const chairId = (debate.adjudicators as { chairId?: string } | undefined)?.chairId;
+      expect(debate.participantIds).toEqual(expect.arrayContaining(chairId ? [...teamIds, chairId] : teamIds));
+    }
+    const b = blankDevice(a, "device-b");
+    await download(b);
+    expect(b.debates.some((debate) => "participantIds" in debate)).toBe(false);
+
+    const debate = a.debates.find((item) => item.adjudicators?.chairId)!;
+    const newChair = a.adjudicators.find((adjudicator) =>
+      !a.debates.some((item) => item.roundId === debate.roundId && item.adjudicators?.chairId === adjudicator.id)
+    )!;
+    a.debates = a.debates.map((item) => item.id === debate.id
+      ? { ...item, adjudicators: { ...item.adjudicators, chairId: newChair.id } }
+      : item);
+    expect(await upload(a)).toBe(0);
+    const cloudDebate = cloud(a.tournament, "debates").find((item) => item.id === debate.id)!;
+    expect(cloudDebate.participantIds).toContain(newChair.id);
+    expect(cloudDebate.participantIds).not.toContain(debate.adjudicators.chairId);
+  });
+
+  it("backfills debates uploaded before the index existed once, without changing their versions", async () => {
+    const a = await playedTournament();
+    await upload(a);
+    // Simulate a tournament uploaded by an older version: no index, no marker.
+    for (const [path, data] of fakeStore.documents) {
+      if (path.includes("/debates/")) {
+        const { participantIds: _participantIds, ...legacy } = data;
+        fakeStore.documents.set(path, legacy);
+      }
+    }
+    fakeStore.documents.delete(`${TOURNAMENT_PATH(a.tournament)}/data/participantIndex`);
+    const versions = cloud(a.tournament, "debates").map((debate) => [debate.id, debate.syncVersion]);
+
+    expect(await upload(a)).toBe(0);
+    expect(indexMarker(a.tournament)).toMatchObject({ version: 1 });
+    expect(cloud(a.tournament, "debates").every((debate) => Array.isArray(debate.participantIds))).toBe(true);
+    expect(cloud(a.tournament, "debates").map((debate) => [debate.id, debate.syncVersion])).toEqual(versions);
+    expect(conflicts(a.tournament)).toEqual([]);
+
+    // Later uploads only read the marker, not the debates. (The harness rebuilds its audit events
+    // without their cloud versions, so those are sent again and read once each.)
+    const resent = recordsChangedSinceBaseline(a.collections(), a.syncBaseline);
+    expect(resent.debates).toEqual([]);
+    fakeStore.reads = 0;
+    await upload(a);
+    expect(fakeStore.reads).toBeLessThan(10 + resent.auditEvents.length);
   });
 });

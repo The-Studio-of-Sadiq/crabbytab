@@ -4,6 +4,8 @@
  * `vi.mock("firebase/firestore", () => import("@/test/fakeFirestore"))` and inspect or seed
  * `fakeStore` directly. A transaction or batch commits all of its writes or none, and
  * `failAfterCommits` makes later commits throw, to simulate a connection dropping part-way.
+ * `reads` and `writes` count documents as Firestore bills them (a query reads each returned
+ * document, at least one), and audit events are append-only as in firestore.rules.
  */
 
 type Data = Record<string, unknown>;
@@ -14,15 +16,26 @@ export interface FakeStore {
   /** When set, every commit after this many successful ones throws. */
   failAfterCommits?: number;
   autoId: number;
+  reads: number;
+  writes: number;
 }
 
-export const fakeStore: FakeStore = { documents: new Map(), commits: 0, autoId: 0 };
+export const fakeStore: FakeStore = { documents: new Map(), commits: 0, autoId: 0, reads: 0, writes: 0 };
 
 export function resetFakeStore(): void {
   fakeStore.documents = new Map();
   fakeStore.commits = 0;
   fakeStore.failAfterCommits = undefined;
   fakeStore.autoId = 0;
+  fakeStore.reads = 0;
+  fakeStore.writes = 0;
+}
+
+/** firestore.rules: an existing audit event can never be overwritten. */
+function assertWritable(path: string): void {
+  if (/\/auditEvents\/[^/]+$/.test(path) && fakeStore.documents.has(path)) {
+    throw Object.assign(new Error("permission-denied: audit events are append-only"), { code: "permission-denied" });
+  }
 }
 
 /** Documents directly inside a collection path, as plain records with their ids. */
@@ -38,15 +51,18 @@ interface CollectionRef { kind: "collection"; path: string }
 interface QueryRef { kind: "query"; path: string; filters: Array<{ field: string; value: unknown }>; max?: number }
 type Constraint = { kind: "where"; field: string; value: unknown } | { kind: "limit"; max: number };
 
-function commit(apply: () => void): void {
+function commit(apply: () => void, paths: string[]): void {
   if (fakeStore.failAfterCommits !== undefined && fakeStore.commits >= fakeStore.failAfterCommits) {
     throw new Error("unavailable: the connection was lost");
   }
+  paths.forEach(assertWritable);
   apply();
   fakeStore.commits += 1;
+  fakeStore.writes += paths.length;
 }
 
 function snapshot(ref: DocRef) {
+  fakeStore.reads += 1;
   const data = fakeStore.documents.get(ref.path);
   return {
     id: ref.id,
@@ -97,6 +113,7 @@ export async function getDocs(ref: CollectionRef | QueryRef) {
     filters.every((filter) => record[filter.field] === filter.value)
   );
   const limited = ref.kind === "query" && ref.max !== undefined ? matches.slice(0, ref.max) : matches;
+  fakeStore.reads += Math.max(1, limited.length);
   return {
     docs: limited.map((record) => {
       const { id, ...data } = record;
@@ -109,7 +126,7 @@ export async function setDoc(ref: DocRef, data: Data, options?: { merge?: boolea
   commit(() => {
     const current = fakeStore.documents.get(ref.path);
     fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...data } : data));
-  });
+  }, [ref.path]);
 }
 
 export async function runTransaction<T>(_db: unknown, update: (transaction: {
@@ -119,30 +136,49 @@ export async function runTransaction<T>(_db: unknown, update: (transaction: {
   delete(ref: DocRef): void;
 }) => Promise<T>): Promise<T> {
   const writes: Array<() => void> = [];
+  const paths: string[] = [];
   const result = await update({
     get: async (ref) => snapshot(ref),
     set: (ref, data, options) => {
+      paths.push(ref.path);
       writes.push(() => {
         const current = fakeStore.documents.get(ref.path);
         fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...data } : data));
       });
     },
     update: (ref, data) => {
+      paths.push(ref.path);
       writes.push(() => fakeStore.documents.set(ref.path, { ...fakeStore.documents.get(ref.path), ...structuredClone(data) }));
     },
     delete: (ref) => {
+      paths.push(ref.path);
       writes.push(() => fakeStore.documents.delete(ref.path));
     },
   });
-  if (writes.length > 0) commit(() => writes.forEach((write) => write()));
+  if (writes.length > 0) commit(() => writes.forEach((write) => write()), paths);
   return result;
 }
 
 export function writeBatch(_db: unknown) {
   const writes: Array<() => void> = [];
+  const paths: string[] = [];
   return {
-    set: (ref: DocRef, data: Data) => writes.push(() => fakeStore.documents.set(ref.path, structuredClone(data))),
-    delete: (ref: DocRef) => writes.push(() => fakeStore.documents.delete(ref.path)),
-    commit: async () => commit(() => writes.forEach((write) => write())),
+    set: (ref: DocRef, data: Data) => {
+      paths.push(ref.path);
+      writes.push(() => fakeStore.documents.set(ref.path, structuredClone(data)));
+    },
+    update: (ref: DocRef, data: Data) => {
+      paths.push(ref.path);
+      writes.push(() => {
+        const current = fakeStore.documents.get(ref.path);
+        if (current === undefined) throw new Error(`not-found: ${ref.path}`);
+        fakeStore.documents.set(ref.path, { ...current, ...structuredClone(data) });
+      });
+    },
+    delete: (ref: DocRef) => {
+      paths.push(ref.path);
+      writes.push(() => fakeStore.documents.delete(ref.path));
+    },
+    commit: async () => commit(() => writes.forEach((write) => write()), paths),
   };
 }

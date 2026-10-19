@@ -39,6 +39,12 @@ export interface TournamentCloudRepository {
     overwrites?: CloudOverwriteMap
   ): Promise<number>;
   getSyncConflicts(tournamentId: string): Promise<SyncConflict[]>;
+  /**
+   * Makes sure every cloud debate carries its participant index (one pass per tournament, then a
+   * single read per upload). `createdByThisUpload`: the tournament was new in the cloud, so every
+   * debate in it was just written with the index. Returns how many debates it updated.
+   */
+  ensureParticipantIndex?(tournamentId: string, options?: { createdByThisUpload?: boolean }): Promise<number>;
 }
 
 export interface SyncConflict {
@@ -138,10 +144,16 @@ export async function uploadTournamentCommand(input: {
   try {
     collectionConflicts = await repository.syncCollections(
       tournament.id,
-      localCollections,
+      recordsChangedSinceBaseline(localCollections, input.baseline || {}, overwrites || {}),
       deletions,
       overwrites
     );
+    try {
+      await repository.ensureParticipantIndex?.(tournament.id, { createdByThisUpload: !cloudTournament });
+    } catch (error) {
+      // The records are uploaded; private portals read every debate until a later upload indexes them.
+      console.warn("Could not index debates by participant:", error);
+    }
   } finally {
     const baseline = baselineAfterUpload(input.baseline || {}, localCollections, versionsBeforeUpload);
     // The settings were written (or already matched the cloud) unless the upload hit a newer version.
@@ -153,8 +165,41 @@ export async function uploadTournamentCommand(input: {
 
 
 /**
+ * The records an upload sends: those without a baseline entry (never synced from this device, or
+ * synced before baselines existed), those whose content or version changed since their entry, and
+ * those restored from a backup. A record unchanged since the last sync is already in the cloud as
+ * held here, so sending it would only cost a read (or, if another device changed it meanwhile,
+ * archive this device's stale copy as a conflict). The arrays hold the same record objects, so the
+ * repository's syncVersion stamps reach the working copy.
+ */
+export function recordsChangedSinceBaseline(
+  collections: Record<CloudCollectionName, CloudRecord[]>,
+  baseline: SyncBaseline,
+  overwrites: CloudOverwriteMap = {}
+): Record<CloudCollectionName, CloudRecord[]> {
+  return Object.fromEntries(
+    CLOUD_COLLECTIONS.map((name) => {
+      const entries = baseline[name] || {};
+      const restored = new Set(overwrites[name] || []);
+      return [
+        name,
+        (collections[name] || []).filter((record) => {
+          const entry = entries[record.id];
+          return (
+            !entry ||
+            restored.has(record.id) ||
+            entry.v !== syncVersionOf(record) ||
+            entry.h !== syncContentHash(record)
+          );
+        }),
+      ];
+    })
+  ) as Record<CloudCollectionName, CloudRecord[]>;
+}
+
+/**
  * A record as this device last uploaded or downloaded it: the cloud `syncVersion` it had then
- * (`v`) and a hash of its content (`h`). Stored per tournament in localStorage, by collection and
+ * (`v`) and a hash of its content (`h`). Stored per tournament in the working copy, by collection and
  * record id (and `tournament` for the tournament's settings), so a download can tell records
  * edited on this device since they were last synced from unchanged records, which can safely take
  * a newer cloud version.
@@ -201,8 +246,9 @@ function stableStringify(value: unknown): string {
  * unchanged, and then the record takes the cloud version, which is a real state of the record.
  */
 export function syncContentHash(record: CloudRecord): string {
-  const { syncVersion: _syncVersion, updatedAt: _updatedAt, ...content } = record as CloudRecord & {
+  const { syncVersion: _syncVersion, updatedAt: _updatedAt, participantIds: _participantIds, ...content } = record as CloudRecord & {
     updatedAt?: unknown;
+    participantIds?: unknown;
   };
   const text = stableStringify(content);
   let h1 = 0xdeadbeef;

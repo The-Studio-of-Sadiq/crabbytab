@@ -40,6 +40,7 @@ export const en = {
   "role.judge": "Judge",
 
   "public.loading": "Loading public tournament details…",
+  "public.loadingRounds": "Loading earlier rounds; standings and results update when they arrive…",
   "public.unavailableTitle": "Public tournament data unavailable",
   "public.defaultTitle": "Debate Tournament Tab",
   "public.subtitle": "Official Public Tab • {format}",

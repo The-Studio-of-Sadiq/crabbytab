@@ -39,6 +39,7 @@ export const bn: Catalogue = {
   "role.judge": "বিচারক",
 
   "public.loading": "টুর্নামেন্টের প্রকাশ্য তথ্য লোড হচ্ছে…",
+  "public.loadingRounds": "আগের রাউন্ডগুলো লোড হচ্ছে; সেগুলো এলে স্ট্যান্ডিং ও ফলাফল হালনাগাদ হবে…",
   "public.unavailableTitle": "টুর্নামেন্টের প্রকাশ্য তথ্য পাওয়া যাচ্ছে না",
   "public.defaultTitle": "বিতর্ক টুর্নামেন্ট ট্যাব",
   "public.subtitle": "অফিসিয়াল প্রকাশ্য ট্যাব • {format}",

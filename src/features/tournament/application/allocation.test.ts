@@ -107,7 +107,12 @@ describe("autoAllocateCommand", () => {
     conflicts: [],
   });
 
-  function run(preferences: Partial<TournamentPreferences>, round: Partial<Round>, panelSize = 1) {
+  function run(
+    preferences: Partial<TournamentPreferences>,
+    round: Partial<Round>,
+    panelSize = 1,
+    extra: Partial<AllocationDependencies> = {}
+  ) {
     let saved: Debate[] = [];
     const dependencies: AllocationDependencies = {
       tournament: { id: "t", format: "wsdc", preferences } as Tournament,
@@ -126,10 +131,12 @@ describe("autoAllocateCommand", () => {
       repository: { saveDebates: (debates) => { saved = debates; } },
       hideRevealedAdjudicators: async () => undefined,
       recordAuditEvent: async () => undefined,
+      ...extra,
     };
-    return autoAllocateCommand("r1", panelSize, dependencies).then(() =>
-      Object.fromEntries(saved.map((debate) => [debate.id, debate.adjudicators]))
-    );
+    return autoAllocateCommand("r1", panelSize, dependencies).then(() => ({
+      ...Object.fromEntries(saved.map((debate) => [debate.id, debate.adjudicators])),
+      savedIds: saved.map((debate) => debate.id),
+    })) as Promise<Record<string, Debate["adjudicators"]> & { savedIds: string[] }>;
   }
 
   it("blends feedback, scaled to the adjudicator range, with the round's feedback weight", async () => {
@@ -152,5 +159,20 @@ describe("autoAllocateCommand", () => {
     const sized = await run({ panelSizingMode: "by_priority" }, {}, 3);
     expect([sized.top.chairId, ...sized.top.panellistIds]).toHaveLength(3);
     expect([sized.bottom.chairId, ...sized.bottom.panellistIds]).toHaveLength(1);
+  });
+
+  it("saves on top of edits made to other rounds while it was computing", async () => {
+    const otherRound = { ...twoTeamDebate("elsewhere", ["a", "c"], 0), roundId: "r2" };
+    const result = await run({}, {}, 1, {
+      latestDebates: () => [twoTeamDebate("top", ["a", "b"], 10), twoTeamDebate("bottom", ["c", "d"], 0), otherRound],
+    });
+    expect(result.savedIds.sort()).toEqual(["bottom", "elsewhere", "top"]);
+  });
+
+  it("saves nothing when the round itself changed while it was computing", async () => {
+    const edited = { ...twoTeamDebate("top", ["a", "b"], 10), venueName: "Moved" };
+    await expect(run({}, {}, 1, {
+      latestDebates: () => [edited, twoTeamDebate("bottom", ["c", "d"], 0)],
+    })).rejects.toThrow("was changed while this was being computed");
   });
 });

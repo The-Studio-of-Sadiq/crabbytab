@@ -19,6 +19,7 @@ import {
 } from "@/lib/draw/allocator";
 import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
 import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
+import { RoundChangedDuringComputeError, roundChangedBetween } from "./draws";
 import { applyGuards, checkAutoAllocation, checkDebateEdits, type RuleOverride } from "./stateGuards";
 
 export interface AllocationAuditEvent {
@@ -46,16 +47,49 @@ export interface AllocationDependencies {
   cloudRepository?: { saveDebates(debates: Debate[]): Promise<void> };
   hideRevealedAdjudicators(roundIds: Set<string>): Promise<void>;
   recordAuditEvent(event: AllocationAuditEvent): Promise<void>;
+  /** Runs `computeAutoAllocation` elsewhere (a Web Worker); inline when omitted. */
+  computeAllocation?(input: AutoAllocationInput): Promise<AutoAllocationResult | null>;
+  /** The debates as they are now (see GenerateDrawDependencies.latest). */
+  latestDebates?(): Debate[];
 }
 
-function getPriorDebates(round: Round | undefined, dependencies: AllocationDependencies): Debate[] {
+/** The data auto-allocation reads: plain records only, so it can run in a Web Worker. */
+export type AutoAllocationInput = Pick<
+  AllocationDependencies,
+  "tournament" | "rounds" | "teams" | "debates" | "adjudicators" | "standings" | "breakCategories" | "feedback" | "venues"
+> & {
+  roundId: string;
+  panelSize: number;
+  settings?: AutoAllocateSettings;
+};
+
+export interface AutoAllocationResult {
+  /** The round's debates with their new panels (and venues, when adjudicators have requirements). */
+  roundDebates: Debate[];
+  /** The round's debates with their new panels only. */
+  panelledDebates: Debate[];
+  details: {
+    panelSize: number;
+    panelSizing: PanelSizingMode;
+    preformedPanelCount: number;
+    assignments: Array<{
+      debateId: string;
+      chairId?: string;
+      panellistIds?: string[];
+      traineeIds?: string[];
+      conflicts?: string[];
+    }>;
+  };
+}
+
+function getPriorDebates(round: Round | undefined, input: Pick<AutoAllocationInput, "rounds" | "debates">): Debate[] {
   if (!round) return [];
   const earlierRoundIds = new Set(
-    dependencies.rounds
+    input.rounds
       .filter((item) => !item.cancelled && item.seq < round.seq)
       .map((item) => item.id)
   );
-  return dependencies.debates.filter((debate) => earlierRoundIds.has(debate.roundId));
+  return input.debates.filter((debate) => earlierRoundIds.has(debate.roundId));
 }
 
 export interface AutoAllocateSettings {
@@ -63,48 +97,39 @@ export interface AutoAllocateSettings {
   panelSizing?: PanelSizingMode;
 }
 
-export async function autoAllocateCommand(
-  roundId: string,
-  panelSize: number,
-  dependencies: AllocationDependencies,
-  settings: AutoAllocateSettings = {},
-  override?: RuleOverride
-): Promise<void> {
-  const roundDebates = dependencies.debates.filter((debate) => debate.roundId === roundId);
-  const tournament = dependencies.tournament;
-  if (roundDebates.length === 0 || !tournament) return;
+/**
+ * Computes the auto-allocation of one round without saving anything. Deterministic for the same
+ * input; null when the round has no debates.
+ */
+export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocationResult | null {
+  const { roundId, panelSize, settings = {} } = input;
+  const roundDebates = input.debates.filter((debate) => debate.roundId === roundId);
+  const tournament = input.tournament;
+  if (roundDebates.length === 0 || !tournament) return null;
 
-  const round = dependencies.rounds.find((item) => item.id === roundId);
-  if (round) {
-    await applyGuards(checkAutoAllocation(round, dependencies), override, {
-      action: "adjudicators.allocated",
-      category: "allocation",
-      roundId,
-      record: dependencies.recordAuditEvent,
-    });
-  }
-  const teamsById = new Map(dependencies.teams.map((team) => [team.id, team]));
-  const pastDebates = getPriorDebates(round, dependencies);
-  const completedPrelimRounds = dependencies.rounds.filter(
+  const round = input.rounds.find((item) => item.id === roundId);
+  const teamsById = new Map(input.teams.map((team) => [team.id, team]));
+  const pastDebates = getPriorDebates(round, input);
+  const completedPrelimRounds = input.rounds.filter(
     (item) => item.stage === "preliminary" && !item.cancelled && item.completed
   ).length;
-  const totalPrelimRounds = dependencies.rounds.filter(
+  const totalPrelimRounds = input.rounds.filter(
     (item) => item.stage === "preliminary" && !item.cancelled
   ).length;
   const intelligentContext: IntelligentAllocationContext = {
     allPastDebates: pastDebates,
-    standings: dependencies.standings,
-    breakCategories: dependencies.breakCategories,
+    standings: input.standings,
+    breakCategories: input.breakCategories,
     totalPrelimRounds,
     completedRounds: completedPrelimRounds,
     isBP: tournament.format === "bp",
     feedbackScores: calculateScaledFeedbackScores(
-      dependencies.feedback,
-      dependencies.debates,
+      input.feedback,
+      input.debates,
       tournament.preferences
     ),
     feedbackWeight: round?.feedbackWeight,
-    venuePriorities: new Map(dependencies.venues.map((venue) => [venue.id, venue.priority])),
+    venuePriorities: new Map(input.venues.map((venue) => [venue.id, venue.priority])),
     preformedPanels: tournament.preferences?.usePreformedPanels ? round?.preformedPanels : undefined,
   };
   const effectivePanelSize = tournament.preferences?.noPanellistAdjs ? 1 : panelSize;
@@ -115,7 +140,7 @@ export async function autoAllocateCommand(
   const allocations = autoAllocateAdjudicators(
     roundDebates,
     teamsById,
-    dependencies.adjudicators,
+    input.adjudicators,
     buildPastAdjTeams(pastDebates),
     {
       panelSize: effectivePanelSize,
@@ -144,7 +169,7 @@ export async function autoAllocateCommand(
       },
     };
   });
-  const hasAdjudicatorVenueRequirements = dependencies.adjudicators.some(
+  const hasAdjudicatorVenueRequirements = input.adjudicators.some(
     (adjudicator) => adjudicator.venueRequirements &&
       Object.values(adjudicator.venueRequirements).some((value) => value !== undefined && value !== false)
   );
@@ -152,17 +177,80 @@ export async function autoAllocateCommand(
     ? (() => {
         const withRequirements = applyAdjudicatorVenueRequirements(
           updatedRoundDebates,
-          dependencies.adjudicators
+          input.adjudicators
         );
-        const venueAssignments = allocateVenuesToDebates(withRequirements, dependencies.venues);
+        const venueAssignments = allocateVenuesToDebates(withRequirements, input.venues);
         return withRequirements.map((debate) => {
           const venue = venueAssignments.get(debate.id);
           return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
         });
       })()
     : updatedRoundDebates;
+  return {
+    roundDebates: finalRoundDebates,
+    panelledDebates: updatedRoundDebates,
+    details: {
+      panelSize: effectivePanelSize,
+      panelSizing,
+      preformedPanelCount: intelligentContext.preformedPanels?.length ?? 0,
+      assignments: allocations.map((allocation) => ({
+        debateId: allocation.debateId,
+        chairId: allocation.chairId,
+        panellistIds: allocation.panellistIds,
+        traineeIds: allocation.traineeIds,
+        conflicts: allocation.conflicts,
+      })),
+    },
+  };
+}
+
+export async function autoAllocateCommand(
+  roundId: string,
+  panelSize: number,
+  dependencies: AllocationDependencies,
+  settings: AutoAllocateSettings = {},
+  override?: RuleOverride
+): Promise<void> {
+  const guardedRound = dependencies.rounds.find((item) => item.id === roundId);
+  if (
+    guardedRound &&
+    dependencies.tournament &&
+    dependencies.debates.some((debate) => debate.roundId === roundId)
+  ) {
+    await applyGuards(checkAutoAllocation(guardedRound, dependencies), override, {
+      action: "adjudicators.allocated",
+      category: "allocation",
+      roundId,
+      record: dependencies.recordAuditEvent,
+    });
+  }
+  const input: AutoAllocationInput = {
+    roundId,
+    panelSize,
+    settings,
+    tournament: dependencies.tournament,
+    rounds: dependencies.rounds,
+    teams: dependencies.teams,
+    debates: dependencies.debates,
+    adjudicators: dependencies.adjudicators,
+    standings: dependencies.standings,
+    breakCategories: dependencies.breakCategories,
+    feedback: dependencies.feedback,
+    venues: dependencies.venues,
+  };
+  const result = dependencies.computeAllocation
+    ? await dependencies.computeAllocation(input)
+    : computeAutoAllocation(input);
+  if (!result) return;
+  const round = dependencies.rounds.find((item) => item.id === roundId);
+  const currentDebates = dependencies.latestDebates?.() ?? dependencies.debates;
+  if (roundChangedBetween(roundId, { debates: dependencies.debates }, { debates: currentDebates })) {
+    throw new RoundChangedDuringComputeError(round?.name || "This round");
+  }
+  const finalRoundDebates = result.roundDebates;
+  const updatedRoundDebates = result.panelledDebates;
   const updatedDebates = [
-    ...dependencies.debates.filter((debate) => debate.roundId !== roundId),
+    ...currentDebates.filter((debate) => debate.roundId !== roundId),
     ...finalRoundDebates,
   ];
 
@@ -177,19 +265,13 @@ export async function autoAllocateCommand(
     summary: `Allocated adjudicators for ${round?.name || "round"}`,
     roundId,
     details: {
-      panelSize: effectivePanelSize,
-      panelSizing,
+      panelSize: result.details.panelSize,
+      panelSizing: result.details.panelSizing,
       feedbackWeight: round?.feedbackWeight,
-      preformedPanelCount: intelligentContext.preformedPanels?.length ?? 0,
+      preformedPanelCount: result.details.preformedPanelCount,
       debateCount: finalRoundDebates.length,
       adjudicatorCount: dependencies.adjudicators.length,
-      assignments: allocations.map((allocation) => ({
-        debateId: allocation.debateId,
-        chairId: allocation.chairId,
-        panellistIds: allocation.panellistIds,
-        traineeIds: allocation.traineeIds,
-        conflicts: allocation.conflicts,
-      })),
+      assignments: result.details.assignments,
     },
   });
 }

@@ -21,7 +21,6 @@ import {
 } from "@/types";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import { generateRoundDraw } from "@/lib/draw/generator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
 import {
@@ -44,6 +43,7 @@ import {
   type WorkingCopyMerge,
 } from "@/features/tournament/application/cloudSync";
 import { safeJsonParse } from "@/lib/safeJson";
+import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
@@ -63,6 +63,7 @@ import {
   updateDebateCommand,
   updateDebatesCommand,
   type AutoAllocateSettings,
+  type AutoAllocationInput,
 } from "@/features/tournament/application/allocation";
 import {
   generateBreakCommand,
@@ -88,8 +89,12 @@ import {
 } from "@/features/tournament/application/tournamentBackup";
 import { createDebateXmlArchive } from "@/features/tournament/application/debateXml";
 import {
+  fetchCompletePublicProjection,
   fetchPublicProjection,
+  fetchPublicRound,
   fetchPublicViewVersion,
+  publicRoundsToLoad,
+  replaceRoundRecords,
   PUBLIC_VIEW_POLL_MILLISECONDS,
   publishPublicViewCommand,
   type PublicProjectionResponse,
@@ -116,6 +121,8 @@ import { createFirestoreDrawRepository } from "@/features/tournament/infrastruct
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
+import { runComputeJob } from "@/features/tournament/compute/computeClient";
+import type { ComputeKind, ComputeRequest, ComputeResults } from "@/features/tournament/compute/computeJobs";
 import { summarizeDivergedRecord, type DivergedRecordSummary } from "@/features/tournament/application/syncConflicts";
 import {
   isViewerTournamentAdmin,
@@ -153,6 +160,12 @@ export interface TournamentContextType {
   privateSyncState: "idle" | "syncing" | "error";
   privateSyncMessage: string;
   localSaveError: string;
+  /** Shared views: earlier rounds' public debates and ballots are still loading. */
+  publicRoundsLoading: boolean;
+  /** A draw or auto-allocation running in the background, if any. */
+  computeJob: { kind: ComputeKind; startedAt: number } | null;
+  /** Stops the running draw or allocation; it then fails with ComputeCancelledError and saves nothing. */
+  cancelCompute: () => void;
   /** Uploads this device's records, then publishes public pages unless the upload left conflicts. */
   uploadToCloud: () => Promise<UploadOutcome>;
   /**
@@ -301,7 +314,7 @@ export function TournamentProvider({
   const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
   const [divergedRecords, setDivergedRecords] = useState<DivergedRecord[]>([]);
   const [uploadIssue, setUploadIssue] = useState<UploadIssue | null>(null);
-  // The sync baseline and queues as stored in localStorage, mirrored so `pendingChanges` updates.
+  // The sync baseline and queues as stored on this device, mirrored so `pendingChanges` updates.
   const [storedSyncState, setStoredSyncState] = useState<{
     baseline: SyncBaseline;
     deletions: CloudDeletionMap;
@@ -319,7 +332,8 @@ export function TournamentProvider({
     (key: string, data: any) => {
       if (typeof window === "undefined") return;
       try {
-        localStorage.setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
+        // In memory now, on disk (IndexedDB) a moment later; disk failures arrive via onWriteError below.
+        getLocalStore().setItem(`${storagePrefix}_${key}`, JSON.stringify(data));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Local storage is unavailable.";
         setLocalSaveError(`Could not save ${key} locally: ${message}`);
@@ -329,9 +343,21 @@ export function TournamentProvider({
     [storagePrefix]
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const keyPrefix = `${storagePrefix}_`;
+    return getLocalStore().onWriteError((keys, error) => {
+      const names = keys.filter((key) => key.startsWith(keyPrefix)).map((key) => key.slice(keyPrefix.length));
+      if (names.length === 0) return;
+      const message = error instanceof Error ? error.message : "Device storage is unavailable.";
+      setLocalSaveError(`Could not save ${names.join(", ")} locally: ${message}`);
+      console.error("Local save failed:", error);
+    });
+  }, [storagePrefix]);
+
   const refreshStoredSyncState = () => {
     if (typeof window === "undefined") return;
-    const readStored = (key: string) => safeJsonParse<unknown>(localStorage.getItem(`${storagePrefix}_${key}`), null);
+    const readStored = (key: string) => safeJsonParse<unknown>(getLocalStore().getItem(`${storagePrefix}_${key}`), null);
     setStoredSyncState({
       baseline: parseSyncBaseline(readStored("syncBaseline")),
       deletions: parseCloudIdMap(readStored("syncTombstones")),
@@ -339,13 +365,13 @@ export function TournamentProvider({
     });
   };
 
-  // Per-device sync queues kept in localStorage: ids to delete from the cloud ("syncTombstones")
+  // Per-device sync queues kept in the working copy: ids to delete from the cloud ("syncTombstones")
   // and ids restored from a backup that must overwrite the cloud copy ("syncOverwrites").
   type SyncIdQueue = "syncTombstones" | "syncOverwrites";
 
   const readSyncIds = (queue: SyncIdQueue): CloudDeletionMap => {
     if (typeof window === "undefined") return {};
-    const raw = localStorage.getItem(`${storagePrefix}_${queue}`);
+    const raw = getLocalStore().getItem(`${storagePrefix}_${queue}`);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -400,7 +426,7 @@ export function TournamentProvider({
   const readSyncBaseline = (): SyncBaseline =>
     typeof window === "undefined"
       ? {}
-      : parseSyncBaseline(safeJsonParse<unknown>(localStorage.getItem(`${storagePrefix}_syncBaseline`), {}));
+      : parseSyncBaseline(safeJsonParse<unknown>(getLocalStore().getItem(`${storagePrefix}_syncBaseline`), {}));
 
   const saveSyncState = (baseline: SyncBaseline, diverged?: DivergedRecord[]) => {
     persistLocal("syncBaseline", baseline);
@@ -430,12 +456,41 @@ export function TournamentProvider({
   );
 
   const publicVersionRef = useRef<string | null>(null);
+  // Shared views load the public projection by round: each round's content hash, and the hash of
+  // each round whose debates and ballots are in state.
+  const publicRoundsRef = useRef<{ hashes: Record<string, string>; loaded: Map<string, string> }>({
+    hashes: {},
+    loaded: new Map(),
+  });
+  const [publicViewVersion, setPublicViewVersion] = useState<string | null>(null);
+  const [publicRoundsLoading, setPublicRoundsLoading] = useState(false);
   const applyPublicProjection = useCallback(
     (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
       const publicRounds = (result.collections.rounds || []) as Round[];
       const latestRound =
         [...publicRounds].filter((round) => !round.cancelled).sort((a, b) => b.seq - a.seq)[0] || null;
       publicVersionRef.current = result.version ?? null;
+      const hashes = result.roundSections;
+      // Rounds loaded earlier whose content is unchanged stay as they are; the rest reload.
+      const kept = new Set<string>();
+      if (hashes) {
+        const fresh = new Set(result.loadedRoundIds || []);
+        const loaded = new Map<string, string>();
+        for (const [roundId, hash] of publicRoundsRef.current.loaded) {
+          if (hashes[roundId] === hash && !fresh.has(roundId)) {
+            kept.add(roundId);
+            loaded.set(roundId, hash);
+          }
+        }
+        for (const roundId of fresh) loaded.set(roundId, hashes[roundId]);
+        publicRoundsRef.current = { hashes, loaded };
+      } else {
+        publicRoundsRef.current = { hashes: {}, loaded: new Map() };
+      }
+      const withKeptRounds = <T extends { roundId: string }>(current: T[], incoming: T[]) => [
+        ...current.filter((record) => kept.has(record.roundId)),
+        ...incoming,
+      ];
       setTournament(result.tournament);
       setRounds(publicRounds);
       setActiveRound((current) =>
@@ -448,12 +503,13 @@ export function TournamentProvider({
       setVenues((result.collections.venues || []) as Venue[]);
       setMotions((result.collections.motions || []) as Motion[]);
       setBreakCategories((result.collections.breakCategories || []) as BreakCategory[]);
-      setDebates((result.collections.debates || []) as Debate[]);
-      setBallots((result.collections.ballots || []) as BallotSubmission[]);
+      setDebates((current) => withKeptRounds(current, (result.collections.debates || []) as Debate[]));
+      setBallots((current) => withKeptRounds(current, (result.collections.ballots || []) as BallotSubmission[]));
       setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
       setInstitutions((result.collections.institutions || []) as Institution[]);
       auditEventsRef.current = [];
       setAuditEvents([]);
+      setPublicViewVersion(result.version ?? null);
     },
     []
   );
@@ -494,6 +550,49 @@ export function TournamentProvider({
     pathname?.includes("/private/") ||
     pathname?.includes("/display")
   );
+  const isPrivatePortal = Boolean(pathname?.includes("/private/"));
+  const isProjectorView = Boolean(pathname?.includes("/display"));
+
+  // Public pages open with the latest round and load the others' debates and ballots after it
+  // (standings and results need them); the projector loads a round when it is shown. Private
+  // portals load every round up front instead, before merging their own data.
+  const activeRoundId = activeRound?.id;
+  useEffect(() => {
+    if (!db || !isSharedView || isPrivatePortal || !tournamentSlug || !publicViewVersion) return;
+    const { hashes, loaded } = publicRoundsRef.current;
+    const missing = publicRoundsToLoad(
+      hashes,
+      loaded,
+      isProjectorView ? (activeRoundId ? [activeRoundId] : []) : undefined
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    setPublicRoundsLoading(true);
+    void (async () => {
+      try {
+        for (let index = 0; index < missing.length; index += 3) {
+          const batch = await Promise.all(
+            missing.slice(index, index + 3).map((roundId) => fetchPublicRound(tournamentSlug, roundId, hashes[roundId]))
+          );
+          if (cancelled) return;
+          // A round republished meanwhile is skipped; the next version poll reloads it.
+          const current = batch.filter((round) => publicRoundsRef.current.hashes[round.roundId] === round.hash);
+          for (const round of current) publicRoundsRef.current.loaded.set(round.roundId, round.hash);
+          setDebates((records) => replaceRoundRecords(records, current.map((round) => ({ roundId: round.roundId, records: round.debates }))));
+          setBallots((records) => replaceRoundRecords(records, current.map((round) => ({ roundId: round.roundId, records: round.ballots }))));
+        }
+      } catch (error) {
+        // The rounds already shown stay; the next published version retries.
+        console.warn("Could not load earlier public rounds:", error);
+      } finally {
+        if (!cancelled) setPublicRoundsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      setPublicRoundsLoading(false);
+    };
+  }, [isSharedView, isPrivatePortal, isProjectorView, tournamentSlug, publicViewVersion, activeRoundId]);
 
   const pendingChanges = useMemo((): PendingChanges => {
     if (isSharedView || !tournament) return NO_PENDING_CHANGES;
@@ -546,14 +645,19 @@ export function TournamentProvider({
       }
       try {
         if (typeof window === "undefined" || !isMounted) return;
+        const localStore = getLocalStore();
+        await localStore.loadPrefix(`${storagePrefix}_`);
+        if (!isMounted) return;
         const readLocal = <T,>(key: string, fallback: T): T =>
-          safeJsonParse<T>(localStorage.getItem(`${storagePrefix}_${key}`), fallback);
+          safeJsonParse<T>(localStore.getItem(`${storagePrefix}_${key}`), fallback);
         let localTournament = readLocal<Tournament | null>("meta", null);
         setDivergedRecords(parseDivergedRecords(readLocal<unknown>("syncDiverged", [])));
         setUploadIssue(parseUploadIssue(readLocal<unknown>("syncUploadIssue", null)));
         refreshStoredSyncState();
         const loadPublicProjection = async () => {
-          const result = await fetchPublicProjection(tournamentSlug);
+          const result = isPrivatePortal
+            ? await fetchCompletePublicProjection(tournamentSlug)
+            : await fetchPublicProjection(tournamentSlug);
           if (!isMounted) return;
           applyPublicProjection(result, false);
           setLoading(false);
@@ -894,7 +998,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, user, authLoading, applyPublicProjection]);
+  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, isPrivatePortal, user, authLoading, applyPublicProjection]);
 
   const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
     privateUrlKey,
@@ -912,7 +1016,7 @@ export function TournamentProvider({
     setPrivateSyncMessage("Syncing submissions and downloading saved ballots and feedback…");
     try {
       const pending = safeJsonParse<PrivateSyncItem[]>(
-        typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+        typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
         []
       );
       const response = await fetch("/api/private/sync", {
@@ -1076,7 +1180,7 @@ export function TournamentProvider({
     passcode?: string
   ) => {
     const current = safeJsonParse<PrivateSyncItem[]>(
-      typeof window === "undefined" ? null : localStorage.getItem(privateQueueKey),
+      typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
       []
     );
     const queued = [
@@ -1132,9 +1236,9 @@ export function TournamentProvider({
           throw new Error(result.error || `Access verification failed (${response.status}).`);
         }
         if (active && result.role === "dataEntry" && typeof window !== "undefined") {
-          const safeTeams = safeJsonParse<Team[]>(localStorage.getItem(`${storagePrefix}_teams`), [])
+          const safeTeams = safeJsonParse<Team[]>(getLocalStore().getItem(`${storagePrefix}_teams`), [])
             .map(sanitizeAssistantTeam);
-          const safeAdjudicators = safeJsonParse<Adjudicator[]>(localStorage.getItem(`${storagePrefix}_adjudicators`), [])
+          const safeAdjudicators = safeJsonParse<Adjudicator[]>(getLocalStore().getItem(`${storagePrefix}_adjudicators`), [])
             .map(sanitizeAssistantAdjudicator);
           setTeams(safeTeams);
           persistLocal("teams", safeTeams);
@@ -1483,6 +1587,31 @@ export function TournamentProvider({
     recordAuditEvent,
     queuePrivateRecord,
   };
+  // Draws and allocations run in a Web Worker; these let their results land on the current state.
+  const latestRecordsRef = useRef({ rounds, debates, ballots });
+  useEffect(() => {
+    latestRecordsRef.current = { rounds, debates, ballots };
+  }, [rounds, debates, ballots]);
+  const [computeJob, setComputeJob] = useState<{ kind: ComputeKind; startedAt: number } | null>(null);
+  const computeAbortRef = useRef<AbortController | null>(null);
+  const runCompute = useCallback(async <K extends ComputeKind>(
+    request: Extract<ComputeRequest, { kind: K }>
+  ): Promise<ComputeResults[K]> => {
+    computeAbortRef.current?.abort();
+    const controller = new AbortController();
+    computeAbortRef.current = controller;
+    setComputeJob({ kind: request.kind, startedAt: Date.now() });
+    try {
+      return await runComputeJob(request, { signal: controller.signal });
+    } finally {
+      if (computeAbortRef.current === controller) {
+        computeAbortRef.current = null;
+        setComputeJob(null);
+      }
+    }
+  }, []);
+  const cancelCompute = useCallback(() => computeAbortRef.current?.abort(), []);
+
   const allocationDependencies = {
     tournament,
     rounds,
@@ -1506,6 +1635,8 @@ export function TournamentProvider({
         : undefined,
     hideRevealedAdjudicators,
     recordAuditEvent,
+    computeAllocation: (input: AutoAllocationInput) => runCompute({ kind: "allocation", input }),
+    latestDebates: () => latestRecordsRef.current.debates,
   };
   const breakDependencies = {
     tournament,
@@ -1629,7 +1760,8 @@ export function TournamentProvider({
       ballots,
       motions,
       standings: teamStandings,
-      generateRoundDraw,
+      generateRoundDraw: (input) => runCompute({ kind: "draw", input }),
+      latest: () => latestRecordsRef.current,
       localRepository: {
         saveDebates: (items) => {
           setDebates(items);
@@ -2420,6 +2552,9 @@ export function TournamentProvider({
         privateSyncState,
         privateSyncMessage,
         localSaveError,
+        publicRoundsLoading,
+        computeJob,
+        cancelCompute,
         uploadToCloud,
         publishPublicView,
         pendingChanges,

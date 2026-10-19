@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
+import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
+import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Adjudicator, Debate, PanelSizingMode, Team } from "@/types";
 import {
@@ -448,7 +450,9 @@ export default function AllocationPage() {
     try {
       await autoAllocate(activeRound.id, panelSize, { panelSizing });
     } catch (error) {
-      setManualAssignmentError(describeError(error, "Could not allocate adjudicators."));
+      if (!(error instanceof ComputeCancelledError)) {
+        setManualAssignmentError(describeError(error, "Could not allocate adjudicators."));
+      }
     } finally {
       setIsAllocating(false);
     }
@@ -660,6 +664,7 @@ export default function AllocationPage() {
             <Sparkles className="w-3.5 h-3.5" />
             <span>{isAllocating ? "Optimizing..." : "Auto-Allocate All"}</span>
           </button>
+          <ComputeStatus kind="allocation" />
 
           <button
             onClick={handleToggleAdjudicatorReveal}

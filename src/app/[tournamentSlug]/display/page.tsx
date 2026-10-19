@@ -13,6 +13,7 @@ import {
   nextRevealStep,
 } from "@/lib/display";
 import { safeJsonParse } from "@/lib/safeJson";
+import { getLocalStore } from "@/lib/offline/localStore";
 
 type DisplayView = "rooms" | "teams" | "motions";
 
@@ -43,12 +44,19 @@ export default function DisplayPage() {
       setStaffMotions(null);
       return;
     }
-    try {
-      setStaffMotions(safeJsonParse<Motion[]>(localStorage.getItem(`crabbytab_t_${tournamentSlug}_motions`), []));
-    } catch (error) {
-      console.warn("Could not read local motions for the staff display:", error);
-      setStaffMotions(null);
-    }
+    let active = true;
+    getLocalStore()
+      .read(`crabbytab_t_${tournamentSlug}_motions`)
+      .then((raw) => {
+        if (active) setStaffMotions(safeJsonParse<Motion[]>(raw, []));
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not read local motions for the staff display:", error);
+        if (active) setStaffMotions(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [isOwnerOrAdmin, tournamentSlug]);
 
   // For non-staff viewers, require publicDraw to be enabled AND the round draw to be released.

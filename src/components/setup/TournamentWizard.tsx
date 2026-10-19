@@ -11,6 +11,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { getLocalStore } from "@/lib/offline/localStore";
 import type { Tournament, TournamentFormat, TournamentPreferences } from "@/types";
 import {
   BreakDraft,
@@ -306,11 +307,12 @@ export function TournamentWizard() {
   const checkSlugAvailable = async (): Promise<string> => {
     // Local-only copies would be silently overwritten, so block those too.
     try {
-      if (localStorage.getItem(`crabbytab_t_${s.slug}_meta`)) {
+      if (await getLocalStore().read(`crabbytab_t_${s.slug}_meta`)) {
         return `"${s.slug}" already exists on this device. Choose a different slug.`;
       }
-    } catch {
-      // localStorage unavailable: nothing to check
+    } catch (error) {
+      // Device storage unavailable: creating will report it.
+      console.warn("Could not check this device for the slug:", error);
     }
     return "";
   };
@@ -412,9 +414,12 @@ export function TournamentWizard() {
     try {
       // The device is the source of truth until the director explicitly uploads.
       const prefix = `crabbytab_t_${s.slug}`;
-      localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournament));
-      localStorage.setItem(`${prefix}_rounds`, JSON.stringify(rounds));
-      localStorage.setItem(`${prefix}_breaks`, JSON.stringify(breakCategories));
+      // Meta last in the list, all in one transaction: the tournament exists only once all are saved.
+      await getLocalStore().writeAll([
+        [`${prefix}_rounds`, JSON.stringify(rounds)],
+        [`${prefix}_breaks`, JSON.stringify(breakCategories)],
+        [`${prefix}_meta`, JSON.stringify(tournament)],
+      ]);
 
       router.push(`/${s.slug}`);
     } catch (e: unknown) {

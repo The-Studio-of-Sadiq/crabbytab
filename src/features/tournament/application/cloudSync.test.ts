@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Tournament } from "@/types";
-import { CLOUD_COLLECTIONS, planCollectionReconciliation } from "../collections";
+import { CLOUD_COLLECTIONS } from "../collections";
 import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
@@ -12,6 +12,7 @@ import {
   mergeCloudTournament,
   parseDivergedRecords,
   parseSyncBaseline,
+  recordsChangedSinceBaseline,
   resolveDivergedRecords,
   syncContentHash,
   uploadTournamentCommand,
@@ -59,22 +60,6 @@ function emptyCollections(): Record<CloudCollectionName, CloudRecord[]> {
 }
 
 describe("tournament cloud synchronization", () => {
-  it("preserves cloud-only records and only appends audit events", () => {
-    expect(planCollectionReconciliation("teams", ["keep", "remove"], [
-      { id: "keep" },
-      { id: "add" },
-    ])).toEqual({
-      recordsToWrite: [{ id: "keep" }, { id: "add" }],
-    });
-
-    expect(planCollectionReconciliation("auditEvents", ["existing"], [
-      { id: "existing" },
-      { id: "new" },
-    ])).toEqual({
-      recordsToWrite: [{ id: "new" }],
-    });
-  });
-
   it("does not resurrect locally cached records deleted in the cloud", async () => {
     const localCollections = emptyCollections();
     localCollections.teams = [{ id: "deleted-team", name: "Old local copy" } as CloudRecord as CloudRecord];
@@ -963,5 +948,68 @@ describe("tournament cloud synchronization", () => {
         { collectionName: "tournament", recordId: "tournament-1", cloudRecord: { id: "tournament-1" } },
       ])).toHaveLength(1);
     });
+  });
+});
+
+describe("recordsChangedSinceBaseline", () => {
+  const synced = { id: "same", name: "Same", syncVersion: 2 } as CloudRecord;
+  const entry = (record: CloudRecord) => ({ v: Number(record.syncVersion) || 0, h: syncContentHash(record) });
+
+  it("sends only new, edited, re-versioned and restored records", () => {
+    const collections = emptyCollections();
+    const edited = { id: "edited", name: "After", syncVersion: 1 } as CloudRecord;
+    const reversioned = { id: "reversioned", name: "Kept", syncVersion: 5 } as CloudRecord;
+    const restored = { id: "restored", name: "From backup", syncVersion: 1 } as CloudRecord;
+    collections.teams = [synced, edited, reversioned, restored, { id: "new", name: "New" } as CloudRecord];
+    const baseline: SyncBaseline = {
+      teams: {
+        same: entry(synced),
+        edited: entry({ id: "edited", name: "Before", syncVersion: 1 } as CloudRecord),
+        reversioned: { v: 4, h: syncContentHash(reversioned) },
+        restored: entry(restored),
+      },
+    };
+    const changed = recordsChangedSinceBaseline(collections, baseline, { teams: ["restored"] });
+    expect(changed.teams.map((record) => record.id)).toEqual(["edited", "reversioned", "restored", "new"]);
+    // The same objects, so the repository's version stamps reach the working copy.
+    expect(changed.teams[0]).toBe(edited);
+    expect(changed.rounds).toEqual([]);
+  });
+
+  it("sends everything when the device has no baseline", () => {
+    const collections = emptyCollections();
+    collections.ballots = [synced];
+    expect(recordsChangedSinceBaseline(collections, {}).ballots).toEqual([synced]);
+  });
+
+  it("uploads only the changed records but keeps every record in the saved working copy", async () => {
+    const collections = emptyCollections();
+    const edited = { id: "edited", name: "After", syncVersion: 1 } as CloudRecord;
+    collections.teams = [synced, edited];
+    let sent: CloudRecord[] = [];
+    let saved: CloudRecord[] = [];
+    await uploadTournamentCommand({
+      tournament: { id: "t1", slug: "t1", ownerId: "owner", admins: {} } as unknown as Tournament,
+      userId: "owner",
+      localCollections: collections,
+      baseline: { teams: { same: entry(synced), edited: entry({ id: "edited", name: "Before", syncVersion: 1 } as CloudRecord) } },
+      repository: {
+        async getTournament() { return { id: "t1", data: { ownerId: "owner" } }; },
+        async findTournamentBySlug() { return null; },
+        async saveTournament() { return false; },
+        async getCollections() { return emptyCollections(); },
+        async syncCollections(_id, uploaded) {
+          sent = uploaded.teams;
+          uploaded.teams.forEach((record) => { record.syncVersion = 2; });
+          return 0;
+        },
+        async getSyncConflicts() { return []; },
+      },
+      saveSyncedRecords: (_tournament, savedCollections) => {
+        saved = savedCollections.teams;
+      },
+    });
+    expect(sent.map((record) => record.id)).toEqual(["edited"]);
+    expect(saved).toEqual([synced, { ...edited, syncVersion: 2 }]);
   });
 });

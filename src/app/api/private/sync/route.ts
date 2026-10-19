@@ -3,7 +3,6 @@ import { FieldPath, FieldValue, type QuerySnapshot } from "firebase-admin/firest
 import {
   Adjudicator,
   BallotSubmission,
-  Debate,
   FeedbackSubmission,
   Round,
   Team,
@@ -24,6 +23,7 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
+import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
@@ -145,41 +145,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
-    const [teamsSnapshot, debatesSnapshot] = await Promise.all([
-      tournamentRef.collection("teams").get(),
-      tournamentRef.collection("debates").get(),
+    // Only this participant's debates (via the debates' participant index) and their teams.
+    const [{ debates: participantDebates }, feedbackRoundsSnapshot] = await Promise.all([
+      loadParticipantDebates(tournamentRef, actorDocument.id),
+      tournamentRef.collection("rounds").get(),
     ]);
-    const feedbackRoundsSnapshot = await tournamentRef.collection("rounds").get();
     const roundById = new Map(
       feedbackRoundsSnapshot.docs
         .filter((document) => typeof document.data().deletedAt !== "string")
         .map((document) => [document.id, { ...document.data(), id: document.id } as Round])
-    );
-    const allDebates = new Map<string, Debate>(
-      debatesSnapshot.docs
-        .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => [
-          document.id,
-          { ...document.data(), id: document.id } as Debate,
-        ] as const)
-    );
-    const teams = new Map<string, Team>(
-      teamsSnapshot.docs
-        .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => [
-          document.id,
-          { ...document.data(), id: document.id } as Team,
-        ] as const)
     );
     if (checkIn) {
       const refusal = selfCheckInError(tournament.preferences, [...roundById.values()], checkIn);
       if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
     }
 
-    const actorDebates = selectAssignedDebates(allDebates, actorType, actorDocument.id);
+    // The index only narrows the read; assignment is checked from the debates themselves.
+    const actorDebates = selectAssignedDebates(participantDebates, actorType, actorDocument.id);
     // Participants never see (or submit for) debates from unpublished draws.
     const assignedDebates = new Map(
       filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate])
+    );
+    const teams: Map<string, Team> = await loadTeamsById(
+      tournamentRef,
+      [...assignedDebates.values()].flatMap((debate) =>
+        Object.values(debate.teams || {}).flatMap((slot) => (slot?.teamId ? [slot.teamId] : []))
+      )
     );
 
     const batch = firestore.batch();
@@ -445,8 +436,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const [ballotsSnapshot, feedbackSnapshot, roundsSnapshot] = await Promise.all([
-      tournamentRef.collection("ballots").get(),
+    const [assignedBallots, feedbackSnapshot, roundsSnapshot] = await Promise.all([
+      loadBallotsForDebates(tournamentRef, assignedDebates.keys()),
       tournamentRef.collection("feedback").where("sourceId", "==", actorDocument.id).get(),
       tournamentRef.collection("rounds").get(),
     ]);
@@ -454,12 +445,8 @@ export async function POST(request: NextRequest) {
       ...document.data(),
       id: document.id,
     } as Round & { deletedAt?: string })).filter((round) => typeof round.deletedAt !== "string");
-    const ballots = getPrivatePortalBallots(ballotsSnapshot.docs
-      .filter((document) =>
-        typeof document.data().deletedAt !== "string" &&
-        assignedDebates.has(document.data().debateId)
-      )
-      .map((document) => ({ ...document.data(), id: document.id } as BallotSubmission)),
+    const ballots = getPrivatePortalBallots(
+      assignedBallots.filter((ballot) => assignedDebates.has(ballot.debateId)),
       allRounds,
       actorType,
       tournament.preferences?.publicResults !== false
@@ -477,17 +464,16 @@ export async function POST(request: NextRequest) {
     const assignedRoundIds = new Set(
       [...assignedDebates.values()].map((debate) => debate.roundId)
     );
-    const privateTeams = teamsSnapshot.docs
-      .filter((document) => assignedTeamIds.has(document.id))
-      .map((document) => {
-        const team = document.data();
+    const privateTeams = [...teams.values()]
+      .filter((team) => assignedTeamIds.has(team.id))
+      .map((team) => {
         return {
-          id: document.id,
+          id: team.id,
           tournamentId,
           name: team.name,
           institutionName: team.institutionName,
           speakers: Array.isArray(team.speakers)
-            ? team.speakers.map((speaker: Record<string, unknown>) => ({
+            ? team.speakers.map((speaker) => ({
                 id: speaker.id,
                 name: speaker.name,
                 categories: speaker.categories,
