@@ -30,6 +30,9 @@ import {
 } from "lucide-react";
 import { DebateSide } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
+import { formatMetricValue } from "@/lib/standings/metrics";
+import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
+import type { MessageKey } from "@/lib/i18n";
 import {
   buildPublicBreak,
   getPublicRelease,
@@ -135,6 +138,9 @@ export default function PublicTournamentPage() {
   const showSpeakerTab = release.speakerTab && tabRounds.length > 0;
   const showRepliesTab = release.repliesTab && tabRounds.length > 0;
   const tabRankByTeamId = new Map(tabStandings.teams.map((row) => [row.teamId, row.rank]));
+  // The "extra" metrics the tab director chose to show (calculated, not used to rank).
+  const teamExtra = resolveTeamExtra(prefs);
+  const speakerExtra = resolveSpeakerExtra(prefs);
   const publicBreak = buildPublicBreak(breakCategories, teams, release, (teamId) => tabRankByTeamId.get(teamId));
   const showPublicBreak = publicBreak.length > 0;
   const showParticipants = release.participants;
@@ -743,6 +749,9 @@ export default function PublicTournamentPage() {
                     <th className="text-end">{isBP ? t("public.col.points") : t("public.col.wins")}</th>
                     <th className="text-end">{t("public.col.totalSpeaks")}</th>
                     <th className="text-end">{t("public.col.avgSpeaks")}</th>
+                    {teamExtra.map((metric) => (
+                      <th key={metric} className="text-end">{t(`metric.team.${metric}` as MessageKey)}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -758,6 +767,11 @@ export default function PublicTournamentPage() {
                         {formatDecimal(row.totalSpeakerScore, 1)}
                       </td>
                       <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageSpeakerScore, 2)}</td>
+                      {teamExtra.map((metric) => (
+                        <td key={metric} className="text-end font-mono text-xs text-gray-600">
+                          {formatMetricValue(row.metrics[metric])}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -785,17 +799,34 @@ export default function PublicTournamentPage() {
                     <th className="text-end">{t("public.col.total")}</th>
                     <th className="text-end">{t("public.col.average")}</th>
                     <th className="text-end">{t("public.col.speeches")}</th>
+                    {activeTab !== "repliesTab" && speakerExtra.map((metric) => (
+                      <th key={metric} className="text-end">{t(`metric.speaker.${metric}` as MessageKey)}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {(activeTab === "repliesTab" ? tabStandings.replies : tabStandings.speakers).map((row) => (
                     <tr key={`${row.teamId}-${row.speakerId}`} className="hover:bg-gray-50">
-                      <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
-                      <td className="font-bold text-gray-900 text-xs">{row.speakerName}</td>
+                      <td className="text-center font-mono font-bold text-xs">
+                        {row.ineligible ? <span title={t("public.unrankedHint")}>—</span> : row.rank}
+                      </td>
+                      <td className="font-bold text-gray-900 text-xs">
+                        {row.speakerName}
+                        {row.ineligible && (
+                          <span className="ms-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                            {t("public.unranked")}
+                          </span>
+                        )}
+                      </td>
                       <td className="text-xs text-gray-600">{row.teamName}</td>
                       <td className="text-end font-mono font-semibold text-xs text-gray-800">{formatDecimal(row.totalScore, 1)}</td>
                       <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageScore, 2)}</td>
                       <td className="text-end font-mono text-xs text-gray-600">{row.speechesCount}</td>
+                      {activeTab !== "repliesTab" && speakerExtra.map((metric) => (
+                        <td key={metric} className="text-end font-mono text-xs text-gray-600">
+                          {formatMetricValue(row.metrics[metric])}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

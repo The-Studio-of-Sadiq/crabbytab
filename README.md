@@ -76,6 +76,11 @@ the standard rule remains the default for existing and new categories.
   break place first, but a team never breaks in two categories) or a remark
   that removes it (ineligible, withdrawn, different break, disqualified, lost
   coin toss). Generating a category's break changes only that category.
+- If teams tied on every standings metric straddle the last breaking (or reserve) place, the
+  Break page lists the tie and the break cannot be generated until the tab director resolves it
+  with overrides (*manually included* or *lost coin toss*). See
+  [docs/standings-and-breaks.md](docs/standings-and-breaks.md) for the standings metrics,
+  speaker eligibility, ballot mode per stage and the Tabbycat rule presets.
 - Full tabs and breaks are hidden by default: the **Public release** panel on the Standings
   page releases the team, speaker and replies tabs (completed preliminary
   rounds, silent rounds included) and each break category separately.

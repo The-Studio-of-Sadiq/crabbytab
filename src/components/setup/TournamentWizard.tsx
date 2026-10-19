@@ -17,6 +17,8 @@ import {
   BreakDraft,
   FORMAT_PRESETS,
   PrelimDrawRule,
+  RULES_PRESETS,
+  getRulesPreset,
   buildBreakCategories,
   buildRounds,
   eliminationRoundCount,
@@ -36,6 +38,8 @@ interface WizardState {
   slug: string;
   slugTouched: boolean;
   format: TournamentFormat;
+  /** A Tabbycat rules preset applied on top of the format ("" = none). */
+  rulesPresetId: string;
   substantiveSpeakers: number;
   replyScoresEnabled: boolean;
   minSpeakerScore: number;
@@ -68,6 +72,7 @@ function initialState(): WizardState {
     slug: "",
     slugTouched: false,
     format: "bp",
+    rulesPresetId: "",
     substantiveSpeakers: preset.substantiveSpeakers,
     replyScoresEnabled: preset.replyScoresEnabled,
     ...preset.scores,
@@ -227,12 +232,32 @@ export function TournamentWizard() {
     );
     patch({
       format,
+      rulesPresetId: "",
       substantiveSpeakers: p.substantiveSpeakers,
       replyScoresEnabled: p.replyScoresEnabled,
       ...p.scores,
       breaks,
     });
   };
+
+  const handleRulesPresetChange = (id: string) => {
+    const rules = getRulesPreset(id);
+    if (!rules) {
+      patch({ rulesPresetId: "" });
+      return;
+    }
+    const teams = rules.format === "bp" ? 4 : 2;
+    patch({
+      format: rules.format,
+      rulesPresetId: rules.id,
+      substantiveSpeakers: rules.substantiveSpeakers,
+      replyScoresEnabled: rules.replyScoresEnabled,
+      ...rules.scores,
+      sideAllocationRule: rules.preferences.sideAllocationRule ?? s.sideAllocationRule,
+      breaks: s.breaks.map((b) => (b.breakSize < teams ? { ...b, breakSize: teams } : b)),
+    });
+  };
+  const rulesPreset = getRulesPreset(s.rulesPresetId);
 
   const updateBreak = (key: string, p: Partial<BreakDraft>) =>
     patch({ breaks: s.breaks.map((b) => (b.key === key ? { ...b, ...p } : b)) });
@@ -379,6 +404,8 @@ export function TournamentWizard() {
       ownerId,
       admins: { [ownerId]: true },
       preferences: {
+        // The rules preset's bundle first, so anything edited in the wizard wins.
+        ...(rulesPreset?.preferences ?? {}),
         teamsInDebate,
         substantiveSpeakers: s.substantiveSpeakers,
         replyScoresEnabled: s.replyScoresEnabled,
@@ -562,6 +589,33 @@ export function TournamentWizard() {
                 </span>
               </label>
             ))}
+            <Field
+              label="Tabbycat rules preset (optional)"
+              hint="Applies the settings Tabbycat's preset sets: speakers, score scale, ballot mode, motion vetoes, draw rules and standings precedence."
+            >
+              <select
+                className={inputCls}
+                value={s.rulesPresetId}
+                onChange={(e) => handleRulesPresetChange(e.target.value)}
+              >
+                <option value="">None (format defaults)</option>
+                {RULES_PRESETS.map((rules) => (
+                  <option key={rules.id} value={rules.id}>
+                    {rules.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {rulesPreset && (
+              <div className="rounded border border-[#d0d7de] bg-gray-50 p-3 text-xs text-gray-700">
+                <p>{rulesPreset.blurb}</p>
+                {rulesPreset.unsupported.length > 0 && (
+                  <p className="mt-1 text-gray-600">
+                    Not available in CrabbyTab: {rulesPreset.unsupported.join("; ")}.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

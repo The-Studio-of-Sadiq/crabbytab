@@ -69,7 +69,7 @@ export function speakerStandingsCsv(rows: SpeakerStandingRow[], options: { reply
   return toCsv(
     fields,
     rows.map((row) => [
-      row.rank,
+      row.ineligible ? "" : row.rank,
       row.speakerName,
       row.teamName,
       row.institutionCode,

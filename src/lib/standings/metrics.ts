@@ -88,6 +88,12 @@ export const DEFAULT_TEAM_PRECEDENCE: Record<"bp" | "two_team", TeamMetricId[]> 
 };
 export const DEFAULT_SPEAKER_PRECEDENCE: SpeakerMetricId[] = ["speaks_sum", "speaks_avg"];
 
+/** Display form of a metric value: whole numbers as they are, anything else to two decimals. */
+export function formatMetricValue(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Small stats helpers                                                        */
 /* -------------------------------------------------------------------------- */

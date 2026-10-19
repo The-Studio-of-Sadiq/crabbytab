@@ -1519,6 +1519,7 @@ export function TournamentProvider({
   const saveTournament = async (t: Tournament) => {
     await guarded((override) => saveTournamentCommand(t, tournament, {
       ballots,
+      rounds,
       localRepository: {
         saveTournament: (value) => {
           setTournament(value);
