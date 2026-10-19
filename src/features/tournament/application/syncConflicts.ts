@@ -14,6 +14,7 @@ const KIND_LABELS: Record<SyncedRecordKind, string> = {
   feedback: "Feedback",
   institutions: "Institution",
   auditEvents: "Audit event",
+  ballotIntake: "Ballot receipt",
 };
 
 /** Fields the cloud stamps, which say nothing about what changed. */

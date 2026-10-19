@@ -318,7 +318,7 @@ describe("tournament cloud synchronization", () => {
       localCollections,
     });
 
-    expect(Object.keys(payload.collections)).toEqual(["teams", "adjudicators", "institutions", "ballots", "feedback"]);
+    expect(Object.keys(payload.collections)).toEqual(["teams", "adjudicators", "institutions", "ballots", "feedback", "ballotIntake"]);
     expect(payload).toMatchObject({ debates: [{ id: "debate-1" }] });
     expect(payload).not.toHaveProperty("rounds");
     expect(payload).not.toHaveProperty("venues");

@@ -3,7 +3,7 @@ import { validateFeedbackScore, validateReplyScore, validateSpeakerScore } from 
 
 /**
  * Field whitelists for records a data-entry assistant may sync. Assistants
- * enter participants, check-ins, ballots and feedback; they never set break
+ * enter participants, check-ins, ballots, feedback and paper-ballot receipts; they never set break
  * status, seeds, adjudicator scores or confirmation state.
  */
 export const DATA_ENTRY_FIELDS = {
@@ -25,6 +25,8 @@ export const DATA_ENTRY_FIELDS = {
     "targetAdjudicatorName", "targetTeamId", "targetTeamName", "sourceType", "sourceId", "sourceName", "score",
     "agreeWithDecision", "comments", "answers", "timestamp",
   ],
+  // Who received a sheet is stamped by the server from the signed-in assistant.
+  ballotIntake: ["id", "tournamentId", "roundId", "debateId", "sheetCode", "adjudicatorId", "receivedAt"],
 } as const;
 
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */

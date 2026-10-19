@@ -11,6 +11,7 @@ import {
   Edit,
   Eye,
   FileText,
+  Inbox,
   Lock,
   Printer,
 } from "lucide-react";
@@ -28,6 +29,8 @@ import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
 import { checkResultsRelease } from "@/features/tournament/application/stateGuards";
+import { INTAKE_STATUS_LABELS, INTAKE_STATUS_ORDER } from "@/features/tournament/application/ballotIntake";
+import { INTAKE_STATUS_TONES, useRoundIntake } from "@/features/tournament/components/ballot/useRoundIntake";
 import {
   getRoundCompletionBlockers,
   setRoundCompletion,
@@ -111,6 +114,7 @@ export default function ResultsOverviewPage() {
 
   const isBP = tournament?.format === "bp";
   const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
+  const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
   // The confirmed version is the debate's result; otherwise show the newest pending version.
@@ -228,6 +232,24 @@ export default function ResultsOverviewPage() {
           <ProgressBar value={confirmedCount} max={roundDebates.length} label="Confirmed ballots" className="w-36" />
         </div>
       </div>
+
+      {intakeSummary.debates > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+          <span className="font-medium text-fg">Paper ballots</span>
+          <span className="tabular-nums">
+            {intakeSummary.sheetsReceived} of {intakeSummary.sheetsExpected} sheets received
+          </span>
+          {INTAKE_STATUS_ORDER.filter((status) => intakeSummary.counts[status] > 0).map((status) => (
+            <StatusPill key={status} tone={INTAKE_STATUS_TONES[status]}>
+              {INTAKE_STATUS_LABELS[status]} <span className="tabular-nums">{intakeSummary.counts[status]}</span>
+            </StatusPill>
+          ))}
+          <Link href={`/${tournament?.slug}/results/intake`} className={buttonClasses({ variant: "ghost", size: "sm" })}>
+            <Inbox aria-hidden="true" />
+            Ballot intake
+          </Link>
+        </div>
+      )}
 
       {roundDebates.length === 0 ? (
         <EmptyState

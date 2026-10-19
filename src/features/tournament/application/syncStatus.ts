@@ -110,6 +110,7 @@ const COLLECTION_LABELS: Record<SyncedRecordKind, string> = {
   feedback: "Feedback",
   institutions: "Institutions",
   auditEvents: "Audit log",
+  ballotIntake: "Ballot intake",
 };
 
 export function pendingCollectionLabel(collection: SyncedRecordKind): string {

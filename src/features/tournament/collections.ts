@@ -10,6 +10,7 @@ export const CLOUD_COLLECTIONS = [
   "feedback",
   "institutions",
   "auditEvents",
+  "ballotIntake",
 ] as const;
 
 export type CloudCollectionName = (typeof CLOUD_COLLECTIONS)[number];

@@ -47,7 +47,7 @@ export async function GET(
 
     const names = [
       "rounds", "teams", "adjudicators", "venues", "motions", "breakCategories",
-      "debates", "ballots", "feedback", "institutions",
+      "debates", "ballots", "feedback", "institutions", "ballotIntake",
     ] as const;
     const snapshots = await Promise.all(names.map((name) => tournamentRef.collection(name).get()));
     const records = Object.fromEntries(names.map((name, index) => [
@@ -118,6 +118,9 @@ export async function GET(
         "id", "tournamentId", "name", "code", "region",
       ])),
       auditEvents: [],
+      ballotIntake: records.ballotIntake.map((receipt) => pickFields(receipt, [
+        "id", "tournamentId", "roundId", "debateId", "sheetCode", "adjudicatorId", "receivedAt", "receivedBy", "receivedByName",
+      ])),
     };
 
     return NextResponse.json({ tournament, collections }, { headers: { "Cache-Control": "no-store" } });

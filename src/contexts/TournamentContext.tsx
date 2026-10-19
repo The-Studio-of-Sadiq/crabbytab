@@ -15,6 +15,7 @@ import {
   FeedbackSubmission,
   AuditCategory,
   AuditEvent,
+  BallotIntakeRecord,
   TeamStandingRow,
   SpeakerStandingRow,
   Institution,
@@ -48,6 +49,7 @@ import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
+import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
 import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
@@ -148,6 +150,8 @@ export interface TournamentContextType {
   feedback: FeedbackSubmission[];
   auditEvents: AuditEvent[];
   institutions: Institution[];
+  /** Receipts of paper ballot sheets (ballot intake). */
+  ballotIntake: BallotIntakeRecord[];
   teamStandings: TeamStandingRow[];
   speakerStandings: SpeakerStandingRow[];
   replyStandings: SpeakerStandingRow[];
@@ -255,6 +259,8 @@ export interface TournamentContextType {
     privateUrlKey?: string
   ) => Promise<void>;
   reviewFeedback: (feedbackId: string, change: FeedbackReviewChange) => Promise<void>;
+  /** Records that a paper ballot sheet arrived; returns false when it was already recorded. */
+  recordBallotIntake: (sheet: BallotSheet) => Promise<boolean>;
   recordAuditEvent: (event: {
     action: string;
     category: AuditCategory;
@@ -305,6 +311,13 @@ export function TournamentProvider({
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const auditEventsRef = useRef<AuditEvent[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [ballotIntake, setBallotIntake] = useState<BallotIntakeRecord[]>([]);
+  // Mirrors ballotIntake; recordBallotIntake also updates it at once, so back-to-back scans each
+  // see the previous one before a re-render.
+  const ballotIntakeRef = useRef<BallotIntakeRecord[]>([]);
+  useEffect(() => {
+    ballotIntakeRef.current = ballotIntake;
+  }, [ballotIntake]);
   const [cloudSyncState, setCloudSyncState] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [cloudSyncMessage, setCloudSyncMessage] = useState("");
   const [privateSyncState, setPrivateSyncState] = useState<"idle" | "syncing" | "error">("idle");
@@ -508,6 +521,7 @@ export function TournamentProvider({
       setBallots((current) => withKeptRounds(current, (result.collections.ballots || []) as BallotSubmission[]));
       setFeedback((result.collections.feedback || []) as FeedbackSubmission[]);
       setInstitutions((result.collections.institutions || []) as Institution[]);
+      setBallotIntake([]);
       auditEventsRef.current = [];
       setAuditEvents([]);
       setPublicViewVersion(result.version ?? null);
@@ -611,12 +625,13 @@ export function TournamentProvider({
         feedback: toCloudRecords(feedback),
         institutions: toCloudRecords(institutions),
         auditEvents: toCloudRecords(auditEvents),
+        ballotIntake: toCloudRecords(ballotIntake),
       },
       ...storedSyncState,
     });
   }, [
     isSharedView, tournament, storedSyncState, rounds, teams, adjudicators, venues, motions,
-    breakCategories, debates, ballots, feedback, institutions, auditEvents,
+    breakCategories, debates, ballots, feedback, institutions, auditEvents, ballotIntake,
   ]);
 
   // Local storage is the working copy. Shared links fall back to the published cloud copy.
@@ -641,6 +656,7 @@ export function TournamentProvider({
         setBallots([]);
         setFeedback([]);
         setInstitutions([]);
+        setBallotIntake([]);
         setLoading(false);
         return () => { isMounted = false; };
       }
@@ -690,6 +706,7 @@ export function TournamentProvider({
             feedback: "feedback",
             institutions: "institutions",
             auditEvents: "auditEvents",
+            ballotIntake: "ballotIntake",
           };
           // Sanitised before merging, so the baseline describes records exactly as stored here.
           const cloudCollections = Object.fromEntries(
@@ -757,6 +774,7 @@ export function TournamentProvider({
                 feedback: "feedback",
                 institutions: "institutions",
                 auditEvents: "auditEvents",
+                ballotIntake: "ballotIntake",
               };
               let cloudCollections: Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
               let cloudMerge: WorkingCopyMerge;
@@ -844,6 +862,7 @@ export function TournamentProvider({
               storeCloudCollection<BallotSubmission>("ballots", setBallots);
               storeCloudCollection<FeedbackSubmission>("feedback", setFeedback);
               storeCloudCollection<Institution>("institutions", setInstitutions);
+              storeCloudCollection<BallotIntakeRecord>("ballotIntake", setBallotIntake);
               storeCloudCollection<AuditEvent>("auditEvents", (events) => {
                 auditEventsRef.current = events;
                 setAuditEvents(events);
@@ -870,6 +889,7 @@ export function TournamentProvider({
               setBallots([]);
               setFeedback([]);
               setInstitutions([]);
+              setBallotIntake([]);
               setLoading(false);
               return;
             }
@@ -890,6 +910,7 @@ export function TournamentProvider({
               setBallots([]);
               setFeedback([]);
               setInstitutions([]);
+              setBallotIntake([]);
               setLoading(false);
               return;
             }
@@ -914,6 +935,7 @@ export function TournamentProvider({
           setBallots([]);
           setFeedback([]);
           setInstitutions([]);
+          setBallotIntake([]);
           setLoading(false);
           return;
         }
@@ -984,6 +1006,7 @@ export function TournamentProvider({
         auditEventsRef.current = localAuditEvents;
         setAuditEvents(localAuditEvents);
         setInstitutions(readLocal<Institution[]>("institutions", []));
+        setBallotIntake(readLocal<BallotIntakeRecord[]>("ballotIntake", []));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not read tournament data.";
         console.error("Error reading tournament data:", e);
@@ -1496,6 +1519,7 @@ export function TournamentProvider({
       feedback,
       institutions,
       auditEvents,
+      ballotIntake,
     };
     return divergedRecords.map((diverged) => {
       const localRecord = diverged.collectionName === "tournament"
@@ -1503,7 +1527,7 @@ export function TournamentProvider({
         : local[diverged.collectionName].find((record) => record.id === diverged.recordId);
       return summarizeDivergedRecord(diverged, localRecord as CloudRecord | undefined, divergedRecordKey(diverged));
     });
-  }, [divergedRecords, tournament, rounds, teams, adjudicators, venues, motions, breakCategories, debates, ballots, feedback, institutions, auditEvents]);
+  }, [divergedRecords, tournament, rounds, teams, adjudicators, venues, motions, breakCategories, debates, ballots, feedback, institutions, auditEvents, ballotIntake]);
 
   const breakResults = useMemo(() => {
     if (breakCategories.length === 0 || teamStandings.length === 0) return [];
@@ -1983,6 +2007,25 @@ export function TournamentProvider({
     });
   };
 
+  const recordBallotIntake = async (sheet: BallotSheet): Promise<boolean> => {
+    if (!tournament) throw new Error("Load a tournament before receiving ballots.");
+    // Stored rounds, not the context's list, which hides cancelled rounds that must still be refused.
+    const record = createIntakeRecord({
+      sheet,
+      round: rounds.find((round) => round.id === sheet.roundId),
+      tournamentId: tournament.id,
+      receivedAt: new Date().toISOString(),
+      receivedBy: user?.uid,
+      receivedByName: user?.displayName || user?.email || undefined,
+    });
+    const result = addIntakeRecord(ballotIntakeRef.current, record);
+    if (!result.added) return false;
+    ballotIntakeRef.current = result.intake;
+    setBallotIntake(result.intake);
+    persistLocal("ballotIntake", result.intake);
+    return true;
+  };
+
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
     await regeneratePrivateAccessCommand(teams, adjudicators, forceRegenerate, {
       localRepository: {
@@ -2018,6 +2061,7 @@ export function TournamentProvider({
     feedback: asCloudRecords(feedback),
     institutions: asCloudRecords(institutions),
     auditEvents: asCloudRecords(auditEventsRef.current),
+    ballotIntake: asCloudRecords(ballotIntakeRef.current),
   });
 
   const syncDataEntry = async () => {
@@ -2137,6 +2181,7 @@ export function TournamentProvider({
         persistSyncedCollection<BallotSubmission>("ballots", "ballots", setBallots);
         persistSyncedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
         persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
+        persistSyncedCollection<BallotIntakeRecord>("ballotIntake", "ballotIntake", setBallotIntake);
         persistLocal("auditEvents", syncedCollections.auditEvents);
         saveSyncState(syncedBaseline);
       };
@@ -2315,6 +2360,7 @@ export function TournamentProvider({
       applyDownloadedCollection<BallotSubmission>("ballots", "ballots", setBallots);
       applyDownloadedCollection<FeedbackSubmission>("feedback", "feedback", setFeedback);
       applyDownloadedCollection<Institution>("institutions", "institutions", setInstitutions);
+      applyDownloadedCollection<BallotIntakeRecord>("ballotIntake", "ballotIntake", setBallotIntake);
       applyDownloadedCollection<AuditEvent>("auditEvents", "auditEvents", (events) => {
         auditEventsRef.current = events;
         setAuditEvents(events);
@@ -2454,6 +2500,7 @@ export function TournamentProvider({
     apply<BallotSubmission>("ballots", "ballots", setBallots);
     apply<FeedbackSubmission>("feedback", "feedback", setFeedback);
     apply<Institution>("institutions", "institutions", setInstitutions);
+    apply<BallotIntakeRecord>("ballotIntake", "ballotIntake", setBallotIntake);
     apply<AuditEvent>("auditEvents", "auditEvents", (events) => {
       auditEventsRef.current = events;
       setAuditEvents(events);
@@ -2552,6 +2599,7 @@ export function TournamentProvider({
         ballots,
         feedback,
         auditEvents,
+        ballotIntake,
         teamStandings,
         speakerStandings,
         replyStandings,
@@ -2624,6 +2672,7 @@ export function TournamentProvider({
         proceedToNextEliminationRound,
         addFeedback,
         reviewFeedback,
+        recordBallotIntake,
         recordAuditEvent,
         releaseAuditLog,
         generatePrivateUrlKeys,

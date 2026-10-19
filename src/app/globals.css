@@ -403,6 +403,21 @@ textarea {
   .ballot-room strong {
     font-size: 13pt;
   }
+  .ballot-sheet-id {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6mm;
+    margin-top: 3mm;
+    font-size: 9pt;
+  }
+  .ballot-sheet-id svg {
+    width: 75mm;
+    height: 13mm;
+  }
+  .ballot-sheet-id span {
+    text-align: right;
+  }
   .ballot-intro {
     margin: 4mm 0;
     font-size: 9pt;
