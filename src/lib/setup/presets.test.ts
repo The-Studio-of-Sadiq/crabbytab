@@ -132,3 +132,79 @@ describe("per-format score scales", () => {
     expect(defaultPreferences("wsdc")).toMatchObject({ minSpeakerScore: 60, maxSpeakerScore: 80 });
   });
 });
+
+describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
+  it("includes the missing Tabbycat presets with Tabbycat's team, speaker and score settings", async () => {
+    const { getRulesPreset, rulesPresetPreferences } = await import("./presets");
+    const nz = getRulesPreset("nz_easters")!;
+    expect(rulesPresetPreferences(nz)).toMatchObject({
+      teamsInDebate: 2,
+      substantiveSpeakers: 2,
+      replyScoresEnabled: true,
+      minSpeakerScore: 60,
+      maxSpeakerScore: 80,
+      minReplyScore: 30,
+      maxReplyScore: 40,
+      ballotMode: "voting",
+      eliminationBallotMode: "voting",
+      enableMotionVetoes: true,
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+      standingsMissedDebates: 2,
+    });
+    const joynt = getRulesPreset("joynt")!;
+    expect(rulesPresetPreferences(joynt)).toMatchObject({
+      substantiveSpeakers: 3,
+      replyScoresEnabled: true,
+      sideAllocationRule: "preallocated",
+      oddBracketMethod: "intermediate2",
+      enableMotionVetoes: false,
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+    });
+    expect(rulesPresetPreferences(getRulesPreset("canadian")!)).toMatchObject({
+      teamsInDebate: 2,
+      substantiveSpeakers: 2,
+      replyScoresEnabled: false,
+      minSpeakerScore: 50,
+      maxSpeakerScore: 100,
+      ballotMode: "consensus",
+      eliminationBallotMode: "consensus",
+      enableMotionVetoes: false,
+    });
+    // Australian Easters: consensus in preliminary rounds, voting in elimination rounds.
+    expect(rulesPresetPreferences(getRulesPreset("australian_easters")!)).toMatchObject({
+      replyScoresEnabled: false,
+      ballotMode: "consensus",
+      eliminationBallotMode: "voting",
+    });
+    expect(rulesPresetPreferences(getRulesPreset("wsdc")!)).toMatchObject({
+      stepSpeakerScore: 0.5,
+      teamStandingsPrecedence: ["wins", "num_adjs", "speaks_avg"],
+      marginIncludesDissenters: true,
+    });
+    expect(rulesPresetPreferences(getRulesPreset("bp")!)).toMatchObject({
+      teamsInDebate: 4,
+      ballotMode: "consensus",
+      teamScoreIncludesGhosts: true,
+      speakerStandingsPrecedence: ["speaks_sum"],
+    });
+  });
+
+  it("only uses precedence metrics, draw options and formats CrabbyTab knows", async () => {
+    const { RULES_PRESETS, FORMAT_PRESETS } = await import("./presets");
+    const { resolveTeamPrecedence, resolveSpeakerPrecedence } = await import("@/lib/standings/precedence");
+    const formats = new Set(FORMAT_PRESETS.map((format) => format.id));
+    for (const preset of RULES_PRESETS) {
+      expect(formats.has(preset.format), preset.id).toBe(true);
+      const { teamStandingsPrecedence, speakerStandingsPrecedence } = preset.preferences;
+      if (teamStandingsPrecedence) {
+        expect(resolveTeamPrecedence(preset.format, preset.preferences), preset.id).toEqual(teamStandingsPrecedence);
+      }
+      if (speakerStandingsPrecedence) {
+        expect(resolveSpeakerPrecedence(preset.preferences), preset.id).toEqual(speakerStandingsPrecedence);
+      }
+      expect(preset.scores.minSpeakerScore).toBeLessThan(preset.scores.maxSpeakerScore);
+      if (preset.format === "bp") expect(preset.preferences.ballotMode ?? "consensus").toBe("consensus");
+    }
+    expect(new Set(RULES_PRESETS.map((preset) => preset.id)).size).toBe(RULES_PRESETS.length);
+  });
+});

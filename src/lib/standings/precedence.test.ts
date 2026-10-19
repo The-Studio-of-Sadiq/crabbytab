@@ -315,12 +315,12 @@ describe("calculateStandings: speaker precedence and trimmed mean", () => {
     expect(result.speakers[0].metrics.speaks_sum).toBe(80);
   });
 
-  it("speaks_trimmed_mean drops the configured number of lowest scores", () => {
+  it("speaks_trimmed_mean drops the highest and the lowest score (Tabbycat high-low drop)", () => {
     const t = tournament("bp", { speakerTrim: 1 } as any);
     const teams = [team("t1", "A", [{ id: "s1", name: "Alice" }])];
     const rounds = [1, 2, 3].map((n) => ({ ...round, id: `r${n}`, seq: n }));
     const debates = rounds.map((r) => bpDebate(`d${r.seq}`, r.seq, { OG: "t1", OO: "t1", CG: "t1", CO: "t1" }));
-    const scores = [60, 70, 80]; // trim 1 lowest (60) -> mean of [70, 80] = 75
+    const scores = [60, 70, 80]; // drop 60 and 80 -> mean of [70] = 70
     const ballots = debates.map((d, i) => ({
       id: `b${i}`,
       tournamentId: "tourn-test",
@@ -336,7 +336,7 @@ describe("calculateStandings: speaker precedence and trimmed mean", () => {
     }));
 
     const result = calculateStandings(t, rounds, teams, debates, ballots);
-    expect(result.speakers[0].metrics.speaks_trimmed_mean).toBe(75);
+    expect(result.speakers[0].metrics.speaks_trimmed_mean).toBe(70);
     expect(result.speakers[0].metrics.speaks_sum).toBe(210);
   });
 });

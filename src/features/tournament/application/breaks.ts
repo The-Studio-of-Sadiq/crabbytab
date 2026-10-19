@@ -181,8 +181,9 @@ export async function generateBreakCommand(
       eliminationAdvanced: unchanged ? round.eliminationAdvanced ?? false : false,
     };
   });
+  const categoryResult = breakResults.find((result) => result.category.id === categoryId);
   await applyGuards(
-    checkBreakGeneration(category, dependencies, updatedRounds),
+    checkBreakGeneration(category, dependencies, updatedRounds, categoryResult),
     override,
     { action: "break.generated", category: "break", record: dependencies.recordAuditEvent }
   );
@@ -193,7 +194,6 @@ export async function generateBreakCommand(
     throw new Error(`${category.name} does not fit the configured elimination-round sequence.`);
   }
 
-  const categoryResult = breakResults.find((result) => result.category.id === categoryId);
   if (!categoryResult) {
     throw new Error(`The ${category.name} break has not been calculated yet.`);
   }

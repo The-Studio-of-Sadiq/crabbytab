@@ -903,7 +903,8 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
   const debates: Debate[] = [];
   const ballots: BallotSubmission[] = [];
   const motionRounds = new Map<string, Set<string>>();
-  let usesVoting = false;
+  // Which stages had results, and which had one ballot per adjudicator (voting).
+  const ballotsByStage = { preliminary: { any: false, voting: false }, elimination: { any: false, voting: false } };
 
   rawRounds.forEach((rawRound, roundIndex) => {
     const seq = roundIndex + 1;
@@ -916,7 +917,9 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       const motion = raw.motionId ? motionById.get(raw.motionId) : undefined;
       if (motion) motionRounds.set(motion.id, (motionRounds.get(motion.id) ?? new Set()).add(roundId));
       const result = buildBallot(raw, sides, teamIds, rules, speakerNames, log);
-      if (result?.sheets) usesVoting = true;
+      const stageBallots = ballotsByStage[rawRound.elimination ? "elimination" : "preliminary"];
+      if (result) stageBallots.any = true;
+      if (result?.sheets) stageBallots.voting = true;
       const ballot: BallotSubmission | undefined = result
         ? {
             id: `ballot-${raw.id}`,
@@ -1022,7 +1025,11 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       createdAt: now,
     });
   });
-  if (usesVoting) preferences.ballotMode = "voting";
+  if (ballotsByStage.preliminary.voting) preferences.ballotMode = "voting";
+  const eliminationMode = ballotsByStage.elimination.voting ? "voting" : "consensus";
+  if (ballotsByStage.elimination.any && eliminationMode !== (preferences.ballotMode ?? "consensus")) {
+    preferences.eliminationBallotMode = eliminationMode;
+  }
   for (const motion of motions) motion.rounds = [...(motionRounds.get(motion.id) ?? [])];
 
   /* ------------------------------- feedback ------------------------------ */

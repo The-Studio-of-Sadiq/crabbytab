@@ -11,6 +11,8 @@ import type {
   Tournament,
   TournamentPreferences,
 } from "@/types";
+import type { BreakCategoryResult } from "@/lib/breakqual/calculator";
+import { ballotModeFor } from "@/lib/ballots/result";
 
 /**
  * Tournament state rules. Every rule here is checked by the command that performs the action (so
@@ -44,6 +46,8 @@ export type GuardRule =
   | "round_has_draw"
   | "prelims_incomplete"
   | "elimination_started"
+  | "break_cutoff_tie"
+  | "reserve_cutoff_tie"
   | "break_category_in_use"
   | "same_person_check";
 
@@ -897,10 +901,21 @@ function changedPreferences(
   return keys.filter((key) => JSON.stringify(previous?.[key]) !== JSON.stringify(next?.[key]));
 }
 
+/**
+ * Live ballots from elimination rounds. Without the rounds, every ballot might be one, so all count.
+ */
+function liveEliminationBallots(ballots: BallotSubmission[], rounds?: Round[]): BallotSubmission[] {
+  const live = liveBallots(ballots);
+  if (!rounds) return live;
+  const eliminationRoundIds = new Set(rounds.filter((round) => round.stage === "elimination").map((round) => round.id));
+  return live.filter((ballot) => eliminationRoundIds.has(ballot.roundId));
+}
+
 export function checkSettingsChange(
   previous: Tournament | null,
   next: Tournament,
-  ballots: BallotSubmission[]
+  ballots: BallotSubmission[],
+  rounds?: Round[]
 ): GuardViolation[] {
   if (!previous) return [];
   const live = liveBallots(ballots);
@@ -918,6 +933,20 @@ export function checkSettingsChange(
         "existing ballots would no longer match.",
     ));
   }
+  // The elimination ballot mode only shapes elimination ballots, so it stays editable until one exists.
+  const elimination = { stage: "elimination" as const };
+  const liveElimination = liveEliminationBallots(ballots, rounds);
+  if (
+    violations.length === 0 &&
+    liveElimination.length > 0 &&
+    ballotModeFor(elimination, previous) !== ballotModeFor(elimination, next)
+  ) {
+    violations.push(hard(
+      "settings_locked",
+      `${liveElimination.length} elimination ballot${liveElimination.length === 1 ? " has" : "s have"} been entered, ` +
+        "so the elimination ballot mode can no longer change: existing ballots would no longer match.",
+    ));
+  }
   const scoring = changedPreferences(previous.preferences, next.preferences, SCORING_PREFERENCES);
   if (scoring.length > 0) {
     violations.push(soft(
@@ -930,8 +959,13 @@ export function checkSettingsChange(
 }
 
 /** The settings fields the config form should lock once ballots exist. */
-export function lockedSettingsFields(ballots: BallotSubmission[]): readonly string[] {
-  return liveBallots(ballots).length > 0 ? ["format", ...BALLOT_SHAPE_PREFERENCES] : [];
+export function lockedSettingsFields(ballots: BallotSubmission[], rounds?: Round[]): readonly string[] {
+  if (liveBallots(ballots).length === 0) return [];
+  return [
+    "format",
+    ...BALLOT_SHAPE_PREFERENCES,
+    ...(liveEliminationBallots(ballots, rounds).length > 0 ? ["eliminationBallotMode"] : []),
+  ];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1065,9 +1099,21 @@ export function checkBreakCategoryDeletion(
 export function checkBreakGeneration(
   category: BreakCategory,
   state: RoundGuardState,
-  updatedRounds: Round[]
+  updatedRounds: Round[],
+  result?: Pick<BreakCategoryResult, "cutoffTies">
 ): GuardViolation[] {
   const violations: GuardViolation[] = [];
+  // A tie at the cutoff is never settled by an arbitrary order; the tab director decides it.
+  for (const tie of result?.cutoffTies ?? []) {
+    const teamNames = tie.teams.map((entry) => entry.team.name).join(", ");
+    violations.push(hard(
+      tie.cutoff === "break" ? "break_cutoff_tie" : "reserve_cutoff_tie",
+      `${teamNames} are tied (rank ${tie.teams[0]?.rank}) for ${tie.places} ` +
+        `${tie.cutoff === "break" ? "breaking" : "reserve"} place${tie.places === 1 ? "" : "s"} in ${category.name}. ` +
+        "Resolve the tie with overrides (manually include the teams that go through, or mark the others, " +
+        "e.g. \"Lost coin toss\") before generating the break."
+    ));
+  }
   const updatedById = new Map(updatedRounds.map((round) => [round.id, round]));
   const started = state.rounds.filter((round) => {
     if (round.stage !== "elimination" || round.cancelled) return false;

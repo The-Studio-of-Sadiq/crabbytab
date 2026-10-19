@@ -2,6 +2,7 @@ import type {
   BreakCategory,
   DrawType,
   Round,
+  TeamMetricId,
   TournamentFormat,
   TournamentPreferences,
 } from "@/types";
@@ -95,6 +96,249 @@ export const SCORE_DEFAULTS: ScoreScale = {
 /** The conventional score scale for a format; every format previously got 68-84 regardless. */
 export function scoreDefaultsFor(format: TournamentFormat): ScoreScale {
   return { ...getFormatPreset(format).scores };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tabbycat rule presets                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A Tabbycat preference preset (tabbycat/options/presets.py, v2.12.1): a format, its speaker and
+ * score settings, and the preference bundle the preset sets. Tabbycat applies only the
+ * preferences a preset lists, so `preferences` holds only those that CrabbyTab supports, mapped
+ * to CrabbyTab's names. `unsupported` lists what the Tabbycat preset sets that CrabbyTab cannot.
+ */
+export interface RulesPreset {
+  id: string;
+  label: string;
+  /** Tabbycat's name for the preset. */
+  tabbycatName: string;
+  blurb: string;
+  format: TournamentFormat;
+  substantiveSpeakers: number;
+  replyScoresEnabled: boolean;
+  scores: ScoreScale;
+  preferences: Partial<TournamentPreferences>;
+  unsupported: string[];
+}
+
+/** AustralsPreferences: also the base of the Easters, NZ Easters, Joynt, UADC and WSDC presets. */
+const AUSTRALS_BUNDLE: Partial<TournamentPreferences> = {
+  avoidSameInstitution: true,
+  avoidTeamHistory: true,
+  oddBracketMethod: "intermediate_bubble",
+  sideAllocationRule: "balanced",
+  pairingMethod: "slide",
+  conflictAvoidance: "one_up_one_down",
+  ballotMode: "voting",
+  eliminationBallotMode: "voting",
+  enableMotionVetoes: true,
+  standingsMissedDebates: 2,
+  teamStandingsPrecedence: ["wins", "speaks_sum"],
+  speakerStandingsPrecedence: ["speaks_avg"],
+  speakerStandingsExtra: ["speaks_stddev", "speeches_count"],
+};
+
+/** Tabbycat's NZ Easters and Joynt Scroll team precedence, with who-beat-whom after each metric. */
+const WBW_PRECEDENCE: TeamMetricId[] = ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"];
+
+export const RULES_PRESETS: RulesPreset[] = [
+  {
+    id: "australs",
+    label: "Australs",
+    tabbycatName: "Australs Rules",
+    blurb: "3 vs 3 with replies, chosen motions, intermediate brackets, one-up-one-down. AIDA rules.",
+    format: "australs",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: true,
+    scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
+    preferences: { ...AUSTRALS_BUNDLE },
+    unsupported: ["Reply score step of 0.5", "Hiding team institutions"],
+  },
+  {
+    id: "bp",
+    label: "British Parliamentary",
+    tabbycatName: "British Parliamentary Rules",
+    blurb: "2 vs 2 vs 2 vs 2. WUDC rules.",
+    format: "bp",
+    substantiveSpeakers: 2,
+    replyScoresEnabled: false,
+    scores: { minSpeakerScore: 50, maxSpeakerScore: 100, stepSpeakerScore: 1, minReplyScore: 25, maxReplyScore: 50 },
+    preferences: {
+      teamScoreIncludesGhosts: true,
+      ballotMode: "consensus",
+      eliminationBallotMode: "consensus",
+      enableMotionVetoes: false,
+      avoidSameInstitution: false,
+      avoidTeamHistory: false,
+      bpPullupDistribution: "anywhere",
+      bpPositionCost: "renyi_entropy",
+      renyiOrder: 1,
+      bpPositionCostExponent: 4,
+      // Tabbycat's chain ends with draw strength by opponents' points, which CrabbyTab does not
+      // compute for BP (its draw strength counts opponents' wins), so it is left out.
+      teamStandingsPrecedence: ["points", "speaks_sum", "firsts", "seconds"],
+      speakerStandingsPrecedence: ["speaks_sum"],
+      speakerStandingsExtra: ["speaks_avg", "speaks_stddev"],
+    },
+    unsupported: [
+      "Draw strength by opponents' points at the end of the team precedence",
+      "Speaker scores only in preliminary rounds",
+      "15-minute preparation time",
+      "Pre-shuffled Hungarian position assignment",
+    ],
+  },
+  {
+    id: "canadian",
+    label: "Canadian Parliamentary",
+    tabbycatName: "Canadian Parliamentary Rules",
+    blurb: "2 vs 2 with replies (unscored) and POIs. May need regional adjustments.",
+    format: "custom_2team",
+    substantiveSpeakers: 2,
+    replyScoresEnabled: false,
+    scores: { minSpeakerScore: 50, maxSpeakerScore: 100, stepSpeakerScore: 1, minReplyScore: 25, maxReplyScore: 50 },
+    preferences: {
+      ballotMode: "consensus",
+      eliminationBallotMode: "consensus",
+      enableMotionVetoes: false,
+      avoidSameInstitution: false,
+      avoidTeamHistory: false,
+      oddBracketMethod: "pullup_top",
+      sideAllocationRule: "balanced",
+      pairingMethod: "fold",
+      conflictAvoidance: "off",
+    },
+    unsupported: ["Government/Opposition side names"],
+  },
+  {
+    id: "australian_easters",
+    label: "Australian Easters",
+    tabbycatName: "Australian Easters Rules",
+    blurb: "3 vs 3 without replies, set motions, novices, intermediate bubbles, one-up-one-down. AIDA rules.",
+    format: "australs",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: false,
+    scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
+    preferences: { ...AUSTRALS_BUNDLE, ballotMode: "consensus", eliminationBallotMode: "voting" },
+    unsupported: ["Maximum margin of 15"],
+  },
+  {
+    id: "nz_easters",
+    label: "NZ Easters (2 vs 2 Impromptu)",
+    tabbycatName: "2 vs 2 Impromptu",
+    blurb: "2 vs 2 with replies, chosen motions, chosen sides and novice statuses.",
+    format: "custom_2team",
+    substantiveSpeakers: 2,
+    replyScoresEnabled: true,
+    scores: { minSpeakerScore: 60, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 30, maxReplyScore: 40 },
+    preferences: {
+      ...AUSTRALS_BUNDLE,
+      teamStandingsPrecedence: WBW_PRECEDENCE,
+      oddBracketMethod: "intermediate",
+      pairingMethod: "fold",
+      conflictAvoidance: "off",
+      avoidSameInstitution: false,
+      avoidTeamHistory: false,
+    },
+    unsupported: ["Sides chosen on the ballot (Tabbycat's manual-ballot side allocation); sides are balanced instead"],
+  },
+  {
+    id: "joynt",
+    label: "Joynt Scroll (3 vs 3 Prepared)",
+    tabbycatName: "3 vs 3 Prepared",
+    blurb: "3 vs 3 with preallocated sides, publicly displayed sides and motions, and novice statuses.",
+    format: "custom_2team",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: true,
+    scores: { minSpeakerScore: 60, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 30, maxReplyScore: 40 },
+    preferences: {
+      ...AUSTRALS_BUNDLE,
+      enableMotionVetoes: false,
+      sideAllocationRule: "preallocated",
+      oddBracketMethod: "intermediate2",
+      pairingMethod: "fold",
+      conflictAvoidance: "off",
+      avoidSameInstitution: false,
+      avoidTeamHistory: false,
+      teamStandingsPrecedence: WBW_PRECEDENCE,
+    },
+    unsupported: ["Turning motions off", "Public side-allocations page"],
+  },
+  {
+    id: "uadc",
+    label: "UADC",
+    tabbycatName: "UADC Rules",
+    blurb: "3 vs 3 with replies, chosen motions, and all adjudicators can receive feedback from teams.",
+    format: "uadc",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: true,
+    // Tabbycat's UADC preset (Handbook 2.8.2) uses 67-83; CrabbyTab's plain UADC format keeps 70-80.
+    scores: { minSpeakerScore: 67, maxSpeakerScore: 83, stepSpeakerScore: 1, minReplyScore: 33.5, maxReplyScore: 41.5 },
+    preferences: {
+      ...AUSTRALS_BUNDLE,
+      marginIncludesDissenters: false,
+      avoidSameInstitution: false,
+      avoidTeamHistory: true,
+      teamStandingsPrecedence: ["wins", "speaks_sum", "margin_avg"],
+      feedbackMinScore: 1,
+      feedbackMaxScore: 10,
+    },
+    unsupported: ["Government/Opposition side names", "Feedback from teams on every adjudicator", "Public feedback progress"],
+  },
+  {
+    id: "wsdc",
+    label: "World Schools (WSDC)",
+    tabbycatName: "WSDC Rules",
+    blurb: "3 vs 3 with replies, single motions, prop/opp sides, and all adjudicators can receive feedback from teams.",
+    format: "wsdc",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: true,
+    scores: { minSpeakerScore: 60, maxSpeakerScore: 80, stepSpeakerScore: 0.5, minReplyScore: 30, maxReplyScore: 40 },
+    preferences: {
+      ...AUSTRALS_BUNDLE,
+      marginIncludesDissenters: true,
+      enableMotionVetoes: false,
+      avoidSameInstitution: false,
+      avoidTeamHistory: true,
+      pairingMethod: "random",
+      oddBracketMethod: "pullup_top",
+      maxTimesPerSide: 5,
+      sideAllocationRule: "balanced",
+      pullupRestriction: "lowest_draw_strength_wins",
+      teamStandingsPrecedence: ["wins", "num_adjs", "speaks_avg"],
+      speakerStandingsPrecedence: ["speaks_avg"],
+    },
+    unsupported: [
+      "Style/Content/Strategy score criteria",
+      "Graph-based conflict avoidance (one-up-one-down is used)",
+      "Proposition/Opposition side names",
+    ],
+  },
+];
+
+/**
+ * Tabbycat presets CrabbyTab does not offer, and why. "Japan BP" is not a Tabbycat preset;
+ * Japanese BP tournaments use the British Parliamentary preset.
+ */
+export const UNSUPPORTED_TABBYCAT_PRESETS: Record<string, string> = {
+  "APDA Rules": "needs speech ranks and separate winner selection on ballots",
+  "Public Speaking": "needs six teams per room with one speaker each",
+  "Karl Popper (Czechia)": "needs median score aggregation and self-split ballots",
+};
+
+export function getRulesPreset(id: string | undefined): RulesPreset | undefined {
+  return RULES_PRESETS.find((preset) => preset.id === id);
+}
+
+/** Every preference a rules preset sets: team and speaker counts, the score scale and its bundle. */
+export function rulesPresetPreferences(preset: RulesPreset): Partial<TournamentPreferences> {
+  return {
+    teamsInDebate: preset.format === "bp" ? 4 : 2,
+    substantiveSpeakers: preset.substantiveSpeakers,
+    replyScoresEnabled: preset.replyScoresEnabled,
+    ...preset.scores,
+    ...preset.preferences,
+  };
 }
 
 /* -------------------------------------------------------------------------- */

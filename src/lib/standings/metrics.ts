@@ -19,13 +19,16 @@ export const TEAM_METRIC_LABELS: Record<TeamMetricId, string> = {
   seconds: "2nds",
   thirds: "3rds",
   pullups: "Times pulled up",
+  wbw: "Who-beat-whom",
+  num_adjs: "Votes/ballots carried",
+  num_iron: "Iron-person speeches",
 };
 
 export const SPEAKER_METRIC_LABELS: Record<SpeakerMetricId, string> = {
   speaks_sum: "Total score",
   speaks_avg: "Average score",
   speaks_stddev: "Standard deviation",
-  speaks_trimmed_mean: "Trimmed mean",
+  speaks_trimmed_mean: "Trimmed mean (high-low drop)",
   speeches_count: "Speeches given",
   reply_sum: "Total reply score",
   reply_avg: "Average reply score",
@@ -48,6 +51,10 @@ export const TEAM_METRIC_DIRECTION: Record<TeamMetricId, 1 | -1> = {
   thirds: 1,
   // Fewer pull-ups ranks higher, as in Tabbycat.
   pullups: -1,
+  wbw: 1,
+  num_adjs: 1,
+  // Fewer debates with a duplicate speech ranks higher, as in Tabbycat.
+  num_iron: -1,
 };
 
 export const SPEAKER_METRIC_DIRECTION: Record<SpeakerMetricId, 1 | -1> = {
@@ -65,7 +72,14 @@ export const ALL_SPEAKER_METRICS = Object.keys(SPEAKER_METRIC_LABELS) as Speaker
 
 /** Metrics that only make sense in a given format; used to grey out choices in the UI. */
 export const BP_ONLY_TEAM_METRICS: TeamMetricId[] = ["firsts", "seconds", "thirds"];
-export const TWO_TEAM_ONLY_TEAM_METRICS: TeamMetricId[] = ["margin_sum", "margin_avg"];
+export const TWO_TEAM_ONLY_TEAM_METRICS: TeamMetricId[] = ["margin_sum", "margin_avg", "num_adjs"];
+/** Metrics that may appear more than once in a precedence chain (Tabbycat allows repeated who-beat-whom). */
+export const REPEATABLE_TEAM_METRICS: TeamMetricId[] = ["wbw"];
+/** Metrics that only make sense as a tiebreak and so are not offered as "extra" display columns. */
+export const RANKING_ONLY_TEAM_METRICS: TeamMetricId[] = ["wbw"];
+
+/** Tabbycat normalises votes carried to a panel of this size (NumberOfAdjudicatorsMetricAnnotator). */
+export const VOTES_NORMALISED_PANEL_SIZE = 3;
 
 /** Defaults chosen to exactly reproduce the tab's pre-existing, hardcoded sort order. */
 export const DEFAULT_TEAM_PRECEDENCE: Record<"bp" | "two_team", TeamMetricId[]> = {
@@ -73,6 +87,12 @@ export const DEFAULT_TEAM_PRECEDENCE: Record<"bp" | "two_team", TeamMetricId[]> 
   two_team: ["points", "speaks_sum", "margin_sum"],
 };
 export const DEFAULT_SPEAKER_PRECEDENCE: SpeakerMetricId[] = ["speaks_sum", "speaks_avg"];
+
+/** Display form of a metric value: whole numbers as they are, anything else to two decimals. */
+export function formatMetricValue(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Small stats helpers                                                        */
@@ -108,6 +128,11 @@ export interface TeamRoundAccum {
   bye?: boolean;
   /** 1..4 in BP (from points); undefined for two-team formats. */
   rankInRoom?: number;
+  /** Voting ballots only: votes this team received and the panel's total votes. */
+  votesGiven?: number;
+  votesPossible?: number;
+  /** The team gave an iron-person (duplicate) speech in this debate. */
+  ironed?: boolean;
 }
 
 export interface TeamMetricContext {
@@ -131,6 +156,11 @@ export function computeTeamMetrics(
   const seconds = rounds.filter((r) => r.rankInRoom === 2).length;
   const thirds = rounds.filter((r) => r.rankInRoom === 3).length;
   const pullups = rounds.filter((r) => r.pulledUp).length;
+  // Consensus ballots record no votes and so carry none, as in Tabbycat.
+  const votesCarried = rounds.reduce(
+    (s, r) => (r.votesPossible ? s + ((r.votesGiven ?? 0) * VOTES_NORMALISED_PANEL_SIZE) / r.votesPossible : s),
+    0
+  );
 
   const opponentIds = rounds.flatMap((r) => r.opponentTeamIds);
   const drawStrengthWins = opponentIds.reduce((s, id) => s + (ctx.opponentWins.get(id) ?? 0), 0);
@@ -151,6 +181,10 @@ export function computeTeamMetrics(
     seconds,
     thirds,
     pullups,
+    // Filled in by the calculator, which needs every team's standing to evaluate it.
+    wbw: 0,
+    num_adjs: votesCarried,
+    num_iron: rounds.filter((r) => r.ironed).length,
   };
 }
 
@@ -158,21 +192,30 @@ export function computeTeamMetrics(
 /* Speaker metrics                                                            */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Tabbycat's "trimmed mean (high-low drop)": drops the `trim` highest and `trim` lowest scores
+ * when more than 2·trim remain, otherwise the plain mean. Tabbycat always drops one from each end
+ * (trim = 1); CrabbyTab lets `speakerTrim` choose how many.
+ */
+export function trimmedMean(scores: number[], trim: number): number {
+  const sorted = [...scores].sort((a, b) => a - b);
+  const kept = trim > 0 && sorted.length > 2 * trim ? sorted.slice(trim, sorted.length - trim) : sorted;
+  return mean(kept);
+}
+
 export function computeSpeakerMetrics(
   substantiveScores: number[],
   replyScores: number[],
   trim: number
 ): Record<SpeakerMetricId, number> {
   const sum = substantiveScores.reduce((a, b) => a + b, 0);
-  const sorted = [...substantiveScores].sort((a, b) => a - b);
-  const kept = trim > 0 && sorted.length > trim ? sorted.slice(trim) : sorted;
   const replySum = replyScores.reduce((a, b) => a + b, 0);
 
   return {
     speaks_sum: sum,
     speaks_avg: mean(substantiveScores),
     speaks_stddev: popStdDev(substantiveScores),
-    speaks_trimmed_mean: mean(kept),
+    speaks_trimmed_mean: trimmedMean(substantiveScores, trim),
     speeches_count: substantiveScores.length,
     reply_sum: replySum,
     reply_avg: mean(replyScores),

@@ -72,7 +72,7 @@ interface BreakRow {
   totalSpeakerScore: number;
   seedLabel: string;
   status: string;
-  tone: "breaking" | "reserve" | "excluded";
+  tone: "breaking" | "reserve" | "tied" | "excluded";
 }
 
 function buildRows(result: BreakCategoryResult): BreakRow[] {
@@ -100,6 +100,20 @@ function buildRows(result: BreakCategoryResult): BreakRow[] {
       status: `Reserve ${entry.reserveIndex}`,
       tone: "reserve" as const,
     })),
+    // Teams tied across a cutoff sit between the clear places and the rest until resolved.
+    ...result.cutoffTies.flatMap((tie) =>
+      tie.teams.map((entry) => ({
+        teamId: entry.team.id,
+        teamName: entry.team.name,
+        institutionName: entry.team.institutionName,
+        rank: entry.rank,
+        points: entry.standing.points,
+        totalSpeakerScore: entry.standing.totalSpeakerScore,
+        seedLabel: "?",
+        status: `Tied: ${tie.places} of ${tie.teams.length} ${tie.cutoff === "break" ? "break" : "reserve"} place${tie.places === 1 ? "" : "s"}`,
+        tone: "tied" as const,
+      }))
+    ),
     ...result.excludedTeams.map((entry) => ({
       teamId: entry.team.id,
       teamName: entry.team.name,
@@ -118,6 +132,7 @@ function buildRows(result: BreakCategoryResult): BreakRow[] {
 const STATUS_CLASSES: Record<BreakRow["tone"], string> = {
   breaking: "bg-purple-100 text-purple-800 border-purple-300",
   reserve: "bg-amber-50 text-amber-800 border-amber-300",
+  tied: "bg-red-50 text-red-800 border-red-300",
   excluded: "bg-gray-100 text-gray-700 border-gray-300",
 };
 
@@ -158,6 +173,7 @@ export default function BreakPage() {
       (selectedCategory.generatedBreak || teams.some((team) => team.breakCategoryIds?.includes(selectedCategory.id)))
   );
   const breakIsStale = selectedResult ? isGeneratedBreakStale(selectedResult) : false;
+  const cutoffTies = selectedResult?.cutoffTies ?? [];
   const eliminatedTeamsCount = teams.filter((team) => team.breakStatus === "eliminated").length;
   const categoryFirstRound = selectedResult && rounds
     .filter((round) => round.stage === "elimination" && round.breakCategoryIds?.includes(selectedResult.category.id))
@@ -370,7 +386,8 @@ export default function BreakPage() {
                   <button
                     type="button"
                     onClick={handleGenerateBreak}
-                    disabled={isGeneratingBreak || breakResults.length === 0}
+                    disabled={isGeneratingBreak || breakResults.length === 0 || cutoffTies.length > 0}
+                    title={cutoffTies.length > 0 ? "Resolve the tie at the cutoff first" : undefined}
                     className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -396,6 +413,31 @@ export default function BreakPage() {
                 )}
               </div>
             </div>
+
+            {cutoffTies.map((tie) => (
+              <div
+                key={tie.cutoff}
+                role="alert"
+                className="flex items-start gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-900"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+                <div>
+                  <p className="font-semibold">
+                    Unresolved tie at the {tie.cutoff === "break" ? "break" : "reserve"} cutoff:{" "}
+                    {tie.teams.length} teams tied at rank {tie.teams[0]?.rank} for {tie.places}{" "}
+                    {tie.cutoff === "break" ? "breaking" : "reserve"} place{tie.places === 1 ? "" : "s"}.
+                  </p>
+                  <p className="mt-0.5">
+                    {tie.teams.map((entry) => entry.team.name).join(", ")} are level on every standings metric, so
+                    CrabbyTab will not pick between them. Decide it (for example by coin toss) and record the result
+                    with overrides: &ldquo;Manually included&rdquo; for the team{tie.places === 1 ? "" : "s"} that go
+                    {tie.places === 1 ? "es" : ""} through (the others stay in the running for reserve places), or
+                    &ldquo;Lost coin toss&rdquo; for the others (which removes them from this category). The break
+                    cannot be generated until then.
+                  </p>
+                </div>
+              </div>
+            ))}
 
             {breakIsStale && (
               <p role="status" className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">

@@ -103,6 +103,7 @@ discarding a result still withdraws released results for the round, as before.
 | --- | --- | --- | --- |
 | Generate a break | Every preliminary round is finished (`prelims_incomplete`). | Overridable | `generateBreakCommand` |
 | Generate (or regenerate) a break | No elimination round it would reschedule, or that hosts the category, has a draw or has advanced (`elimination_started`). | Hard | `generateBreakCommand` |
+| Generate (or regenerate) a break | No teams tied on every standings metric straddle the last breaking place (`break_cutoff_tie`) or the last reserve place (`reserve_cutoff_tie`); resolve with break overrides. | Hard | `generateBreakCommand` (the break page lists the tie) |
 | Delete a break category | It has no generated break and no drawn elimination round (`break_category_in_use`). | Hard | `saveBreakCategoriesCommand` (the break page shows the same message) |
 
 Generating a break now resets an elimination round's advancement only when that round's

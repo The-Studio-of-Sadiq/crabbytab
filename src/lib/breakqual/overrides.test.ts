@@ -178,6 +178,7 @@ describe("applyCategoryBreakStatus", () => {
       category: open,
       breakingTeams: [],
       reserveTeams: [],
+      cutoffTies: [],
       excludedTeams: [],
     });
     expect(regenerated[0]).toBe(history[0]);

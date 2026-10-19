@@ -48,9 +48,9 @@ means the sync/publish hardening PR that added this section.
 | 1.7 rank-vs-score (low-point win) validation | FIXED | #10 | `ballots/result.ts` checks `allowLowPointWins` |
 | 1.8 round completion for prelims | FIXED | #11 | `roundAdministration.ts` `getRoundCompletionBlockers` / `setRoundCompletion` |
 | 1.9 availability mismatch (editors vs generator) | PARTIAL | #23 | generator, allocator and `validateDraw` use per-round availability; draw and allocation editor pools still filter global `checkedIn` |
-| 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | PARTIAL | #11 | reserves, per-category status and partial elims done; cutoff ties are not detected (manual remark only) |
+| 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | FIXED | #11, wave 2 #8 | reserves, per-category status and partial elims; cutoff ties at the break and reserve cutoff reported (`BreakCategoryResult.cutoffTies`) and block generation until resolved with overrides (docs/standings-and-breaks.md) |
 | 1.11 venue re-allocation not persisted | OPEN | — | `application/allocation.ts` cloud save still passes `updatedRoundDebates` (latent while `AUTOMATIC_CLOUD_WRITES=false`; local save is correct) |
-| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `preliminaryPanelsPerScheduleSlot` and `*StandingsExtra` still unused |
+| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` still unused |
 | 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15 | `draw/powerPaired.ts` (golden tests are hand-derived, not recorded Tabbycat output) |
 | 2 two-team draw (intermediate, bubble, min_cost, seeded, preallocated) | FIXED | #15 | `twoTeamDraw.ts`, `oddBrackets.ts`, `minCostPairing.ts`, `weightedMatching.ts`, `rng.ts` |
 | 2 allocator: importance-weighted cost, soft history, user weights | FIXED | #12 | `draw/allocator.ts`; `prioritizeClashAvoidance` removed |
@@ -65,8 +65,8 @@ means the sync/publish hardening PR that added this section.
 | 2 elim: BP elim sides by seed | UNVERIFIED | — | sides are fixed in seed order (OG = top seed); no seed-choice option |
 | 2 elim: manual break overrides and remarks | FIXED | #11 | `BreakCategory.teamOverrides`, `breakqual/calculator.ts` |
 | 2 elim: adjudicator break | FIXED | #16 | `Adjudicator.breaking` and public breaking-adjudicators list |
-| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | OPEN | — | none in `standings/metrics.ts` |
-| 3 voting ballots | PARTIAL | #10 | majority, dissent, `marginIncludesDissenters` done; no per-round consensus option |
+| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | PARTIAL | wave 2 #8 | `wbw` (repeatable), `num_adjs`, `num_iron`, missed-speeches/replies eligibility and the high-low trimmed mean done; reply stddev/count and team points as speaker metrics still open |
+| 3 voting ballots | FIXED | #10, wave 2 #9 | majority, dissent, `marginIncludesDissenters`; consensus or voting per stage (`eliminationBallotMode`, read through `ballotModeFor`) |
 | 3 blind double entry, version history, entered/checked by | FIXED | #10 | `ballotEntry.ts`, `BallotDiffDialog`, `BallotHistory` |
 | 3 vetoes, veto stats, motions by round, forfeits | FIXED | #10 | `BallotSubmission.vetoes` / `forfeitSide`; vetoes in analytics |
 | 3 feedback progress, weights, ignore/confirm, detail page, debate-linked, base/test scores | FIXED | #12 | `lib/feedback/*`, `feedback/adjudicator` page |
@@ -89,8 +89,8 @@ means the sync/publish hardening PR that added this section.
 | 5 mobile round creation below `md` | FIXED | #22 | `Navbar.tsx` round switcher with "New round…" at every width |
 | 5 configurable analytics ranges | OPEN | — | `analytics/page.tsx` hardcodes bins 68–84 |
 
-**Still open:** 0.5-7, 0.5-8, 1.11, Phase 2 standings extras, 4.2, 4.3, analytics ranges. **Partial:** 0.5-5, 1.9, 1.10, 1.12, voting-ballot consensus
-option, diversity stats page, motions-tab release and format-change guard, public non-private
+**Still open:** 0.5-7, 0.5-8, 1.11, 4.2, 4.3, analytics ranges. **Partial:** 0.5-5, 1.9, 1.12, Phase 2 standings
+extras (two speaker metrics), diversity stats page, motions-tab release and format-change guard, public non-private
 submission, draw-editor side-balance flags and keyboard placement, 4.1, 4.5, 4.6, i18n,
 accessibility. **Unverified:** BP elimination sides by seed.
 
@@ -119,7 +119,10 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
 - **#8 Standings and break depth** (M): ties at the break cutoff, minimum-speeches eligibility,
   trimmed mean dropping highest and lowest, who-beat-whom, votes carried, show the configured
   "extra" columns. **#9** (S): ballot mode per stage (prelims vs elims) and the missing presets
-  (NZ Easters, Joynt, Canadian, Japan BP).
+  (NZ Easters, Joynt, Canadian, Japan BP). *Done in wave 2 (see docs/standings-and-breaks.md):
+  cutoff ties are reported and must be resolved with overrides rather than growing the break as
+  Tabbycat does; Tabbycat has no Japan BP preset (BP is used); APDA, Public Speaking and Karl
+  Popper presets are not offered because CrabbyTab lacks the features they need.*
 - **#10 Differential testing against real Tabbycat** (M): identical fixtures through Tabbycat
   (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations.
 

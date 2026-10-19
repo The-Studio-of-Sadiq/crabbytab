@@ -14,15 +14,19 @@ export function PrecedenceEditor<M extends string>({
   onChange,
   labels,
   disabledIds = [],
+  repeatableIds = [],
 }: {
   value: M[];
   onChange: (next: M[]) => void;
   labels: Record<M, string>;
   /** Metrics greyed out in the "add" list (e.g. BP-only metrics in a two-team tournament). */
   disabledIds?: M[];
+  /** Metrics that may be added more than once (who-beat-whom). */
+  repeatableIds?: M[];
 }) {
   const allIds = Object.keys(labels) as M[];
-  const available = allIds.filter((id) => !value.includes(id));
+  const repeatable = new Set(repeatableIds);
+  const available = allIds.filter((id) => repeatable.has(id) || !value.includes(id));
   const disabledSet = new Set(disabledIds);
 
   const move = (index: number, dir: -1 | 1) => {
@@ -35,7 +39,7 @@ export function PrecedenceEditor<M extends string>({
 
   const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
   const add = (id: M) => {
-    if (value.length >= MAX_METRICS || value.includes(id)) return;
+    if (value.length >= MAX_METRICS || (value.includes(id) && !repeatable.has(id))) return;
     onChange([...value, id]);
   };
 
@@ -47,7 +51,7 @@ export function PrecedenceEditor<M extends string>({
       <ol className="space-y-1.5">
         {value.map((id, i) => (
           <li
-            key={id}
+            key={`${id}-${i}`}
             className="flex items-center justify-between bg-white border border-[#d0d7de] rounded px-3 py-1.5"
           >
             <span className="flex items-center space-x-2 text-sm">

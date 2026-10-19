@@ -13,6 +13,8 @@ import { Input, Select } from "@/components/ui/Field";
 import { TabPanel, Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { Award, Download, Medal, Printer, Search, Users } from "lucide-react";
+import { SPEAKER_METRIC_LABELS, TEAM_METRIC_LABELS, formatMetricValue } from "@/lib/standings/metrics";
+import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
 
 type StandingsTab = "teams" | "speakers" | "replies";
 
@@ -38,6 +40,9 @@ export default function StandingsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   const isBP = tournament?.format === "bp";
+  // "Extra" metrics: calculated and shown, but not used to rank (Tabbycat's *_extra_metrics).
+  const teamExtra = resolveTeamExtra(tournament?.preferences);
+  const speakerExtra = resolveSpeakerExtra(tournament?.preferences);
 
   // Teams filter by break category (ids); speakers by speaker category (labels such as ESL/novice).
   // The two are different lists, so each tab offers its own options.
@@ -96,7 +101,7 @@ export default function StandingsPage() {
   ];
   const exportNoun = activeTab === "teams" ? "team" : activeTab === "speakers" ? "speaker" : "reply";
   const noMatches = searchQuery || selectedCategory !== "all" ? "No entries match the current filters." : "No results have been entered yet.";
-  const teamColumns = isBP ? 11 : 9;
+  const teamColumns = (isBP ? 11 : 9) + teamExtra.length;
 
   return (
     <div className="space-y-6">
@@ -172,6 +177,9 @@ export default function StandingsPage() {
                       <TH align="right" className="w-16">Margin</TH>
                     </>
                   )}
+                  {teamExtra.map((metric) => (
+                    <TH key={metric} align="right">{TEAM_METRIC_LABELS[metric]}</TH>
+                  ))}
                   <TH>Round results</TH>
                 </TR>
               </THead>
@@ -198,6 +206,9 @@ export default function StandingsPage() {
                         <TD numeric>{team.margins && team.margins > 0 ? `+${team.margins}` : team.margins || 0}</TD>
                       </>
                     )}
+                    {teamExtra.map((metric) => (
+                      <TD key={metric} numeric className="text-fg-muted">{formatMetricValue(team.metrics[metric])}</TD>
+                    ))}
                     <TD>
                       <div className="flex items-center gap-1">
                         {team.roundResults.map((r, rIdx) => (
@@ -233,23 +244,32 @@ export default function StandingsPage() {
                   <TH align="right">Speeches</TH>
                   <TH align="right">Total</TH>
                   <TH align="right">Average</TH>
+                  {speakerExtra.map((metric) => (
+                    <TH key={metric} align="right">{SPEAKER_METRIC_LABELS[metric]}</TH>
+                  ))}
                   <TH>Round scores</TH>
                 </TR>
               </THead>
               <TBody>
-                {filteredSpeakers.length === 0 && <TableEmpty colSpan={8}>{noMatches}</TableEmpty>}
+                {filteredSpeakers.length === 0 && <TableEmpty colSpan={8 + speakerExtra.length}>{noMatches}</TableEmpty>}
                 {filteredSpeakers.map((spk) => (
                   <TR key={spk.speakerId}>
-                    <TD numeric className="text-fg-muted">{spk.rank}</TD>
+                    <TD numeric className="text-fg-muted">
+                      {spk.ineligible ? <span title="Missed too many speeches to be ranked">—</span> : spk.rank}
+                    </TD>
                     <TD className="font-medium">
                       {spk.speakerName}
                       {spk.categories?.length > 0 && <Badge className="ml-2 uppercase">{spk.categories.join(", ")}</Badge>}
+                      {spk.ineligible && <Badge className="ml-2">Unranked: missed speeches</Badge>}
                     </TD>
                     <TD>{spk.teamName}</TD>
                     <TD className="text-fg-muted">{spk.institutionCode || "—"}</TD>
                     <TD numeric className="text-fg-muted">{spk.speechesCount}</TD>
                     <TD numeric className="text-[13px] font-semibold">{spk.totalScore.toFixed(1)}</TD>
                     <TD numeric>{spk.averageScore.toFixed(2)}</TD>
+                    {speakerExtra.map((metric) => (
+                      <TD key={metric} numeric className="text-fg-muted">{formatMetricValue(spk.metrics[metric])}</TD>
+                    ))}
                     <TD>
                       <div className="flex items-center gap-1 font-mono text-[11px] text-fg-muted">
                         {spk.scoresByRound.map((sr, idx) => (
@@ -284,8 +304,13 @@ export default function StandingsPage() {
               <TBody>
                 {replyStandings.map((rep) => (
                   <TR key={rep.speakerId}>
-                    <TD numeric className="text-fg-muted">{rep.rank}</TD>
-                    <TD className="font-medium">{rep.speakerName}</TD>
+                    <TD numeric className="text-fg-muted">
+                      {rep.ineligible ? <span title="Missed too many replies to be ranked">—</span> : rep.rank}
+                    </TD>
+                    <TD className="font-medium">
+                      {rep.speakerName}
+                      {rep.ineligible && <Badge className="ml-2">Unranked: missed replies</Badge>}
+                    </TD>
                     <TD>{rep.teamName}</TD>
                     <TD numeric className="text-fg-muted">{rep.speechesCount}</TD>
                     <TD numeric className="text-[13px] font-semibold">{rep.totalScore.toFixed(1)}</TD>

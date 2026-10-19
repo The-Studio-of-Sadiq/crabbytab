@@ -39,6 +39,8 @@ import {
   TEAM_METRIC_LABELS,
   SPEAKER_METRIC_LABELS,
   BP_ONLY_TEAM_METRICS,
+  RANKING_ONLY_TEAM_METRICS,
+  REPEATABLE_TEAM_METRICS,
   TWO_TEAM_ONLY_TEAM_METRICS,
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
@@ -149,7 +151,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
   const [saveError, setSaveError] = useState("");
   // Once ballots exist, the fields that shape a ballot are fixed (enforced by saveTournament too).
-  const ballotShapeLocked = lockedSettingsFields(ballots).length > 0;
+  const lockedFields = lockedSettingsFields(ballots, rounds);
+  const ballotShapeLocked = lockedFields.length > 0;
+  const eliminationBallotModeLocked = lockedFields.includes("eliminationBallotMode");
   const [questionnaireSource, setQuestionnaireSource] = useState<"team" | "adjudicator">("team");
   const currentFeedbackQuestions = questionnaireSource === "team"
     ? prefs.teamFeedbackQuestions ?? prefs.feedbackQuestions ?? []
@@ -1344,7 +1348,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
                 {tournament?.format !== "bp" && (
                   <label className="block p-3 rounded bg-gray-50 border border-gray-200">
-                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate</span>
+                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate, preliminary rounds</span>
                     <select
                       value={prefs.ballotMode ?? "consensus"}
                       disabled={ballotShapeLocked}
@@ -1356,6 +1360,32 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     </select>
                     <span className="text-[11px] text-gray-500 block mt-1">
                       With voting ballots, recorded speaker scores are the average of the majority; the chair breaks a tied panel.
+                    </span>
+                  </label>
+                )}
+
+                {tournament?.format !== "bp" && (
+                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
+                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate, elimination rounds</span>
+                    <select
+                      value={prefs.eliminationBallotMode ?? ""}
+                      disabled={eliminationBallotModeLocked}
+                      onChange={(e) =>
+                        setPrefs((p) => ({
+                          ...p,
+                          eliminationBallotMode: (e.target.value || undefined) as "consensus" | "voting" | undefined,
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
+                    >
+                      <option value="">Same as preliminary rounds</option>
+                      <option value="consensus">Consensus — one ballot for the whole panel</option>
+                      <option value="voting">Voting — one scoresheet per voting adjudicator; the majority decides</option>
+                    </select>
+                    <span className="text-[11px] text-gray-500 block mt-1">
+                      {eliminationBallotModeLocked
+                        ? "Elimination ballots have been entered, so this is locked."
+                        : "Can be changed until the first elimination ballot is entered."}
                     </span>
                   </label>
                 )}
@@ -1616,7 +1646,12 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
                 labels={TEAM_METRIC_LABELS}
                 disabledIds={format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS}
+                repeatableIds={REPEATABLE_TEAM_METRICS}
               />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Who-beat-whom compares two teams (only ever exactly two) tied on every metric above it, by the points
+                each earned against the other. As in Tabbycat, it can be added more than once.
+              </p>
               <p className="text-[11px] text-gray-500 mt-1">
                 Default for this format: {resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" \u2192 ")}
               </p>
@@ -1628,7 +1663,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 value={prefs.teamStandingsExtra ?? []}
                 onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
                 labels={TEAM_METRIC_LABELS}
-                exclude={prefs.teamStandingsPrecedence ?? []}
+                exclude={[...(prefs.teamStandingsPrecedence ?? []), ...RANKING_ONLY_TEAM_METRICS]}
               />
             </div>
 
@@ -1662,10 +1697,43 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 type="number"
                 min={0}
                 className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                value={prefs.speakerTrim ?? 0}
-                onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Number(e.target.value) || 0) }))}
+                value={prefs.speakerTrim ?? 1}
+                onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Math.floor(Number(e.target.value)) || 0) }))}
               />
-              <p className="text-[11px] text-gray-500 mt-1">Number of a speaker&apos;s lowest scores dropped before averaging.</p>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Scores dropped from each end: the trimmed mean leaves out a speaker&apos;s highest and lowest score(s), as
+                Tabbycat does (1 = one of each). With too few scores it is the plain average.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
+              {(
+                [
+                  ["standingsMissedDebates", "Speeches a speaker may miss", "speaker tab"],
+                  ["standingsMissedReplies", "Replies a speaker may miss", "replies tab"],
+                ] as const
+              ).map(([key, label, tab]) => (
+                <div key={key}>
+                  <label htmlFor={`pref-${key}`} className="block text-xs font-semibold text-gray-700 mb-1">
+                    {label}
+                  </label>
+                  <input
+                    id={`pref-${key}`}
+                    type="number"
+                    min={-1}
+                    className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    value={prefs[key] ?? -1}
+                    onChange={(e) => {
+                      const value = Math.floor(Number(e.target.value));
+                      setPrefs((p) => ({ ...p, [key]: Number.isFinite(value) && value >= 0 ? value : undefined }));
+                    }}
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    -1 = no limit. A speaker who missed more preliminary rounds (with results) than this is listed on
+                    the {tab} but not ranked.
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         )}
