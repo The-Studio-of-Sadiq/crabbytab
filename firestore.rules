@@ -62,6 +62,65 @@ service cloud.firestore {
         allow read, write: if isTournamentAdmin();
       }
 
+      // Live collections (docs/live-collaboration.md). Administrators read and write them through
+      // the rule above. Data-entry assistants may additionally create their own unconfirmed
+      // ballots and change only check-in fields; they never read these collections directly
+      // (their copy comes redacted from the assistant-data route). The field lists mirror
+      // ASSISTANT_LIVE_BALLOT_FIELDS / ASSISTANT_LIVE_CHECK_IN_FIELDS in src/lib/dataEntrySync.ts.
+      function assistantLiveBallotFields() {
+        return ["id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText",
+          "speakerScores", "teamScores", "timestamp", "confirmed", "discarded", "submitterType",
+          "submitterId", "submitterName", "chairId", "syncVersion"];
+      }
+
+      function assistantLiveCheckInFields() {
+        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion"];
+      }
+
+      function isAssistantBallot(ballotId) {
+        let ballot = request.resource.data;
+        let debatePath = /databases/$(database)/documents/tournaments/$(tournamentId)/debates/$(ballot.debateId);
+        return ballot.keys().hasOnly(assistantLiveBallotFields()) &&
+          ballot.keys().hasAll(["id", "tournamentId", "roundId", "debateId", "version", "speakerScores",
+            "teamScores", "confirmed", "discarded", "submitterType", "submitterId"]) &&
+          ballot.id == ballotId &&
+          ballot.tournamentId == tournamentId &&
+          ballot.confirmed == false &&
+          ballot.discarded == false &&
+          ballot.submitterType == "tabroom" &&
+          ballot.submitterId == request.auth.uid &&
+          ballot.version is int && ballot.version >= 1 && ballot.version <= 1000 &&
+          ballot.speakerScores is map &&
+          ballot.teamScores is map &&
+          ballot.get("syncVersion", 1) == 1 &&
+          ballot.debateId is string &&
+          exists(debatePath) &&
+          get(debatePath).data.roundId == ballot.roundId &&
+          !("deletedAt" in get(debatePath).data);
+      }
+
+      function isAssistantCheckIn() {
+        let next = request.resource.data;
+        return !("deletedAt" in resource.data) &&
+          next.diff(resource.data).affectedKeys().hasOnly(assistantLiveCheckInFields()) &&
+          next.get("checkedIn", false) is bool &&
+          next.get("roundAvailability", {}) is map &&
+          next.get("roundAvailabilityAt", {}) is map &&
+          next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1;
+      }
+
+      match /ballots/{ballotId} {
+        allow create: if isAssignedAssistant() && isAssistantBallot(ballotId);
+      }
+
+      match /teams/{teamId} {
+        allow update: if isAssignedAssistant() && isAssistantCheckIn();
+      }
+
+      match /adjudicators/{adjudicatorId} {
+        allow update: if isAssignedAssistant() && isAssistantCheckIn();
+      }
+
       // Conflicting cloud versions are append-only recovery records.
       match /syncConflicts/{conflictId} {
         allow read: if isTournamentAdmin();

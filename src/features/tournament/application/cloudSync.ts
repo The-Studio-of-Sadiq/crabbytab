@@ -264,11 +264,11 @@ export function syncContentHash(record: CloudRecord): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-function syncVersionOf(record: CloudRecord): number {
+export function syncVersionOf(record: CloudRecord): number {
   return Number(record.syncVersion) || 0;
 }
 
-function baselineEntryFor(record: CloudRecord): SyncBaselineEntry {
+export function baselineEntryFor(record: CloudRecord): SyncBaselineEntry {
   return { v: syncVersionOf(record), h: syncContentHash(record) };
 }
 
@@ -284,7 +284,7 @@ function baselineEntryFor(record: CloudRecord): SyncBaselineEntry {
  * baselines existed), the record's own `syncVersion` is the version it started from. That version
  * must match the cloud's too, so a record whose baseline was saved without it is flagged.
  */
-function classifyAgainstBaseline(
+export function classifyAgainstBaseline(
   local: CloudRecord,
   cloud: CloudRecord,
   base: SyncBaselineEntry | undefined

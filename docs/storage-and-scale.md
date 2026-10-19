@@ -30,6 +30,10 @@ readable synchronously before the first paint.
 
 ## Uploading to the cloud
 
+For cloud tournaments on administrator devices, ballots, debates, teams and adjudicators are also
+written and read live, record by record (see `live-collaboration.md`); uploads then normally have
+nothing to send for those collections.
+
 "Upload to cloud" sends only what changed since this device last synced:
 
 - **Delta.** `recordsChangedSinceBaseline` (`application/cloudSync.ts`) compares each record with

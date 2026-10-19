@@ -139,7 +139,10 @@ conflicts (the warning in the top bar, or the account menu) with the fields that
 differ, until you keep this device's or the cloud version of each. The top bar
 counts changes not yet uploaded, and public pages only change when an upload or
 release publishes a conflict-free cloud copy; see
-[docs/public-pages-and-notifications.md](./docs/public-pages-and-notifications.md#when-public-pages-change). Team portals show ballots only
+[docs/public-pages-and-notifications.md](./docs/public-pages-and-notifications.md#when-public-pages-change). For
+cloud tournaments, administrator devices also sync ballots, check-ins, draws and
+allocations live (offline changes queue and send on reconnect); see
+[docs/live-collaboration.md](./docs/live-collaboration.md). Team portals show ballots only
 after results are released on a non-silent round, and hide speaker scores until
 team speaks are released.
 

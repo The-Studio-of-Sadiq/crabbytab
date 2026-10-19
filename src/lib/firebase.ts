@@ -1,6 +1,12 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  Firestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -26,7 +32,25 @@ let db: Firestore | null = null;
 if (isFirebaseConfigured) {
   app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  db = createFirestore(app);
+}
+
+/**
+ * In the browser, Firestore keeps a persistent cache (IndexedDB, shared by the tabs of a browser):
+ * live listeners start from it, resume with only the changes, and writes made offline are queued
+ * there until the device reconnects (see docs/live-collaboration.md). If the cache cannot be set
+ * up (no IndexedDB, or the instance already exists), the SDK's default memory cache is used.
+ */
+function createFirestore(firebaseApp: FirebaseApp): Firestore {
+  if (typeof window === "undefined" || typeof indexedDB === "undefined") return getFirestore(firebaseApp);
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (error) {
+    console.warn("Firestore persistent cache unavailable; using the memory cache.", error);
+    return getFirestore(firebaseApp);
+  }
 }
 
 export { app, auth, db };
