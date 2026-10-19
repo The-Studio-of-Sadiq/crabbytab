@@ -32,6 +32,7 @@ import {
   planRepublish,
   shouldWarnBeforeUnload,
 } from "@/features/tournament/application/syncStatus";
+import { describeLiveSyncStatus } from "@/features/tournament/application/liveSync";
 import {
   AlertTriangle,
   ChevronsUpDown,
@@ -47,6 +48,9 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Pause,
+  Play,
+  RadioTower,
   Menu,
   Plus,
   Shield,
@@ -71,8 +75,19 @@ function SyncStatus({
   onDownload?: () => void;
   onExportRecovery?: () => void;
 }) {
-  const { cloudSyncState, cloudSyncMessage, localSaveError, divergedRecords, pendingChanges, uploadIssue } =
-    useTournament();
+  const {
+    cloudSyncState,
+    cloudSyncMessage,
+    localSaveError,
+    divergedRecords,
+    pendingChanges,
+    uploadIssue,
+    liveSync,
+    liveSyncEnabled,
+    setLiveSyncEnabled,
+    ballotConfirmationConflicts,
+    isOwnerOrAdmin,
+  } = useTournament();
   const isSyncing = cloudSyncState === "syncing";
 
   if (localSaveError) {
@@ -141,9 +156,35 @@ function SyncStatus({
     <StatusPill tone="danger">
       <span className="max-sm:sr-only">Sync failed</span>
     </StatusPill>
+  ) : ballotConfirmationConflicts.length > 0 ? (
+    <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+      <span className="max-sm:sr-only">
+        {ballotConfirmationConflicts.length} double confirmation{ballotConfirmationConflicts.length === 1 ? "" : "s"}
+      </span>
+    </StatusPill>
+  ) : liveSync.mode === "error" ? (
+    <StatusPill tone="danger" icon={<AlertTriangle aria-hidden="true" />} title={describeLiveSyncStatus(liveSync)}>
+      <span className="max-sm:sr-only">Live updates stopped</span>
+    </StatusPill>
+  ) : liveSync.mode === "offline" ? (
+    <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title={describeLiveSyncStatus(liveSync)}>
+      <span className="max-sm:sr-only">
+        {liveSync.queuedWrites > 0 ? `Offline — ${liveSync.queuedWrites} queued` : "Offline"}
+      </span>
+    </StatusPill>
   ) : pendingChanges.total > 0 ? (
     <StatusPill tone="warning" icon={<CloudUpload aria-hidden="true" />}>
       <span className="max-sm:sr-only">{pendingLabel}</span>
+    </StatusPill>
+  ) : liveSync.mode === "live" || liveSync.mode === "connecting" ? (
+    <StatusPill
+      tone={liveSync.mode === "live" ? "success" : "info"}
+      icon={liveSync.queuedWrites > 0 || liveSync.mode === "connecting"
+        ? <Loader2 className="animate-spin" aria-hidden="true" />
+        : <RadioTower aria-hidden="true" />}
+      title={describeLiveSyncStatus(liveSync)}
+    >
+      <span className="max-sm:sr-only">{liveSync.mode === "live" ? "Live" : "Connecting…"}</span>
     </StatusPill>
   ) : !isOnline ? (
     <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />}>
@@ -174,6 +215,20 @@ function SyncStatus({
               {divergedRecords.length} record(s) changed both here and in the cloud. Choose which version to keep before uploading.
             </p>
           )}
+          {ballotConfirmationConflicts.length > 0 && (
+            <p className="text-warning">
+              {ballotConfirmationConflicts.length} debate(s) have more than one confirmed ballot, confirmed on
+              different devices. Open the debate&apos;s ballots and discard the version that should not count.
+            </p>
+          )}
+          {liveSync.mode !== "off" ? (
+            <p className={liveSync.mode === "error" ? "text-danger" : liveSync.mode === "offline" ? "text-warning" : undefined}>
+              {describeLiveSyncStatus(liveSync)} Ballots, check-ins, draws and allocations sync live; settings,
+              rounds, motions, rooms, breaks and feedback still upload with Upload now.
+            </p>
+          ) : isOwnerOrAdmin && !liveSyncEnabled ? (
+            <p>Live updates are paused on this device; every change waits for Upload now.</p>
+          ) : null}
           {pendingChanges.total > 0 ? (
             <>
               <p>
@@ -188,7 +243,7 @@ function SyncStatus({
           ) : (
             <p>Everything on this device has been uploaded.</p>
           )}
-          {!isOnline && <p>You are offline. Changes stay on this device until you upload.</p>}
+          {!isOnline && liveSync.mode === "off" && <p>You are offline. Changes stay on this device until you upload.</p>}
           {cloudSyncMessage && (
             <p className={cloudSyncState === "error" ? "text-danger" : undefined}>
               Last result: {cloudSyncMessage}
@@ -207,6 +262,14 @@ function SyncStatus({
         {divergedRecords.length > 0 && (
           <DropdownMenuItem icon={<AlertTriangle />} onSelect={onOpenConflicts}>
             Resolve sync conflicts ({divergedRecords.length})…
+          </DropdownMenuItem>
+        )}
+        {isOwnerOrAdmin && (
+          <DropdownMenuItem
+            icon={liveSyncEnabled ? <Pause /> : <Play />}
+            onSelect={() => setLiveSyncEnabled(!liveSyncEnabled)}
+          >
+            {liveSyncEnabled ? "Pause live updates on this device" : "Resume live updates"}
           </DropdownMenuItem>
         )}
         {onExportRecovery && (uploadIssue?.kind === "conflicts" || divergedRecords.length > 0) && (
@@ -257,6 +320,7 @@ export function Navbar({
     syncDataEntry,
     pendingChanges,
     uploadIssue,
+    liveSync,
   } = useTournament();
   const { user, logout } = useAuth();
   const { preference, setPreference } = useThemePreference();
@@ -285,7 +349,11 @@ export function Navbar({
   const [republishPlan, setRepublishPlan] = useState<ReturnType<typeof planRepublish> | null>(null);
 
   useBeforeUnloadWarning(
-    shouldWarnBeforeUnload({ cloudSyncEnabled, pendingTotal: pendingChanges.total, cloudBusy: isSyncing })
+    shouldWarnBeforeUnload({
+      cloudSyncEnabled,
+      pendingTotal: pendingChanges.total + liveSync.queuedWrites,
+      cloudBusy: isSyncing,
+    })
   );
 
   const handleUpload = async () => {

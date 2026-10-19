@@ -78,7 +78,7 @@ means the sync/publish hardening PR that added this section.
 | 3 data (DebateXML import, CSV exports, backup restore) | FIXED | #14 | `debateXmlImport.ts`, `csv/exporters.ts`, `tournamentBackup.ts` |
 | 3 notifications, QR slips, self check-in | FIXED | #16 | `api/tournaments/[id]/notifications`, `lib/qr/qrcode.ts` |
 | 3 team break eligibility and speaker categories | FIXED | #11 | `TeamCategoryFields.tsx`; CSV `break_categories` |
-| 4.1 sync model B (Firestore source of truth) | PARTIAL | #24, #25, #27, this PR | stop-gap baseline merge, conflict resolution and honest publish only; no `persistentLocalCache` / `onSnapshot` |
+| 4.1 sync model B (Firestore source of truth) | PARTIAL | #24, #25, #27, #30, wave 2 #6 | step 1 live: ballots, debates (draw/allocation) and teams/adjudicators (check-ins) are written per record (field-level `mergeFields` batches) and read through current-round `onSnapshot` listeners on admin devices, with the SDK's `persistentLocalCache` queuing offline writes (`liveSync.ts`, `liveSession.ts`, `liveRepository.ts`, [live-collaboration.md](./live-collaboration.md)); settings, rounds, motions, rooms, breaks, feedback and audit stay upload/download; assistants not live yet (rules allow their unconfirmed-ballot and check-in writes); no rules emulator tests |
 | 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.6k lines; provider value is an inline object |
 | 4.3 bound local `auditEvents` | OPEN | — | no limit |
 | 4.4 heavy compute in Web Workers | FIXED | #32 | draw generation and allocation run in `compute.worker.ts` |
@@ -111,7 +111,8 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
 
 **Wave 2 — P1, running a large live event (parallel).**
 - **#6 Live multi-user collaboration** (L): sync model B — Firestore as source of truth with
-  current-round listeners, starting with ballots, check-ins and allocation.
+  current-round listeners, starting with ballots, check-ins and allocation. *Step 1 done: see
+  `live-collaboration.md` for the hybrid, conflict semantics and limitations.*
 - **#7 Paper-ballot intake board** (M): per-round status (missing / received / entered / awaiting
   check / confirmed / disputed), one printed ballot per adjudicator with a barcode, scan on arrival.
 - **#8 Standings and break depth** (M): ties at the break cutoff, minimum-speeches eligibility,
@@ -138,7 +139,10 @@ feedback forms.
 ## Where CrabbyTab stands
 
 **Architecture.** Next.js 15 + React 19, client-side compute. Working copy lives in IndexedDB
-per tournament (see `storage-and-scale.md`); Firestore is a manually-triggered upload/download mirror (`AUTOMATIC_CLOUD_WRITES = false`).
+per tournament (see `storage-and-scale.md`). For cloud tournaments on administrator devices,
+ballots, debates, teams and adjudicators sync live through Firestore listeners and per-record
+writes (`live-collaboration.md`); every other collection is still a manually-triggered
+upload/download mirror (`AUTOMATIC_CLOUD_WRITES = false`).
 Private URLs, assistants and public pages go through server routes (firebase-admin). Beta began a
 clean `features/tournament/{application,infrastructure}` split; `TournamentContext` is down to ~1.9k lines.
 

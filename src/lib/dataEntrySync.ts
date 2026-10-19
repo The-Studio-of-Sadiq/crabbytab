@@ -27,6 +27,20 @@ export const DATA_ENTRY_FIELDS = {
   ],
 } as const;
 
+/**
+ * What firestore.rules lets a data-entry assistant write directly to the live collections (see
+ * docs/live-collaboration.md): their own unconfirmed ballots, and check-in fields of teams and
+ * adjudicators. The rules hold the same lists (assistantLiveBallotFields /
+ * assistantLiveCheckInFields); a test keeps them in step.
+ */
+export const ASSISTANT_LIVE_BALLOT_FIELDS = [
+  ...DATA_ENTRY_FIELDS.ballots,
+  "confirmed", "discarded", "submitterType", "submitterId", "submitterName", "chairId", "syncVersion",
+] as const;
+export const ASSISTANT_LIVE_CHECK_IN_FIELDS = [
+  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion",
+] as const;
+
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */
 export const DATA_ENTRY_CREATE_ONLY_FIELDS: Partial<Record<DataEntryCollection, readonly string[]>> = {
   teams: ["breakCategories", "speakerCategories"],

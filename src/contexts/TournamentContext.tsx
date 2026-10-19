@@ -122,6 +122,18 @@ import { createFirestoreDrawRepository } from "@/features/tournament/infrastruct
 import { createFirestoreBreakRepository } from "@/features/tournament/infrastructure/breakRepository";
 import { createFirestoreTournamentRepository } from "@/features/tournament/infrastructure/tournamentRepository";
 import { createFirestoreAuditRepository } from "@/features/tournament/infrastructure/auditRepository";
+import { createFirestoreLivePort } from "@/features/tournament/infrastructure/liveRepository";
+import { createLiveSession, type LiveSession, type LiveSessionHost } from "@/features/tournament/application/liveSession";
+import {
+  applyLiveSnapshot,
+  findConfirmationConflicts,
+  LIVE_SYNC_OFF,
+  mergeDivergedRecords,
+  planLiveWrites,
+  withBaselineEntries,
+  type LiveCollectionName,
+  type LiveSyncStatus,
+} from "@/features/tournament/application/liveSync";
 import { runComputeJob } from "@/features/tournament/compute/computeClient";
 import type { ComputeKind, ComputeRequest, ComputeResults } from "@/features/tournament/compute/computeJobs";
 import { summarizeDivergedRecord, type DivergedRecordSummary } from "@/features/tournament/application/syncConflicts";
@@ -179,6 +191,16 @@ export interface TournamentContextType {
   pendingChanges: PendingChanges;
   /** Set when the last upload left records unsynced (conflicts) or stopped part-way. */
   uploadIssue: UploadIssue | null;
+  /**
+   * Live collaboration for ballots, check-ins (teams, adjudicators) and debates (draw and
+   * allocation): "off" for local-only tournaments, shared views, assistants, or when paused here.
+   */
+  liveSync: LiveSyncStatus;
+  /** Whether this device uses live collaboration when it can (a per-device setting). */
+  liveSyncEnabled: boolean;
+  setLiveSyncEnabled: (enabled: boolean) => void;
+  /** Debates with more than one confirmed ballot (two devices confirmed different versions). */
+  ballotConfirmationConflicts: Array<{ debateId: string; ballotIds: string[] }>;
   downloadFromCloud: () => Promise<void>;
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
@@ -280,6 +302,15 @@ const TournamentContext = createContext<TournamentContextType | undefined>(undef
 
 const AUTOMATIC_CLOUD_WRITES = false;
 
+const LIVE_FLUSH_TIMEOUT_MILLISECONDS = 20_000;
+
+/** A network failure (no connection), as opposed to a refusal by the server. */
+function isLikelyOffline(error: unknown): boolean {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (error instanceof TypeError) return true;
+  return (error as { code?: unknown } | null)?.code === "unavailable";
+}
+
 export function TournamentProvider({
   tournamentSlug,
   children,
@@ -311,6 +342,7 @@ export function TournamentProvider({
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
+  const [liveAdminVerified, setLiveAdminVerified] = useState(false);
   const [staffAccessError, setStaffAccessError] = useState("");
   const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
   const [divergedRecords, setDivergedRecords] = useState<DivergedRecord[]>([]);
@@ -444,8 +476,161 @@ export function TournamentProvider({
   };
 
   const readSyncTombstones = () => readSyncIds("syncTombstones");
-  const recordSyncTombstones = (deletions: CloudDeletionMap) => recordSyncIds("syncTombstones", deletions);
+  // Records already soft-deleted in the cloud by a live write need no tombstone for upload.
+  const liveDeletedRef = useRef(new Set<string>());
+  const recordSyncTombstones = (deletions: CloudDeletionMap) => recordSyncIds(
+    "syncTombstones",
+    Object.fromEntries(
+      Object.entries(deletions).map(([name, ids]) => [
+        name,
+        (ids || []).filter((id) => !liveDeletedRef.current.has(`${name}/${id}`)),
+      ])
+    ) as CloudDeletionMap
+  );
   const clearSyncedTombstones = (uploaded: CloudDeletionMap) => clearSyncIds("syncTombstones", uploaded);
+
+  // Live collaboration (docs/live-collaboration.md). While a live session runs, ballots, debates,
+  // teams and adjudicators are written to Firestore record by record as commands save them, and
+  // listeners bring other devices' changes in. `liveRecordsRef` then holds this device's current
+  // copy of those collections (updated synchronously by every live save and listener event, so a
+  // command never builds on a copy older than a change already received); without a session it
+  // follows React state.
+  const [liveSync, setLiveSync] = useState<LiveSyncStatus>(LIVE_SYNC_OFF);
+  const [liveSyncEnabled, setLiveSyncEnabledState] = useState(true);
+  const [liveResyncCount, setLiveResyncCount] = useState(0);
+  const liveSessionRef = useRef<LiveSession | null>(null);
+  const liveRecordsRef = useRef<Record<LiveCollectionName, CloudRecord[]>>({
+    ballots: [],
+    debates: [],
+    teams: [],
+    adjudicators: [],
+  });
+  if (!liveSessionRef.current) {
+    liveRecordsRef.current = {
+      ballots: toCloudRecords(ballots),
+      debates: toCloudRecords(debates),
+      teams: toCloudRecords(teams),
+      adjudicators: toCloudRecords(adjudicators),
+    };
+  }
+  const liveStorageKeys: Record<LiveCollectionName, string> = {
+    ballots: "ballots",
+    debates: "debates",
+    teams: "teams",
+    adjudicators: "adjudicators",
+  };
+  const setLiveCollectionState = (name: LiveCollectionName, records: CloudRecord[]) => {
+    liveRecordsRef.current = { ...liveRecordsRef.current, [name]: records };
+    if (name === "ballots") setBallots(records as unknown as BallotSubmission[]);
+    else if (name === "debates") setDebates(records as unknown as Debate[]);
+    else if (name === "teams") setTeams(records as unknown as Team[]);
+    else setAdjudicators(records as unknown as Adjudicator[]);
+    persistLocal(liveStorageKeys[name], records);
+  };
+
+  /**
+   * Saves a command's result for a live collection. `base` is the state the command started from:
+   * with a live session, only what the command changed is applied on top of the current copy and
+   * written to the cloud (see planLiveWrites); otherwise the result is saved as is.
+   */
+  const saveLiveRecords = <T extends { id: string }>(name: LiveCollectionName, base: T[], next: T[]) => {
+    const session = liveSessionRef.current;
+    if (!session) {
+      setLiveCollectionState(name, toCloudRecords(next));
+      return;
+    }
+    const baseline = readSyncBaseline();
+    const plan = planLiveWrites({
+      collection: name,
+      base: toCloudRecords(base),
+      next: toCloudRecords(next),
+      latest: liveRecordsRef.current[name],
+      baseline: baseline[name] || {},
+      now: new Date().toISOString(),
+    });
+    setLiveCollectionState(name, plan.records);
+    if (plan.writes.length === 0) return;
+    saveSyncState(withBaselineEntries(baseline, name, plan.baseline));
+    if (plan.deletedIds.length > 0) {
+      for (const id of plan.deletedIds) liveDeletedRef.current.add(`${name}/${id}`);
+      clearSyncIds("syncTombstones", { [name]: plan.deletedIds });
+    }
+    session.write(plan.writes);
+  };
+
+  /**
+   * Stops the live session before replacing whole collections (download, upload results, backup
+   * restore, conflict choices); `resumeLive` restarts it from the new state, and the listeners'
+   * first events re-apply every cloud record on top of it.
+   */
+  const suspendLive = () => {
+    liveSessionRef.current?.dispose();
+    liveSessionRef.current = null;
+  };
+  const resumeLive = () => setLiveResyncCount((count) => count + 1);
+  /**
+   * Waits until the cloud has every live write made on this device, so an upload or publish
+   * reads them. Refuses after a while instead of hanging when the connection is gone.
+   */
+  const flushLiveWrites = async () => {
+    const session = liveSessionRef.current;
+    if (!session) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        session.flush(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Live changes from this device are still being sent to the cloud. Check the connection and try again.")),
+            LIVE_FLUSH_TIMEOUT_MILLISECONDS
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const liveHost: LiveSessionHost = {
+    applySnapshot(name, snapshot) {
+      const baseline = readSyncBaseline();
+      const stored = (key: string) => safeJsonParse<unknown>(getLocalStore().getItem(`${storagePrefix}_${key}`), null);
+      const result = applyLiveSnapshot({
+        collection: name,
+        local: liveRecordsRef.current[name],
+        baseline: baseline[name] || {},
+        changes: snapshot.changes,
+        deletions: parseCloudIdMap(stored("syncTombstones"))[name],
+        overwrites: parseCloudIdMap(stored("syncOverwrites"))[name],
+      });
+      if (result.changed) setLiveCollectionState(name, result.records);
+      const nextBaseline = withBaselineEntries(baseline, name, result.baseline);
+      const diverged = result.diverged.length > 0
+        ? mergeDivergedRecords(parseDivergedRecords(stored("syncDiverged")), result.diverged)
+        : undefined;
+      if (nextBaseline !== baseline || diverged) saveSyncState(nextBaseline, diverged);
+    },
+    onWritesRejected(writes, error) {
+      // Without a baseline entry the records count as changes not uploaded (and are compared with
+      // the cloud version as diverged records), so nothing refused is silently lost.
+      let baseline = readSyncBaseline();
+      const deletions: CloudDeletionMap = {};
+      for (const write of writes) {
+        baseline = withBaselineEntries(baseline, write.collection, { [write.id]: null });
+        if (write.kind === "patch" && write.fields.some((field) => field.path[0] === "deletedAt")) {
+          // The soft-delete did not reach the cloud: queue it for the next upload instead.
+          liveDeletedRef.current.delete(`${write.collection}/${write.id}`);
+          deletions[write.collection] = [...(deletions[write.collection] || []), write.id];
+        }
+      }
+      saveSyncState(baseline);
+      if (Object.keys(deletions).length > 0) recordSyncIds("syncTombstones", deletions);
+      console.error("Live changes were refused by the cloud:", error);
+    },
+    onStatus: setLiveSync,
+  };
+  const liveHostRef = useRef(liveHost);
+  liveHostRef.current = liveHost;
 
   const saveRoundsLocally = useCallback(
     (updatedRounds: Round[], nextActiveRound?: Round) => {
@@ -855,7 +1040,10 @@ export function TournamentProvider({
               return;
             }
           } catch (error) {
-            if (user && !isGlobalAdmin) {
+            // Offline, staff open this device's working copy (below) instead of an error; live
+            // collaboration then resumes from the cloud SDK's cache and queues writes.
+            const offlineWithLocalCopy = !isSharedView && Boolean(localTournament) && isLikelyOffline(error);
+            if (user && !isGlobalAdmin && !offlineWithLocalCopy) {
               const message = error instanceof Error ? error.message : "This account is not assigned to this tournament.";
               setCloudLoadError(message);
               setTournament(null);
@@ -1258,6 +1446,8 @@ export function TournamentProvider({
           persistLocal("meta", safeTournament);
         }
         if (active) {
+          persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null });
+          setLiveAdminVerified(result.role === "admin");
           setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
           setStaffAccessError(
             result.role === "admin" || result.role === "dataEntry"
@@ -1266,6 +1456,24 @@ export function TournamentProvider({
           );
         }
       } catch (error) {
+        // Offline, the role last verified for this account on this device still applies, so the
+        // tab room keeps working; Firestore rules enforce access whenever writes reach the cloud.
+        const cached = safeJsonParse<{ uid?: unknown; role?: unknown } | null>(
+          typeof window === "undefined" ? null : getLocalStore().getItem(`${storagePrefix}_verifiedRole`),
+          null
+        );
+        if (
+          active &&
+          isLikelyOffline(error) &&
+          cached?.uid === currentUser.uid &&
+          (cached.role === "admin" || cached.role === "dataEntry")
+        ) {
+          setLiveAdminVerified(cached.role === "admin");
+          setCloudStaffRole(cached.role);
+          setStaffAccessError("");
+          return;
+        }
+        if (active) setLiveAdminVerified(false);
         if (active) setCloudStaffRole("none");
         if (active) {
           setStaffAccessError(
@@ -1281,6 +1489,72 @@ export function TournamentProvider({
   }, [isGlobalAdmin, pathname, persistLocal, storagePrefix, tournament?.id, user]);
   const isDataEntryAssistant = !isGlobalAdmin && cloudStaffRole === "dataEntry";
   const staffAccessLoading = Boolean(user && db && tournament && cloudStaffRole === null);
+
+  // A cloud tournament (it has a cloud version) opened by a verified administrator on an admin
+  // page goes live. `liveAdminVerified` changes only when a role check finishes, so navigating
+  // (which re-checks the role) does not restart the listeners.
+  const tournamentSyncVersion = Number(tournament?.syncVersion) || 0;
+  const liveActive = Boolean(
+    db &&
+      user &&
+      tournament?.id &&
+      tournamentSyncVersion > 0 &&
+      (isGlobalAdmin || liveAdminVerified) &&
+      !isSharedView &&
+      !loading &&
+      liveSyncEnabled
+  );
+  const activeRoundIdRef = useRef(activeRound?.id);
+  activeRoundIdRef.current = activeRound?.id;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setLiveSyncEnabledState(getLocalStore().getItem(`${storagePrefix}_liveSyncDisabled`) !== "true");
+  }, [storagePrefix, loading]);
+  useEffect(() => {
+    setLiveAdminVerified(false);
+  }, [user?.uid, tournament?.id]);
+  const liveTournamentId = liveActive ? tournament?.id : undefined;
+  useEffect(() => {
+    if (!liveTournamentId || !db) {
+      setLiveSync(LIVE_SYNC_OFF);
+      return;
+    }
+    const session = createLiveSession(
+      createFirestoreLivePort(db, liveTournamentId),
+      {
+        applySnapshot: (name, snapshot) => liveHostRef.current.applySnapshot(name, snapshot),
+        onWritesRejected: (writes, error) => liveHostRef.current.onWritesRejected(writes, error),
+        onStatus: (status) => liveHostRef.current.onStatus(status),
+      },
+      { online: typeof navigator === "undefined" ? true : navigator.onLine }
+    );
+    liveSessionRef.current = session;
+    session.setActiveRound(activeRoundIdRef.current);
+    const updateOnline = () => session.setOnline(navigator.onLine);
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+      session.dispose();
+      if (liveSessionRef.current === session) liveSessionRef.current = null;
+      setLiveSync(LIVE_SYNC_OFF);
+    };
+  }, [liveTournamentId, liveResyncCount]);
+  useEffect(() => {
+    liveSessionRef.current?.setActiveRound(activeRound?.id);
+  }, [activeRound?.id, liveTournamentId, liveResyncCount]);
+
+  const setLiveSyncEnabled = (enabled: boolean) => {
+    if (typeof window !== "undefined") {
+      getLocalStore().setItem(`${storagePrefix}_liveSyncDisabled`, enabled ? "false" : "true");
+    }
+    setLiveSyncEnabledState(enabled);
+  };
+  const ballotConfirmationConflicts = useMemo(
+    () => (liveSync.mode === "off" ? [] : findConfirmationConflicts(ballots)),
+    [liveSync.mode, ballots]
+  );
 
   const recordAuditEvent: TournamentContextType["recordAuditEvent"] = async (eventData) => {
     const timestamp = new Date().toISOString();
@@ -1330,16 +1604,16 @@ export function TournamentProvider({
       },
       teams: {
         save: (items) => {
-          const savedItems = isDataEntryAssistant ? items.map(sanitizeAssistantTeam) : items;
-          setTeams(savedItems);
-          persistLocal("teams", savedItems);
+          saveLiveRecords("teams", teams, isDataEntryAssistant ? items.map(sanitizeAssistantTeam) : items);
         },
       },
       adjudicators: {
         save: (items) => {
-          const savedItems = isDataEntryAssistant ? items.map(sanitizeAssistantAdjudicator) : items;
-          setAdjudicators(savedItems);
-          persistLocal("adjudicators", savedItems);
+          saveLiveRecords(
+            "adjudicators",
+            adjudicators,
+            isDataEntryAssistant ? items.map(sanitizeAssistantAdjudicator) : items
+          );
         },
       },
       venues: {
@@ -1583,14 +1857,8 @@ export function TournamentProvider({
     debates,
     adjudicators,
     repository: {
-      saveBallots: (items: BallotSubmission[]) => {
-        setBallots(items);
-        persistLocal("ballots", items);
-      },
-      saveDebates: (items: Debate[]) => {
-        setDebates(items);
-        persistLocal("debates", items);
-      },
+      saveBallots: (items: BallotSubmission[]) => saveLiveRecords("ballots", ballots, items),
+      saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
     },
     updateRound,
     recordAuditEvent,
@@ -1637,10 +1905,7 @@ export function TournamentProvider({
     feedback,
     venues,
     repository: {
-      saveDebates: (items: Debate[]) => {
-        setDebates(items);
-        persistLocal("debates", items);
-      },
+      saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
     },
     cloudRepository:
       AUTOMATIC_CLOUD_WRITES && db && tournament?.id
@@ -1664,10 +1929,7 @@ export function TournamentProvider({
         setBreakCategories(items);
         persistLocal("breaks", items);
       },
-      saveTeams: (items: Team[]) => {
-        setTeams(items);
-        persistLocal("teams", items);
-      },
+      saveTeams: (items: Team[]) => saveLiveRecords("teams", teams, items),
       saveRounds: (items: Round[]) => {
         setRounds(items);
         persistLocal("rounds", items);
@@ -1693,10 +1955,7 @@ export function TournamentProvider({
           setRounds(items);
           persistLocal("rounds", items);
         },
-        saveDebates: (items) => {
-          setDebates(items);
-          persistLocal("debates", items);
-        },
+        saveDebates: (items) => saveLiveRecords("debates", debates, items),
         setActiveRound,
       },
       cloudRepository:
@@ -1730,14 +1989,8 @@ export function TournamentProvider({
           setRounds(items);
           persistLocal("rounds", items);
         },
-        saveDebates: (items) => {
-          setDebates(items);
-          persistLocal("debates", items);
-        },
-        saveBallots: (items) => {
-          setBallots(items);
-          persistLocal("ballots", items);
-        },
+        saveDebates: (items) => saveLiveRecords("debates", debates, items),
+        saveBallots: (items) => saveLiveRecords("ballots", ballots, items),
         saveFeedback: (items) => {
           setFeedback(items);
           persistLocal("feedback", items);
@@ -1776,14 +2029,8 @@ export function TournamentProvider({
       generateRoundDraw: (input) => runCompute({ kind: "draw", input }),
       latest: () => latestRecordsRef.current,
       localRepository: {
-        saveDebates: (items) => {
-          setDebates(items);
-          persistLocal("debates", items);
-        },
-        saveBallots: (items) => {
-          setBallots(items);
-          persistLocal("ballots", items);
-        },
+        saveDebates: (items) => saveLiveRecords("debates", debates, items),
+        saveBallots: (items) => saveLiveRecords("ballots", ballots, items),
         markDebatesRemoved: (debateIds) => recordSyncTombstones({ debates: debateIds }),
         saveRounds: (items, active) => {
           setRounds(items);
@@ -1986,14 +2233,8 @@ export function TournamentProvider({
   const generatePrivateUrlKeys = async (forceRegenerate = false) => {
     await regeneratePrivateAccessCommand(teams, adjudicators, forceRegenerate, {
       localRepository: {
-        saveTeams: (items) => {
-          setTeams(items);
-          persistLocal("teams", items);
-        },
-        saveAdjudicators: (items) => {
-          setAdjudicators(items);
-          persistLocal("adjudicators", items);
-        },
+        saveTeams: (items) => saveLiveRecords("teams", teams, items),
+        saveAdjudicators: (items) => saveLiveRecords("adjudicators", adjudicators, items),
       },
       cloudRepository:
         AUTOMATIC_CLOUD_WRITES && db && tournament?.id
@@ -2105,6 +2346,8 @@ export function TournamentProvider({
     // Set once records start being written: an error after that leaves the cloud partly updated.
     let recordsSent = false;
     try {
+      // Live writes go first, so the upload's stale-version checks and the publish see them.
+      await flushLiveWrites();
       const localCollections = getLocalCollections();
       const deletions = readSyncTombstones();
       const overwrites = readSyncIds("syncOverwrites");
@@ -2116,6 +2359,7 @@ export function TournamentProvider({
         syncedBaseline: SyncBaseline
       ) => {
         recordsSent = true;
+        suspendLive();
         setTournament({ ...syncedTournament });
         persistLocal("meta", { ...syncedTournament });
         const persistSyncedCollection = <T,>(
@@ -2139,6 +2383,7 @@ export function TournamentProvider({
         persistSyncedCollection<Institution>("institutions", "institutions", setInstitutions);
         persistLocal("auditEvents", syncedCollections.auditEvents);
         saveSyncState(syncedBaseline);
+        resumeLive();
       };
       const archivedConflictCount = await uploadTournamentCommand({
         tournament,
@@ -2242,6 +2487,7 @@ export function TournamentProvider({
     setCloudSyncState("syncing");
     setCloudSyncMessage("Publishing public pages from the cloud copy…");
     try {
+      await flushLiveWrites();
       const published = await publishPublicViewCommand({
         tournament,
         collections: getLocalCollections(),
@@ -2292,6 +2538,7 @@ export function TournamentProvider({
       });
       const downloadedRounds = collections.rounds as unknown as Round[];
 
+      suspendLive();
       setTournament(cloudTournament);
       persistLocal("meta", cloudTournament);
       setRounds(downloadedRounds);
@@ -2320,6 +2567,7 @@ export function TournamentProvider({
         setAuditEvents(events);
       });
       saveSyncState(baseline, diverged);
+      resumeLive();
       // Records an upload could not write are now either the cloud version or diverged records
       // awaiting a choice, so the conflict notice is replaced by those. A part-way upload still
       // needs another upload.
@@ -2431,6 +2679,7 @@ export function TournamentProvider({
     keepActiveRoundId?: string
   ) => {
     const roundsValue = collections.rounds as unknown as Round[];
+    suspendLive();
     setTournament(restoredTournament);
     persistLocal("meta", restoredTournament);
     setRounds(roundsValue);
@@ -2458,6 +2707,7 @@ export function TournamentProvider({
       auditEventsRef.current = events;
       setAuditEvents(events);
     });
+    resumeLive();
   };
 
   const resolveDiverged = (keep: "cloud" | "local", keys?: string[]) => {
@@ -2572,6 +2822,10 @@ export function TournamentProvider({
         publishPublicView,
         pendingChanges,
         uploadIssue,
+        liveSync,
+        liveSyncEnabled,
+        setLiveSyncEnabled,
+        ballotConfirmationConflicts,
         downloadFromCloud,
         syncDataEntry,
         exportSyncRecovery,
