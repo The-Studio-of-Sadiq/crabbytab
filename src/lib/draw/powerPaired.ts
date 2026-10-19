@@ -165,7 +165,7 @@ export function generatePowerPairedDraw(
   });
 
   // Larger than any sum of allowed costs, so a disallowed slot is only used when unavoidable.
-  const disallowed = finite.reduce((sum, row) => sum + Math.max(0, ...row), 0) + 1;
+  const disallowed = finite.reduce((sum, row) => sum + row.reduce((max, c) => (c > max ? c : max), 0), 0) + 1;
   const n = teams.length;
   const rowOrder = shuffle([...Array(n).keys()], rng);
   const colOrder = shuffle([...Array(n).keys()], rng);
