@@ -44,8 +44,8 @@ export default function BallotEntryPage() {
   const debate = debates.find((item) => item.id === debateId);
   const round = rounds.find((item) => item.seq === roundSeq);
   const rules: BallotRules = useMemo(
-    () => ({ format: tournament?.format || "bp", preferences: tournament?.preferences }),
-    [tournament?.format, tournament?.preferences]
+    () => ({ format: tournament?.format || "bp", preferences: tournament?.preferences, stage: round?.stage }),
+    [tournament?.format, tournament?.preferences, round?.stage]
   );
   const preferences = tournament?.preferences;
   const sides = ballotSides(rules.format);

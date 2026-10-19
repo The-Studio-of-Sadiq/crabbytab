@@ -12,8 +12,16 @@ import {
   TeamMetricId,
 } from "@/types";
 import { TeamRoundAccum, computeSpeakerMetrics, computeTeamMetrics } from "./metrics";
-import { assignSharedRanks, compareByPrecedence, resolveSpeakerPrecedence, resolveTeamPrecedence } from "./precedence";
-import { TEAM_METRIC_DIRECTION, SPEAKER_METRIC_DIRECTION } from "./metrics";
+import {
+  annotateWhoBeatWhom,
+  assignSharedRanks,
+  compareByPrecedence,
+  compareTeamsByPrecedence,
+  resolveSpeakerPrecedence,
+  resolveTeamPrecedence,
+  teamsTiedByPrecedence,
+} from "./precedence";
+import { SPEAKER_METRIC_DIRECTION } from "./metrics";
 
 export interface StandingsCalculationResult {
   teams: TeamStandingRow[];
@@ -180,6 +188,12 @@ export function calculateStandings(
         : substantiveList.reduce((sum, sc) => sum + (sc.score || 0), 0);
       // A forfeit has a result but no speeches; it is excluded from speaker-score averages.
       const isForfeit = Boolean(ballot.forfeitSide);
+      const substantiveEntries = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
+      // Voting ballots record each side's votes; consensus ballots record none (and carry none).
+      const votesPossible = teamScore?.votes !== undefined
+        ? ballot.sheets?.length ||
+          Object.values(ballot.teamScores).reduce((sum, score) => sum + (score?.votes ?? 0), 0)
+        : undefined;
 
       const pts = teamScore ? teamScore.points || 0 : 0;
       const win = isBP ? pts >= 2 : Boolean(teamScore?.win) || pts === 1;
@@ -212,6 +226,8 @@ export function calculateStandings(
         opponentTeamIds,
         pulledUp: Boolean(teamSlot.pulledUp),
         rankInRoom: isBP ? bpRankInRoom(pts) : undefined,
+        ...(votesPossible ? { votesGiven: teamScore?.votes ?? 0, votesPossible } : {}),
+        ironed: !isForfeit && substantiveEntries.length > countedSpeeches.length,
       });
 
       teamRow.roundResults.push({
@@ -257,11 +273,22 @@ export function calculateStandings(
     row.metrics = computeTeamMetrics(teamRoundAccum.get(row.teamId)!, ctx);
   }
 
+  // Who-beat-whom needs every team's other metrics first: it compares the two teams (if exactly
+  // two) tied on every metric before it, by the points each earned against the other.
+  const pointsAgainst = (teamId: string, otherId: string) =>
+    (teamRoundAccum.get(teamId) ?? [])
+      .filter((round) => round.opponentTeamIds.includes(otherId))
+      .reduce((sum, round) => sum + round.points, 0);
+  if (teamPrecedence.includes("wbw")) annotateWhoBeatWhom(teamList, teamPrecedence, pointsAgainst);
+
   teamList.sort((a, b) => {
-    const byMetric = compareByPrecedence(a.metrics, b.metrics, teamPrecedence, TEAM_METRIC_DIRECTION);
+    const byMetric = compareTeamsByPrecedence(a, b, teamPrecedence);
     return byMetric !== 0 ? byMetric : a.teamName.localeCompare(b.teamName);
   });
-  assignSharedRanks(teamList, (row) => row.metrics, teamPrecedence, (row, rank) => (row.rank = rank));
+  teamList.forEach((row, index) => {
+    const tied = index > 0 && teamsTiedByPrecedence(teamList[index - 1], row, teamPrecedence);
+    row.rank = tied ? teamList[index - 1].rank : index + 1;
+  });
 
   /* ---------------------------------------------------------------------- */
   /* 4. Speaker and reply standings                                          */
@@ -361,8 +388,20 @@ export function calculateStandings(
     }
   }
 
-  const trim = Math.max(0, tournament.preferences?.speakerTrim ?? 0);
+  // Tabbycat's trimmed mean drops one highest and one lowest score; speakerTrim may change the count.
+  const trim = Math.max(0, tournament.preferences?.speakerTrim ?? 1);
   const speakerPrecedence = resolveSpeakerPrecedence(tournament.preferences);
+
+  // Standings eligibility (Tabbycat's "speeches missable"): a speaker must have given at least
+  // (preliminary rounds with results so far − missable) speeches to be ranked. Only rounds that
+  // have results count, so a round in progress never makes anyone ineligible.
+  const roundsWithResults = new Set(
+    debates
+      .filter((debate) => !debate.postponed && (ballotMap.has(debate.id) || (debate.byeTeamId && debate.byeResult === "win")))
+      .map((debate) => debate.roundId)
+  ).size;
+  const minimumSpeeches = (missable: number | undefined) =>
+    missable === undefined || !Number.isFinite(missable) || missable < 0 ? 0 : roundsWithResults - Math.floor(missable);
 
   const finalizeSpeakerList = (rowsMap: Map<string, SpeakerStandingRow>, isReplyList: boolean) => {
     const list = Array.from(rowsMap.values());
@@ -373,11 +412,20 @@ export function calculateStandings(
         ? computeSpeakerMetrics(scores.reply, [], trim)
         : computeSpeakerMetrics(scores.substantive, scores.reply, trim);
     }
+    const minimum = minimumSpeeches(
+      isReplyList ? tournament.preferences?.standingsMissedReplies : tournament.preferences?.standingsMissedDebates
+    );
+    for (const row of list) {
+      if (row.speechesCount < minimum) row.ineligible = true;
+    }
+    // Eligible speakers are ranked first; ineligible ones follow in the same order, unranked.
     list.sort((a, b) => {
+      if (Boolean(a.ineligible) !== Boolean(b.ineligible)) return a.ineligible ? 1 : -1;
       const byMetric = compareByPrecedence(a.metrics, b.metrics, speakerPrecedence, SPEAKER_METRIC_DIRECTION);
       return byMetric !== 0 ? byMetric : a.speakerName.localeCompare(b.speakerName);
     });
-    assignSharedRanks(list, (row) => row.metrics, speakerPrecedence, (row, rank) => (row.rank = rank));
+    const eligible = list.filter((row) => !row.ineligible);
+    assignSharedRanks(eligible, (row) => row.metrics, speakerPrecedence, (row, rank) => (row.rank = rank));
     return list;
   };
 

@@ -11,6 +11,7 @@ import type {
   Tournament,
   TournamentPreferences,
 } from "@/types";
+import type { BreakCategoryResult } from "@/lib/breakqual/calculator";
 
 /**
  * Tournament state rules. Every rule here is checked by the command that performs the action (so
@@ -44,6 +45,8 @@ export type GuardRule =
   | "round_has_draw"
   | "prelims_incomplete"
   | "elimination_started"
+  | "break_cutoff_tie"
+  | "reserve_cutoff_tie"
   | "break_category_in_use"
   | "same_person_check";
 
@@ -1055,9 +1058,21 @@ export function checkBreakCategoryDeletion(
 export function checkBreakGeneration(
   category: BreakCategory,
   state: RoundGuardState,
-  updatedRounds: Round[]
+  updatedRounds: Round[],
+  result?: Pick<BreakCategoryResult, "cutoffTies">
 ): GuardViolation[] {
   const violations: GuardViolation[] = [];
+  // A tie at the cutoff is never settled by an arbitrary order; the tab director decides it.
+  for (const tie of result?.cutoffTies ?? []) {
+    const teamNames = tie.teams.map((entry) => entry.team.name).join(", ");
+    violations.push(hard(
+      tie.cutoff === "break" ? "break_cutoff_tie" : "reserve_cutoff_tie",
+      `${teamNames} are tied (rank ${tie.teams[0]?.rank}) for ${tie.places} ` +
+        `${tie.cutoff === "break" ? "breaking" : "reserve"} place${tie.places === 1 ? "" : "s"} in ${category.name}. ` +
+        "Resolve the tie with overrides (manually include the teams that go through, or mark the others, " +
+        "e.g. \"Lost coin toss\") before generating the break."
+    ));
+  }
   const updatedById = new Map(updatedRounds.map((round) => [round.id, round]));
   const started = state.rounds.filter((round) => {
     if (round.stage !== "elimination" || round.cancelled) return false;

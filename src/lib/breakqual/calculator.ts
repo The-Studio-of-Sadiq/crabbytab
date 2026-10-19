@@ -31,10 +31,28 @@ export interface BreakExclusionEntry {
   manual: boolean;
 }
 
+/**
+ * Teams tied on every standings precedence metric (the same tab rank) that straddle the last
+ * breaking place or the last reserve place. Tabbycat lets every such team through (the break
+ * grows) and leaves it to the tab director to resolve; CrabbyTab instead holds the whole group
+ * out of the break (or reserves) and refuses to generate the break until the director resolves
+ * it with overrides: "Manually included" for the teams that go through, or a remark such as
+ * "Lost coin toss" for those that do not. No arbitrary order (e.g. by name) decides it.
+ */
+export interface BreakCutoffTie {
+  cutoff: "break" | "reserve";
+  /** Every team in the tied group, in standings order. */
+  teams: { rank: number; team: Team; standing: TeamStandingRow }[];
+  /** How many of these teams the cutoff has room for (fewer than `teams.length`). */
+  places: number;
+}
+
 export interface BreakCategoryResult {
   category: BreakCategory;
   breakingTeams: BreakingTeamEntry[];
   reserveTeams: BreakingTeamEntry[];
+  /** Unresolved ties at the break or reserve cutoff; empty when the cutoffs are clear. */
+  cutoffTies: BreakCutoffTie[];
   /**
    * Teams left out of this category: every manual exclusion, plus teams that
    * would otherwise have ranked inside the break but broke in a higher-priority
@@ -343,14 +361,41 @@ export function calculateBreaks(
       return selected;
     };
 
-    const naturalBreaking = takeEligible(qualification.ordered, naturalPlaces);
+    // Every team the rule and the institution cap allow, in the order places are filled: the
+    // first `naturalPlaces` break, the next `reserveSize` are reserves, unless a cutoff splits a tie.
+    const sequence = takeEligible(qualification.ordered, qualification.ordered.length);
+    const cutoffTies: BreakCutoffTie[] = [];
+    const takeUpTo = (from: number, cutoff: number, kind: BreakCutoffTie["cutoff"]) => {
+      const end = Math.min(cutoff, sequence.length);
+      if (end <= from) return { taken: [] as TeamStandingRow[], next: Math.max(from, end) };
+      const rank = sequence[end - 1].rank;
+      if (end >= sequence.length || !rank || sequence[end].rank !== rank) {
+        return { taken: sequence.slice(from, end), next: end };
+      }
+      let start = end - 1;
+      while (start > from && sequence[start - 1].rank === rank) start--;
+      let after = end + 1;
+      while (after < sequence.length && sequence[after].rank === rank) after++;
+      cutoffTies.push({
+        cutoff: kind,
+        teams: sequence.slice(start, after).map((standing) => ({
+          rank: standing.rank,
+          team: teamMap.get(standing.teamId)!,
+          standing,
+        })),
+        places: end - start,
+      });
+      return { taken: sequence.slice(from, start), next: after };
+    };
+    const breakPart = takeUpTo(0, naturalPlaces, "break");
+    const reserveEnd = naturalPlaces + Math.max(0, cat.reserveSize || 0);
+    const reservePart = takeUpTo(breakPart.next, reserveEnd, "reserve");
+
+    const naturalBreaking = breakPart.taken;
     const forcedIds = new Set(forced.map((standing) => standing.teamId));
     const breakingSlice = [...forced, ...naturalBreaking].sort(byStandingOrder);
     const breakingIds = new Set(breakingSlice.map((standing) => standing.teamId));
-    const reserveSlice = takeEligible(
-      qualification.ordered.filter((standing) => !breakingIds.has(standing.teamId)),
-      cat.reserveSize || 0
-    );
+    const reserveSlice = reservePart.taken;
     const breakingCount = breakingSlice.length;
 
     const breakingEntries: BreakingTeamEntry[] = breakingSlice.map((st, idx) => {
@@ -385,7 +430,11 @@ export function calculateBreaks(
       ? Math.max(...breakingSlice.map((standing) => standingIndex.get(standing.teamId) ?? 0))
       : -1;
     const aboveCutoff = (standing: TeamStandingRow) => (standingIndex.get(standing.teamId) ?? 0) < cutoff;
-    const selectedIds = new Set([...breakingIds, ...reserveSlice.map((standing) => standing.teamId)]);
+    const selectedIds = new Set([
+      ...breakingIds,
+      ...reserveSlice.map((standing) => standing.teamId),
+      ...cutoffTies.flatMap((tie) => tie.teams.map((entry) => entry.team.id)),
+    ]);
     const automaticExclusions = new Map<string, BreakExclusionEntry>();
     const addAutomatic = (standing: TeamStandingRow, reason: BreakExclusionReason) => {
       if (selectedIds.has(standing.teamId) || automaticExclusions.has(standing.teamId) || !aboveCutoff(standing)) return;
@@ -407,6 +456,7 @@ export function calculateBreaks(
       category: cat,
       breakingTeams: breakingEntries,
       reserveTeams: reserveEntries,
+      cutoffTies,
       excludedTeams,
     });
   }

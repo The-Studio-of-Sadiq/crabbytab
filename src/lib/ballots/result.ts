@@ -1,8 +1,11 @@
 import type {
   AdjudicatorSheet,
+  BallotMode,
   BallotSubmission,
   Debate,
   DebateSide,
+  Round,
+  RoundStage,
   Speaker,
   SpeakerScoreEntry,
   TeamScoreEntry,
@@ -25,6 +28,8 @@ export type SideRecord<T> = Partial<Record<DebateSide, T>>;
 export interface BallotRules {
   format: TournamentFormat;
   preferences?: Partial<TournamentPreferences>;
+  /** Stage of the round the ballot is for; elimination rounds may use their own ballot mode. Absent = preliminary. */
+  stage?: RoundStage;
 }
 
 export function ballotSides(format: TournamentFormat): DebateSide[] {
@@ -39,9 +44,27 @@ export function replySpeechesEnabled(rules: BallotRules): boolean {
   return Boolean(rules.preferences?.replyScoresEnabled && rules.format !== "bp");
 }
 
-/** Voting ballots exist only for two-team formats; BP panels always reach a consensus. */
+/**
+ * The ballot mode for a round, like Tabbycat's `ballots_per_debate_prelim` / `_elim`: preliminary
+ * rounds use `ballotMode`; elimination rounds use `eliminationBallotMode`, falling back to
+ * `ballotMode` when it is not set. Voting ballots exist only for two-team formats; BP panels
+ * always reach a consensus. Every reader of the ballot mode should go through this.
+ */
+export function ballotModeFor(
+  round: Pick<Round, "stage"> | null | undefined,
+  rules: Pick<BallotRules, "format" | "preferences">
+): BallotMode {
+  if (rules.format === "bp") return "consensus";
+  const preferences = rules.preferences;
+  const mode = round?.stage === "elimination"
+    ? preferences?.eliminationBallotMode ?? preferences?.ballotMode
+    : preferences?.ballotMode;
+  return mode === "voting" ? "voting" : "consensus";
+}
+
+/** True when ballots for `rules.stage` (preliminary when absent) are one scoresheet per voting adjudicator. */
 export function usesVotingBallots(rules: BallotRules): boolean {
-  return rules.format !== "bp" && rules.preferences?.ballotMode === "voting";
+  return ballotModeFor(rules.stage ? { stage: rules.stage } : undefined, rules) === "voting";
 }
 
 /**

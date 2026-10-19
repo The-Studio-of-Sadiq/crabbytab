@@ -14,7 +14,13 @@ export type TeamMetricId =
   | "firsts"
   | "seconds"
   | "thirds"
-  | "pullups";
+  | "pullups"
+  /** Who-beat-whom: points earned against the one other team tied on every earlier metric. May repeat. */
+  | "wbw"
+  /** Adjudicator votes carried (voting ballots), normalised to a panel of three as in Tabbycat. */
+  | "num_adjs"
+  /** Debates in which the team had an iron-person (duplicate) speech. Fewer ranks higher. */
+  | "num_iron";
 
 export type SpeakerMetricId =
   | "speaks_sum"
@@ -114,8 +120,18 @@ export interface TournamentPreferences {
   teamStandingsExtra?: TeamMetricId[];
   speakerStandingsPrecedence?: SpeakerMetricId[];
   speakerStandingsExtra?: SpeakerMetricId[];
-  /** Number of lowest speaker scores dropped from speaks_trimmed_mean. */
+  /**
+   * Scores dropped from EACH end (highest and lowest) for speaks_trimmed_mean, as Tabbycat's
+   * "trimmed mean (high-low drop)". Absent = 1. Before wave 2 this dropped only the lowest N.
+   */
   speakerTrim?: number;
+  /**
+   * Tabbycat's "speeches missable for standings eligibility": a speaker who missed more
+   * substantive speeches than this is listed but unranked. Absent or negative = no limit.
+   */
+  standingsMissedDebates?: number;
+  /** As standingsMissedDebates, for reply speeches on the replies tab. */
+  standingsMissedReplies?: number;
 
   /** Two-team draw generation options (C2). BP keeps its own cost-based pairing. */
   oddBracketMethod?: OddBracketMethod;
@@ -170,6 +186,8 @@ export interface TournamentPreferences {
   teamScoreIncludesGhosts?: boolean; // If checked, all speaker scores, including for duplicate speeches, will be counted for team scores
   /** Two-team formats only: one scoresheet per voting adjudicator, majority decides. BP is always consensus. */
   ballotMode?: BallotMode;
+  /** Ballot mode for elimination rounds. Absent = same as ballotMode. Read through ballotModeFor(). */
+  eliminationBallotMode?: BallotMode;
   /** With ballotDoubleEntry: "review" = a second person reviews and confirms; "blind" = a second person re-enters without seeing the first entry. */
   ballotCheckMode?: BallotCheckMode;
   /** Allow a team with the lower total speaker score to be awarded the win (consensus ballots only). */
@@ -632,6 +650,11 @@ export interface TeamStandingRow {
   }[];
   /** Every team metric, keyed by id, computed regardless of which are used for ranking. */
   metrics: Record<TeamMetricId, number>;
+  /**
+   * Who-beat-whom value for each "wbw" in the precedence, in order: points earned against the
+   * one other team tied on every earlier metric, or null ("n/a") when not exactly two are tied.
+   */
+  whoBeatWhom?: (number | null)[];
 }
 
 export interface SpeakerStandingRow {
@@ -646,6 +669,8 @@ export interface SpeakerStandingRow {
   averageScore: number;
   speechesCount: number;
   trimmedScore?: number; // dropping lowest if configured
+  /** Missed more speeches than the standings eligibility limit allows: listed, but not ranked (rank 0). */
+  ineligible?: boolean;
   scoresByRound: {
     roundSeq: number;
     score: number;
