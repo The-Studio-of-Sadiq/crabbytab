@@ -44,7 +44,8 @@ export type GuardRule =
   | "round_has_draw"
   | "prelims_incomplete"
   | "elimination_started"
-  | "break_category_in_use";
+  | "break_category_in_use"
+  | "same_person_check";
 
 export interface GuardViolation {
   rule: GuardRule;
@@ -742,6 +743,49 @@ export function checkResultChange(
 }
 
 /** Rules for saving a ballot submission (a new version, or an edit of the same id). */
+export interface BallotCheckPolicy {
+  /** Tournament requires a second person to check tab-room ballots (ballotDoubleEntry). */
+  doubleEntry: boolean;
+  /** The signed-in tab-room user; undefined on a signed-out single device, which cannot tell people apart. */
+  actorId?: string;
+}
+
+/**
+ * Double entry means a different person checks each tab-room ballot before it counts. This blocks
+ * (overridably, for a tab director) confirming your own entry, and confirming a new tab-room entry
+ * that is not a check of someone else's pending version. Ballots judges submit through their
+ * private URLs are their own record, not tab-room data entry, so they are not affected.
+ */
+export function checkIndependentConfirmation(
+  ballot: Pick<BallotSubmission, "id" | "debateId" | "roundId" | "submitterType" | "submitterId" | "checksVersion">,
+  mode: "confirm_existing" | "submit_confirmed",
+  policy: BallotCheckPolicy | undefined,
+  state: Pick<RoundGuardState, "ballots">
+): GuardViolation[] {
+  if (!policy?.doubleEntry || !policy.actorId || ballot.submitterType !== "tabroom") return [];
+  const ids = { roundId: ballot.roundId, debateId: ballot.debateId };
+  if (mode === "confirm_existing") {
+    return ballot.submitterId === policy.actorId
+      ? [soft("same_person_check", "You entered this ballot; double entry needs a different person to check and confirm it.", ids)]
+      : [];
+  }
+  const checked = ballot.checksVersion === undefined
+    ? undefined
+    : state.ballots.find((item) =>
+        item.debateId === ballot.debateId && item.version === ballot.checksVersion && !item.discarded
+      );
+  if (!checked) {
+    return [soft(
+      "same_person_check",
+      "Double entry is on: save this ballot for checking; a different person must check it before it counts.",
+      ids
+    )];
+  }
+  return checked.submitterId === policy.actorId
+    ? [soft("same_person_check", "You entered the version being checked; a different person must do the check.", ids)]
+    : [];
+}
+
 export function checkBallotSubmission(ballot: BallotSubmission, state: RoundGuardState): GuardViolation[] {
   const violations: GuardViolation[] = [];
   const existing = ballot.id ? state.ballots.find((item) => item.id === ballot.id) : undefined;

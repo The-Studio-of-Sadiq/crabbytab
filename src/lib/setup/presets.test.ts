@@ -121,3 +121,14 @@ describe("Setup Presets (setup/presets)", () => {
     });
   });
 });
+
+describe("per-format score scales", () => {
+  it("gives each format its conventional speaker-score range", async () => {
+    const { scoreDefaultsFor, defaultPreferences } = await import("./presets");
+    expect(scoreDefaultsFor("bp")).toMatchObject({ minSpeakerScore: 50, maxSpeakerScore: 100 });
+    expect(scoreDefaultsFor("wsdc")).toMatchObject({ minSpeakerScore: 60, maxSpeakerScore: 80, minReplyScore: 30, maxReplyScore: 40 });
+    expect(scoreDefaultsFor("australs")).toMatchObject({ minSpeakerScore: 70, maxSpeakerScore: 80, minReplyScore: 35, maxReplyScore: 40 });
+    expect(scoreDefaultsFor("custom_2team")).toMatchObject({ minSpeakerScore: 68, maxSpeakerScore: 84 });
+    expect(defaultPreferences("wsdc")).toMatchObject({ minSpeakerScore: 60, maxSpeakerScore: 80 });
+  });
+});

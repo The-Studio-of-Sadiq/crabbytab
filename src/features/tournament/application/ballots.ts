@@ -6,7 +6,14 @@ import type {
   DebateSide,
   Round,
 } from "@/types";
-import { applyGuards, checkBallotSubmission, checkResultChange, type RuleOverride } from "./stateGuards";
+import {
+  applyGuards,
+  checkBallotSubmission,
+  checkIndependentConfirmation,
+  checkResultChange,
+  type BallotCheckPolicy,
+  type RuleOverride,
+} from "./stateGuards";
 
 export interface BallotAuditEvent {
   action: string;
@@ -28,6 +35,8 @@ export interface BallotWorkflowDependencies {
   };
   updateRound(round: Round): Promise<void>;
   recordAuditEvent(event: BallotAuditEvent): Promise<void>;
+  /** Double-entry policy: who may confirm tab-room ballots (see checkIndependentConfirmation). */
+  checkPolicy?: BallotCheckPolicy;
   queuePrivateRecord(
     record: { collection: "ballots"; record: BallotSubmission },
     privateUrlKey?: string,
@@ -43,7 +52,10 @@ export async function submitBallotCommand(
 ): Promise<void> {
   // A stored confirmed or discarded version is never rewritten in place, and a confirmed result in
   // a completed round needs an override (see stateGuards).
-  await applyGuards(checkBallotSubmission(ballot, dependencies), override, {
+  const independence = ballot.confirmed
+    ? checkIndependentConfirmation(ballot, "submit_confirmed", dependencies.checkPolicy, dependencies)
+    : [];
+  await applyGuards([...checkBallotSubmission(ballot, dependencies), ...independence], override, {
     action: "ballot.submitted",
     category: "ballot",
     roundId: ballot.roundId,
@@ -136,7 +148,13 @@ export async function confirmBallotCommand(
     ? submittedBallot
     : dependencies.ballots.find((item) => item.id === ballotId);
   if (ballot) {
-    await applyGuards(checkResultChange({ roundId: ballot.roundId, debateId }, dependencies), override, {
+    const violations = [
+      ...checkResultChange({ roundId: ballot.roundId, debateId }, dependencies),
+      ...(ballot.confirmed
+        ? []
+        : checkIndependentConfirmation(ballot, "confirm_existing", dependencies.checkPolicy, dependencies)),
+    ];
+    await applyGuards(violations, override, {
       action: "ballot.confirmed",
       category: "ballot",
       roundId: ballot.roundId,

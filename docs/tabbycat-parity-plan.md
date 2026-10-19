@@ -23,7 +23,7 @@ means the sync/publish hardening PR that added this section.
 | 0.8 `ownerId` rewrite, open tournament create, slug squatting | FIXED | #9 | `firestore.rules`: create is global-admin only, `ownerId` immutable |
 | 0.9 passcode `===`; enumeration not rate-limited | FIXED | #9 | `lib/passcode.ts` `timingSafeEqual`; `checkPrivateFailureLimit` runs before key lookup |
 | 0.10 signed-out viewer of local tournament is admin | FIXED | #9 | `tournamentAccess.ts` `isViewerTournamentAdmin` |
-| 0.11 v1 `read:public` returns confirmed draws | OPEN | — | `api/v1/tournaments/[slug]/draws/route.ts` still allows `confirmed` |
+| 0.11 v1 `read:public` returns confirmed draws | NOT A BUG | wave 1 | In CrabbyTab `drawStatus: "confirmed"` *is* the public release ("Release Draw to Public" sets it, `draw/page.tsx`); nothing in the UI sets `"released"`. Returning confirmed draws is correct. |
 | 0.12 test-file TS errors; `tsc` in CI | FIXED | #9 | `.github/workflows/ci.yml` runs `npx tsc --noEmit` |
 | 0.13 CSP / security headers | FIXED | #9 | `securityHeaders.mjs` wired in `next.config.mjs` |
 | 0.5-1 publish-time snapshots | FIXED | #8, this PR | `lib/publicView/{snapshot,store}.ts`; releases now upload and publish in one step |
@@ -31,7 +31,7 @@ means the sync/publish hardening PR that added this section.
 | 0.5-3 CDN `s-maxage` | FIXED | #8 | `store.ts` `publicCacheHeaders` |
 | 0.5-4 version polling | FIXED | #8 | `application/publicView.ts` polls `/version` every 45 s |
 | 0.5-5 check-in counts aggregate | PARTIAL | #8 | served from the snapshot's `checkins` section, refreshed only on publish; no per-check-in aggregate doc |
-| 0.5-6 private-URL query narrowing | OPEN | — | `api/private/sync/route.ts` still reads all teams/debates/rounds |
+| 0.5-6 private-URL query narrowing | MOSTLY FIXED | #32 | `api/private/sync/route.ts` loads only the participant's debates via the `array-contains` participant index (`privateParticipantData.ts`); still reads all rounds, and falls back to a full read when the index is missing |
 | 0.5-7 v1 draws from snapshot | OPEN | — | v1 route still reads live collections |
 | 0.5-8 `preferredRegion` | OPEN | — | not set anywhere in `src` |
 | 0.5 note: fingerprint-only publish skip missed other devices' writes | FIXED | this PR | skip also needs a matching cloud source token (`snapshot.ts` `publicSourceToken`, `canSkipPublish`) |
@@ -59,7 +59,7 @@ means the sync/publish hardening PR that added this section.
 | 2 allocator: feedback weight and test score | FIXED | #12 | `feedback/scores.ts` `preFeedbackScore`; blend uses `feedbackWeight` |
 | 2 allocator: preformed panels | FIXED | #12 | `Round.preformedPanels`, `allocation/panels` page |
 | 2 allocator: iteration cap | FIXED | #12 | `allocator.ts` 50-pass cap plus evaluation budget |
-| 2 allocator: Web Worker | OPEN | — | no `Worker` usage in `src` |
+| 2 allocator: Web Worker | FIXED | #32 | `features/tournament/compute/compute.worker.ts` + `computeClient.ts`; draw and allocation pages use it |
 | 2 elim: partial eliminations / byes | FIXED | #11 | `draw/elimination.ts` `planEliminationRound` |
 | 2 elim: bracket position preserved | FIXED | #11 | `elimination.ts` `resolveBracketPositions` |
 | 2 elim: BP elim sides by seed | UNVERIFIED | — | sides are fixed in seed order (OG = top seed); no seed-choice option |
@@ -79,9 +79,9 @@ means the sync/publish hardening PR that added this section.
 | 3 notifications, QR slips, self check-in | FIXED | #16 | `api/tournaments/[id]/notifications`, `lib/qr/qrcode.ts` |
 | 3 team break eligibility and speaker categories | FIXED | #11 | `TeamCategoryFields.tsx`; CSV `break_categories` |
 | 4.1 sync model B (Firestore source of truth) | PARTIAL | #24, #25, #27, this PR | stop-gap baseline merge, conflict resolution and honest publish only; no `persistentLocalCache` / `onSnapshot` |
-| 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.5k lines; provider value is an inline object |
+| 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.6k lines; provider value is an inline object |
 | 4.3 bound local `auditEvents` | OPEN | — | no limit |
-| 4.4 heavy compute in Web Workers | OPEN | — | BP Hungarian and allocator run on the main thread |
+| 4.4 heavy compute in Web Workers | FIXED | #32 | draw generation and allocation run in `compute.worker.ts` |
 | 4.5 rules / API-route / e2e / golden tests | PARTIAL | #23 | Vitest BP+WSDC lifecycles and fake-Firestore sync tests; no rules-emulator, route or Playwright tests |
 | 4.6 cleanup (`metadata.json`, lockfiles, README sync) | PARTIAL | #24, #25, #27 | README sync text updated; `metadata.json` and both lockfiles remain |
 | 5 i18n | PARTIAL | #28 | in-house `lib/i18n`; public pages and portals only |
@@ -89,11 +89,51 @@ means the sync/publish hardening PR that added this section.
 | 5 mobile round creation below `md` | FIXED | #22 | `Navbar.tsx` round switcher with "New round…" at every width |
 | 5 configurable analytics ranges | OPEN | — | `analytics/page.tsx` hardcodes bins 68–84 |
 
-**Still open:** 0.11, 0.5-6, 0.5-7, 0.5-8, 1.11, allocator Web Worker, Phase 2 standings extras,
-4.2, 4.3, 4.4, analytics ranges. **Partial:** 0.5-5, 1.9, 1.10, 1.12, voting-ballot consensus
+**Still open:** 0.5-7, 0.5-8, 1.11, Phase 2 standings extras, 4.2, 4.3, analytics ranges. **Partial:** 0.5-5, 1.9, 1.10, 1.12, voting-ballot consensus
 option, diversity stats page, motions-tab release and format-change guard, public non-private
 submission, draw-editor side-balance flags and keyboard placement, 4.1, 4.5, 4.6, i18n,
 accessibility. **Unverified:** BP elimination sides by seed.
+
+## Feature comparison and roadmap (2026-10-19, `beta` 591c1ac)
+
+A feature-by-feature check of `beta` against Tabbycat 2.x (verified in code, not docs) found
+CrabbyTab at or beyond parity for two-team and BP draw rules, knockouts with partial
+eliminations, the draw check, enforced round rules with audited overrides, preformed panels,
+feedback-weighted allocation, check-ins, private portals, the hash-chained audit log, DebateXML
+import/export and backup/restore. The remaining gaps, in priority order:
+
+**Wave 1 — P0 correctness (this PR).** Round motions never reached portals/assistants
+(`Round.motionsReleased` was never set; now derived from motion releases); the double-entry
+"different person checks" rule was UI-only (now `checkIndependentConfirmation`, overridable with
+an audited reason); the speaker-tab category filter compared break-category ids with speaker
+category labels; every format preset used the 68–84 scale (now per format: BP 50–100, Australs
+and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a bug (see the table).
+
+**Wave 2 — P1, running a large live event (parallel).**
+- **#6 Live multi-user collaboration** (L): sync model B — Firestore as source of truth with
+  current-round listeners, starting with ballots, check-ins and allocation.
+- **#7 Paper-ballot intake board** (M): per-round status (missing / received / entered / awaiting
+  check / confirmed / disputed), one printed ballot per adjudicator with a barcode, scan on arrival.
+- **#8 Standings and break depth** (M): ties at the break cutoff, minimum-speeches eligibility,
+  trimmed mean dropping highest and lowest, who-beat-whom, votes carried, show the configured
+  "extra" columns. **#9** (S): ballot mode per stage (prelims vs elims) and the missing presets
+  (NZ Easters, Joynt, Canadian, Japan BP).
+- **#10 Differential testing against real Tabbycat** (M): identical fixtures through Tabbycat
+  (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations.
+
+**Wave 3 — P2/P3.** #11 staff invitations; #12 import preview, duplicate detection,
+institution auto-create, conflicts CSV; #13 speaker categories as entities driving eligibility;
+#14 self-registration (after #6); #15 draw-editor history / side-balance / pull-up flags, draw
+details, keyboard placement; #16 manual-ballot sides, swing teams; #17 feedback number/checkbox
+questions, configurable paths, base-score history.
+
+**Wave 4 — P3/P4.** #18 WADL and AIDA 2019 break rules; #19 1000-team two-team allocation speed
+(7–18 s/round) and sharding; #20 soft ranked venue constraints, per-round venue availability,
+team-declared institution conflicts; #21 editable notification templates, motion/standings
+release emails; #22 design rollout to every page, dark mode everywhere, keyboard drag-and-drop;
+#23 admin-UI translations and more languages; #24 broader API (teams, results, standings);
+#25 diversity statistics, public veto stats; #26 optional public (non-private-URL) ballot and
+feedback forms.
 
 ## Where CrabbyTab stands
 

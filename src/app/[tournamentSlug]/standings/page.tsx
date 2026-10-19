@@ -39,6 +39,21 @@ export default function StandingsPage() {
 
   const isBP = tournament?.format === "bp";
 
+  // Teams filter by break category (ids); speakers by speaker category (labels such as ESL/novice).
+  // The two are different lists, so each tab offers its own options.
+  const speakerCategoryOptions = Array.from(
+    new Set(speakerStandings.flatMap((row) => row.categories || []).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right));
+  const categoryOptions = activeTab === "teams"
+    ? breakCategories.map((category) => ({ value: category.id, label: category.name }))
+    : activeTab === "speakers"
+      ? speakerCategoryOptions.map((category) => ({ value: category, label: category }))
+      : [];
+  const changeTab = (tab: StandingsTab) => {
+    setActiveTab(tab);
+    setSelectedCategory("all");
+  };
+
   // Filter Team Standings
   const filteredTeams = teamStandings.filter((t) => {
     const matchesSearch =
@@ -102,19 +117,19 @@ export default function StandingsPage() {
       <ReleasePanel />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <Tabs id={TABS_ID} items={tabs} value={activeTab} onValueChange={setActiveTab} ariaLabel="Standings type" className="md:flex-1" />
+        <Tabs id={TABS_ID} items={tabs} value={activeTab} onValueChange={changeTab} ariaLabel="Standings type" className="md:flex-1" />
         <div className="flex items-center gap-2">
-          {breakCategories.length > 0 && (
+          {categoryOptions.length > 0 && (
             <Select
-              aria-label="Break category"
+              aria-label={activeTab === "teams" ? "Break category" : "Speaker category"}
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="w-40"
             >
               <option value="all">All categories</option>
-              {breakCategories.map((bc) => (
-                <option key={bc.id} value={bc.id}>
-                  {bc.name}
+              {categoryOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </Select>

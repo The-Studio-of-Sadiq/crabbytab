@@ -48,6 +48,7 @@ import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
+import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { withRuleOverride } from "@/features/tournament/application/ruleOverridePrompt";
@@ -1213,6 +1214,14 @@ export function TournamentProvider({
     isGlobalAdmin,
     staffRole: cloudStaffRole,
   }), [tournament, user, isGlobalAdmin, cloudStaffRole]);
+  // Keep each round's motionsReleased in step with its motions' release toggles (see
+  // motionRelease.ts). Only an administrator's working copy is updated; shared views receive the
+  // flag through the public projection.
+  useEffect(() => {
+    if (!isOwnerOrAdmin || isSharedView || loading) return;
+    const changed = roundsNeedingMotionReleaseSync(rounds, motions);
+    if (changed.length > 0) saveRoundsLocally(applyMotionReleaseSync(rounds, changed));
+  }, [isOwnerOrAdmin, isSharedView, loading, rounds, motions, saveRoundsLocally]);
   useEffect(() => {
     let active = true;
     setCloudStaffRole(null);
@@ -1586,6 +1595,10 @@ export function TournamentProvider({
     updateRound,
     recordAuditEvent,
     queuePrivateRecord,
+    checkPolicy: {
+      doubleEntry: Boolean(tournament?.preferences?.ballotDoubleEntry),
+      actorId: user?.uid,
+    },
   };
   // Draws and allocations run in a Web Worker; these let their results land on the current state.
   const latestRecordsRef = useRef({ rounds, debates, ballots });

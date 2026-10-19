@@ -17,6 +17,16 @@ export interface FormatPreset {
   teamsInDebate: 4 | 2;
   substantiveSpeakers: number;
   replyScoresEnabled: boolean;
+  /** The speaker-score scale this format conventionally uses. */
+  scores: ScoreScale;
+}
+
+export interface ScoreScale {
+  minSpeakerScore: number;
+  maxSpeakerScore: number;
+  stepSpeakerScore: number;
+  minReplyScore: number;
+  maxReplyScore: number;
 }
 
 export const FORMAT_PRESETS: FormatPreset[] = [
@@ -27,6 +37,8 @@ export const FORMAT_PRESETS: FormatPreset[] = [
     teamsInDebate: 4,
     substantiveSpeakers: 2,
     replyScoresEnabled: false,
+    // WUDC scale. Reply scores are unused in BP; the range only keeps the settings valid.
+    scores: { minSpeakerScore: 50, maxSpeakerScore: 100, stepSpeakerScore: 1, minReplyScore: 25, maxReplyScore: 50 },
   },
   {
     id: "uadc",
@@ -35,6 +47,7 @@ export const FORMAT_PRESETS: FormatPreset[] = [
     teamsInDebate: 2,
     substantiveSpeakers: 3,
     replyScoresEnabled: true,
+    scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
   },
   {
     id: "australs",
@@ -43,6 +56,7 @@ export const FORMAT_PRESETS: FormatPreset[] = [
     teamsInDebate: 2,
     substantiveSpeakers: 3,
     replyScoresEnabled: true,
+    scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
   },
   {
     id: "wsdc",
@@ -51,6 +65,8 @@ export const FORMAT_PRESETS: FormatPreset[] = [
     teamsInDebate: 2,
     substantiveSpeakers: 3,
     replyScoresEnabled: true,
+    // WSDC scale: substantive 60-80, reply 30-40 in half points.
+    scores: { minSpeakerScore: 60, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 30, maxReplyScore: 40 },
   },
   {
     id: "custom_2team",
@@ -59,6 +75,7 @@ export const FORMAT_PRESETS: FormatPreset[] = [
     teamsInDebate: 2,
     substantiveSpeakers: 3,
     replyScoresEnabled: true,
+    scores: { minSpeakerScore: 68, maxSpeakerScore: 84, stepSpeakerScore: 1, minReplyScore: 34, maxReplyScore: 42 },
   },
 ];
 
@@ -66,14 +83,19 @@ export function getFormatPreset(format: TournamentFormat): FormatPreset {
   return FORMAT_PRESETS.find((f) => f.id === format) ?? FORMAT_PRESETS[0];
 }
 
-/** Same score ranges the app already used when a tournament was created. */
-export const SCORE_DEFAULTS = {
+/** Score range for a format with no convention of its own (the custom two-team format). */
+export const SCORE_DEFAULTS: ScoreScale = {
   minSpeakerScore: 68,
   maxSpeakerScore: 84,
   stepSpeakerScore: 1,
   minReplyScore: 34,
   maxReplyScore: 42,
 };
+
+/** The conventional score scale for a format; every format previously got 68-84 regardless. */
+export function scoreDefaultsFor(format: TournamentFormat): ScoreScale {
+  return { ...getFormatPreset(format).scores };
+}
 
 /* -------------------------------------------------------------------------- */
 /* Slugs                                                                      */
@@ -281,7 +303,7 @@ export function defaultPreferences(
     teamsInDebate: preset.teamsInDebate,
     substantiveSpeakers: preset.substantiveSpeakers,
     replyScoresEnabled: preset.replyScoresEnabled,
-    ...SCORE_DEFAULTS,
+    ...preset.scores,
     drawRule: "power_paired",
     sideAllocationRule: "balanced",
     ballotDoubleEntry: false,
