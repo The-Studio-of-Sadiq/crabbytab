@@ -17,7 +17,6 @@ import {
   BreakDraft,
   FORMAT_PRESETS,
   PrelimDrawRule,
-  SCORE_DEFAULTS,
   buildBreakCategories,
   buildRounds,
   eliminationRoundCount,
@@ -71,7 +70,7 @@ function initialState(): WizardState {
     format: "bp",
     substantiveSpeakers: preset.substantiveSpeakers,
     replyScoresEnabled: preset.replyScoresEnabled,
-    ...SCORE_DEFAULTS,
+    ...preset.scores,
     prelimRounds: 5,
     drawRule: "power_paired",
     sideAllocationRule: "balanced",
@@ -230,6 +229,7 @@ export function TournamentWizard() {
       format,
       substantiveSpeakers: p.substantiveSpeakers,
       replyScoresEnabled: p.replyScoresEnabled,
+      ...p.scores,
       breaks,
     });
   };
