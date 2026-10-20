@@ -5,6 +5,9 @@ import { Shield, Trash2, UserPlus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
 import { StaffInvitationsPanel } from "@/features/tournament/components/StaffInvitationsPanel";
+import { StaffAccessSettings } from "@/features/tournament/components/StaffAccessSettings";
+import { StaffPermissionGroups } from "@/features/tournament/components/StaffPermissionGroups";
+import { isPermissionGroupId, type PermissionGroupId } from "@/lib/staffPermissions";
 
 interface StaffMember {
   uid: string;
@@ -12,10 +15,16 @@ interface StaffMember {
   displayName: string;
   role: "admin" | "dataEntry";
   addedAt: string;
+  groups?: unknown;
+}
+
+function memberGroups(member: StaffMember): PermissionGroupId[] {
+  const groups = Array.isArray(member.groups) ? member.groups.filter(isPermissionGroupId) : [];
+  return groups.length > 0 ? groups : ["tab_assistant"];
 }
 
 export default function StaffPage() {
-  const { tournament, isOwnerOrAdmin } = useTournament();
+  const { tournament, isOwnerOrAdmin, saveTournament } = useTournament();
   const { user, loading: authLoading } = useAuth();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [emails, setEmails] = useState("");
@@ -117,6 +126,26 @@ export default function StaffPage() {
     }
   };
 
+  const saveGroups = async (uid: string, groups: PermissionGroupId[]) => {
+    if (!user || !tournament) return;
+    setError("");
+    setMessage("");
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/staff`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ uid, groups }),
+      });
+      const result = await response.json() as { error?: string; groups?: unknown };
+      if (!response.ok) throw new Error(result.error || "Could not change permission groups.");
+      setStaff((current) => current.map((member) => member.uid === uid ? { ...member, groups: result.groups } : member));
+      setMessage("Permission groups saved. They apply to the staff member's next request.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not change permission groups.");
+    }
+  };
+
   if (authLoading || loading) return <p className="p-6 text-sm text-gray-600">Loading staff…</p>;
   if (!user || !tournament || !isOwnerOrAdmin) {
     return <p role="alert" className="p-6 text-sm text-red-700">Sign in as a tournament administrator to manage access.</p>;
@@ -135,6 +164,8 @@ export default function StaffPage() {
       </header>
 
       <StaffInvitationsPanel tournamentId={tournament.id} user={user} />
+
+      <StaffAccessSettings tournament={tournament} onSave={saveTournament} />
 
       <form onSubmit={addStaff} className="max-w-2xl space-y-3 border-b border-gray-200 pb-6">
         <h2 className="text-sm font-bold text-gray-900">Assign existing accounts</h2>
@@ -187,11 +218,20 @@ export default function StaffPage() {
         ) : (
           <ul className="divide-y divide-gray-200 border-y border-gray-200">
             {staff.map((member) => (
-              <li key={member.uid} className="flex items-center justify-between gap-4 py-3">
+              <li key={member.uid} className="flex items-start justify-between gap-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-gray-900">{member.displayName || member.email}</p>
                   {member.displayName && <p className="truncate text-xs text-gray-600">{member.email}</p>}
                   <p className="text-xs text-gray-500">{member.role === "admin" ? "Tournament administrator" : "Data-entry staff"}</p>
+                  {member.role === "dataEntry" && (
+                    <StaffPermissionGroups
+                      uid={member.uid}
+                      email={member.email}
+                      groups={memberGroups(member)}
+                      disabled={busy}
+                      onSave={saveGroups}
+                    />
+                  )}
                 </div>
                 <button
                   type="button"

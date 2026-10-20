@@ -1,4 +1,5 @@
 import Papa from "papaparse";
+import { safeVenueUrl } from "@/lib/venues/venues";
 import { Team, Adjudicator, Institution, Venue, VenueRequirements, Motion, Round, TeamStandingRow, SpeakerStandingRow, BreakCategory, Speaker } from "@/types";
 import { parseCategoryList, resolveBreakCategoryRefs } from "@/lib/teamCategories";
 import { csvFileStem, teamStandingsCsv } from "@/lib/csv/exporters";
@@ -339,6 +340,11 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
     const capacity = capacityRaw?.trim() ? Number(capacityRaw) : undefined;
     const accessibleRaw = getField(row, "accessible", "Accessible");
     const onlineRaw = getField(row, "online", "Online");
+    const urlRaw = getField(row, "url", "URL", "link", "meeting_url")?.trim();
+    // Room links are shown to participants: only http(s) links are accepted.
+    if (urlRaw && !safeVenueUrl(urlRaw)) {
+      throw new Error(`Invalid venue URL on CSV row ${idx + 2}: use an http(s) link.`);
+    }
 
     if (
       capacity !== undefined &&
@@ -357,6 +363,7 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
       accessible: parseCsvFlag(accessibleRaw, "accessible", idx + 2),
       online: parseCsvFlag(onlineRaw, "online", idx + 2),
       nearTabRoom: parseCsvFlag(getField(row, "near_tab_room", "nearTabRoom"), "near_tab_room", idx + 2),
+      ...(urlRaw ? { url: safeVenueUrl(urlRaw) } : {}),
       available: true,
     });
   });

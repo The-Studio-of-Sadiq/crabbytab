@@ -33,8 +33,11 @@ explains how to translate a string or add a language.
   feedback links.
 - Print round ballots and feedback sheets, and use barcode labels with
   keyboard-scanner check-in.
-- Issue read-only API tokens for integrations, with separate released-draw
-  and all-draw scopes; the OpenAPI document is available at `/api/openapi.json`.
+- Integrate through a REST API (`/api/v1`) with per-area scoped tokens: a
+  public scope that sees only released data, and administrator scopes for
+  tournaments, rounds, participants, venues, breaks, draws, ballots, feedback,
+  check-ins and standings. See [docs/api.md](docs/api.md), the reference at
+  `/tournaments/api` and the OpenAPI document at `/api/openapi.json`.
 - Export portable DebateXML archives in the Tabbycat DTA schema alongside
   CrabbyTab's full-fidelity JSON backups.
 - Review tournament activity with audit tools and use analytics and display

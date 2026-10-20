@@ -7,19 +7,6 @@
       "note": "CrabbyTab's DebateXML importer totals each imported ballot with CrabbyTab's defaults, so iron-person (ghost) speeches are left out of team scores. Tabbycat's default, and WUDC 35.9.3.2, is to include them, and Tabbycat's importer applies the style preset first. The harness recomputes the imported totals with Tabbycat's setting so every later comparison starts from equal team scores. Follow-up: have the importer apply the style's preset (RULES_PRESETS) before totalling ballots."
     },
     {
-      "id": "bp-uneven/standings/teams/metric/draw_strength",
-      "classification": "rule difference",
-      "note": "In BP, Tabbycat's draw strength sums opponents' points; CrabbyTab's draw_strength_wins counts opponents' wins (a 1st or 2nd). The BP rules preset already lists this as unsupported and leaves draw strength out of the BP precedence (src/lib/setup/presets.ts), so BP ranks still agree. Follow-up: compute BP draw strength from points.",
-      "dependsOn": [
-        "PR #36 (BP preset precedence)"
-      ]
-    },
-    {
-      "id": "bp-uneven/standings/teams/metric/wins",
-      "classification": "rule difference",
-      "note": "Tabbycat records no wins in BP preliminary rounds (0 for every team); CrabbyTab counts a 1st or 2nd as a win. 'wins' is not in any BP precedence, but it feeds the draw-strength difference above."
-    },
-    {
       "id": "*/draw/r1/byes",
       "classification": "rule difference",
       "note": "Before any results every team is tied, and neither engine picks round-1 byes at random. Tabbycat's random draw manager takes the last teams in database order (the last imported); CrabbyTab's lowest_ranked rule keeps list order, so the first teams always sit out. Both are arbitrary, fixed preferences; AGENTS.md section 7.2 asks for an explicit random tie-break. Follow-up: break the bye tie with the draw's seeded RNG."
@@ -40,9 +27,9 @@
       "note": "This follows from the different bye. CrabbyTab gives T4 the bye, which leaves T16 and T17 (both University G) as the only 0-win teams, so the clash is forced. Tabbycat's bye to T17 avoids it. Choosing a bye that avoids a forced clash would need clash-aware bye selection, which neither engine has."
     },
     {
-      "id": "twoteam-odd-ties/draw/r5/error",
-      "classification": "CrabbyTab defect",
-      "note": "With max 3 debates per side, T13 and T19 have both been affirmative three times and fold pairs them together. CrabbyTab pairs first and checks side limits afterwards (sideAllocator.ts), so it refuses the draw in 7 of 8 seeds even though valid pairings exist within the bracket. Tabbycat enforces the cap only in its min-cost ('graph') conflict avoidance (draw/generator/graph.py, which also checks t1_negs twice instead of t2_negs), so with one-up-one-down it draws and silently gives one of them a fourth affirmative. Follow-up: treat the side cap as a pairing constraint for fold and one-up-one-down."
+      "id": "twoteam-odd-ties/draw/r5/sideCapViolations",
+      "classification": "rule difference",
+      "note": "With max 3 debates per side, fold puts two teams that have each already been on the same side three times into one room (in a one-room bracket in some seeds). Tabbycat enforces max_times_on_one_side only in its min-cost ('graph') conflict avoidance (draw/generator/graph.py, which also checks t1_negs twice instead of t2_negs), so with one-up-one-down it pairs them and gives one a fourth debate on that side. CrabbyTab keeps the cap hard: repairSideLimits (twoTeamDraw.ts) re-pairs the bracket, widening to the neighbouring bracket when the bracket alone cannot fit, and here it draws with the same bracket signature and pull-up count as Tabbycat. Until wave 4/5 CrabbyTab refused this draw instead (the old r5/error defect)."
     },
     {
       "id": "twoteam-odd-ties/break/BC1/breaking",

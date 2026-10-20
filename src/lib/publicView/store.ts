@@ -1,7 +1,9 @@
 import { AggregateField, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import type { Tournament } from "@/types";
 import {
+  needsPublicFeedback,
   PUBLIC_SOURCE_COLLECTIONS,
   type PublicSourceData,
   type SourceRecord,
@@ -13,7 +15,7 @@ import {
   changedSections,
   chunkDocumentId,
   parseSectionChunks,
-  PUBLIC_VIEW_FORMAT,
+  hasRoundSections,
   publicSourceToken,
   roundSectionName,
   sectionRoundIds,
@@ -57,12 +59,22 @@ export class PublicViewError extends Error {
   }
 }
 
-export async function readPublicSourceData(tournamentRef: DocumentReference): Promise<PublicSourceData> {
+/** Source collections a publish reads: feedback only when a public feature aggregates it. */
+function sourceCollectionsFor(tournamentData: Record<string, unknown>): string[] {
+  const preferences = tournamentData.preferences as Partial<Tournament["preferences"]> | undefined;
+  return needsPublicFeedback(preferences) ? [...PUBLIC_SOURCE_COLLECTIONS, "feedback"] : [...PUBLIC_SOURCE_COLLECTIONS];
+}
+
+export async function readPublicSourceData(
+  tournamentRef: DocumentReference,
+  tournamentData: Record<string, unknown> = {}
+): Promise<PublicSourceData> {
+  const collections = sourceCollectionsFor(tournamentData);
   const snapshots = await Promise.all(
-    PUBLIC_SOURCE_COLLECTIONS.map((name) => tournamentRef.collection(name).get())
+    collections.map((name) => tournamentRef.collection(name).get())
   );
   return Object.fromEntries(
-    PUBLIC_SOURCE_COLLECTIONS.map((name, index) => [
+    collections.map((name, index) => [
       name,
       snapshots[index].docs
         .filter((document) => typeof document.data().deletedAt !== "string")
@@ -72,9 +84,13 @@ export async function readPublicSourceData(tournamentRef: DocumentReference): Pr
 }
 
 /** Aggregates of every source collection; see `PublicSourceCollectionStats`. */
-export async function readPublicSourceStats(tournamentRef: DocumentReference): Promise<PublicSourceStats> {
+export async function readPublicSourceStats(
+  tournamentRef: DocumentReference,
+  tournamentData: Record<string, unknown> = {}
+): Promise<PublicSourceStats> {
+  const collections = sourceCollectionsFor(tournamentData);
   const results = await Promise.all(
-    PUBLIC_SOURCE_COLLECTIONS.map((name) =>
+    collections.map((name) =>
       tournamentRef
         .collection(name)
         .aggregate({
@@ -86,7 +102,7 @@ export async function readPublicSourceStats(tournamentRef: DocumentReference): P
     )
   );
   return Object.fromEntries(
-    PUBLIC_SOURCE_COLLECTIONS.map((name, index) => {
+    collections.map((name, index) => {
       const data = results[index].data() as { count: number; versionSum: number; ballotVersionSum?: number };
       return [
         name,
@@ -144,12 +160,12 @@ export async function publishPublicView(input: {
   }
   const ownPreviousRoot = previousRoot?.tournamentId === input.tournamentId ? previousRoot : null;
 
-  const sourceToken = publicSourceToken(tournamentData, await readPublicSourceStats(tournamentRef));
+  const sourceToken = publicSourceToken(tournamentData, await readPublicSourceStats(tournamentRef, tournamentData));
   if (ownPreviousRoot && canSkipPublish(ownPreviousRoot, { ...input, sourceToken })) {
     return { status: "unchanged", slug, version: ownPreviousRoot.version, changedSections: [] };
   }
 
-  const source = await readPublicSourceData(tournamentRef);
+  const source = await readPublicSourceData(tournamentRef, tournamentData);
   const sections = buildPublicViewSections({ ...tournamentData, id: input.tournamentId }, source);
   const { root, chunks } = buildPublicViewRoot({
     tournamentId: input.tournamentId,
@@ -262,7 +278,7 @@ const readLiveFallbackCached = (slug: string) =>
       }
       const tournamentDocument = matches.docs[0];
       if (!tournamentDocument) return { ok: false, status: 404, error: "Tournament not found." };
-      const source = await readPublicSourceData(tournamentDocument.ref);
+      const source = await readPublicSourceData(tournamentDocument.ref, tournamentDocument.data());
       return {
         ok: true,
         sections: buildPublicViewSections({ ...tournamentDocument.data(), id: tournamentDocument.id }, source),
@@ -309,7 +325,7 @@ export async function getPublicViewReader(slug: string): Promise<PublicViewReade
     const meta = root.sections[section];
     return meta ? readSectionCached(slug, section, meta.hash, meta.chunks) : Promise.resolve(undefined);
   };
-  if (root.format === PUBLIC_VIEW_FORMAT) {
+  if (hasRoundSections(root)) {
     return {
       version: root.version,
       roundHashes: Object.fromEntries(

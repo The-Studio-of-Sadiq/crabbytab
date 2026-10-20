@@ -1,4 +1,5 @@
 import type { Catalogue } from "@/lib/i18n/messages";
+import { publicSiteBn } from "@/lib/i18n/messages/publicSite.bn";
 
 /**
  * Bengali (বাংলা). MACHINE-DRAFTED: produced by machine translation and not yet reviewed by a
@@ -95,11 +96,14 @@ export const bn: Catalogue = {
   "metric.team.margin_sum": "মোট ব্যবধান",
   "metric.team.margin_avg": "গড় ব্যবধান",
   "metric.team.draw_strength_wins": "ড্র শক্তি (জয়)",
+  "metric.team.draw_strength": "ড্র শক্তি",
   "metric.team.draw_strength_speaks": "ড্র শক্তি (স্কোর)",
+  "metric.team.draw_strength_rank": "ড্র শক্তি (র‍্যাঙ্ক)",
   "metric.team.firsts": "প্রথম",
   "metric.team.seconds": "দ্বিতীয়",
   "metric.team.thirds": "তৃতীয়",
   "metric.team.pullups": "পুল-আপ",
+  "metric.team.pullup_debates": "পুল-আপ বিতর্ক",
   "metric.team.num_adjs": "পাওয়া ব্যালট",
   "metric.team.num_iron": "আয়রন-পার্সন বক্তৃতা",
   "metric.speaker.speaks_sum": "মোট",
@@ -109,6 +113,14 @@ export const bn: Catalogue = {
   "metric.speaker.speeches_count": "বক্তৃতা",
   "metric.speaker.reply_sum": "রিপ্লাই মোট",
   "metric.speaker.reply_avg": "রিপ্লাই গড়",
+  "metric.speaker.reply_stddev": "রিপ্লাই আদর্শ বিচ্যুতি",
+  "metric.speaker.reply_count": "রিপ্লাই",
+  "metric.speaker.team_points": "দলের পয়েন্ট",
+  "metric.speaker.team_wins": "দলের জয়",
+  "metric.speaker.firsts": "প্রথম",
+  "metric.speaker.seconds": "দ্বিতীয়",
+  "metric.speaker.thirds": "তৃতীয়",
+  "metric.speaker.num_adjs": "পাওয়া ব্যালট",
   "public.col.seed": "সিড",
   "public.winningTeam": "বিজয়ী দল",
   "public.losingTeam": "পরাজিত দল",
@@ -442,4 +454,5 @@ export const bn: Catalogue = {
   "register.receivedTeam": "ধন্যবাদ। টুর্নামেন্টের আয়োজকেরা আপনার দল পর্যালোচনা করবেন।",
   "register.receivedAdjudicator": "ধন্যবাদ। টুর্নামেন্টের আয়োজকেরা আপনার নিবন্ধন পর্যালোচনা করবেন।",
   "register.another": "আরেকটি নিবন্ধন করুন",
+  ...publicSiteBn,
 };

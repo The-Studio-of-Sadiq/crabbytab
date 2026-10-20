@@ -102,14 +102,32 @@ interface QualificationOutcome {
   capped: TeamStandingRow[];
 }
 
+type Aida2016Rule = Extract<BreakQualificationRule, "aida_2016_australs" | "aida_2016_easters" | "aida_2019_australs_open">;
+
+/** The AIDA 2016 rules (and 2019 open) that need wins, and so a two-team format. */
+const AIDA_2016_RULES: BreakQualificationRule[] = ["aida_2016_australs", "aida_2016_easters", "aida_2019_australs_open"];
+
+/**
+ * The institution cap of an AIDA rule. AIDA 2019 Australs (open) raises the base cap of 3 by one
+ * for every 8 teams the break exceeds 16 (Tabbycat's Aida2019AustralsBreakGenerator.calculate_cap).
+ */
+export function aidaInstitutionCap(rule: BreakQualificationRule, breakSize: number): number {
+  if (rule !== "aida_2019_australs_open") return 3;
+  const additionalTeams = breakSize >= 16 ? breakSize - 16 : 0;
+  return 3 + Math.floor(additionalTeams / 8);
+}
+
 function selectAida2016Teams(
   eligible: TeamStandingRow[],
   teamMap: Map<string, Team>,
   breakSize: number,
-  rule: Extract<BreakQualificationRule, "aida_2016_australs" | "aida_2016_easters">
+  rule: Aida2016Rule,
+  /** The category's full break size, which sets the AIDA 2019 cap (Tabbycat uses break_size). */
+  categoryBreakSize: number = breakSize
 ): QualificationOutcome {
   if (eligible.length <= breakSize || breakSize <= 0) return { ordered: eligible, capped: [] };
 
+  const cap = aidaInstitutionCap(rule, categoryBreakSize);
   const winsOf = (standing: TeamStandingRow) => standing.wins ?? standing.points;
   const minimumWins = winsOf(eligible[breakSize - 1]);
   const winEligible = eligible.filter((standing) => winsOf(standing) >= minimumWins);
@@ -130,7 +148,7 @@ function selectAida2016Teams(
   const isCapped = (standing: TeamStandingRow) => {
     const institutionRank = institutionRankByTeam.get(standing.teamId) ?? 1;
     const rank = ranks.get(standing.teamId) ?? standing.rank;
-    return (institutionRank > 1 && rank > naturalBreakCutoff) || institutionRank > 3;
+    return (institutionRank > 1 && rank > naturalBreakCutoff) || institutionRank > cap;
   };
   const capped = winEligible.filter((standing) => teamMap.has(standing.teamId) && isCapped(standing));
   const cappedIds = new Set(capped.map((standing) => standing.teamId));
@@ -139,7 +157,7 @@ function selectAida2016Teams(
   if (selected.length < breakSize) {
     const reinsertionPasses = rule === "aida_2016_easters"
       ? [
-          capped.filter((standing) => (institutionRankByTeam.get(standing.teamId) ?? 1) <= 3),
+          capped.filter((standing) => (institutionRankByTeam.get(standing.teamId) ?? 1) <= cap),
           capped,
         ]
       : [capped];
@@ -179,7 +197,8 @@ function applyQualificationRule(
   eligible: TeamStandingRow[],
   rule: BreakQualificationRule,
   breakSize: number,
-  teamMap: Map<string, Team>
+  teamMap: Map<string, Team>,
+  categoryBreakSize: number = breakSize
 ): QualificationOutcome {
   if (rule === "standard") return { ordered: eligible, capped: [] };
   if (rule === "aida_1996") {
@@ -196,7 +215,7 @@ function applyQualificationRule(
     }
     return { ordered, capped };
   }
-  return selectAida2016Teams(eligible, teamMap, breakSize, rule);
+  return selectAida2016Teams(eligible, teamMap, breakSize, rule as Aida2016Rule, categoryBreakSize);
 }
 
 export function applyBreakStatuses(
@@ -286,12 +305,9 @@ export function calculateBreaks(
 ): BreakCategoryResult[] {
   if (
     format === "bp" &&
-    categories.some((category) =>
-      category.qualificationRule === "aida_2016_australs" ||
-      category.qualificationRule === "aida_2016_easters"
-    )
+    categories.some((category) => AIDA_2016_RULES.includes(category.qualificationRule as BreakQualificationRule))
   ) {
-    throw new Error("AIDA 2016 qualification rules require a two-team tournament format.");
+    throw new Error("AIDA 2016 and 2019 qualification rules require a two-team tournament format.");
   }
   const teamMap = new Map<string, Team>();
   teams.forEach((t) => teamMap.set(t.id, t));
@@ -331,7 +347,7 @@ export function calculateBreaks(
 
     const naturalPlaces = Math.max(0, cat.breakSize - forced.length);
     const qualificationRule = cat.qualificationRule ?? "standard";
-    const qualification = applyQualificationRule(natural, qualificationRule, naturalPlaces, teamMap);
+    const qualification = applyQualificationRule(natural, qualificationRule, naturalPlaces, teamMap, cat.breakSize);
     const institutionLimit = qualificationRule !== "standard"
       ? undefined
       : Number.isInteger(cat.maxPerInstitution) && (cat.maxPerInstitution ?? 0) > 0

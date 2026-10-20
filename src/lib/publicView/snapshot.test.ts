@@ -13,6 +13,7 @@ import {
   latestPublicRoundId,
   parseSectionChunks,
   PUBLIC_BASE_SECTIONS,
+  PUBLIC_VIEW_FORMAT,
   roundSectionName,
   splitByRound,
   type PublicViewSections,
@@ -76,6 +77,34 @@ function source(overrides: Partial<PublicSourceData> = {}): PublicSourceData {
 }
 
 describe("buildPublicProjection", () => {
+  it("publishes safe room links and only public room category descriptions", () => {
+    const projection = buildPublicProjection(
+      {
+        ...tournament,
+        preferences: {
+          ...(tournament.preferences as object),
+          venueCategories: [
+            { name: "Purple", description: "is near the hall", publicTooltip: true, displayInName: "prefix" },
+            { name: "Lift", description: "is next to the staff room", displayInName: "none" },
+          ],
+        },
+      },
+      source({
+        venues: [
+          { id: "v1", name: "Online 1", url: "https://meet.example.org/a", priority: 1 },
+          { id: "v2", name: "Bad", url: "javascript:alert(1)", priority: 1 },
+        ],
+      })
+    );
+    const venues = projection.collections.venues as Array<Record<string, unknown>>;
+    expect(venues.find((venue) => venue.id === "v1")?.url).toBe("https://meet.example.org/a");
+    expect(venues.find((venue) => venue.id === "v2")).not.toHaveProperty("url");
+    expect(projection.tournament.preferences.venueCategories).toEqual([
+      { name: "Purple", description: "is near the hall", publicTooltip: true, displayInName: "prefix" },
+      { name: "Lift", displayInName: "none" },
+    ]);
+  });
+
   it("removes private fields and unreleased data", () => {
     const projection = buildPublicProjection(tournament, source());
     expect(projection.tournament).not.toHaveProperty("ownerEmail");
@@ -290,7 +319,7 @@ describe("chunking and roots", () => {
     });
     // Only round 1 is public (round 2's draw is a draft), so it is the only round section.
     expect(changedSections(null, first.root)).toEqual([...PUBLIC_BASE_SECTIONS, "round-r1"]);
-    expect(first.root).toMatchObject({ format: 2, roundIds: ["r1"] });
+    expect(first.root).toMatchObject({ format: PUBLIC_VIEW_FORMAT, roundIds: ["r1"] });
 
     const data = source();
     data.motions[1] = { ...data.motions[1], released: true };
