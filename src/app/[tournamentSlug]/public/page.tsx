@@ -1,5 +1,6 @@
 "use client";
 
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
@@ -603,8 +604,8 @@ export default function PublicTournamentPage() {
                           </>
                         ) : (
                           <>
-                            <th>{t("side.AFF")}</th>
-                            <th>{t("side.NEG")}</th>
+                            <th>{translatedSideName(t, "AFF", tournament?.preferences)}</th>
+                            <th>{translatedSideName(t, "NEG", tournament?.preferences)}</th>
                           </>
                         )}
                         <th>{t("public.col.chair")}</th>
@@ -698,8 +699,8 @@ export default function PublicTournamentPage() {
                           </>
                         ) : (
                           <>
-                            <th>{t("side.AFF")}</th>
-                            <th>{t("side.NEG")}</th>
+                            <th>{translatedSideName(t, "AFF", tournament?.preferences)}</th>
+                            <th>{translatedSideName(t, "NEG", tournament?.preferences)}</th>
                           </>
                         )}
                         <th>{t("public.col.adjudicators")}</th>

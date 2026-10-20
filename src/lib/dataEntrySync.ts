@@ -20,7 +20,7 @@ export const DATA_ENTRY_FIELDS = {
   institutions: ["id", "tournamentId", "name", "code", "region"],
   ballots: [
     "id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText", "speakerScores",
-    "teamScores", "timestamp",
+    "teamScores", "timestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores",
   ],
   feedback: [
     "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
@@ -209,7 +209,11 @@ export function prepareAssistantBallot(
       ) {
         throw new Error(`Ballot ${String(record.id)} contains invalid speaker scores.`);
       }
-      const isReply = entry.position === 4 && preferences?.replyScoresEnabled === true;
+      const substantive = preferences?.substantiveSpeakers ?? (sides.length === 4 ? 2 : 3);
+      const isReply = entry.position > substantive && preferences?.replyScoresEnabled === true;
+      // With score criteria a speech score is a weighted sum, not a score on the scale; the
+      // tab room re-validates the criteria when it confirms the ballot.
+      if ((preferences?.scoreCriteria?.length ?? 0) > 0) continue;
       const check = isReply
         ? validateReplyScore(entry.score, preferences)
         : validateSpeakerScore(entry.score, preferences);

@@ -11,8 +11,11 @@ Only confirmed, non-discarded ballots in non-cancelled **preliminary** rounds co
 as a win counts as a win with no speeches. **BP records no wins** (wave 4/5): as in Tabbycat, whose
 BP preliminary results leave `TeamScore.win` unset, `wins` (and the draw strength built on it) is 0
 for every BP team; BP ranks on points, and `wins` / `draw_strength_wins` are offered for two-team
-formats only. Before wave 4/5 a BP 1st or 2nd counted as a win. Forfeits count for the result but not for speaker-score
-averages. Ghost (iron-person) speeches never count on the speaker tab.
+formats only. Before wave 4/5 a BP 1st or 2nd counted as a win. Forfeits and results-only ballots
+(`speakersInBallots`) count for the result but not for speaks or margins. Ghost (iron-person)
+speeches never count on the speaker tab. Team points are multiplied by the round's weight
+(`Round.weight`, Tabbycat's `PointsMetricAnnotator`); wins and who-beat-whom are not. See
+`results-and-ballots.md`.
 
 ## Team precedence
 
@@ -55,7 +58,8 @@ reply total, average, std. dev. (lower is better) and count. Default: total, the
 points (`team_points`, unweighted like Tabbycat's), team wins (`team_wins`, two-team only), team
 1sts/2nds/3rds (`firsts`, `seconds`, `thirds`, BP only) and votes/ballots carried (`num_adjs`,
 two-team only). They count every preliminary debate of the speaker's team, whether or not the
-speaker spoke in it. Speech ranks (`srank`) arrive with ranked ballots (scoring formats work).
+speaker spoke in it. **Speech ranks** (`srank`) are the sum of the speaker's speech ranks, lower is better; they
+need `speakerRanks` (see `results-and-ballots.md`).
 
 **Trimmed mean (changed in wave 2).** Tabbycat's "trimmed mean (high-low drop)" leaves out a
 speaker's highest *and* lowest score when they have more than two, otherwise it is the plain
@@ -67,7 +71,8 @@ after upgrading; nothing stored changes.
 **Eligibility** (Tabbycat's `standings_missed_debates` / `standings_missed_replies`):
 `standingsMissedDebates` is the number of substantive speeches a speaker may miss and still be
 ranked; absent or negative means no limit (the default). A speaker needs at least
-*(preliminary rounds with results − limit)* speeches. Ineligible speakers stay on the tab, listed
+*(preliminary rounds with results − limit)* speeches; rounds whose ballots carry no speaker scores
+are not counted. Ineligible speakers stay on the tab, listed
 after everyone ranked, with no rank (`ineligible: true`, `rank: 0`; shown as "—"). Only rounds
 that have at least one result count, so a round in progress never makes anyone ineligible
 (Tabbycat counts every preliminary round up to the tab's round). `standingsMissedReplies` does
@@ -146,8 +151,9 @@ exists; `eliminationBallotMode` only once an elimination ballot exists.
 The tournament wizard offers Tabbycat's rule presets (`RULES_PRESETS` in
 `src/lib/setup/presets.ts`): Australs, British Parliamentary, Canadian Parliamentary, Australian
 Easters, NZ Easters (Tabbycat's "2 vs 2 Impromptu"), Joynt Scroll ("3 vs 3 Prepared"), UADC and
-WSDC. Each sets the team/speaker counts, score scale and the preferences the Tabbycat preset sets
-that CrabbyTab supports; what it cannot apply is listed in the wizard. Not offered: APDA (needs
-speech ranks and winner selection), Public Speaking (six teams per room), Karl Popper (median
-aggregation and self-split ballots). There is no Tabbycat "Japan BP" preset; use British
+WSDC (with its Style/Content/Strategy score criteria) and APDA. Each sets the team/speaker counts,
+score scale and the preferences the Tabbycat preset sets that CrabbyTab supports, including side
+names, motions on/off, maximum margin, reply step, speech ranks, declared winners and speaker
+scores only in preliminary rounds; what it cannot apply is listed in the wizard. Not offered:
+Public Speaking (six teams per room), Karl Popper (self-split ballots). There is no Tabbycat "Japan BP" preset; use British
 Parliamentary.

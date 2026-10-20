@@ -113,8 +113,8 @@ category schedule changes. Before, it reset every elimination round.
 
 | Change after any live ballot exists | Rule | Kind |
 | --- | --- | --- |
-| Format, teams per debate, speakers per team, reply speeches, ballot mode | `settings_locked` | Hard (existing ballots would no longer match) |
-| Speaker and reply score ranges and step, ghost speeches in team scores, margins including dissenters, low-point wins, forfeits, bye results | `scoring_changed_after_ballots` | Overridable |
+| Format, teams per debate, speakers per team, reply speeches, ballot mode, when ballots ask for speaker scores, score criteria | `settings_locked` | Hard (existing ballots would no longer match) |
+| Speaker and reply score ranges and steps, ghost speeches in team scores, margins including dissenters, low-point wins / winner declaration, panel score aggregation, speech ranks, maximum margin, the reply-speaker rule, forfeits, bye results | `scoring_changed_after_ballots` | Overridable |
 
 Enforced in `saveTournamentCommand`. The settings form disables the locked fields and says why.
 Discarded ballots do not lock anything.

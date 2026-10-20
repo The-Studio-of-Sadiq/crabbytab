@@ -248,16 +248,16 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
-1. Round weights (points multiplied per round; Tabbycat `Round.weight`, `standings/teams.py:76`).
-2. Median score aggregation across adjudicators (`score_aggregation_function`).
-3. Ballots without speaker scores — prelim-only / never (`speakers_in_ballots`).
-4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`).
-5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`).
+1. Round weights (points multiplied per round; Tabbycat `Round.weight`, `standings/teams.py:76`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+2. Median score aggregation across adjudicators (`score_aggregation_function`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+3. Ballots without speaker scores — prelim-only / never (`speakers_in_ballots`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 6. Speaker-tab metrics: team points, team wins, 1sts/2nds/3rds, num_adjs, srank, replies count/stddev.
    *Done except `srank` (ranked ballots).*
 7. Odd-bracket methods `pullup_lowest_ds_rank(_npulls)`; `graph_one` conflict avoidance; two-team pull-up penalty.
    *Done: `min_cost_with_pullups` (draw-generation.md).*
-8. Score criteria (weighted per-criterion speaker scores).
+8. Score criteria (weighted per-criterion speaker scores). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins). *Done.*
 10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
 
@@ -280,6 +280,11 @@ motions altogether; ~~reverse public motion order~~ *(done)*; copy motions betwe
 motion statistics; ~~team emoji and speakers in the draw~~ *(done)*; team references and institution prefixes;
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
+
+*Wave 5 results status:* maximum margin, independent reply-score step, custom side names, the
+reply-speaker toggle and turning motions off are **done**, with the APDA preset and the WSDC
+score criteria, Canadian/UADC/WSDC side names, BP prelim-only speaker scores and the Easters
+maximum margin in the presets (`docs/results-and-ballots.md`).
 
 ### Ops breadth (waves 4/5): email, registration, feedback, staff access, check-ins
 

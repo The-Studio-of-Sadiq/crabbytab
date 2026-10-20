@@ -14,6 +14,22 @@ import type {
 } from "@/types";
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
 import { ballotSideAssignment, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
+import {
+  aggregateScoreValues,
+  ballotsHaveSpeakerScores,
+  cleanScore,
+  criteriaForSpeech,
+  maximumMarginFor,
+  motionsEnabled,
+  requireSubstantiveForReply,
+  scoreAggregationFor,
+  scoreCriteriaFor,
+  speakerRanksFor,
+  validateCriterionScore,
+  weightedCriteriaScore,
+  winnerDeclarationFor,
+} from "@/lib/ballots/ballotRules";
+import { sideLabel } from "@/lib/sideNames";
 
 /**
  * Pure ballot logic shared by tab-room entry, the private portal and standings: how speeches are
@@ -94,12 +110,29 @@ export function isReplyEntry(entry: Pick<SpeakerScoreEntry, "position">, rules: 
 }
 
 /**
- * Strips floating-point noise (e.g. 0.1 + 0.2) without changing the value. Scores are NOT rounded
- * to a display precision: averaged voting scores such as 224/3 must stay exact so equal averages
- * stay tied, as in Tabbycat. Display code formats them.
+ * True when ballots for `rules.stage` ask for speaker scores (`speakersInBallots`). A ballot
+ * without them records only the result: ranks (BP) or the winner (two-team).
  */
-function cleanScore(value: number): number {
-  return Math.round(value * 1e9) / 1e9;
+export function usesSpeakerScores(rules: BallotRules): boolean {
+  return ballotsHaveSpeakerScores(rules.preferences, rules.stage);
+}
+
+/**
+ * With score criteria, each speech's score is the weighted sum of its criterion scores; criteria
+ * that do not apply to the speech are dropped. Without criteria the entries are returned as they are.
+ */
+export function applyScoreCriteria(entries: SpeakerScoreEntry[], rules: BallotRules): SpeakerScoreEntry[] {
+  const criteria = scoreCriteriaFor(rules.preferences);
+  if (criteria.length === 0) return entries;
+  return entries.map((entry) => {
+    const applicable = criteriaForSpeech(criteria, isReplyEntry(entry, rules));
+    const values = Object.fromEntries(
+      applicable
+        .filter((criterion) => typeof entry.criteria?.[criterion.id] === "number")
+        .map((criterion) => [criterion.id, entry.criteria![criterion.id]])
+    );
+    return { ...entry, criteria: values, score: weightedCriteriaScore(applicable, values) };
+  });
 }
 
 /**
@@ -156,8 +189,9 @@ export function consensusTeamScores(
   rules: BallotRules
 ): Record<DebateSide, TeamScoreEntry> {
   const sides = ballotSides(rules.format);
+  const scored = usesSpeakerScores(rules);
   const totals = Object.fromEntries(
-    sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], rules)])
+    sides.map((side) => [side, scored ? teamSpeakerTotal(speakerScores[side] || [], rules) : 0])
   ) as Record<DebateSide, number>;
   const result = {} as Record<DebateSide, TeamScoreEntry>;
   for (const side of sides) {
@@ -171,7 +205,8 @@ export function consensusTeamScores(
       totalSpeakerScore: totals[side],
       rank,
       win: rules.format === "bp" ? points >= 2 : rank === 1,
-      ...(rules.format === "bp" || !opponent ? {} : { margin: cleanScore(totals[side] - totals[opponent]) }),
+      // A results-only ballot has no margin (Tabbycat stores none), not a margin of 0.
+      ...(rules.format === "bp" || !opponent || !scored ? {} : { margin: cleanScore(totals[side] - totals[opponent]) }),
     };
   }
   return result;
@@ -183,13 +218,34 @@ export interface SheetOutcome {
   winner?: DebateSide;
 }
 
-export function sheetOutcome(sheet: Pick<AdjudicatorSheet, "speakerScores">, rules: BallotRules): SheetOutcome {
+/**
+ * One scoresheet's totals and the side it votes for, following `winnersInBallots` as Tabbycat's
+ * scoresheet classes do: "none" and "high-points" vote for the higher total (a tie has no winner;
+ * "high-points" also checks the declared winner, in validation); "tied-points" votes for the
+ * declared winner if its total is not lower; "low-points" votes for the declared winner. A
+ * scoresheet without speaker scores votes for its declared winner.
+ */
+export function sheetOutcome(
+  sheet: Pick<AdjudicatorSheet, "speakerScores"> & Partial<Pick<AdjudicatorSheet, "declaredWinner">>,
+  rules: BallotRules
+): SheetOutcome {
   const [first, second] = TWO_TEAM_SIDES;
+  const declared = sheet.declaredWinner && TWO_TEAM_SIDES.includes(sheet.declaredWinner) ? sheet.declaredWinner : undefined;
+  if (!usesSpeakerScores(rules)) {
+    return { totals: { [first]: 0, [second]: 0 } as Record<DebateSide, number>, winner: declared };
+  }
   const totals = {
-    [first]: teamSpeakerTotal(sheet.speakerScores[first] || [], rules),
-    [second]: teamSpeakerTotal(sheet.speakerScores[second] || [], rules),
+    [first]: teamSpeakerTotal(sheet.speakerScores?.[first] || [], rules),
+    [second]: teamSpeakerTotal(sheet.speakerScores?.[second] || [], rules),
   } as Record<DebateSide, number>;
-  const winner = totals[first] === totals[second] ? undefined : totals[first] > totals[second] ? first : second;
+  const byTotals = totals[first] === totals[second] ? undefined : totals[first] > totals[second] ? first : second;
+  const mode = winnerDeclarationFor(rules.preferences);
+  let winner: DebateSide | undefined = byTotals;
+  if (mode === "low-points") winner = declared;
+  if (mode === "tied-points") {
+    const other = declared === first ? second : first;
+    winner = declared && totals[declared] >= totals[other] ? declared : undefined;
+  }
   return { totals, winner };
 }
 
@@ -202,10 +258,13 @@ export interface VotingResult {
 }
 
 /**
- * Aggregates two-team voting sheets the way Tabbycat does: each sheet votes for the team with the
- * higher total, the majority wins (the chair breaks a tied panel), and the recorded speaker scores
- * are the average of the majority adjudicators' scores. The margin uses only the majority unless
- * `marginIncludesDissenters` is on.
+ * Aggregates two-team voting sheets the way Tabbycat does (`DebateResultByAdjudicatorWithScores`):
+ * each sheet votes (see `sheetOutcome`), the majority wins and the chair breaks a tied panel.
+ * Speaker scores, team totals and the margin come from the "relevant" adjudicators: the majority,
+ * or the whole panel when `marginIncludesDissenters` is on. Each speech's score is the mean or
+ * median (`scoreAggregation`) of their scores; with score criteria each criterion is aggregated
+ * separately and the speech score is their weighted sum (medians do not add up). Team totals and
+ * margins are always the mean of the sheets' own totals, as in Tabbycat.
  */
 export function aggregateVotingSheets(
   sheets: AdjudicatorSheet[],
@@ -229,30 +288,38 @@ export function aggregateVotingSheets(
     winner = tieBreaker;
   }
   const majority = sheets.filter((_, index) => outcomes[index].winner === winner);
-  const majorityOutcomes = outcomes.filter((outcome) => outcome.winner === winner);
-  const averageOver = (pool: AdjudicatorSheet[]) => {
-    const averaged = {} as Record<DebateSide, SpeakerScoreEntry[]>;
-    for (const side of TWO_TEAM_SIDES) {
-      const template = pool[0].speakerScores[side] || [];
-      averaged[side] = template.map((entry, index) => ({
-        ...entry,
-        score: cleanScore(
-          pool.reduce((sum, sheet) => sum + (sheet.speakerScores[side]?.[index]?.score ?? 0), 0) / pool.length
-        ),
-      }));
-    }
-    return averaged;
-  };
-  const speakerScores = averageOver(majority);
-  // Margins come from each sheet's exact totals, so per-speaker rounding never shifts them.
-  const marginOutcomes = rules.preferences?.marginIncludesDissenters
-    ? outcomes
-    : outcomes.filter((outcome) => outcome.winner === winner);
+  const relevantIndexes = sheets
+    .map((_, index) => index)
+    .filter((index) => rules.preferences?.marginIncludesDissenters || outcomes[index].winner === winner);
+  const relevant = relevantIndexes.map((index) => sheets[index]);
+  const relevantOutcomes = relevantIndexes.map((index) => outcomes[index]);
+  const scored = usesSpeakerScores(rules);
+  const aggregation = scoreAggregationFor(rules.preferences);
+  const criteria = scoreCriteriaFor(rules.preferences);
+
+  const speakerScores = {} as Record<DebateSide, SpeakerScoreEntry[]>;
+  for (const side of TWO_TEAM_SIDES) {
+    const template = scored ? relevant[0].speakerScores?.[side] || [] : [];
+    speakerScores[side] = template.map((entry, index) => {
+      const pool = relevant.map((sheet) => sheet.speakerScores?.[side]?.[index]);
+      const { rank: _rank, criteria: _criteria, ...rest } = entry;
+      const applicable = criteriaForSpeech(criteria, isReplyEntry(entry, rules));
+      if (applicable.length > 0) {
+        const values = Object.fromEntries(
+          applicable.map((criterion) => [
+            criterion.id,
+            aggregateScoreValues(pool.map((speech) => speech?.criteria?.[criterion.id] ?? 0), aggregation),
+          ])
+        );
+        return { ...rest, criteria: values, score: weightedCriteriaScore(applicable, values) };
+      }
+      return { ...rest, score: aggregateScoreValues(pool.map((speech) => speech?.score ?? 0), aggregation) };
+    });
+  }
+
   const loser = winner === first ? second : first;
-  const margin = cleanScore(
-    marginOutcomes.reduce((sum, outcome) => sum + outcome.totals[winner] - outcome.totals[loser], 0) /
-      marginOutcomes.length
-  );
+  const mean = (values: number[]) => cleanScore(values.reduce((sum, value) => sum + value, 0) / values.length);
+  const margin = mean(relevantOutcomes.map((outcome) => outcome.totals[winner] - outcome.totals[loser]));
   const teamScores = {} as Record<DebateSide, TeamScoreEntry>;
   for (const side of TWO_TEAM_SIDES) {
     const won = side === winner;
@@ -260,13 +327,11 @@ export function aggregateVotingSheets(
       side,
       teamId: teamIds[side] || "",
       points: won ? 1 : 0,
-      // The mean of the majority sheets' own totals: exact, unlike a sum of averaged speeches.
-      totalSpeakerScore: cleanScore(
-        majorityOutcomes.reduce((sum, outcome) => sum + outcome.totals[side], 0) / majorityOutcomes.length
-      ),
+      // The mean of the relevant sheets' own totals: exact, unlike a sum of averaged speeches.
+      totalSpeakerScore: scored ? mean(relevantOutcomes.map((outcome) => outcome.totals[side])) : 0,
       rank: won ? 1 : 2,
       win: won,
-      margin: won ? margin : -margin,
+      ...(scored ? { margin: won ? margin : -margin } : {}),
       votes: votes[side],
     };
   }
@@ -322,6 +387,29 @@ export interface BallotValidationContext extends BallotRules {
   roundMotionIds?: string[];
 }
 
+function formatTotal(value: number): string {
+  return String(cleanScore(value));
+}
+
+/** Speeches with their criteria applied, so scores are the weighted sums the totals use. */
+function scoredSpeeches(speakerScores: SideRecord<SpeakerScoreEntry[]>, rules: BallotRules): SideRecord<SpeakerScoreEntry[]> {
+  return Object.fromEntries(
+    ballotSides(rules.format).map((side) => [side, applyScoreCriteria(speakerScores[side] || [], rules)])
+  ) as SideRecord<SpeakerScoreEntry[]>;
+}
+
+function validateSpeechScore(entry: SpeakerScoreEntry, reply: boolean, context: BallotValidationContext): string[] {
+  const criteria = criteriaForSpeech(scoreCriteriaFor(context.preferences), reply);
+  if (criteria.length > 0) {
+    // With criteria the speech score is derived, so only the criterion scores are checked (Tabbycat).
+    return criteria
+      .map((criterion) => validateCriterionScore(criterion, entry.criteria?.[criterion.id]))
+      .filter(Boolean);
+  }
+  const check = reply ? validateReplyScore(entry.score, context.preferences) : validateSpeakerScore(entry.score, context.preferences);
+  return check.valid ? [] : [check.error || "The score is invalid."];
+}
+
 function validateSheetScores(
   speakerScores: SideRecord<SpeakerScoreEntry[]>,
   context: BallotValidationContext,
@@ -333,7 +421,7 @@ function validateSheetScores(
   for (const side of ballotSides(context.format)) {
     const entries = speakerScores[side] || [];
     const roster = new Set((context.rosters[side] || []).map((speaker) => speaker.id));
-    const prefix = `${label}${side}`;
+    const prefix = `${label}${sideLabel(side, context.preferences)}`;
     const speeches = entries.filter((entry) => !isReplyEntry(entry, context));
     const positions = speeches.map((entry) => entry.position).sort((a, b) => a - b);
     if (speeches.length !== substantive || positions.some((position, index) => position !== index + 1)) {
@@ -341,8 +429,7 @@ function validateSheetScores(
     }
     for (const entry of speeches) {
       if (!roster.has(entry.speakerId)) errors.push(`${prefix} speaker ${entry.position}: choose a speaker from the team.`);
-      const check = validateSpeakerScore(entry.score, context.preferences);
-      if (!check.valid) errors.push(`${prefix} speaker ${entry.position}: ${check.error}`);
+      for (const error of validateSpeechScore(entry, false, context)) errors.push(`${prefix} speaker ${entry.position}: ${error}`);
     }
     const counted = new Map<string, number>();
     for (const entry of speeches) {
@@ -360,13 +447,19 @@ function validateSheetScores(
         errors.push(`${prefix}: enter exactly one reply speech.`);
       } else {
         const reply = replyEntries[0];
-        const check = validateReplyScore(reply.score, context.preferences);
-        if (!check.valid) errors.push(`${prefix} reply: ${check.error}`);
-        const eligible = speeches
-          .filter((entry) => entry.position < substantive)
-          .map((entry) => entry.speakerId);
-        if (!eligible.includes(reply.speakerId)) {
-          errors.push(`${prefix} reply: the reply must be given by one of the first ${substantive - 1} speakers.`);
+        for (const error of validateSpeechScore(reply, true, context)) errors.push(`${prefix} reply: ${error}`);
+        // Tabbycat: the last substantive speaker never replies; with require_substantive_for_reply
+        // (the default) the reply speaker must also have given a counted substantive speech.
+        const lastSpeaker = speeches.find((entry) => entry.position === substantive)?.speakerId;
+        const gaveSpeech = speeches.some((entry) => entry.speakerId === reply.speakerId && !entry.ghost);
+        if (requireSubstantiveForReply(context.preferences)) {
+          if (!gaveSpeech || reply.speakerId === lastSpeaker) {
+            errors.push(`${prefix} reply: the reply must be given by one of the first ${substantive - 1} speakers.`);
+          }
+        } else if (!roster.has(reply.speakerId)) {
+          errors.push(`${prefix} reply: choose a speaker from the team.`);
+        } else if (reply.speakerId === lastSpeaker) {
+          errors.push(`${prefix} reply: the last substantive speaker cannot also give the reply.`);
         }
       }
     } else if (replyEntries.length > 0) {
@@ -376,29 +469,172 @@ function validateSheetScores(
   return errors;
 }
 
+/**
+ * Speech ranks (`speaker_ranks`), as Tabbycat's SingleBallotSetForm: every substantive speech in
+ * the debate gets a different rank from 1 to the number of speeches; with "high-points" a higher
+ * score may never be ranked below a lower one (equal scores may be ranked either way). Reply
+ * speeches are not ranked: Tabbycat asks for a rank on them too but never uses it.
+ */
+function validateSpeechRanks(speakerScores: SideRecord<SpeakerScoreEntry[]>, context: BallotValidationContext): string[] {
+  const mode = speakerRanksFor(context.preferences);
+  if (mode === "none") return [];
+  const errors: string[] = [];
+  const speeches = ballotSides(context.format).flatMap((side) =>
+    (speakerScores[side] || [])
+      .filter((entry) => !isReplyEntry(entry, context))
+      .map((entry) => ({ side, entry }))
+  );
+  const count = speeches.length;
+  const seen = new Set<number>();
+  let complete = true;
+  for (const { side, entry } of speeches) {
+    const rank = entry.rank;
+    const where = `${sideLabel(side, context.preferences)} speaker ${entry.position}`;
+    if (rank === undefined || rank === null) {
+      errors.push(`${where}: enter a speech rank.`);
+      complete = false;
+    } else if (!Number.isInteger(rank) || rank < 1 || rank > count) {
+      errors.push(`${where}: the speech rank must be a whole number from 1 to ${count}.`);
+      complete = false;
+    } else {
+      seen.add(rank);
+    }
+  }
+  if (complete && seen.size < count) errors.push("Speech ranks cannot be tied: give every speech a different rank.");
+  if (complete && mode === "high-points") {
+    const inverted = speeches.some((a) =>
+      speeches.some((b) => a.entry.score > b.entry.score && (a.entry.rank as number) > (b.entry.rank as number))
+    );
+    if (inverted) errors.push("Speech ranks must follow the speaker scores: a higher score cannot be ranked below a lower one.");
+  }
+  return errors;
+}
+
+function validateMargin(totals: Record<DebateSide, number>, context: BallotValidationContext, label: string): string[] {
+  const maximum = maximumMarginFor(context.preferences);
+  if (!maximum || context.format === "bp") return [];
+  const [first, second] = TWO_TEAM_SIDES;
+  const margin = Math.abs(totals[first] - totals[second]);
+  return margin > maximum
+    ? [`${label}the margin (${formatTotal(margin)}) exceeds the maximum allowed margin (${maximum}).`]
+    : [];
+}
+
+/**
+ * Checks one scoresheet's winner against its totals (`winners_in_ballots`, two-team formats).
+ * Messages name the sides and totals, which Tabbycat's do not.
+ */
+function validateDeclaredWinner(
+  totals: Record<DebateSide, number>,
+  winner: DebateSide | undefined,
+  context: BallotValidationContext,
+  label: string
+): string[] {
+  const mode = winnerDeclarationFor(context.preferences);
+  const [first, second] = TWO_TEAM_SIDES;
+  const name = (side: DebateSide) => sideLabel(side, context.preferences);
+  const totalsText = `${name(first)} ${formatTotal(totals[first])}, ${name(second)} ${formatTotal(totals[second])}`;
+  if (!winner) {
+    if (mode === "none" && totals[first] === totals[second]) {
+      return [`${label}team totals are tied (${totalsText}); adjust the scores so the winner has the higher total.`];
+    }
+    return [`${label}choose the winning team.`];
+  }
+  const loser = winner === first ? second : first;
+  if ((mode === "none" || mode === "high-points") && totals[winner] === totals[loser]) {
+    return [`${label}team totals are tied (${totalsText}); a debate cannot be drawn.`];
+  }
+  if ((mode === "none" || mode === "high-points" || mode === "tied-points") && totals[winner] < totals[loser]) {
+    return [
+      `${label}${name(winner)} is declared the winner with a lower total (${totalsText}). Low-point wins are not allowed.`,
+    ];
+  }
+  return [];
+}
+
+/**
+ * BP ranks against totals: with "low-points" ranks override the scores (a CrabbyTab extension;
+ * Tabbycat ranks BP teams by total only). "tied-points" lets the ranks order teams with equal
+ * totals. Otherwise, as Tabbycat, totals may not tie and ranks must follow them.
+ */
+function validateBpRanks(
+  ranks: SideRecord<number>,
+  totals: Record<DebateSide, number>,
+  context: BallotValidationContext
+): string[] {
+  const mode = winnerDeclarationFor(context.preferences);
+  if (mode === "low-points") return [];
+  const errors: string[] = [];
+  const name = (side: DebateSide) => sideLabel(side, context.preferences);
+  for (const higher of BP_SIDES) {
+    for (const lower of BP_SIDES) {
+      if ((ranks[higher] as number) < (ranks[lower] as number) && totals[higher] < totals[lower]) {
+        errors.push(
+          `${name(higher)} is ranked above ${name(lower)} with a lower total ` +
+          `(${formatTotal(totals[higher])} vs ${formatTotal(totals[lower])}). Low-point wins are not allowed.`
+        );
+      }
+    }
+  }
+  if (mode !== "tied-points") {
+    const byTotal = new Map<number, DebateSide[]>();
+    for (const side of BP_SIDES) byTotal.set(totals[side], [...(byTotal.get(totals[side]) || []), side]);
+    for (const [total, tied] of byTotal) {
+      if (tied.length > 1) errors.push(`${tied.map(name).join(" and ")} have the same total (${formatTotal(total)}); team totals cannot tie.`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * With `winnersInBallots` "none" a consensus ballot's result is read from the totals (Tabbycat's
+ * HighPointWinsRequiredScoresheet and PolyScoresheet): ranks follow the totals, highest first.
+ * Tied totals keep side order here; validation then rejects the tie. Otherwise the entered ranks
+ * stand. `speakerScores` must already have score criteria applied.
+ */
+export function effectiveRanks(
+  speakerScores: SideRecord<SpeakerScoreEntry[]>,
+  ranks: SideRecord<number> | undefined,
+  rules: BallotRules
+): SideRecord<number> {
+  if (winnerDeclarationFor(rules.preferences) !== "none" || !usesSpeakerScores(rules)) return ranks || {};
+  const sides = ballotSides(rules.format);
+  const totals = new Map(sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], rules)]));
+  const ordered = [...sides].sort((a, b) => (totals.get(b) as number) - (totals.get(a) as number));
+  return Object.fromEntries(ordered.map((side, index) => [side, index + 1]));
+}
+
 function speakerOrder(scores: SideRecord<SpeakerScoreEntry[]>): string {
   return TWO_TEAM_SIDES.map((side) =>
     (scores[side] || []).map((entry) => `${entry.position}:${entry.speakerId}`).join(",")
   ).join("|");
 }
 
+/** Every problem with a ballot entry, as sentences; empty when it can be saved. */
 export function validateBallotEntry(entry: BallotEntry, context: BallotValidationContext): string[] {
+  return collectBallotErrors(entry, context).map((error) => error.charAt(0).toUpperCase() + error.slice(1));
+}
+
+function collectBallotErrors(entry: BallotEntry, context: BallotValidationContext): string[] {
   const errors: string[] = [];
   const sides = ballotSides(context.format);
   const motionIds = context.roundMotionIds || [];
+  const name = (side: DebateSide | string) => sideLabel(side, context.preferences);
 
-  if (entry.motionId && motionIds.length > 0 && !motionIds.includes(entry.motionId)) {
-    errors.push("The motion is not one of this round's motions.");
-  }
-  for (const [side, motionId] of Object.entries(entry.vetoes || {})) {
-    if (!motionId) continue;
-    if (!context.preferences?.enableMotionVetoes) {
-      errors.push("Motion vetoes are not enabled for this tournament.");
-      break;
+  if (motionsEnabled(context.preferences)) {
+    if (entry.motionId && motionIds.length > 0 && !motionIds.includes(entry.motionId)) {
+      errors.push("The motion is not one of this round's motions.");
     }
-    if (!sides.includes(side as DebateSide)) errors.push(`Veto recorded for an unknown side (${side}).`);
-    if (motionIds.length > 0 && !motionIds.includes(motionId)) errors.push(`${side} vetoed a motion from another round.`);
-    if (motionId === entry.motionId) errors.push(`${side} cannot veto the motion that was debated.`);
+    for (const [side, motionId] of Object.entries(entry.vetoes || {})) {
+      if (!motionId) continue;
+      if (!context.preferences?.enableMotionVetoes) {
+        errors.push("Motion vetoes are not enabled for this tournament.");
+        break;
+      }
+      if (!sides.includes(side as DebateSide)) errors.push(`Veto recorded for an unknown side (${side}).`);
+      if (motionIds.length > 0 && !motionIds.includes(motionId)) errors.push(`${name(side)} vetoed a motion from another round.`);
+      if (motionId === entry.motionId) errors.push(`${name(side)} cannot veto the motion that was debated.`);
+    }
   }
 
   if (entry.forfeitSide) {
@@ -410,50 +646,62 @@ export function validateBallotEntry(entry: BallotEntry, context: BallotValidatio
     return errors;
   }
 
+  const scored = usesSpeakerScores(context);
+
   if (usesVotingBallots(context)) {
-    const sheets = entry.sheets || [];
+    const sheets = (entry.sheets || []).map((sheet) => ({
+      ...sheet,
+      speakerScores: scored ? scoredSpeeches(sheet.speakerScores || {}, context) : sheet.speakerScores,
+    })) as AdjudicatorSheet[];
     if (sheets.length === 0) errors.push("Enter at least one adjudicator's scoresheet.");
     const adjudicatorIds = new Set<string>();
+    const declares = winnerDeclarationFor(context.preferences) !== "none" || !scored;
     for (const sheet of sheets) {
       const label = `${sheet.adjudicatorName || "Adjudicator"} — `;
       if (adjudicatorIds.has(sheet.adjudicatorId)) errors.push(`${label}has more than one scoresheet.`);
       adjudicatorIds.add(sheet.adjudicatorId);
-      errors.push(...validateSheetScores(sheet.speakerScores, context, label));
-      if (!sheetOutcome(sheet, context).winner) {
-        errors.push(`${label}team totals are tied; each scoresheet must have a winner.`);
+      if (!scored) {
+        if (!sheet.declaredWinner || !sides.includes(sheet.declaredWinner)) errors.push(`${label}choose the winning team.`);
+        continue;
       }
+      errors.push(...validateSheetScores(sheet.speakerScores, context, label));
+      const outcome = sheetOutcome(sheet, context);
+      const winner = declares ? sheet.declaredWinner : outcome.winner;
+      if (declares && !winner) {
+        errors.push(`${label}choose the winning team.`);
+      } else {
+        errors.push(...validateDeclaredWinner(outcome.totals, winner, context, label));
+      }
+      errors.push(...validateMargin(outcome.totals, context, label));
     }
-    const orders = new Set(sheets.map((sheet) => speakerOrder(sheet.speakerScores)));
-    if (orders.size > 1) errors.push("Every scoresheet must list the same speakers in the same order.");
+    if (scored) {
+      const orders = new Set(sheets.map((sheet) => speakerOrder(sheet.speakerScores)));
+      if (orders.size > 1) errors.push("Every scoresheet must list the same speakers in the same order.");
+    }
     return errors;
   }
 
-  errors.push(...validateSheetScores(entry.speakerScores, context, ""));
-  const ranks = entry.ranks || {};
+  const speakerScores = scored ? scoredSpeeches(entry.speakerScores, context) : {};
+  if (scored) errors.push(...validateSheetScores(speakerScores, context, ""));
+  const ranks = effectiveRanks(speakerScores, entry.ranks, context);
   const rankValues = sides.map((side) => ranks[side]);
   if (rankValues.some((rank) => !Number.isInteger(rank)) || new Set(rankValues).size !== sides.length) {
     errors.push(context.format === "bp"
       ? "Give each team a different rank from 1st to 4th."
       : "One team must win and the other must lose.");
-  } else if (!context.preferences?.allowLowPointWins) {
+  } else if (scored) {
     const totals = Object.fromEntries(
-      sides.map((side) => [side, teamSpeakerTotal(entry.speakerScores[side] || [], context)])
+      sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], context)])
     ) as Record<DebateSide, number>;
-    for (const higher of sides) {
-      for (const lower of sides) {
-        if ((ranks[higher] as number) < (ranks[lower] as number) && totals[higher] < totals[lower]) {
-          errors.push(
-            `${higher} is ranked above ${lower} with a lower total (${totals[higher]} vs ${totals[lower]}). ` +
-            "Low-point wins are not allowed."
-          );
-        }
-      }
-    }
-    if (context.format !== "bp") {
-      const [first, second] = sides;
-      if (totals[first] === totals[second]) errors.push("Team totals are tied; adjust the scores so the winner has the higher total.");
+    if (context.format === "bp") {
+      errors.push(...validateBpRanks(ranks, totals, context));
+    } else {
+      const winner = sides.find((side) => ranks[side] === 1);
+      errors.push(...validateDeclaredWinner(totals, winner, context, ""));
+      errors.push(...validateMargin(totals, context, ""));
     }
   }
+  if (scored) errors.push(...validateSpeechRanks(speakerScores, context));
   return errors;
 }
 
@@ -465,6 +713,21 @@ export interface BallotResult {
   speakerScores: Record<DebateSide, SpeakerScoreEntry[]>;
   teamScores: Record<DebateSide, TeamScoreEntry>;
   sheets?: AdjudicatorSheet[];
+  /** Set for a results-only ballot (no speaker scores); store it on the BallotSubmission. */
+  noSpeakerScores?: boolean;
+}
+
+function emptySides(sides: DebateSide[]): Record<DebateSide, SpeakerScoreEntry[]> {
+  return Object.fromEntries(sides.map((side) => [side, []])) as unknown as Record<DebateSide, SpeakerScoreEntry[]>;
+}
+
+/** Speeches as stored: criteria applied, ghosts marked, and speech ranks only when ranks are in use. */
+function storedSpeeches(entries: SpeakerScoreEntry[], rules: BallotRules, keepRanks: boolean): SpeakerScoreEntry[] {
+  return markGhostSpeeches(applyScoreCriteria(entries, rules), rules).map((speech) => {
+    if (keepRanks && !isReplyEntry(speech, rules)) return speech;
+    const { rank: _rank, ...rest } = speech;
+    return rest;
+  });
 }
 
 /** Turns a validated entry into the scores stored on the ballot. */
@@ -477,24 +740,40 @@ export function buildBallotResult(
   const sides = ballotSides(rules.format);
   if (entry.forfeitSide) {
     return {
-      speakerScores: Object.fromEntries(sides.map((side) => [side, []])) as unknown as Record<DebateSide, SpeakerScoreEntry[]>,
+      speakerScores: emptySides(sides),
       teamScores: forfeitTeamScores(entry.forfeitSide, teamIds, rules),
     };
   }
+  const scored = usesSpeakerScores(rules);
   if (usesVotingBallots(rules)) {
     const sheets = (entry.sheets || []).map((sheet) => ({
       ...sheet,
-      speakerScores: Object.fromEntries(
-        sides.map((side) => [side, markGhostSpeeches(sheet.speakerScores[side] || [], rules)])
-      ) as Record<DebateSide, SpeakerScoreEntry[]>,
+      speakerScores: scored
+        ? (Object.fromEntries(
+            sides.map((side) => [side, storedSpeeches(sheet.speakerScores?.[side] || [], rules, false)])
+          ) as Record<DebateSide, SpeakerScoreEntry[]>)
+        : emptySides(sides),
     }));
     const result = aggregateVotingSheets(sheets, chairId, teamIds, rules);
-    return { speakerScores: result.speakerScores, teamScores: result.teamScores, sheets };
+    return {
+      speakerScores: result.speakerScores,
+      teamScores: result.teamScores,
+      sheets,
+      ...(scored ? {} : { noSpeakerScores: true }),
+    };
   }
+  if (!scored) {
+    return {
+      speakerScores: emptySides(sides),
+      teamScores: consensusTeamScores({}, entry.ranks || {}, teamIds, rules),
+      noSpeakerScores: true,
+    };
+  }
+  const keepRanks = speakerRanksFor(rules.preferences) !== "none";
   const speakerScores = Object.fromEntries(
-    sides.map((side) => [side, markGhostSpeeches(entry.speakerScores[side] || [], rules)])
+    sides.map((side) => [side, storedSpeeches(entry.speakerScores[side] || [], rules, keepRanks)])
   ) as Record<DebateSide, SpeakerScoreEntry[]>;
-  return { speakerScores, teamScores: consensusTeamScores(speakerScores, entry.ranks || {}, teamIds, rules) };
+  return { speakerScores, teamScores: consensusTeamScores(speakerScores, effectiveRanks(speakerScores, entry.ranks, rules), teamIds, rules) };
 }
 
 export interface BallotDifference {

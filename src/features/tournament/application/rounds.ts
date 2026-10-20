@@ -149,6 +149,7 @@ export function getRoundChangeSummary(previous: Round, next: Round) {
     "motionsReleased",
     "silent",
     "cancelled",
+    "weight",
   ] as const;
 
   return Object.fromEntries(

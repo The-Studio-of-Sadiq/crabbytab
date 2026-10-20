@@ -3,12 +3,20 @@
 import React from "react";
 import type { Speaker, SpeakerScoreEntry } from "@/types";
 import {
+  applyScoreCriteria,
   isReplyEntry,
   markGhostSpeeches,
   substantiveSpeakerCount,
   teamSpeakerTotal,
   type BallotRules,
 } from "@/lib/ballots/result";
+import {
+  criteriaForSpeech,
+  replyScoreStep,
+  requireSubstantiveForReply,
+  scoreCriteriaFor,
+} from "@/lib/ballots/ballotRules";
+import { formatScore } from "@/lib/scoreDisplay";
 
 interface SpeechRowsProps {
   idPrefix: string;
@@ -19,13 +27,15 @@ interface SpeechRowsProps {
   /** Voting sheets after the first share its speaker order, so only scores are editable. */
   lockSpeakers?: boolean;
   readOnly?: boolean;
+  /** Speech ranks are entered (consensus ballots with speakerRanks); ranks run from 1 to this. */
+  rankCount?: number;
 }
 
 function scoreBounds(rules: BallotRules, reply: boolean) {
   const preferences = rules.preferences || {};
   const step = preferences.stepSpeakerScore ?? 1;
   return reply
-    ? { min: preferences.minReplyScore ?? 34, max: preferences.maxReplyScore ?? 42, step: step / 2 }
+    ? { min: preferences.minReplyScore ?? 34, max: preferences.maxReplyScore ?? 42, step: replyScoreStep(preferences) }
     : { min: preferences.minSpeakerScore ?? 68, max: preferences.maxSpeakerScore ?? 84, step };
 }
 
@@ -33,7 +43,8 @@ function scoreBounds(rules: BallotRules, reply: boolean) {
  * One team's speeches on one scoresheet: who spoke in each position (iron-person speeches are
  * allowed and flagged as ghosts), each score, and the reply.
  */
-export function SpeechRows({ idPrefix, roster, entries, rules, onChange, lockSpeakers, readOnly }: SpeechRowsProps) {
+export function SpeechRows({ idPrefix, roster, entries, rules, onChange, lockSpeakers, readOnly, rankCount }: SpeechRowsProps) {
+  const criteria = scoreCriteriaFor(rules.preferences);
   const substantive = substantiveSpeakerCount(rules);
   const speeches = entries.filter((entry) => !isReplyEntry(entry, rules));
   const reply = entries.find((entry) => isReplyEntry(entry, rules));
@@ -59,12 +70,70 @@ export function SpeechRows({ idPrefix, roster, entries, rules, onChange, lockSpe
     onChange(markGhostSpeeches(next, rules));
   };
 
-  const replyCandidates = speeches
-    .filter((entry) => entry.position < substantive && entry.speakerId)
-    .map((entry) => roster.find((speaker) => speaker.id === entry.speakerId))
-    .filter((speaker, index, all): speaker is Speaker => Boolean(speaker) && all.indexOf(speaker) === index);
+  // The last substantive speaker never replies; unless the tournament lets anyone on the team
+  // reply, the reply speaker must have given a counted substantive speech (Tabbycat).
+  const lastSpeakerId = speeches.find((entry) => entry.position === substantive)?.speakerId;
+  const replyCandidates = requireSubstantiveForReply(rules.preferences)
+    ? speeches
+        .filter((entry) => entry.position < substantive && entry.speakerId && entry.speakerId !== lastSpeakerId && !entry.ghost)
+        .map((entry) => roster.find((speaker) => speaker.id === entry.speakerId))
+        .filter((speaker, index, all): speaker is Speaker => Boolean(speaker) && all.indexOf(speaker) === index)
+    : roster.filter((speaker) => speaker.id !== lastSpeakerId);
+
+  const criteriaInputs = (entry: SpeakerScoreEntry, isReply: boolean, label: string) => (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {criteriaForSpeech(criteria, isReply).map((criterion) => (
+        <label key={criterion.id} className="flex items-center gap-1 text-[10px] font-semibold text-gray-600">
+          {criterion.name}
+          {criterion.weight !== 1 && <span className="text-gray-400">×{criterion.weight}</span>}
+          <input
+            id={`${idPrefix}-${entry.position}-${criterion.id}`}
+            type="number"
+            inputMode="decimal"
+            aria-label={`${label}: ${criterion.name}${criterion.required ? "" : " (optional)"}`}
+            min={criterion.minScore}
+            max={criterion.maxScore}
+            step={criterion.step}
+            value={Number.isFinite(entry.criteria?.[criterion.id]) ? entry.criteria?.[criterion.id] : ""}
+            disabled={readOnly}
+            onChange={(event) => {
+              const nextCriteria = { ...(entry.criteria || {}) };
+              if (event.target.value === "") delete nextCriteria[criterion.id];
+              else nextCriteria[criterion.id] = Number(event.target.value);
+              const [scored] = applyScoreCriteria([{ ...entry, criteria: nextCriteria }], rules);
+              update(entry.position, { criteria: nextCriteria, score: scored.score });
+            }}
+            className="w-14 rounded border border-gray-300 px-1.5 py-1 text-center font-mono text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          />
+        </label>
+      ))}
+      <span className="font-mono text-xs font-bold text-gray-900" aria-label={`${label}: total`}>
+        = {Number.isFinite(entry.score) ? formatScore(entry.score) : "—"}
+      </span>
+    </span>
+  );
+
+  const rankInput = (entry: SpeakerScoreEntry) => (
+    <label className="flex items-center gap-1 text-[10px] font-semibold uppercase text-gray-500">
+      Rank
+      <input
+        id={`${idPrefix}-${entry.position}-rank`}
+        type="number"
+        inputMode="numeric"
+        aria-label={`Speech rank for speaker ${entry.position}`}
+        min={1}
+        max={rankCount}
+        step={1}
+        value={entry.rank ?? ""}
+        disabled={readOnly}
+        onChange={(event) => update(entry.position, { rank: event.target.value === "" ? undefined : Number(event.target.value) })}
+        className="w-12 rounded border border-gray-300 px-1.5 py-1 text-center font-mono text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+      />
+    </label>
+  );
 
   const scoreInput = (entry: SpeakerScoreEntry, isReply: boolean, label: string) => {
+    if (criteriaForSpeech(criteria, isReply).length > 0) return criteriaInputs(entry, isReply, label);
     const bounds = scoreBounds(rules, isReply);
     return (
       <input
@@ -121,6 +190,7 @@ export function SpeechRows({ idPrefix, roster, entries, rules, onChange, lockSpe
               </button>
             )}
             {scoreInput(entry, false, `Score for speaker ${entry.position}`)}
+            {rankCount ? rankInput(entry) : null}
           </div>
         );
       })}
@@ -146,7 +216,7 @@ export function SpeechRows({ idPrefix, roster, entries, rules, onChange, lockSpe
         </div>
       )}
       <div className="text-right text-xs font-semibold text-gray-700">
-        Team total: <span className="font-mono font-bold text-gray-900">{teamSpeakerTotal(marked.filter((entry) => Number.isFinite(entry.score)), rules)}</span>
+        Team total: <span className="font-mono font-bold text-gray-900">{formatScore(teamSpeakerTotal(marked.filter((entry) => Number.isFinite(entry.score)), rules))}</span>
       </div>
     </div>
   );

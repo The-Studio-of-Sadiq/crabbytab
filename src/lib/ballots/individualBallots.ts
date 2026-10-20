@@ -19,6 +19,12 @@ import {
  * side. Disagreements are reported, never resolved silently.
  */
 
+function declaredWinnerOf(ballot: BallotSubmission): { declaredWinner?: DebateSide } {
+  const winner = (Object.entries(ballot.teamScores || {}) as [DebateSide, { rank?: number } | undefined][])
+    .find(([, score]) => score?.rank === 1)?.[0];
+  return winner ? { declaredWinner: winner } : {};
+}
+
 export const MERGED_BALLOT_SUBMITTER_NAME = "Merged individual ballots";
 
 /** Voting adjudicators of a debate: the chair and panellists (trainees never vote). */
@@ -56,7 +62,7 @@ export interface IndividualMerge {
   /** The individual ballots merged (one per voting adjudicator who submitted). */
   merged: BallotSubmission[];
   /** Scores of the merged voting ballot; absent when there are errors or no sheets. */
-  result?: Pick<BallotSubmission, "speakerScores" | "teamScores" | "sheets" | "motionId" | "motionText" | "vetoes">;
+  result?: Pick<BallotSubmission, "speakerScores" | "teamScores" | "sheets" | "motionId" | "motionText" | "vetoes" | "noSpeakerScores">;
 }
 
 function speakerKey(entry: SpeakerScoreEntry | undefined): string {
@@ -115,9 +121,13 @@ export function mergeIndividualBallots(
     speakerScores: Object.fromEntries(
       sides.map((side) => [side, markGhostSpeeches(ballot.speakerScores?.[side] ?? [], rules)])
     ) as Record<DebateSide, SpeakerScoreEntry[]>,
+    // The adjudicator's own result is their declared winner (winnersInBallots, results-only ballots).
+    ...declaredWinnerOf(ballot),
   }));
   for (const [index, sheet] of sheets.entries()) {
-    if (!sheetOutcome(sheet, rules).winner) errors.push(`${name(merged[index])}'s scoresheet has tied team totals.`);
+    if (!sheetOutcome(sheet, rules).winner) {
+      errors.push(`${name(merged[index])}'s scoresheet has no winner (tied team totals, or a declared winner that does not fit the totals).`);
+    }
   }
   if (errors.length > 0) return { missingAdjudicatorIds, errors: [...new Set(errors)], merged };
 
@@ -135,6 +145,7 @@ export function mergeIndividualBallots(
         ...(first.motionId !== undefined ? { motionId: first.motionId } : {}),
         ...(first.motionText !== undefined ? { motionText: first.motionText } : {}),
         ...(first.vetoes !== undefined ? { vetoes: first.vetoes } : {}),
+        ...(merged.every((ballot) => ballot.noSpeakerScores) ? { noSpeakerScores: true } : {}),
       },
     };
   } catch (error) {
