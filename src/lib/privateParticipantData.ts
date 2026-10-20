@@ -94,7 +94,7 @@ export async function loadTeamsById(
 }
 
 /** What a portal shows about a room: its name, category and (safe) link. */
-export type PortalVenue = Pick<Venue, "id" | "name" | "category" | "url">;
+export type PortalVenue = Pick<Venue, "id" | "name" | "category" | "categories" | "url">;
 
 /**
  * Rooms of the given debates, for room links in the portals. Callers pass only the debates of
@@ -115,6 +115,9 @@ export async function loadPortalVenues(
       id: snapshot.id,
       name: typeof data!.name === "string" ? data!.name : "",
       ...(typeof data!.category === "string" ? { category: data!.category } : {}),
+      ...(Array.isArray(data!.categories) && data!.categories.every((item: unknown) => typeof item === "string")
+        ? { categories: data!.categories as string[] }
+        : {}),
       ...(url ? { url } : {}),
     }];
   });

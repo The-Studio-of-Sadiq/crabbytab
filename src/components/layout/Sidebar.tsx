@@ -41,6 +41,7 @@ import {
   Tags,
   Trophy,
   UserCheck,
+  Scale,
   Users,
   Users2,
   X,
@@ -179,10 +180,14 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
         <NavLink href={`${base}/imports/adjudicators`} icon={UserCheck} label={t("setup.shell.navAdjudicators")} />
         <NavLink href={`${base}/imports/diversity`} icon={Users} label={t("setup.shell.navDiversity")} />
         {isOwnerOrAdmin && <NavLink href={`${base}/registration`} icon={ClipboardList} label={t("setup.shell.navRegistration")} />}
+        {staffMay("conflicts.view") && (
+          <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label={t("setup.shell.navConflicts")} />
+        )}
         {!isDataEntryAssistant && (
           <>
             <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label={t("setup.shell.navSpeakerCategories")} />
-            <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label={t("setup.shell.navConflicts")} />
+            <NavLink href={`${base}/imports/code-names`} icon={Tags} label={t("setup.shell.navCodeNames")} />
+            <NavLink href={`${base}/imports/adjudicator-requirements`} icon={Scale} label={t("setup.shell.navAdjRequirement")} />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label={t("setup.shell.navVenues")} />
             <NavLink href={`${base}/imports/venue-constraints`} icon={MapPin} label={t("setup.shell.navRoomPreferences")} />
             <NavLink href={`${base}/imports/motions`} icon={Lightbulb} label={t("setup.shell.navMotions")} />
@@ -213,8 +218,10 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
                     ) : undefined
                   }
                 />
-                <NavLink href={`${base}/allocation`} icon={Users2} label={t("setup.shell.navAllocation")} />
               </>
+            )}
+            {staffMay("allocation.edit") && (
+              <NavLink href={`${base}/allocation`} icon={Users2} label={t("setup.shell.navAllocation")} />
             )}
             {staffMay("draw.display") && <NavLink href={`${base}/display`} icon={Monitor} label={t("setup.shell.navDisplay")} />}
           </>
@@ -245,7 +252,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
             ) : undefined
           }
         />
-        {feedbackEnabled && staffMay("feedback.enter") && <NavLink href={`${base}/feedback`} icon={MessageSquareHeart} label={t("setup.shell.navFeedback")} />}
+        {feedbackEnabled && (staffMay("feedback.enter") || staffMay("feedback.view")) && <NavLink href={`${base}/feedback`} icon={MessageSquareHeart} label={t("setup.shell.navFeedback")} />}
         <NavLink href={`${base}/standings`} icon={Trophy} label={t("setup.shell.navStandings")} />
         <NavLink href={`${base}/break`} icon={Award} label={t("setup.shell.navBreak")} />
         <NavLink href={`${base}/analytics`} icon={BarChart3} label={t("setup.shell.navAnalytics")} />

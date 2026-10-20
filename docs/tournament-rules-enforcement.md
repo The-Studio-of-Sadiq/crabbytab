@@ -45,9 +45,10 @@ is postponed (`getRoundCompletionBlockers`). "Published" draw means `drawStatus`
 | Generate a preliminary draw | Every preliminary round in an earlier schedule slot is finished (`previous_round_incomplete`). Unfinished results do not count towards power pairing. Rounds in the same slot (parallel panels) are not waited for. | Overridable | `generateDrawCommand` |
 | Generate an elimination draw | The round has a generated break (`break_not_generated`) and every earlier elimination round of the same category has advanced (`previous_elimination_not_advanced`). | Hard | `generateDrawCommand` |
 | Regenerate a draw | Not in a cancelled (`round_cancelled`), completed (`round_completed`) or advanced (`elimination_advanced`) round. | Hard | `generateDrawCommand` |
-| Regenerate a draw | Not a published draw (`draw_released`), and no later round was drawn after it (`later_round_drawn`). | Overridable | `generateDrawCommand` |
+| Regenerate a draw | Not a published or teams-only-released draw (`draw_released`), not a confirmed draw (`draw_confirmed`), and no later round was drawn after it (`later_round_drawn`). | Overridable | `generateDrawCommand` |
 | Regenerate a draw with ballots | The existing explicit "discard these results" confirmation; the ballots are kept as discarded versions. | Confirmation | `generateDrawCommand` (`DrawHasResultsError`) |
-| Publish a draw | The round has debates (`draw_empty`). | Hard | `updateRoundCommand` |
+| Confirm (lock) a draw | The round has debates (`draw_empty`). | Hard | `updateRoundCommand` |
+| Publish a draw (to teams only or to everyone) | The round has debates (`draw_empty`). | Hard | `updateRoundCommand` |
 | Publish a draw | The draw check (`validateDraw`) finds no errors (`draw_invalid`). Warnings never block. | Overridable | `updateRoundCommand` |
 | Publish a draw | No team, adjudicator or venue is also in a round of the same schedule slot (`concurrent_round_clash`, see [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md)). | Overridable | `updateRoundCommand`, `updateRoundsCommand` |
 
@@ -62,7 +63,8 @@ Compared per debate between the old and new draw (`checkDebateEdits`):
 | --- | --- | --- |
 | Delete a debate, or change its teams or sides, when it has a live ballot | `debate_has_ballots` | Hard (discard the ballot first) |
 | Change a debate's panel when it has a live ballot | `debate_has_ballots` | Overridable |
-| Add, delete or re-pair debates in a published draw | `draw_released` | Overridable |
+| Add, delete or re-pair debates in a published (or teams-only-released) draw | `draw_released` | Overridable |
+| Add, delete or re-pair debates in a confirmed, unreleased draw | `draw_confirmed` | Overridable |
 | Any team or panel change in a completed round | `round_completed` | Overridable |
 | Any team or panel change in an advanced elimination round | `elimination_advanced` | Hard |
 | Auto-allocate a round with live ballots, or a completed round | `debate_has_ballots`, `round_completed` | Overridable |

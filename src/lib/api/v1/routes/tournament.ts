@@ -1,6 +1,6 @@
 import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 import { sortSpeakerCategories, speakerCategoryRefs, resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
-import type { Team } from "@/types";
+import type { FeedbackQuestion, Team, TournamentPreferences } from "@/types";
 import { notFound } from "../errors";
 import { defineRoute, listOf, slugParam } from "../router";
 import { s } from "../schema";
@@ -28,6 +28,22 @@ const feedbackQuestionSchema = s.object({
   max: s.optional(s.number()),
   sources: s.array(s.enum(["team", "adjudicator"] as const), { description: "Who is asked this question." }),
 }, { strict: false });
+
+export type FeedbackQuestionSource = "team" | "adjudicator";
+export type SourcedFeedbackQuestion = FeedbackQuestion & { sources: FeedbackQuestionSource[] };
+
+/** The feedback questions with who is asked each (team and adjudicator lists merged by id, in order). */
+export function questionsWithSources(preferences: TournamentPreferences | undefined): SourcedFeedbackQuestion[] {
+  const byId = new Map<string, SourcedFeedbackQuestion>();
+  for (const source of ["team", "adjudicator"] as const) {
+    for (const question of questionsForFeedbackSource(source, preferences)) {
+      const entry = byId.get(question.id) ?? { ...question, sources: [] };
+      entry.sources.push(source);
+      byId.set(question.id, entry);
+    }
+  }
+  return [...byId.values()];
+}
 
 export const tournamentReadRoutes = [
   defineRoute({
@@ -62,24 +78,38 @@ export const tournamentReadRoutes = [
     path: "/tournaments/{slug}/feedback-questions",
     operationId: "listFeedbackQuestions",
     summary: "List feedback questions",
-    description: "Custom feedback questions with who is asked each one (teams, adjudicators or both).",
+    description:
+      "Custom feedback questions with who is asked each one (teams, adjudicators or both). " +
+      "`fromTeams=true` / `fromAdjudicators=true` (Tabbycat's from_team / from_adj) list only the questions those sources are asked.",
     tag: "feedback",
     auth: { kind: "token", resource: "tournament", access: "read" },
     params: slugOnly,
+    query: s.object({ fromTeams: s.optional(s.boolean()), fromAdjudicators: s.optional(s.boolean()) }),
     response: listOf(feedbackQuestionSchema),
     async handler(context) {
-      const preferences = context.tournament.preferences;
-      const team = questionsForFeedbackSource("team", preferences);
-      const adjudicator = questionsForFeedbackSource("adjudicator", preferences);
-      const byId = new Map<string, { question: (typeof team)[number]; sources: Array<"team" | "adjudicator"> }>();
-      for (const [source, questions] of [["team", team], ["adjudicator", adjudicator]] as const) {
-        for (const question of questions) {
-          const entry = byId.get(question.id) ?? { question, sources: [] };
-          entry.sources.push(source);
-          byId.set(question.id, entry);
-        }
-      }
-      return { data: [...byId.values()].map(({ question, sources }) => ({ ...question, sources })) };
+      const wanted: FeedbackQuestionSource[] = [
+        ...(context.query.fromTeams ? ["team" as const] : []),
+        ...(context.query.fromAdjudicators ? ["adjudicator" as const] : []),
+      ];
+      return {
+        data: questionsWithSources(context.tournament.preferences)
+          .filter((question) => wanted.length === 0 || wanted.some((source) => question.sources.includes(source))),
+      };
+    },
+  }),
+  defineRoute({
+    method: "GET",
+    path: "/tournaments/{slug}/feedback-questions/{questionId}",
+    operationId: "getFeedbackQuestion",
+    summary: "Get one feedback question",
+    tag: "feedback",
+    auth: { kind: "token", resource: "tournament", access: "read" },
+    params: s.object({ slug: slugParam, questionId: idSchema("Question id.") }),
+    response: feedbackQuestionSchema,
+    async handler(context) {
+      const question = questionsWithSources(context.tournament.preferences).find((item) => item.id === context.params.questionId);
+      if (!question) throw notFound("Feedback question");
+      return question;
     },
   }),
   defineRoute({

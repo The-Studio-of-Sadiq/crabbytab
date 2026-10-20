@@ -33,7 +33,9 @@ const fileLabelClasses = cn(
 /** Imports conflicts from CSV with a preview; nothing is saved until the organiser confirms. */
 export default function ConflictsImportPage() {
   const { t, plural } = useI18n();
-  const { teams, adjudicators, institutions, isOwnerOrAdmin, saveEntityBatch } = useTournament();
+  const { teams, adjudicators, institutions, isOwnerOrAdmin, isDataEntryAssistant, staffPermissions, saveEntityBatch } = useTournament();
+  // Equity staff (docs/staff-access.md) edit conflicts too; the data-entry sync route re-checks.
+  const canEditConflicts = isOwnerOrAdmin || (isDataEntryAssistant && staffPermissions.includes("conflicts.edit"));
   const [text, setText] = useState("");
   const [plan, setPlan] = useState<ConflictsPlan | null>(null);
   const [validOnly, setValidOnly] = useState(false);
@@ -83,7 +85,7 @@ export default function ConflictsImportPage() {
     <div className="space-y-6">
       <PageHeader title={t("setup.importsExtra.conflicts.title")} description={t("setup.importsExtra.conflicts.description")} />
 
-      {!isOwnerOrAdmin && <Alert tone="info">{t("setup.importsExtra.conflicts.adminOnly")}</Alert>}
+      {!canEditConflicts && <Alert tone="info">{t("setup.importsExtra.conflicts.adminOnly")}</Alert>}
 
       <div className="space-y-3">
         <label className={fileLabelClasses}>
@@ -193,7 +195,7 @@ export default function ConflictsImportPage() {
               </Table>
             </TableContainer>
           )}
-          {isOwnerOrAdmin && (
+          {canEditConflicts && (
             <Button
               variant="primary"
               onClick={confirm}

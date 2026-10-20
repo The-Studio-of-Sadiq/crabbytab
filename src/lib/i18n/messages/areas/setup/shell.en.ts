@@ -17,6 +17,8 @@ export const shellEn = {
   "setup.shell.roundStatusReleased": "Draw released",
   "setup.shell.roundStatusConfirmedShort": "Confirmed",
   "setup.shell.roundStatusConfirmed": "Draw confirmed",
+  "setup.shell.roundStatusTeamsReleasedShort": "Teams only",
+  "setup.shell.roundStatusTeamsReleased": "Draw released to teams",
   "setup.shell.roundStatusDraftShort": "Draft",
   "setup.shell.roundStatusDraft": "Draft draw",
   "setup.shell.roundStatusNoDrawShort": "No draw",
@@ -197,4 +199,6 @@ export const shellEn = {
   "setup.shell.roundStage": "Round stage",
   "setup.shell.stagePreliminary": "Preliminary (In-Rounds)",
   "setup.shell.stageElimination": "Elimination (Out-Rounds / Break)",
+  "setup.shell.navCodeNames": "Code names",
+  "setup.shell.navAdjRequirement": "Adjudicator requirement",
 } as const;

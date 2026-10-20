@@ -1,6 +1,6 @@
 import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config";
 import { formatNumber, pluralCategory } from "@/lib/i18n/format";
-import { catalogues, type MessageKey, type PluralKey } from "@/lib/i18n/messages";
+import { loadedCatalogue, type MessageKey, type PluralKey } from "@/lib/i18n/messages";
 
 /**
  * Message lookup and interpolation.
@@ -25,8 +25,9 @@ export function interpolate(locale: Locale, message: string, values?: MessageVal
   });
 }
 
+/** A catalogue that has not loaded yet reads as empty, so every lookup falls back to English. */
 function catalogue(locale: Locale): Partial<Record<string, string>> {
-  return catalogues[locale];
+  return loadedCatalogue(locale) ?? {};
 }
 
 /** The message for `key` in `locale`, falling back to English and finally to the key itself. */

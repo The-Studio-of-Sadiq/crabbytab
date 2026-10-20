@@ -168,6 +168,13 @@ export function ReleasePanel() {
         }]
       : []),
     {
+      key: "motionTab",
+      label: t("results.release.motionTab"),
+      description: t("results.release.motionTabDescription"),
+      released: site.motionTab,
+      change: (released) => ({ kind: "motionTab", released }),
+    },
+    {
       key: "feedbackProgress",
       label: t("results.release.feedbackProgress"),
       description: t("results.release.feedbackProgressDescription"),

@@ -15,6 +15,7 @@ import { formatDiversityCounts, panelDiversitySummary, participantRegion } from 
 import { buildAdminDiversity } from "@/lib/publicView/derived";
 import { createPublicNamer } from "@/lib/publicView/names";
 import { DiversityPanel } from "@/features/tournament/components/public/PublicSitePanels";
+import { InstitutionGenderTable } from "@/features/tournament/components/InstitutionGenderTable";
 
 type Kind = "speakers" | "adjudicators";
 
@@ -235,6 +236,13 @@ export default function DiversityPage() {
           </TBody>
         </Table>
       </TableContainer>
+
+      <Section
+        title={t("setup.importsExtra.genderByInstitution.title")}
+        description={t("setup.importsExtra.genderByInstitution.description")}
+      >
+        <InstitutionGenderTable institutions={institutions} teams={teams} adjudicators={adjudicators} />
+      </Section>
 
       {tournament && (
         <Section title={t("setup.importsExtra.diversity.statistics")} description={t("setup.importsExtra.diversity.statisticsHelp")}>

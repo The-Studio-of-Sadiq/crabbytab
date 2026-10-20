@@ -144,6 +144,11 @@ function EditDialog({
           ? {
               team: {
                 name: teamName,
+                // Optional team fields are not edited here; keep what the registrant chose.
+                useInstitutionPrefix: submission.team?.useInstitutionPrefix,
+                breakCategories: submission.team?.breakCategories,
+                seed: submission.team?.seed,
+                emoji: submission.team?.emoji,
                 speakers: speakers.map((speaker) => ({
                   name: speaker.name,
                   email: speaker.email.trim() || undefined,
@@ -272,6 +277,34 @@ function RejectDialog({
   );
 }
 
+const SEED_TITLE_KEYS: MessageKey[] = ["common.seedTitle0", "common.seedTitle1", "common.seedTitle2", "common.seedTitle3"];
+
+/** The optional team fields a registrant filled (docs/registration.md, "Team fields"). */
+function TeamFieldsSummary({
+  team,
+  settings,
+}: {
+  team: NonNullable<RegistrationSubmission["team"]>;
+  settings: Pick<RegistrationSettings, "teamBreakCategories" | "teamSeedMode">;
+}) {
+  const { t, formatList } = useI18n();
+  const parts: string[] = [];
+  if (team.useInstitutionPrefix) parts.push(t("setup.registration.summaryPrefix"));
+  if (team.breakCategories?.length) {
+    const names = team.breakCategories.map(
+      (id) => settings.teamBreakCategories?.find((category) => category.id === id)?.name ?? id
+    );
+    parts.push(t("setup.registration.summaryBreakCategories", { list: formatList(names) }));
+  }
+  if (team.seed !== undefined) {
+    const titleKey = settings.teamSeedMode === "title" ? SEED_TITLE_KEYS[team.seed] : undefined;
+    parts.push(t("setup.registration.summarySeed", { seed: titleKey ? t(titleKey) : String(team.seed) }));
+  }
+  if (team.emoji) parts.push(t("setup.registration.summaryEmoji", { emoji: team.emoji }));
+  if (parts.length === 0) return null;
+  return <p className="text-xs text-fg-muted">{parts.join(" · ")}</p>;
+}
+
 function SubmissionCard({
   submission,
   questions,
@@ -280,8 +313,10 @@ function SubmissionCard({
   currentUid,
   approveBlocked,
   actions,
+  settings,
 }: {
   submission: RegistrationSubmission;
+  settings: Pick<RegistrationSettings, "teamBreakCategories" | "teamSeedMode">;
   questions: FeedbackQuestion[];
   duplicates: DuplicateFlag[];
   likelyEntities: Array<{ id: string; name: string }>;
@@ -405,6 +440,9 @@ function SubmissionCard({
               </p>
             )}
           </div>
+        )}
+        {submission.kind === "team" && submission.team && (
+          <TeamFieldsSummary team={submission.team} settings={settings} />
         )}
         {submission.kind === "team" && submission.team && (
           <ul className="grid gap-1 text-xs text-fg sm:grid-cols-2">
@@ -574,6 +612,7 @@ export function RegistrationQueue({
               currentUid={currentUid}
               approveBlocked={approveBlocked}
               actions={actions}
+              settings={settings}
             />
           ))
         )}

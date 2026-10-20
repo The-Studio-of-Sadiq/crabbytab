@@ -1,5 +1,6 @@
 "use client";
 
+import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import { translatedSideName } from "@/lib/sideNames";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import React, { useEffect, useRef, useState } from "react";
@@ -70,6 +71,7 @@ import {
   BracketPanel,
   DiversityPanel,
   FeedbackProgressPanel,
+  PublicDebateMotionLabel,
   PublicPersonName,
   PublicTeamName,
   ScoresheetsPanel,
@@ -80,8 +82,9 @@ import {
   publicRecordLinkClass,
 } from "@/features/tournament/components/public/PublicSitePanels";
 import { usePublicExtras } from "@/features/tournament/components/public/usePublicExtras";
+import { PublicFormLinks } from "@/features/tournament/components/public/forms/PublicBallotForm";
 import { getPublicSiteSettings, orderPublicMotions } from "@/lib/publicFeatures";
-import { publicRecordPath } from "@/lib/publicRecords";
+import { debateMotion, publicRecordPath } from "@/lib/publicRecords";
 
 type PublicTab =
   | "draw"
@@ -157,7 +160,9 @@ export default function PublicTournamentPage() {
     (round) => round.resultsReleased && round.teamSpeaksReleased && !round.silent
   );
   const showPublicStandings = prefs?.publicStandings !== false && hasPublicTeamSpeaks;
-  const showPublicMotions = prefs?.publicMotions !== false;
+  // The motions page and the motion statistics (Tabbycat `motion_tab_released`) are released
+  // separately; either one shows the motions tab.
+  const showPublicMotions = site.motionsPage || site.motionTab;
   // Tournament-level releases (team/speaker/replies tab, break per category).
   const release = getPublicRelease(prefs);
   // Tabs are computed when the view is published (top-N limits applied there); see lib/publicView/derived.ts.
@@ -182,6 +187,9 @@ export default function PublicTournamentPage() {
     ? teamTabCategoryId
     : teamTabOptions[0]?.id ?? "all";
   const teamTabRows = (selectedTeamTabId === "all" ? publicTabs?.teamTab : publicTabs?.breakCategoryTabs?.[selectedTeamTabId]) ?? [];
+  // The selected tab's top-N limit: the site-wide team tab limit, or the break category's own.
+  const selectedTeamTabLimit =
+    selectedTeamTabId === "all" ? site.teamTabLimit : publicTabs?.limits.breakCategories?.[selectedTeamTabId] ?? 0;
   // The projection only sends public categories; each one with speakers gets its own speaker tab.
   const publicSpeakerCategories = sortSpeakerCategories(
     (prefs?.speakerCategories ?? []).filter((category) => category.public)
@@ -242,7 +250,7 @@ export default function PublicTournamentPage() {
   // (current round only, or every released draw); older views fall back to the draw status.
   const isOnDrawPage = (round: (typeof rounds)[number]) =>
     (round as typeof round & { drawPublic?: boolean }).drawPublic ??
-    (round.drawStatus === "confirmed" || round.drawStatus === "released");
+    isDrawPubliclyReleased(round);
   const drawRounds = rounds.filter((round) => !round.cancelled && isOnDrawPage(round)).sort((left, right) => left.seq - right.seq);
   const drawRound = drawRounds.find((round) => round.id === activeRound?.id) ?? drawRounds[drawRounds.length - 1];
   const drawDebates = drawRound ? debates.filter((debate) => debate.roundId === drawRound.id) : [];
@@ -253,7 +261,7 @@ export default function PublicTournamentPage() {
     ? debates.filter(
         (d) =>
           d.roundId === activeRound.id &&
-          (activeRound.drawStatus === "confirmed" || activeRound.drawStatus === "released")
+          isDrawPubliclyReleased(activeRound)
       )
     : [];
 
@@ -286,7 +294,7 @@ export default function PublicTournamentPage() {
     (ballot) => publicRoundIds.has(ballot.roundId) || tabRoundIds.has(ballot.roundId)
   );
   const motionStatistics = new Map(
-    computeMotionStatistics(releasedMotions, debates, motionStatisticBallots, isBP).map((statistic) => [
+    !site.motionTab ? [] : computeMotionStatistics(releasedMotions, debates, motionStatisticBallots, isBP).map((statistic) => [
       statistic.motion.id,
       statistic,
     ])
@@ -411,7 +419,9 @@ export default function PublicTournamentPage() {
     teamTab: t("public.tab.teamTab"),
     speakerTab: t("public.tab.speakerTab"),
     repliesTab: t("public.tab.repliesTab"),
-    motions: t("public.tab.motions", { count: releasedMotions.length }),
+    motions: site.motionsPage
+      ? t("public.tab.motions", { count: releasedMotions.length })
+      : t("public.tab.motionStatistics", { count: releasedMotions.length }),
     break: t("public.tab.break"),
     participants: t("public.tab.participants"),
     institutions: t("public.tab.institutions"),
@@ -464,6 +474,7 @@ export default function PublicTournamentPage() {
         </p>
       )}
       <WelcomePanel message={site.welcomeMessage} staff={site.tournamentStaff} />
+      <PublicFormLinks slug={tournamentSlug} ballot={site.ballotForm} feedback={site.feedbackForm && prefs?.feedbackEnabled !== false} />
 
       {availableTabs.length === 0 || !shownTab ? (
         <EmptyState title={t("public.nothingPublished")} />
@@ -558,6 +569,7 @@ export default function PublicTournamentPage() {
                             </>
                           )}
                           <TH>{t("public.col.adjudicators")}</TH>
+                          {site.motionsInResults && <TH>{t("public.col.motion")}</TH>}
                           <TH align="center">{t("public.col.status")}</TH>
                         </TR>
                       </THead>
@@ -622,6 +634,11 @@ export default function PublicTournamentPage() {
                                     <span className="italic">{showPublicAdjudicators ? panelMembers(d.adjudicators, "trainees") : t("common.tba")}</span>
                                   </span>
                                 </TD>
+                                {site.motionsInResults && (
+                                  <TD className="text-xs">
+                                    <PublicDebateMotionLabel motion={debateMotion(d, ballot, motions)} />
+                                  </TD>
+                                )}
                                 <TD align="center">
                                   {ballot?.confirmed ? (
                                     <StatusPill tone="success">{t("public.confirmed")}</StatusPill>
@@ -643,7 +660,7 @@ export default function PublicTournamentPage() {
                               </TR>
                               {scoresheetsOpen && (
                                 <tr id={scoresheetsId}>
-                                  <td colSpan={drawSides.length + 3} className="border-b border-border p-0">
+                                  <td colSpan={drawSides.length + 3 + (site.motionsInResults ? 1 : 0)} className="border-b border-border p-0">
                                     <ScoresheetsPanel
                                       debate={d}
                                       ballot={ballot}
@@ -710,7 +727,7 @@ export default function PublicTournamentPage() {
                   rounds: plural("public.completedRounds", tabRoundCount),
                 })}
               />
-              {(teamTabOptions.length > 1 || (selectedTeamTabId === "all" && site.teamTabLimit > 0)) && (
+              {(teamTabOptions.length > 1 || selectedTeamTabLimit > 0) && (
                 <ChoiceChips
                   label={t("public.teamTabCategory")}
                   className="border-b border-border px-4 py-2"
@@ -718,8 +735,8 @@ export default function PublicTournamentPage() {
                   value={selectedTeamTabId}
                   onChange={setTeamTabCategoryId}
                 >
-                  {selectedTeamTabId === "all" && site.teamTabLimit > 0 && (
-                    <span className="text-[11px] text-fg-muted">{t("public.topLimit", { limit: site.teamTabLimit })}</span>
+                  {selectedTeamTabLimit > 0 && (
+                    <span className="text-[11px] text-fg-muted">{t("public.topLimit", { limit: selectedTeamTabLimit })}</span>
                   )}
                 </ChoiceChips>
               )}
@@ -852,9 +869,9 @@ export default function PublicTournamentPage() {
           {/* 4. Motions */}
           {shownTab === "motions" && (
             <Section
-              title={t("public.releasedMotions")}
+              title={site.motionsPage ? t("public.releasedMotions") : t("public.motionStatisticsTitle")}
               actions={
-                <Button
+                site.motionsPage && <Button
                   size="sm"
                   onClick={() => setIsMotionPresentation(true)}
                   disabled={releasedMotions.length === 0}
@@ -885,7 +902,7 @@ export default function PublicTournamentPage() {
                       <blockquote className="my-2.5 border-s-2 border-accent ps-3 text-[15px] font-semibold leading-snug text-fg">
                         &ldquo;{m.text}&rdquo;
                       </blockquote>
-                      {m.infoSlide && (
+                      {site.motionsPage && m.infoSlide && (
                         <div className="mt-2 rounded-md border border-border bg-muted p-3 text-[13px] text-fg">
                           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("public.infoslide")}</p>
                           <p className="whitespace-pre-line">{m.infoSlide}</p>

@@ -30,6 +30,14 @@ export interface ApiActor {
   tokenId: string;
   tokenName: string;
   requestId: string;
+  /**
+   * Who the audit log and archived versions name; defaults to the token ("api-token:<id>").
+   * A participant writing with their private URL key is "participant:<type>:<id>".
+   */
+  actorId?: string;
+  actorName?: string;
+  /** Audit actor type; tokens act as "system", participants as "public". */
+  actorType?: "system" | "public";
 }
 
 export interface SessionAuditEvent {
@@ -103,6 +111,10 @@ export class ApiCommandSession {
   ) {
     this.tournamentRecord = tournament;
     this.originalTournament = canonical(tournament);
+  }
+
+  private get actorId(): string {
+    return this.actor.actorId ?? `api-token:${this.actor.tokenId}`;
   }
 
   get tournament(): Tournament {
@@ -271,7 +283,7 @@ export class ApiCommandSession {
           record: change.previous,
           resolution: change.next ? "superseded" : "recoverable-delete",
           archivedAt: timestamp,
-          archivedBy: `api-token:${this.actor.tokenId}`,
+          archivedBy: this.actorId,
         });
       }
       let data: StoredRecord;
@@ -312,10 +324,14 @@ export class ApiCommandSession {
         id,
         tournamentId: this.tournamentRecord.id,
         timestamp,
-        actorId: `api-token:${this.actor.tokenId}`,
-        actorName: `API token “${this.actor.tokenName}”`,
-        actorType: "system",
-        details: { ...event.details, apiTokenId: this.actor.tokenId, requestId: this.actor.requestId },
+        actorId: this.actorId,
+        actorName: this.actor.actorName ?? `API token “${this.actor.tokenName}”`,
+        actorType: this.actor.actorType ?? "system",
+        details: {
+          ...event.details,
+          ...(this.actor.actorId ? {} : { apiTokenId: this.actor.tokenId }),
+          requestId: this.actor.requestId,
+        },
         syncVersion: 1,
       }));
     }

@@ -39,6 +39,7 @@ import {
   type CreateRoundRecordInput,
 } from "@/features/tournament/application/rounds";
 import { calculateBreaks } from "@/lib/breakqual/calculator";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { validateDraw, type DrawIssue } from "@/lib/draw/validateDraw";
 import { buildPublicProjection, type PublicSourceData, type SourceRecord } from "@/lib/publicView/projection";
@@ -102,7 +103,7 @@ export class TournamentHarness {
   }
 
   breakResults() {
-    return calculateBreaks(this.breakCategories, this.teams, this.standings().teams, this.tournament.format);
+    return calculateBreaks(this.breakCategories, this.teams, this.standings().teams, this.tournament.format, resolveTeamPrecedence(this.tournament.format, this.tournament.preferences));
   }
 
   round(id: string): Round {

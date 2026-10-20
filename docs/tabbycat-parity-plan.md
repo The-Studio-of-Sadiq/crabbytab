@@ -198,7 +198,95 @@ team–institution conflict editing and conflicts CSV export; see adjudicator-al
 release emails; #22 design rollout to every page, dark mode everywhere, keyboard drag-and-drop;
 #23 admin-UI translations and more languages; #24 broader API (teams, results, standings);
 #25 diversity statistics, public veto stats; #26 optional public (non-private-URL) ballot and
-feedback forms.
+feedback forms (*done: see [public-pages-and-notifications.md](public-pages-and-notifications.md#public-forms-tabbycat-participant_ballots--participant_feedback--public)*).
+
+## Final source re-audit and gap closure (2026-10-21, `beta` 6993823)
+
+A second item-by-item audit of Tabbycat v2.12.1's source, done after waves 1–5 and phase 2a merged,
+then closed in one PR. Four slices were checked in code on both sides (not docs); every row with
+its Tabbycat file:line and CrabbyTab evidence is in [`docs/parity-audit/`](parity-audit/)
+(statuses there are **before** the closing PR):
+
+| Slice | Rows | HAVE | BETTER | PARTIAL | MISSING | NA |
+|---|---|---|---|---|---|---|
+| Tournament preferences (all 170) | 170 | 155 | 1 | 10 | 2 | 2 |
+| Admin/assistant/public routes (all 249 non-API, grouped) | 136 | 106 | 0 | 16 | 9 | 5 |
+| REST API (`api/urls.py`, views, serializers, permissions) | 48 | 14 | 6 | 23 | 3 | 2 |
+| Models, management commands, algorithms (option by option) | 138 | 91 | 8 | 16 | 15 | 8 |
+
+The Tabbycat comparison harness (`tools/tabbycat-diff`) was re-run at the end: standings
+2800/2800, 2496/2496 and 2644/2644 checks agree; every draw, break and allocation discrepancy is
+classified, with no CrabbyTab defect and no configuration difference left.
+
+### Closed in the closing PR
+- **Harness follow-ups:** round-1 (and every) lowest-ranked bye tie broken with the draw's seeded
+  RNG instead of list order; teams tied inside a break share Tabbycat's break rank ("=2" on the
+  break and public pages; elimination positions inside a tie still follow standings order); the
+  DebateXML importer applies the style's rules preset as Tabbycat's does and round-trips
+  "team score includes ghosts"; new tournaments default that setting to Tabbycat's `true`.
+- **Languages:** every language Tabbycat offers (25 + English, machine-drafted, loaded on demand);
+  the remaining hard-coded English UI moved onto the catalogue.
+- **Ballots and forms:** self-split ballots + Karl Popper preset; ballot introduction on private
+  URLs; private-URL ballots can be switched off (server-enforced); public (non-private-URL)
+  ballot and feedback forms with optional hashed password and rate limits.
+- **Draw:** elimination side rule (by seed or Tabbycat's random); brackets by the first precedence
+  metric; Tabbycat's Berger round robin by seed (in-progress cycles keep the old rotation); BP
+  round robin and BP seeded draws; random side pre-allocation for all prelims, an all-rounds side
+  grid and bulk apply from a previous round; direct preformed-panel placement; draw stages
+  (confirmed-not-public, release to teams only); explicit current round; projector for concurrent
+  rounds; BP position-balance report.
+- **Break and standings:** in-category ranking for non-general categories; too-few-eligible
+  guard; per-category public tab limit; Tabbycat liveness (live/safe/dead) per category in
+  standings and the draw, with prioritise-by-liveness/bracket; standings as of round N.
+- **Public site:** motions in public results/records; separate motion-statistics release;
+  unexpected feedback on the public progress view; admin code-name tooltip modes; per-person
+  public check-ins; public cross-tournament motion statistics.
+- **Participants and access:** add/remove speakers; eligibility grid; breaking-adjudicator list;
+  admin team record; code-name decoder (and a fix: manually added teams no longer publish their
+  real name as the code name); tester status; N-1 and per-institution gender reports; pronoun
+  and last name; multi-category venues; base-score history by round; duplicate-feedback report;
+  custom permission groups plus Equity and Adjudication Core; per-speaker private URLs; team
+  invitations; coaches as people with their own email group and registration view; team
+  references / short and long names / institution prefix; composite teams; settings file
+  export/import and applying a rules preset to an existing tournament (both previewed).
+- **Registration and email:** optional team fields (prefix, break categories, seed, emoji); the
+  team-registration-details email; seed column in team CSV import (numeric or title).
+- **REST API:** generate-draw options and 409 on an existing draw; standings `?category`,
+  `?metrics`, public `?round`, current-round standings, reply/ghost speaker scores; participant
+  ballot/feedback/check-in submission by URL key; feedback delete and filters; pairing
+  create/edit/delete and delete-draw; preformed panels per item; break delete and remarks;
+  availability toggles, bulk and per-round venues; check-in toggles; anonymous read of
+  already-public data; feedback questions, score criteria, venue categories, schedule events
+  and read-only user groups.
+
+### Still different from Tabbycat (deliberate or out of scope)
+- `teams_in_debate` other than 2 or 4 (Tabbycat allows any count, e.g. public speaking): sides,
+  ballots, results and standings are built for 2/4 teams.
+- A teams-only draw release shows on team portals only; Tabbycat also lists it on the public draw
+  page without adjudicators (one-line change in `isRoundDrawPublic`).
+- Elimination sides default to "by seed" for existing tournaments (Tabbycat randomises);
+  Tabbycat's behaviour is a setting.
+- Ties at the break cutoff are held out for the tab director rather than all breaking.
+- Staff/group membership cannot be written through API tokens (a leaked token must not grant
+  access); Equity cannot see participant contact details; Adjudication Core cannot edit motions,
+  feedback questions or releases.
+- No browser push notifications (email and SMS relay instead); no IP addresses stored in the
+  audit log (privacy); institutions are per tournament.
+- Smaller items: v1 participant login does not accept speaker URL keys; CSV/API serializers do not
+  yet carry team references, composite fields, pronouns or last names; speaker check-in via API
+  checks in the whole team; liveness is not yet used inside the automatic allocation blend.
+
+### Where CrabbyTab goes further than Tabbycat
+Local-first working copy that keeps working offline, with explicit cloud sync, conflict review
+and per-record baselines; publish-time public snapshots with CDN caching; a hash-chained audit
+log and rule engine with recorded overrides on every action (UI and API); exact min-cost random
+two-team draws and BP random draws that avoid institution clashes and balance positions; side
+caps enforced for every conflict-avoidance method (Tabbycat only in graph mode, with a `t1_negs`
+bug); BP eliminations from any even field; an extra panel allocator; an optimal venue allocator
+with hard and ranked soft constraints; configurable trimmed mean; more expressive feedback paths
+and per-source weights; per-tournament scoped, hashed, revocable API tokens with rate limits, an
+allocate-adjudicators endpoint and transactional, versioned API writes; a differential test
+harness against Tabbycat itself.
 
 ## Source-level audit against Tabbycat v2.12.1 (2026-10-20, `beta` 4c5a70c)
 
@@ -246,7 +334,11 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
   feedback by gender, plus public veto statistics; see
   [public-pages-and-notifications.md](public-pages-and-notifications.md#public-site-settings-waves-45-tabbycat-public_features--tab_release--ui_options).
   The admin diversity editor (imports/diversity) is unchanged; an admin statistics page is still open.*
-- **#26** (public non-private-URL ballot and feedback forms, public password): *follow-up PR.*
+- **#26** (public non-private-URL ballot and feedback forms, public password): *done. Public
+  ballot and feedback pages (`/[slug]/public/ballots`, `/[slug]/public/feedback`) with pickers,
+  an optional tournament password stored only as a server-side hash, a firebase-admin submission
+  route with rate limits and the private-URL validation; public ballots are always unconfirmed.
+  See [public-pages-and-notifications.md](public-pages-and-notifications.md#public-forms-tabbycat-participant_ballots--participant_feedback--public).*
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
@@ -326,7 +418,7 @@ hook). Not done here: private portals do not show start times yet.
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"
 is inexpressible); per-round result releases instead of a global switch; barcodes from entity ids;
 one role-gated route tree instead of admin/assistant/public trees; per-round side pre-allocation;
-no public forms addressed by numeric ids (private URL + passcode is deliberate); Django plumbing,
+Django plumbing,
 cache commands and legacy ballot views; SendGrid-specific configuration.
 
 ## Where CrabbyTab stands

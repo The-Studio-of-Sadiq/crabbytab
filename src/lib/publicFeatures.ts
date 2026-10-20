@@ -8,6 +8,8 @@ import type {
   TeamCodeNameMode,
   TournamentPreferences,
 } from "@/types";
+import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
+import { scheduleGroupOf } from "@/features/tournament/application/schedule";
 
 /**
  * Public-site settings (Tabbycat's public_features, tab_release and ui_options sections) resolved
@@ -44,6 +46,12 @@ export interface PublicSiteSettings {
   welcomeMessage: string;
   tournamentStaff: string;
   motionsOrder: PublicMotionsOrder;
+  /** The public motions page (`publicMotions`, absent = on). */
+  motionsPage: boolean;
+  /** Public motion statistics (Tabbycat `motion_tab_released`); absent = follows the motions page. */
+  motionTab: boolean;
+  /** The debated motion on public results and record pages (Tabbycat `show_motions_in_results`). */
+  motionsInResults: boolean;
   ballotForm: boolean;
   feedbackForm: boolean;
   formsUsePassword: boolean;
@@ -114,6 +122,9 @@ export function getPublicSiteSettings(preferences?: Partial<TournamentPreference
     welcomeMessage: text(prefs.welcomeMessage),
     tournamentStaff: text(prefs.tournamentStaff),
     motionsOrder: oneOf(prefs.publicMotionsOrder, MOTIONS_ORDERS, "forward"),
+    motionsPage: prefs.publicMotions !== false,
+    motionTab: typeof prefs.motionTabReleased === "boolean" ? prefs.motionTabReleased : prefs.publicMotions !== false,
+    motionsInResults: prefs.showMotionsInResults === true,
     ballotForm: prefs.publicBallotForm === true,
     feedbackForm: prefs.publicFeedbackForm === true,
     formsUsePassword: prefs.publicFormsUsePassword === true,
@@ -125,27 +136,103 @@ export function publicUsesTeamCodeNames(mode: TeamCodeNameMode): boolean {
   return mode === "admin-tooltips-code" || mode === "admin-tooltips-real" || mode === "everywhere";
 }
 
+type CurrentRoundCandidate = Pick<Round, "id" | "seq" | "cancelled" | "drawStatus" | "stage" | "scheduleGroup">;
+
 /**
- * The round "current round only" shows: the latest non-cancelled round whose draw is confirmed or
- * released. CrabbyTab has no separate "current round" marker, so the newest published draw is it.
+ * The tournament's explicit current round (Tabbycat "set current round", stored as
+ * `preferences.currentRoundId`), when it names a round that exists and is not cancelled.
+ */
+export function explicitCurrentRound<T extends Pick<Round, "id" | "cancelled">>(
+  rounds: T[],
+  currentRoundId: string | undefined | null
+): T | undefined {
+  if (typeof currentRoundId !== "string" || currentRoundId.length === 0) return undefined;
+  return rounds.find((round) => round.id === currentRoundId && round.cancelled !== true);
+}
+
+/**
+ * The round "current round only" shows. With an explicit current round set (and still live), that
+ * round; otherwise the latest non-cancelled round whose draw is publicly released (CrabbyTab's
+ * original derivation).
  */
 export function currentDrawRoundId(
-  rounds: Array<Pick<Round, "id" | "seq" | "cancelled" | "drawStatus">>
+  rounds: Array<Pick<Round, "id" | "seq" | "cancelled" | "drawStatus">>,
+  currentRoundId?: string | null
 ): string | undefined {
+  const explicit = explicitCurrentRound(rounds, currentRoundId);
+  if (explicit) return explicit.id;
   return [...rounds]
-    .filter((round) => round.cancelled !== true && (round.drawStatus === "confirmed" || round.drawStatus === "released"))
+    .filter((round) => round.cancelled !== true && isDrawPubliclyReleased(round))
     .sort((left, right) => right.seq - left.seq)[0]?.id;
 }
 
-/** Whether a round's draw is on the public draw page under the draw mode. */
+/**
+ * Every current round. An explicit current round brings the other live rounds of its schedule slot
+ * and stage (concurrent rounds, Tabbycat current_rounds); the derived current round is one round,
+ * as before explicit current rounds existed.
+ */
+export function currentDrawRoundIds(
+  rounds: CurrentRoundCandidate[],
+  currentRoundId?: string | null
+): Set<string> {
+  const explicit = explicitCurrentRound(rounds, currentRoundId);
+  if (explicit) {
+    const slot = scheduleGroupOf(explicit);
+    return new Set(
+      rounds
+        .filter((round) =>
+          round.cancelled !== true &&
+          (round.id === explicit.id || (round.stage === explicit.stage && scheduleGroupOf(round) === slot))
+        )
+        .map((round) => round.id)
+    );
+  }
+  const derived = currentDrawRoundId(rounds);
+  return new Set(derived ? [derived] : []);
+}
+
+/**
+ * The round a shared view (public pages) opens on: the explicit current round when it is among the
+ * rounds this view can see, else the latest round with something public (released draw, results or
+ * panel), as before explicit current rounds existed.
+ */
+export function sharedViewCurrentRound<T extends Pick<Round, "id" | "seq" | "cancelled" | "drawStatus" | "resultsReleased" | "adjudicatorsRevealed">>(
+  rounds: T[],
+  currentRoundId?: string | null
+): T | undefined {
+  return explicitCurrentRound(rounds, currentRoundId) ?? [...rounds]
+    .filter((round) =>
+      round.cancelled !== true &&
+      (isDrawPubliclyReleased(round) || round.resultsReleased === true || round.adjudicatorsRevealed === true)
+    )
+    .sort((left, right) => right.seq - left.seq)[0];
+}
+
+/**
+ * The round a private portal opens on, among the participant's own visible rounds: the explicit
+ * current round when the participant has a debate in it, else their latest round.
+ */
+export function portalCurrentRound<T extends Pick<Round, "id" | "seq" | "cancelled">>(
+  rounds: T[],
+  currentRoundId?: string | null
+): T | undefined {
+  return explicitCurrentRound(rounds, currentRoundId) ??
+    [...rounds].filter((round) => round.cancelled !== true).sort((left, right) => right.seq - left.seq)[0];
+}
+
+/**
+ * Whether a round's draw is on the public draw page under the draw mode. Only the full release is
+ * public: a confirmed (locked) or teams-only draw never is.
+ */
 export function isRoundDrawPublic(
   round: Pick<Round, "id" | "drawStatus" | "cancelled">,
   mode: PublicDrawMode,
-  currentRoundId: string | undefined
+  current: string | undefined | ReadonlySet<string>
 ): boolean {
   if (mode === "off" || round.cancelled === true) return false;
-  if (round.drawStatus !== "confirmed" && round.drawStatus !== "released") return false;
-  return mode === "all" || round.id === currentRoundId;
+  if (!isDrawPubliclyReleased(round)) return false;
+  if (mode === "all") return true;
+  return typeof current === "string" || current === undefined ? round.id === current : current.has(round.id);
 }
 
 /** Robots directives for a public page; `homepage` is the tournament's public landing page. */

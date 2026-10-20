@@ -1,7 +1,14 @@
 import { scopesAllow } from "@/lib/apiScopes";
+import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
+import { speakerRowsInCategory } from "@/lib/speakerCategories";
+import { ALL_SPEAKER_METRICS, ALL_TEAM_METRICS, EXTRA_ONLY_TEAM_METRICS } from "@/lib/standings/metrics";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { rankTeamSubset } from "@/lib/standings/subset";
 import { calculateFeedbackSummaries } from "@/lib/feedback/scores";
 import { getPublicRelease, isAnyTabReleased, isTabRound } from "@/lib/publicRelease";
-import { calculateStandings, type StandingsCalculationResult } from "@/lib/standings/calculator";
+import { calculateStandings, countedSubstantiveSpeeches, type StandingsCalculationResult } from "@/lib/standings/calculator";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -11,12 +18,13 @@ import type {
   SpeakerStandingRow,
   Team,
   TeamStandingRow,
+  Tournament,
 } from "@/types";
 import { ApiError, notFound } from "../errors";
 import { defineRoute, listOf, slugParam } from "../router";
 import { s } from "../schema";
 import { asType } from "../serializers";
-import { roundSeqSchema, type AnyContext } from "./shared";
+import { idSchema, roundSeqSchema, type AnyContext } from "./shared";
 
 /**
  * Standings are computed with the same calculator, precedence and round rules as the tab room
@@ -31,7 +39,42 @@ type Tab = "teams" | "speakers" | "replies";
 
 const RELEASE_KIND = { teams: "teamTab", speakers: "speakerTab", replies: "repliesTab" } as const;
 
-async function computeStandings(context: AnyContext, tab: Tab, afterRoundSeq?: string): Promise<StandingsCalculationResult> {
+interface StandingsOptions {
+  /** Round sequence number: the standings after that round. */
+  round?: string;
+  /** Precedence override (Tabbycat's `metrics`), already validated. */
+  metrics?: string[];
+}
+
+/** Tabbycat's `metrics` query: comma-separated metric ids, most important first. */
+function parseMetrics(value: string | undefined, tab: Tab): string[] | undefined {
+  if (value === undefined) return undefined;
+  const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
+  const valid: readonly string[] = tab === "teams"
+    ? ALL_TEAM_METRICS.filter((id) => !EXTRA_ONLY_TEAM_METRICS.includes(id))
+    : ALL_SPEAKER_METRICS;
+  const unknown = ids.filter((id) => !valid.includes(id));
+  if (ids.length === 0 || ids.length > 8 || unknown.length > 0) {
+    throw new ApiError(422, "validation_failed", "The request is not valid.", {
+      issues: [{ path: "metrics", message: unknown.length ? `unknown metric ${unknown.join(", ")}` : "must list 1 to 8 metric ids" }],
+    });
+  }
+  return ids;
+}
+
+/** The tournament with a per-request ranking precedence (never saved). */
+function withPrecedence(tournament: Tournament, tab: Tab, metrics: string[] | undefined): Tournament {
+  if (!metrics) return tournament;
+  const key = tab === "teams" ? "teamStandingsPrecedence" : "speakerStandingsPrecedence";
+  return { ...tournament, preferences: { ...tournament.preferences, [key]: metrics } };
+}
+
+/**
+ * The rounds a request counts. Public tokens: the released tab's rounds (completed preliminary
+ * rounds), optionally up to `round` among them; administrator tokens: every non-cancelled round,
+ * optionally up to `round`.
+ */
+async function countedRounds(context: AnyContext, tab: Tab, afterRoundSeq?: string): Promise<Round[]> {
   const allRounds = (await context.data.all("rounds")).map((record) => asType<Round>(record));
   let rounds: Round[];
   if (context.data.view === "public") {
@@ -39,16 +82,20 @@ async function computeStandings(context: AnyContext, tab: Tab, afterRoundSeq?: s
     if (!release[RELEASE_KIND[tab]]) {
       throw new ApiError(403, "forbidden", "This tab has not been released to the public.");
     }
-    if (afterRoundSeq !== undefined) throw new ApiError(400, "bad_request", "Public tabs cover the whole released tab; omit `round`.");
     rounds = isAnyTabReleased(release) ? allRounds.filter(isTabRound) : [];
   } else {
     rounds = allRounds.filter((round) => !round.cancelled);
-    if (afterRoundSeq !== undefined) {
-      const seq = Number(afterRoundSeq);
-      if (!allRounds.some((round) => round.seq === seq)) throw notFound("Round");
-      rounds = rounds.filter((round) => round.seq <= seq);
-    }
   }
+  if (afterRoundSeq !== undefined) {
+    const seq = Number(afterRoundSeq);
+    // Public tokens may only step back within the released tab's rounds.
+    if (!rounds.some((round) => round.seq === seq)) throw notFound("Round");
+    rounds = rounds.filter((round) => round.seq <= seq);
+  }
+  return rounds;
+}
+
+async function standingsInputs(context: AnyContext, rounds: Round[]) {
   const roundIds = new Set(rounds.map((round) => round.id));
   const [teams, debates, ballots] = await Promise.all([
     context.data.all("teams"),
@@ -56,13 +103,88 @@ async function computeStandings(context: AnyContext, tab: Tab, afterRoundSeq?: s
     // Unconfirmed ballots never count, so they are not read.
     context.data.all("ballots", [{ field: "confirmed", op: "==", value: true }]),
   ]);
-  return calculateStandings(
-    context.tournament,
-    rounds,
-    teams.map((record) => asType<Team>(record)),
-    debates.map((record) => asType<Debate>(record)).filter((debate) => roundIds.has(debate.roundId)),
-    ballots.map((record) => asType<BallotSubmission>(record)).filter((ballot) => roundIds.has(ballot.roundId))
+  return {
+    teams: teams.map((record) => asType<Team>(record)),
+    debates: debates.map((record) => asType<Debate>(record)).filter((debate) => roundIds.has(debate.roundId)),
+    ballots: ballots.map((record) => asType<BallotSubmission>(record)).filter((ballot) => roundIds.has(ballot.roundId)),
+  };
+}
+
+async function computeStandings(context: AnyContext, tab: Tab, options: StandingsOptions = {}): Promise<StandingsCalculationResult> {
+  const rounds = await countedRounds(context, tab, options.round);
+  const { teams, debates, ballots } = await standingsInputs(context, rounds);
+  return calculateStandings(withPrecedence(context.tournament, tab, options.metrics), rounds, teams, debates, ballots);
+}
+
+/** Teams eligible for a break category, ranked among themselves (as Tabbycat's category standings). */
+async function teamsInBreakCategory(context: AnyContext, rows: TeamStandingRow[], categoryId: string, metrics?: string[]): Promise<TeamStandingRow[]> {
+  if (context.data.view === "public") {
+    const site = getPublicSiteSettings(context.tournament.preferences);
+    if (!site.breakCategoriesOnParticipants && !site.breakCategoryTabs) {
+      throw new ApiError(403, "forbidden", "Break category eligibility has not been released to the public.");
+    }
+  }
+  if (!(await context.data.get("breakCategories", categoryId))) throw notFound("Break category");
+  const tournament = withPrecedence(context.tournament, "teams", metrics);
+  return rankTeamSubset(
+    rows.filter((row) => (row.breakCategories ?? []).includes(categoryId)),
+    resolveTeamPrecedence(tournament.format, tournament.preferences)
   );
+}
+
+/** Speakers in a speaker category, ranked within it (public tokens: public categories only). */
+function speakersInCategory(context: AnyContext, rows: SpeakerStandingRow[], categoryId: string): SpeakerStandingRow[] {
+  const categories = context.tournament.preferences?.speakerCategories ?? [];
+  if (!categories.some((category) => category.id === categoryId)) throw notFound("Speaker category");
+  return speakerRowsInCategory(rows, categoryId, categories);
+}
+
+type SpeechKind = "substantive" | "reply" | "ghost";
+
+/**
+ * Every listed speech per speaker, with the calculator's own rules: confirmed ballots that still
+ * match their debate, no postponed debates or elimination rounds, swing speakers left out; a ghost
+ * is a substantive speech the speaker tab does not count.
+ */
+export function speechesByRound(
+  tournament: Tournament,
+  rounds: Round[],
+  teams: Team[],
+  debates: Debate[],
+  ballots: BallotSubmission[],
+  wanted: Record<SpeechKind, boolean>
+) {
+  const replyEnabled = Boolean(tournament.preferences?.replyScoresEnabled) && tournament.format !== "bp";
+  const prelimIds = new Set(rounds.filter((round) => round.stage !== "elimination" && !round.cancelled).map((round) => round.id));
+  const debateById = new Map(debates.filter((debate) => prelimIds.has(debate.roundId) && !debate.postponed).map((debate) => [debate.id, debate]));
+  const swing = new Set(teams.filter((team) => team.isSwing).flatMap((team) => (team.speakers ?? []).map((speaker) => speaker.id)));
+  const known = new Map(teams.flatMap((team) => (team.speakers ?? []).map((speaker) => [speaker.id, { team, speaker }] as const)));
+  type Speech = { roundSeq: number; position: number; score: number; kind: SpeechKind };
+  const bySpeaker = new Map<string, { id: string; name: string; teamId: string; rounds: Speech[] }>();
+  for (const ballot of ballots) {
+    const debate = debateById.get(ballot.debateId);
+    if (!debate || !ballot.confirmed || ballot.discarded || !ballotMatchesDebate(ballot, debate)) continue;
+    for (const entries of Object.values(ballot.speakerScores ?? {})) {
+      const counted = new Set(countedSubstantiveSpeeches(entries ?? [], replyEnabled));
+      for (const entry of entries ?? []) {
+        if (!entry.speakerId || swing.has(entry.speakerId)) continue;
+        const kind: SpeechKind = replyEnabled && entry.position === 4 ? "reply" : counted.has(entry) ? "substantive" : "ghost";
+        if (!wanted[kind]) continue;
+        const found = known.get(entry.speakerId);
+        const row = bySpeaker.get(entry.speakerId) ?? {
+          id: entry.speakerId,
+          name: found?.speaker.name ?? entry.speakerName,
+          teamId: found?.team.id ?? "",
+          rounds: [],
+        };
+        row.rounds.push({ roundSeq: debate.roundSeq, position: entry.position, score: entry.score, kind });
+        bySpeaker.set(entry.speakerId, row);
+      }
+    }
+  }
+  return [...bySpeaker.values()]
+    .map((row) => ({ ...row, rounds: row.rounds.sort((left, right) => left.roundSeq - right.roundSeq || left.position - right.position) }))
+    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 }
 
 function teamRow(row: TeamStandingRow) {
@@ -97,8 +219,14 @@ function speakerRow(row: SpeakerStandingRow) {
 const roundQuery = s.object({
   round: s.optional(roundSeqSchema),
 });
+const metricsSchema = s.optional(s.string({
+  min: 1,
+  max: 400,
+  pattern: /^[a-z_]+(,[a-z_]+)*$/,
+  description: "Comma-separated metric ids to rank by, most important first (overrides the configured precedence for this request only). Every metric is returned whatever the ranking, so Tabbycat's extra_metrics is not needed.",
+}));
 const roundQueryDescription =
-  " Administrator tokens may pass `round` (a round sequence number) for the standings after that round.";
+  " `round` (a round sequence number) gives the standings after that round; public tokens may pick any round of the released tab.";
 
 const teamStandingSchema = s.object({
   rank: s.integer({ description: "Shared ranks are equal." }),
@@ -144,11 +272,19 @@ export const standingsReadRoutes = [
     tag: "standings",
     auth: access,
     params,
-    query: roundQuery,
+    query: s.object({
+      round: s.optional(roundSeqSchema),
+      category: s.optional(idSchema("Break category id: only its eligible teams, ranked among themselves.")),
+      metrics: metricsSchema,
+    }),
     response: listOf(teamStandingSchema),
     async handler(context) {
-      const standings = await computeStandings(context, "teams", context.query.round);
-      return { data: standings.teams.map(teamRow) };
+      const metrics = parseMetrics(context.query.metrics, "teams");
+      const standings = await computeStandings(context, "teams", { round: context.query.round, metrics });
+      const rows = context.query.category
+        ? await teamsInBreakCategory(context, standings.teams, context.query.category, metrics)
+        : standings.teams;
+      return { data: rows.map(teamRow) };
     },
   }),
   defineRoute({
@@ -163,9 +299,55 @@ export const standingsReadRoutes = [
     query: roundQuery,
     response: listOf(roundResultSchema),
     async handler(context) {
-      const standings = await computeStandings(context, "teams", context.query.round);
+      const standings = await computeStandings(context, "teams", { round: context.query.round });
       return {
         data: standings.teams.map((row) => ({ id: row.teamId, name: row.teamName, rounds: row.roundResults })),
+      };
+    },
+  }),
+  defineRoute({
+    method: "GET",
+    path: "/tournaments/{slug}/teams/standings/current-rounds",
+    operationId: "getCurrentRoundTeamResults",
+    summary: "Team results in the rounds released so far",
+    description:
+      "Tabbycat's public team standings (current rounds): before any tab is released, each team's " +
+      "results in the rounds whose results are public (released, not silent), as the public site's " +
+      "Standings page shows them. Speaker scores appear only for rounds whose team speaks are " +
+      "released, and points/speaker totals only when every such round has them. Public tokens need " +
+      "the public standings page on (`publicStandings`).",
+    tag: "standings",
+    auth: access,
+    params,
+    response: s.object({
+      rounds: s.array(s.object({ seq: s.integer(), name: s.string(), teamSpeaksReleased: s.boolean() })),
+      data: s.array(s.unknown("rank, teamId, teamName, institution, points?, totalSpeakerScore?, rounds[]")),
+    }),
+    async handler(context) {
+      if (context.data.view === "public" && context.tournament.preferences?.publicStandings === false) {
+        throw new ApiError(403, "forbidden", "Public standings are turned off.");
+      }
+      const allRounds = (await context.data.all("rounds")).map((record) => asType<Round>(record));
+      const rounds = allRounds
+        .filter((round) => round.resultsReleased && !round.silent && !round.cancelled && round.stage !== "elimination")
+        .sort((left, right) => left.seq - right.seq);
+      const { teams, debates, ballots } = await standingsInputs(context, rounds);
+      const standings = calculateStandings(context.tournament, rounds, teams, debates, ballots);
+      const speaksBySeq = new Map(rounds.map((round) => [round.seq, round.teamSpeaksReleased === true]));
+      const aggregates = canShowAggregateTeamScores(rounds);
+      return {
+        rounds: rounds.map((round) => ({ seq: round.seq, name: round.name, teamSpeaksReleased: round.teamSpeaksReleased === true })),
+        data: standings.teams.map((row) => ({
+          rank: row.rank,
+          teamId: row.teamId,
+          teamName: row.teamName,
+          institution: row.institutionCode || undefined,
+          ...(aggregates ? { points: row.points, totalSpeakerScore: row.totalSpeakerScore } : {}),
+          rounds: row.roundResults.map(({ speakerScore, opponentTeamIds: _ids, ...result }) => ({
+            ...result,
+            ...(speaksBySeq.get(result.roundSeq) ? { speakerScore } : {}),
+          })),
+        })),
       };
     },
   }),
@@ -178,11 +360,17 @@ export const standingsReadRoutes = [
     tag: "standings",
     auth: access,
     params,
-    query: roundQuery,
+    query: s.object({
+      round: s.optional(roundSeqSchema),
+      category: s.optional(idSchema("Speaker category id: only its speakers, ranked within it.")),
+      metrics: metricsSchema,
+    }),
     response: listOf(speakerStandingSchema),
     async handler(context) {
-      const standings = await computeStandings(context, "speakers", context.query.round);
-      return { data: standings.speakers.map(speakerRow) };
+      const metrics = parseMetrics(context.query.metrics, "speakers");
+      const standings = await computeStandings(context, "speakers", { round: context.query.round, metrics });
+      const rows = context.query.category ? speakersInCategory(context, standings.speakers, context.query.category) : standings.speakers;
+      return { data: rows.map(speakerRow) };
     },
   }),
   defineRoute({
@@ -194,10 +382,11 @@ export const standingsReadRoutes = [
     tag: "standings",
     auth: access,
     params,
-    query: roundQuery,
+    query: s.object({ round: s.optional(roundSeqSchema), metrics: metricsSchema }),
     response: listOf(speakerStandingSchema),
     async handler(context) {
-      const standings = await computeStandings(context, "replies", context.query.round);
+      const metrics = parseMetrics(context.query.metrics, "replies");
+      const standings = await computeStandings(context, "replies", { round: context.query.round, metrics });
       return { data: standings.replies.map(speakerRow) };
     },
   }),
@@ -206,17 +395,31 @@ export const standingsReadRoutes = [
     path: "/tournaments/{slug}/speakers/standings/rounds",
     operationId: "getSpeakerRoundScores",
     summary: "Speaker scores by round",
-    description: "Each speaker's substantive score in every counted round." + roundQueryDescription,
+    description:
+      "Each speaker's speeches in every counted round (confirmed ballots). `substantive` (default " +
+      "true), `replies` and `ghost` (iron-person duplicate speeches; both default false) choose which " +
+      "speeches are listed; each entry's `kind` says which it is. Public tokens need the speaker tab " +
+      "released (the replies tab for replies)." + roundQueryDescription,
     tag: "standings",
     auth: access,
     params,
-    query: roundQuery,
+    query: s.object({
+      round: s.optional(roundSeqSchema),
+      substantive: s.optional(s.boolean("Include substantive speeches (default true).")),
+      replies: s.optional(s.boolean("Include reply speeches (default false).")),
+      ghost: s.optional(s.boolean("Include ghost (iron-person) speeches (default false).")),
+    }),
     response: listOf(roundResultSchema),
     async handler(context) {
-      const standings = await computeStandings(context, "speakers", context.query.round);
-      return {
-        data: standings.speakers.map((row) => ({ id: row.speakerId, name: row.speakerName, rounds: row.scoresByRound })),
+      const wanted = {
+        substantive: context.query.substantive ?? true,
+        reply: context.query.replies ?? false,
+        ghost: context.query.ghost ?? false,
       };
+      if (wanted.substantive || wanted.ghost) await countedRounds(context, "speakers", context.query.round);
+      const rounds = await countedRounds(context, wanted.reply ? "replies" : "speakers", context.query.round);
+      const { teams, debates, ballots } = await standingsInputs(context, rounds);
+      return { data: speechesByRound(context.tournament, rounds, teams, debates, ballots, wanted) };
     },
   }),
   defineRoute({

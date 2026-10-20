@@ -20,7 +20,7 @@ export const DATA_ENTRY_FIELDS = {
   institutions: ["id", "tournamentId", "name", "code", "region"],
   ballots: [
     "id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText", "speakerScores",
-    "teamScores", "timestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores",
+    "teamScores", "timestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores", "selfSplit",
   ],
   feedback: [
     "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
@@ -80,6 +80,77 @@ export function requiredDataEntryPermission(
   }
 }
 
+/**
+ * Fields of teams and adjudicators that only some staff can read, and so only they may write
+ * (docs/staff-access.md). Everyone else's copy of them is a redacted placeholder (no conflicts,
+ * no scores), so the server ignores them unless the staff member can read them.
+ */
+export const DATA_ENTRY_GUARDED_FIELDS = {
+  teams: { institutionConflictIds: "conflicts" },
+  adjudicators: { conflicts: "conflicts", baseScore: "scores", testScore: "scores", breaking: "scores" },
+} as const satisfies Partial<Record<DataEntryCollection, Record<string, "conflicts" | "scores">>>;
+
+type GuardedKind = "conflicts" | "scores";
+const GUARD_READ: Record<GuardedKind, StaffPermission> = { conflicts: "conflicts.view", scores: "feedback.view" };
+const GUARD_WRITE: Record<GuardedKind, StaffPermission> = { conflicts: "conflicts.edit", scores: "adjudicators.scores_edit" };
+
+function guardedKind(collectionName: DataEntryCollection, key: string): GuardedKind | undefined {
+  const guarded = (DATA_ENTRY_GUARDED_FIELDS as Partial<Record<DataEntryCollection, Record<string, GuardedKind>>>)[collectionName];
+  return guarded?.[key];
+}
+
+/**
+ * Every permission a synced record needs. Check-in, participant, conflict and score fields each
+ * need their own permission; editing participants also covers their check-in fields (as before
+ * the finer permissions existed). A new record needs `participants.edit` (plus `conflicts.edit`
+ * when it carries conflicts); scores on a new record are create-only defaults.
+ */
+export function requiredDataEntryPermissions(
+  collectionName: DataEntryCollection,
+  isNew: boolean,
+  changedKeys: readonly string[]
+): StaffPermission[] {
+  if (collectionName !== "teams" && collectionName !== "adjudicators") {
+    return [requiredDataEntryPermission(collectionName, isNew, changedKeys)];
+  }
+  const required = new Set<StaffPermission>();
+  const baseKeys: string[] = [];
+  for (const key of changedKeys) {
+    const kind = guardedKind(collectionName, key);
+    if (!kind) baseKeys.push(key);
+    else if (kind === "conflicts" || !isNew) required.add(GUARD_WRITE[kind]);
+  }
+  if (isNew || baseKeys.length > 0) required.add(requiredDataEntryPermission(collectionName, isNew, baseKeys));
+  return [...required];
+}
+
+const MAX_CONFLICTS = 500;
+const CONFLICT_TYPES = new Set(["institution", "personal", "history"]);
+
+function validConflictList(value: unknown): boolean {
+  return Array.isArray(value) && value.length <= MAX_CONFLICTS && value.every((conflict) =>
+    isRecord(conflict) &&
+    CONFLICT_TYPES.has(String(conflict.type)) &&
+    Object.keys(conflict).every((key) => ["type", "institutionId", "teamId", "adjudicatorId"].includes(key)) &&
+    ["institutionId", "teamId", "adjudicatorId"].every((key) => conflict[key] === undefined || validDataEntryId(conflict[key])) &&
+    (conflict.institutionId !== undefined || conflict.teamId !== undefined || conflict.adjudicatorId !== undefined)
+  );
+}
+
+function validScore(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+/** Validates a guarded field the staff member may read; throws on a malformed value. */
+function validateGuardedField(key: string, value: unknown): void {
+  const valid =
+    key === "conflicts" ? validConflictList(value) :
+    key === "institutionConflictIds" ? Array.isArray(value) && value.length <= MAX_CONFLICTS && value.every(validDataEntryId) :
+    key === "breaking" ? typeof value === "boolean" :
+    validScore(value);
+  if (!valid) throw new Error(key === "conflicts" || key === "institutionConflictIds" ? "Invalid conflicts." : "Invalid adjudicator score.");
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -99,17 +170,34 @@ export interface SanitizedDataEntryRecord {
   record: Record<string, unknown>;
   /** Fields applied only when the record does not exist yet. */
   createOnly: Record<string, unknown>;
+  /** The cloud `syncVersion` the device's copy was based on (0 when it has none). */
+  baseSyncVersion: number;
 }
 
+export function isGuardedDataEntryField(collectionName: DataEntryCollection, key: string): boolean {
+  return guardedKind(collectionName, key) !== undefined;
+}
+
+/**
+ * Whitelists a synced record. `readablePermissions` (the staff member's permissions) adds the
+ * guarded fields they can read (DATA_ENTRY_GUARDED_FIELDS); without it they are always dropped.
+ */
 export function sanitizeDataEntryRecord(
   collectionName: DataEntryCollection,
   value: unknown,
-  tournamentId: string
+  tournamentId: string,
+  readablePermissions: readonly string[] = []
 ): SanitizedDataEntryRecord {
   if (!isRecord(value) || !validDataEntryId(value.id) || value.tournamentId !== tournamentId) {
     throw new Error(`Invalid ${collectionName} record.`);
   }
   const record = pickFields(value, DATA_ENTRY_FIELDS[collectionName]);
+  const guarded = (DATA_ENTRY_GUARDED_FIELDS as Partial<Record<DataEntryCollection, Record<string, GuardedKind>>>)[collectionName] ?? {};
+  for (const [key, kind] of Object.entries(guarded)) {
+    if (value[key] === undefined || !readablePermissions.includes(GUARD_READ[kind])) continue;
+    validateGuardedField(key, value[key]);
+    record[key] = value[key];
+  }
   const createOnly = pickFields(value, DATA_ENTRY_CREATE_ONLY_FIELDS[collectionName] ?? []);
   if (collectionName === "teams") {
     record.speakers = Array.isArray(value.speakers)
@@ -125,7 +213,8 @@ export function sanitizeDataEntryRecord(
       }
     }
   }
-  return { record, createOnly };
+  const baseSyncVersion = typeof value.syncVersion === "number" && Number.isFinite(value.syncVersion) ? value.syncVersion : 0;
+  return { record, createOnly, baseSyncVersion };
 }
 
 function debateSides(debate: Debate): string[] {
@@ -315,13 +404,13 @@ export function nextAssistantResultStatus(
 export function redactAssistantDebate(
   debate: Record<string, unknown>,
   round: { adjudicatorsRevealed?: boolean; motionsReleased?: boolean } | undefined,
-  options: { showUnreleasedMotions?: boolean } = {}
+  options: { showUnreleasedMotions?: boolean; showUnrevealedPanels?: boolean } = {}
 ): Record<string, unknown> {
   const { adjudicators, motionId, motionText, ...rest } = debate;
   const motionVisible = round?.motionsReleased === true || options.showUnreleasedMotions === true;
   return {
     ...rest,
-    adjudicators: round?.adjudicatorsRevealed === true && adjudicators !== undefined
+    adjudicators: (round?.adjudicatorsRevealed === true || options.showUnrevealedPanels === true) && adjudicators !== undefined
       ? adjudicators
       : { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
     ...(motionVisible && motionId !== undefined ? { motionId } : {}),

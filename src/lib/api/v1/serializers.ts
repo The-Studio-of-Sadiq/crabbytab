@@ -86,7 +86,7 @@ export function serializeInstitution(institution: Institution): Json {
 
 export function serializeSpeaker(speaker: Speaker, team: Pick<Team, "id" | "name">): Json {
   return {
-    ...pick(speaker, ["id", "name", "gender", "region", "categories", "swingSourceSpeakerId"]),
+    ...pick(speaker, ["id", "name", "lastName", "pronoun", "gender", "region", "categories", "swingSourceSpeakerId"]),
     teamId: team.id,
     teamName: team.name,
   };
@@ -135,6 +135,9 @@ export function serializeAdjudicator(adjudicator: Adjudicator): Json {
     "independent",
     "adjCore",
     "breaking",
+    "isTester",
+    "lastName",
+    "pronoun",
     "gender",
     "region",
     "conflicts",
@@ -153,6 +156,7 @@ export function serializeVenue(venue: Venue): Json {
     "name",
     "priority",
     "category",
+    "categories",
     "capacity",
     "accessible",
     "online",
@@ -174,6 +178,7 @@ export function serializeBreakCategory(category: BreakCategory): Json {
     "isGeneral",
     "priority",
     "maxPerInstitution",
+    "limit",
     "qualificationRule",
     "teamOverrides",
     "speakerCategoryRule",
@@ -239,6 +244,7 @@ export function serializeBallot(ballot: BallotSubmission): Json {
     "sheets",
     "vetoes",
     "forfeitSide",
+    "selfSplit",
     "chairId",
     "timestamp",
     "confirmedTimestamp",
@@ -295,7 +301,7 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
   Round: responseObject({
     id: s.string(), seq: s.integer(), name: s.string(), abbreviation: str(),
     stage: s.enum(["preliminary", "elimination"] as const),
-    drawType: str(), drawStatus: s.enum(["none", "draft", "confirmed", "released"] as const, "`confirmed` is the public release of the draw."),
+    drawType: str(), drawStatus: s.enum(["none", "draft", "locked", "teams_released", "confirmed", "released"] as const, "`confirmed` (or `released`) is the public release of the draw; `locked` is confirmed but unreleased; `teams_released` is visible to teams on their private URLs only."),
     adjudicatorsRevealed: bool(), feedbackWeight: num(), feedbackEnabled: bool(), silent: bool(),
     motionsReleased: bool(), resultsReleased: bool(), teamSpeaksReleased: bool(), breakCategoryIds: strList(),
     eliminationAdvanced: bool(), cancelled: bool(), completed: bool(), drawSeed: int(), createdAt: str(), syncVersion: version,
@@ -306,7 +312,7 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
   }, "A motion."),
   Institution: responseObject({ id: s.string(), name: s.string(), code: s.string(), region: str(), venueRequirements: anything(), syncVersion: version }, "An institution."),
   Speaker: responseObject({
-    id: s.string(), name: s.string(), gender: str(), region: str(), categories: strList("Speaker category ids (older data may hold names)."),
+    id: s.string(), name: s.string(), lastName: str(), pronoun: str(), gender: str(), region: str(), categories: strList("Speaker category ids (older data may hold names)."),
     swingSourceSpeakerId: str(), teamId: str(), teamName: str(),
   }, "A speaker. Email addresses are never returned."),
   Team: responseObject({
@@ -318,17 +324,17 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
   }, "A team. Private URL keys and passcodes are never returned."),
   Adjudicator: responseObject({
     id: s.string(), name: s.string(), institutionId: str(), institutionName: str(), baseScore: num(), testScore: num(),
-    trainee: bool(), independent: bool(), adjCore: bool(), breaking: bool(), gender: str(), region: str(),
+    trainee: bool(), independent: bool(), adjCore: bool(), breaking: bool(), isTester: bool(), lastName: str(), pronoun: str(), gender: str(), region: str(),
     conflicts: anything("Conflicts with teams, adjudicators and institutions."), checkedIn: bool(), checkedInAt: str(),
     roundAvailability: anything(), preformedPanelId: str(), venueRequirements: anything(), syncVersion: version,
   }, "An adjudicator. Private URL keys, passcodes and email addresses are never returned."),
   Venue: responseObject({
-    id: s.string(), name: s.string(), priority: num(), category: str(), capacity: int(), accessible: bool(), online: bool(),
+    id: s.string(), name: s.string(), priority: num(), category: str(), categories: strList("Every room category, including `category`."), capacity: int(), accessible: bool(), online: bool(),
     nearTabRoom: bool(), available: bool(), checkedIn: bool(), syncVersion: version,
   }, "A venue (room)."),
   BreakCategory: responseObject({
     id: s.string(), name: s.string(), slug: s.string(), seq: int(), breakSize: s.integer(), reserveSize: int(),
-    isGeneral: bool(), priority: num(), maxPerInstitution: int(), qualificationRule: str(), teamOverrides: anything(),
+    isGeneral: bool(), priority: num(), maxPerInstitution: int(), limit: int(), qualificationRule: str(), teamOverrides: anything(),
     speakerCategoryRule: anything(), generatedBreak: anything(), syncVersion: version,
   }, "A break category."),
   Pairing: responseObject({
@@ -342,7 +348,7 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
     id: s.string(), roundId: s.string(), debateId: s.string(), version: s.integer(), confirmed: s.boolean(), discarded: s.boolean(),
     submitterType: str(), submitterName: str(), motionId: str(), motionText: str(),
     speakerScores: anything("Side -> speeches."), teamScores: anything("Side -> team result."), sheets: anything("Voting ballots: one sheet per adjudicator."),
-    vetoes: anything(), forfeitSide: str(), chairId: str(), timestamp: str(), confirmedTimestamp: str(), checksVersion: int(),
+    vetoes: anything(), forfeitSide: str(), selfSplit: bool("A solo adjudicator's 2:1 split decision."), chairId: str(), timestamp: str(), confirmedTimestamp: str(), checksVersion: int(),
     discardedTimestamp: str(), syncVersion: version,
   }, "A ballot submission (one version of a debate's result)."),
   Feedback: responseObject({

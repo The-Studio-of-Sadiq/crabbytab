@@ -65,6 +65,8 @@ import { RoundWeightsEditor } from "@/features/tournament/components/RoundWeight
 import { ResultsRulesSettings } from "@/features/tournament/components/ballot/ResultsRulesSettings";
 import { validateScoreCriteria } from "@/lib/ballots/ballotRules";
 import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
+import { ConfigTransferCard } from "@/features/tournament/components/ConfigTransferCard";
+import { TeamNamingCard } from "@/features/tournament/components/TeamNamingCard";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -110,6 +112,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     updateRound,
     setPreliminaryRoundCount,
     deleteRound,
+    teams,
+    institutions,
+    saveEntityBatch,
   } = useTournament();
 
   const defaultPrefs: TournamentPreferences = {
@@ -144,7 +149,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     skipAdjCheckins: false,
     noPanellistAdjs: false,
     noTraineeAdjs: false,
-    teamInstitutionPenalty: 1,
+    // What the draw uses when the setting was never saved (generator.ts); showing Tabbycat's 1 here
+    // would misstate how a tournament with no saved value is drawn.
+    teamInstitutionPenalty: 200,
     teamHistoryPenalty: 1000,
     avoidSameInstitution: true,
     avoidTeamHistory: true,
@@ -401,6 +408,23 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                       usePreformedPanels: event.target.checked,
                     }))}
                   />
+                  {prefs.usePreformedPanels && (
+                    <Select
+                      wrapperClassName="sm:col-span-2"
+                      label={t("setup.config.preformedPlacementLabel")}
+                      help={t("setup.config.preformedPlacementHelp")}
+                      value={prefs.preformedPanelPlacement ?? "optimise"}
+                      onChange={(e) =>
+                        setPrefs((p) => ({
+                          ...p,
+                          preformedPanelPlacement: e.target.value as TournamentPreferences["preformedPanelPlacement"],
+                        }))
+                      }
+                    >
+                      <option value="optimise">{t("setup.config.preformedPlacementOptimise")}</option>
+                      <option value="direct">{t("setup.config.preformedPlacementDirect")}</option>
+                    </Select>
+                  )}
 
                   <Input
                     type="number"
@@ -490,6 +514,18 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <option value="random">{t("setup.config.sideRandom")}</option>
                   <option value="preallocated">{t("setup.config.sidePreallocated")}</option>
                   <option value="manual_ballot" disabled={format === "bp"}>{t("setup.config.sideManualBallot")}</option>
+                </Select>
+
+                <Select
+                  label={t("setup.config.eliminationSidesLabel")}
+                  help={t("setup.config.eliminationSidesHelp")}
+                  value={prefs.eliminationSideRule ?? "by_seed"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, eliminationSideRule: e.target.value as TournamentPreferences["eliminationSideRule"] }))
+                  }
+                >
+                  <option value="by_seed">{t("setup.config.eliminationSidesBySeed")}</option>
+                  <option value="random">{t("setup.config.eliminationSidesRandom")}</option>
                 </Select>
 
                 <Input
@@ -1467,6 +1503,28 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
           <Alert tone="danger" role="alert">{saveError}</Alert>
         )}
       </form>
+
+      {category === "format" && tournament && (
+        <TeamNamingCard
+          tournament={tournament}
+          teams={teams}
+          institutions={institutions}
+          onSaveTournament={saveTournament}
+          onSaveTeams={async (teamsUpdated) => {
+            await saveEntityBatch({ teamsUpdated }, "Team names");
+          }}
+        />
+      )}
+
+      {category === "format" && tournament && (
+        <ConfigTransferCard
+          tournament={tournament}
+          preferences={tournament.preferences}
+          lockedFields={lockedFields}
+          hasDebates={debates.length > 0}
+          onSave={saveTournament}
+        />
+      )}
 
       {showDeleteRoundConfirm && roundToDelete && (
         <ConfirmActionDialog

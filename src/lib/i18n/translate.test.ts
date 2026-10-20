@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { catalogues } from "@/lib/i18n/messages";
+import { beforeAll, describe, expect, it } from "vitest";
+import { loadCatalogue, loadedCatalogue, type Catalogue } from "@/lib/i18n/messages";
 import {
   createTranslator,
   interpolate,
@@ -11,10 +11,28 @@ import {
 } from "@/lib/i18n/translate";
 import { formatDateTime, formatDecimal, formatList, formatNumber } from "@/lib/i18n/format";
 
+let bnCatalogue: Catalogue;
+beforeAll(async () => {
+  bnCatalogue = await loadCatalogue("bn");
+});
+
+describe("catalogue loading", () => {
+  it("reads a catalogue that has not loaded as English, then switches once it loads", async () => {
+    expect(loadedCatalogue("ja")).toBeUndefined();
+    expect(translate("ja", "common.cancel")).toBe("Cancel");
+    const pending = loadCatalogue("ja");
+    expect(loadCatalogue("ja")).toBe(pending);
+    const ja = await pending;
+    expect(loadedCatalogue("ja")).toBe(ja);
+    expect(translate("ja", "common.cancel")).toBe(ja["common.cancel"]);
+    expect(translate("ja", "common.cancel")).not.toBe("Cancel");
+  });
+});
+
 describe("translate", () => {
   it("returns the locale's own message", () => {
     expect(translate("en", "common.cancel")).toBe("Cancel");
-    expect(translate("bn", "common.cancel")).toBe(catalogues.bn["common.cancel"]);
+    expect(translate("bn", "common.cancel")).toBe(bnCatalogue["common.cancel"]);
   });
 
   it("fills placeholders and leaves unknown ones visible", () => {
@@ -27,7 +45,7 @@ describe("translate", () => {
   });
 
   it("falls back to English for a key a catalogue lacks, then to the key", () => {
-    const bn = catalogues.bn as Record<string, string>;
+    const bn = bnCatalogue as Record<string, string>;
     const saved = bn["common.close"];
     delete bn["common.close"];
     try {
@@ -53,7 +71,7 @@ describe("translatePlural", () => {
   });
 
   it("uses the locale's own other form before English when a category is missing", () => {
-    const bn = catalogues.bn as Record<string, string>;
+    const bn = bnCatalogue as Record<string, string>;
     const saved = bn["portal.showing_one"];
     delete bn["portal.showing_one"];
     try {

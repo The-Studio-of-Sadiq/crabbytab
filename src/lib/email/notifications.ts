@@ -11,7 +11,7 @@ import type {
   Venue,
 } from "@/types";
 import { MAX_CAMPAIGN_RECIPIENTS, resolveEmailRecipients, type EmailRecipient } from "@/lib/email/messaging";
-import { isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
+import { isDrawVisibleToAdjudicators, isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
 import { DEFAULT_EMAIL_TEMPLATES, type EmailTemplate } from "@/lib/email/settings";
 
 /**
@@ -61,11 +61,12 @@ export function areRoundResultsReleased(
 }
 
 /**
- * Whether a round's motions may be emailed: released for the round and its draw visible to teams.
+ * Whether a round's motions may be emailed: released for the round and its draw fully released
+ * (a teams-only release does not reach adjudicators, who also receive motions).
  * The one place that decides it, so the three-state motion release (G5) only changes this.
  */
 export function areRoundMotionsReleased(round: Pick<Round, "motionsReleased" | "drawStatus" | "cancelled">): boolean {
-  return round.motionsReleased === true && round.cancelled !== true && isDrawVisibleToTeams(round as Round);
+  return round.motionsReleased === true && round.cancelled !== true && isDrawVisibleToAdjudicators(round as Round);
 }
 
 export interface DueRoundNotification {
@@ -82,8 +83,11 @@ export function releasedRoundNotifications(
   for (const round of [...rounds].sort((left, right) => left.seq - right.seq)) {
     if (round.cancelled) continue;
     if (preferences?.notifyDrawReleased === true && isDrawVisibleToTeams(round)) {
+      // A teams-only release emails teams; adjudicators are emailed once the draw is fully released.
       due.push({ event: "draw_teams", round });
-      if (round.adjudicatorsRevealed === true) due.push({ event: "draw_adjudicators", round });
+      if (round.adjudicatorsRevealed === true && isDrawVisibleToAdjudicators(round)) {
+        due.push({ event: "draw_adjudicators", round });
+      }
     }
     if (preferences?.notifyTeamPoints === true && areRoundResultsReleased(round, preferences)) {
       due.push({ event: "team_points", round });
@@ -140,14 +144,16 @@ export function buildDrawTeamRecipients(
 ): EmailRecipient[] {
   if (!isDrawVisibleToTeams(round)) return [];
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
+  // Panels stay "TBA" in a teams-only release, as on the team portal.
+  const panelsShown = round.adjudicatorsRevealed === true && isDrawVisibleToAdjudicators(round);
   return resolveEmailRecipients("round_participants", teams, adjudicators, roundDebates, round, { venues }).map((recipient) => {
     const side = teamSide(roundDebates, recipient.teamId);
     const isBye = roundDebates.some((debate) => debate.byeTeamId && debate.byeTeamId === recipient.teamId);
     return {
       ...recipient,
       side: isBye ? "Bye" : side ?? "",
-      chair: round.adjudicatorsRevealed === true ? recipient.chair : "TBA",
-      panellists: round.adjudicatorsRevealed === true ? recipient.panellists : "TBA",
+      chair: panelsShown ? recipient.chair : "TBA",
+      panellists: panelsShown ? recipient.panellists : "TBA",
     };
   });
 }
@@ -160,7 +166,7 @@ export function buildDrawAdjudicatorRecipients(
   adjudicators: Adjudicator[],
   venues: Array<Pick<Venue, "id" | "url">> = []
 ): EmailRecipient[] {
-  if (!isDrawVisibleToTeams(round) || round.adjudicatorsRevealed !== true) return [];
+  if (!isDrawVisibleToAdjudicators(round) || round.adjudicatorsRevealed !== true) return [];
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
   return resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round, { venues });
 }

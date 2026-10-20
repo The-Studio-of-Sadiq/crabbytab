@@ -10,11 +10,13 @@ import {
 } from "@/lib/theme";
 import { DropdownMenu, DropdownMenuLabel, DropdownMenuRadioItem } from "@/components/ui/DropdownMenu";
 import { iconButtonClasses } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n";
 
-const OPTIONS: { value: ThemePreference; label: string; icon: React.ReactNode }[] = [
-  { value: "light", label: "Light", icon: <Sun /> },
-  { value: "dark", label: "Dark", icon: <Moon /> },
-  { value: "system", label: "System", icon: <Monitor /> },
+const OPTIONS: { value: ThemePreference; label: MessageKey; icon: React.ReactNode }[] = [
+  { value: "light", label: "public.theme.light", icon: <Sun /> },
+  { value: "dark", label: "public.theme.dark", icon: <Moon /> },
+  { value: "system", label: "public.theme.system", icon: <Monitor /> },
 ];
 
 function readStoredPreference(): ThemePreference {
@@ -68,9 +70,10 @@ export function ThemeMenuItems({
   preference: ThemePreference;
   onChange: (preference: ThemePreference) => void;
 }) {
+  const { t } = useI18n();
   return (
     <>
-      <DropdownMenuLabel>Theme</DropdownMenuLabel>
+      <DropdownMenuLabel>{t("public.theme.label")}</DropdownMenuLabel>
       {OPTIONS.map((option) => (
         <DropdownMenuRadioItem
           key={option.value}
@@ -78,7 +81,7 @@ export function ThemeMenuItems({
           onSelect={() => onChange(option.value)}
           icon={option.icon}
         >
-          {option.label}
+          {t(option.label)}
         </DropdownMenuRadioItem>
       ))}
     </>
@@ -94,12 +97,13 @@ export function ThemeToggle({
   onChange: (preference: ThemePreference) => void;
   className?: string;
 }) {
+  const { t } = useI18n();
   const current = OPTIONS.find((option) => option.value === preference) ?? OPTIONS[2];
   return (
     <div className={className}>
       <DropdownMenu
         align="end"
-        triggerLabel={`Theme: ${current.label}`}
+        triggerLabel={t("public.theme.trigger", { theme: t(current.label) })}
         triggerClassName={iconButtonClasses({ size: "md" })}
         menuClassName="min-w-[9rem]"
         trigger={current.icon}

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
 import { createRegisteredEntity, needsConfirmation, REGISTERED_ADJUDICATOR_BASE_SCORE } from "@/lib/registration/autoApprove";
 import { parseTransferRequest } from "@/lib/registration/transfers";
+import { describeTeamInvitation, joinTeamByInvitation } from "@/lib/registration/teamInvitations";
+import { loadInstitutionResponse } from "@/lib/registration/institutionResponse";
 import type { Firestore } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
@@ -102,12 +104,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } catch {
     return json({ error: "Invalid request body." }, 400);
   }
-  if (body.action !== "representative" && body.action !== "submit" && body.action !== "transfer") {
+  if (
+    body.action !== "representative" && body.action !== "submit" && body.action !== "transfer" &&
+    body.action !== "teamInvitation" && body.action !== "joinTeam"
+  ) {
     return json({ error: "Invalid request body." }, 400);
   }
 
   const now = Date.now();
-  if (body.action === "submit") {
+  if (body.action === "submit" || body.action === "joinTeam") {
     const signal = spamSignal({ honeypot: body.website, startedAt: body.startedAt }, now);
     // A filled honeypot gets an ordinary-looking answer, so automated senders learn nothing.
     if (signal === "honeypot") return json({ received: true });
@@ -141,11 +146,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return json({ transfer: { id: transfer.id, status: transfer.status } });
     }
 
+    if (body.action === "teamInvitation") {
+      // Team invitations (docs/registration.md): the team a link adds speakers to.
+      return json({ invitation: await describeTeamInvitation(tournamentRef, body.token, now) });
+    }
+
     if (body.action === "representative") {
       const settings = readSettings((await registrationRefs(tournamentRef).settingsRef.get()).data());
       if (!settings) return json({ error: "This tournament is not taking registrations." }, 404);
       const representative = await loadRepresentativeByToken(tournamentRef, body.token);
-      return json({ representative: await describeRepresentative(tournamentRef, representative, settings) });
+      // The coach's view of their institution's response (Tabbycat reg-inst-view-response).
+      const [view, response] = await Promise.all([
+        describeRepresentative(tournamentRef, representative, settings),
+        loadInstitutionResponse(tournamentRef, representative),
+      ]);
+      return json({ representative: { ...view, response } });
     }
 
     for (const [identity, scope, max] of [
@@ -160,6 +175,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           { status: 429, headers: { ...NO_STORE, "Retry-After": String(retryAfter) } }
         );
       }
+    }
+
+    if (body.action === "joinTeam") {
+      const joined = await joinTeamByInvitation({ firestore, tournamentRef, token: body.token, speaker: body.speaker, now });
+      return json({ joined: true, teamName: joined.teamName });
     }
 
     const result = await submitRegistration({

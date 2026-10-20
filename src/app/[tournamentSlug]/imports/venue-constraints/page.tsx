@@ -25,7 +25,7 @@ import {
   type ConstraintsPlan,
   type ConstraintSubjectKind,
 } from "@/lib/venues/constraintEdits";
-import { normaliseCategory } from "@/lib/venues/venues";
+import { normaliseCategory, venueCategoryNames } from "@/lib/venues/venues";
 
 const KIND_KEYS: Record<ConstraintSubjectKind, MessageKey> = {
   team: "setup.importsExtra.venueConstraints.kindTeam",
@@ -58,7 +58,9 @@ export default function VenueConstraintsPage() {
   const rows = useMemo(() => listVenueConstraints(subjects), [subjects]);
   const categories = useMemo(() => {
     const byKey = new Map<string, string>();
-    for (const venue of venues) if (venue.category?.trim()) byKey.set(normaliseCategory(venue.category), venue.category.trim());
+    for (const venue of venues) {
+      for (const name of venueCategoryNames(venue)) if (!byKey.has(normaliseCategory(name))) byKey.set(normaliseCategory(name), name);
+    }
     return [...byKey.values()].sort((a, b) => a.localeCompare(b));
   }, [venues]);
 

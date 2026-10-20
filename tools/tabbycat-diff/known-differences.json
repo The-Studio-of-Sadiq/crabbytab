@@ -2,14 +2,9 @@
   "$comment": "Human verdicts for discrepancies found by tabbycatDiff.test.ts. `id` is a discrepancy id or a pattern where * matches anything; the first match wins. Classifications: rule difference, CrabbyTab defect, configuration difference, valid alternative. Keep notes factual and point at the code.",
   "differences": [
     {
-      "id": "*/config/unmapped/scoring__teamscore_includes_ghosts",
-      "classification": "configuration difference",
-      "note": "CrabbyTab's DebateXML importer totals each imported ballot with CrabbyTab's defaults, so iron-person (ghost) speeches are left out of team scores. Tabbycat's default, and WUDC 35.9.3.2, is to include them, and Tabbycat's importer applies the style preset first. The harness recomputes the imported totals with Tabbycat's setting so every later comparison starts from equal team scores. Follow-up: have the importer apply the style's preset (RULES_PRESETS) before totalling ballots."
-    },
-    {
       "id": "*/draw/r1/byes",
       "classification": "rule difference",
-      "note": "Before any results every team is tied, and neither engine picks round-1 byes at random. Tabbycat's random draw manager takes the last teams in database order (the last imported); CrabbyTab's lowest_ranked rule keeps list order, so the first teams always sit out. Both are arbitrary, fixed preferences; AGENTS.md section 7.2 asks for an explicit random tie-break. Follow-up: break the bye tie with the draw's seeded RNG."
+      "note": "Before any results every team is tied. Tabbycat's random draw manager takes the last teams in database order (the last imported), a fixed preference. CrabbyTab breaks the tie with the draw's seeded RNG (AGENTS.md section 7.2), so its bye differs from seed to seed and no team is benched because of its place in the list."
     },
     {
       "id": "twoteam-odd-ties/draw/r*/byes",
@@ -45,14 +40,6 @@
       "note": "Same tie as above: Tabbycat lists the seven tied teams it did not break as reserves. CrabbyTab picks no reserves until the break cutoff tie is resolved.",
       "dependsOn": [
         "PR #36 (cutoffTies)"
-      ]
-    },
-    {
-      "id": "twoteam-odd-ties/break/BC1/seeds",
-      "classification": "rule difference",
-      "note": "T5, T8, T11 and T18 are tied (3 wins, the only metric). Tabbycat gives them the same break rank (2); CrabbyTab numbers them 2 to 5 in standings order, which is team-name order inside a tie, so elimination seeding among tied teams is decided by name and the tie is not shown. Follow-up: carry equal seeds into elimination pairing or mark the tie.",
-      "dependsOn": [
-        "PR #36 (break tie handling)"
       ]
     },
     {

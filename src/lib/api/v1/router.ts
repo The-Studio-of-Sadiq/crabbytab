@@ -34,7 +34,7 @@ export interface RouteContext<P, Q, B> {
   data: TournamentData;
   token: ApiTokenIdentity | null;
   participant: ParticipantIdentity | null;
-  /** Live store; only for administrator tokens (writes always go through it). */
+  /** Live store: administrator tokens, and participants (for their own submissions); null for public tokens. */
   store: TournamentStore | null;
   now: Date;
   /** Request id, echoed in X-Request-Id and recorded with written audit events. */

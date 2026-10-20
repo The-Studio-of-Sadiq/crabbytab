@@ -5,7 +5,7 @@ import {
   type BallotRules,
   type SideRecord,
 } from "@/lib/ballots/result";
-import { defaultPreferences, slugify } from "@/lib/setup/presets";
+import { defaultPreferences, getRulesPreset, rulesPresetPreferences, slugify } from "@/lib/setup/presets";
 import { integerScaleChoices } from "@/lib/feedback/questions";
 import type {
   Adjudicator,
@@ -370,6 +370,21 @@ const STYLES: Record<string, TournamentFormat> = {
   uadc: "uadc",
   australs: "australs",
   wsdc: "wsdc",
+};
+
+/**
+ * DebateXML `style` values Tabbycat maps to a rules preset (importer/archive.py `set_preferences`),
+ * with the CrabbyTab preset that matches each. Other styles (apda, asians, …) get no preset there.
+ */
+const STYLE_RULES_PRESETS: Record<string, string> = {
+  bp: "bp",
+  australs: "australs",
+  uadc: "uadc",
+  wsdc: "wsdc",
+  "aus-easters": "australian_easters",
+  "nz-easters": "nz_easters",
+  cp: "canadian",
+  joynt: "joynt",
 };
 
 function emptyCounts(): DebateXmlImportCounts {
@@ -851,10 +866,11 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
 
   const styleAttribute = attr(root, "style");
   const sideCounts = new Set(rawRounds.flatMap((round) => round.debates.map((debate) => debate.sides.length)));
+  const stylePreset = styleAttribute ? getRulesPreset(STYLE_RULES_PRESETS[styleAttribute]) : undefined;
   let format: TournamentFormat = styleAttribute && STYLES[styleAttribute]
     ? STYLES[styleAttribute]
-    : sideCounts.has(4) ? "bp" : "custom_2team";
-  if (styleAttribute && !STYLES[styleAttribute]) {
+    : stylePreset?.format ?? (sideCounts.has(4) ? "bp" : "custom_2team");
+  if (styleAttribute && !STYLES[styleAttribute] && !stylePreset) {
     log.warning("tournament", `Unknown style "${styleAttribute.slice(0, 20)}"; the format is inferred from the debates.`);
   }
   if (format !== "bp" && sideCounts.has(4) && !sideCounts.has(2)) format = "bp";
@@ -870,6 +886,22 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
   const allSides = rawRounds.flatMap((round) => round.debates.flatMap((debate) => debate.sides));
   const allSpeeches = allSides.flatMap((side) => side.speeches);
   const preferences = defaultPreferences(format);
+  // Like Tabbycat's importer, apply the style's rules preset (BP when four-team debates name no
+  // style) before totalling ballots, so e.g. BP team scores include iron-person (ghost) speeches
+  // (WUDC 35.9.3.2). The archive's own evidence below still overrides speaker counts, score
+  // ranges and ballot modes.
+  const rulesPreset = stylePreset?.format === format ? stylePreset : format === "bp" ? getRulesPreset("bp") : undefined;
+  if (rulesPreset) {
+    Object.assign(preferences, rulesPresetPreferences(rulesPreset));
+    // Tabbycat's presets turn motion selection on ballots off for some styles; motions that are in
+    // the archive are still imported and shown, so CrabbyTab keeps them enabled.
+    if (motions.length > 0) preferences.enableMotions = true;
+    notes.push(`Applied the ${rulesPreset.label} rules preset for the archive's ${styleAttribute ? `"${styleAttribute}" style` : "four-team debates"}.`);
+  }
+  // CrabbyTab's own archives record whether team scores counted ghost speeches (DebateXML has no
+  // field for it and Tabbycat ignores the attribute), so a round trip keeps the same totals.
+  const ghostsAttribute = attr(root, "teamscore-includes-ghosts");
+  if (ghostsAttribute === "true" || ghostsAttribute === "false") preferences.teamScoreIncludesGhosts = ghostsAttribute === "true";
   if (allSpeeches.length > 0) {
     const substantive = Math.max(0, ...allSides.map((side) => side.speeches.filter((speech) => !speech.reply).length));
     if (substantive > 0) preferences.substantiveSpeakers = substantive;
@@ -1047,10 +1079,14 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       createdAt: now,
     });
   });
+  // The archive's ballots decide each stage's mode; a preset's mode stands only for a stage
+  // with no results.
   if (ballotsByStage.preliminary.voting) preferences.ballotMode = "voting";
+  else if (ballotsByStage.preliminary.any && preferences.ballotMode) preferences.ballotMode = "consensus";
   const eliminationMode = ballotsByStage.elimination.voting ? "voting" : "consensus";
-  if (ballotsByStage.elimination.any && eliminationMode !== (preferences.ballotMode ?? "consensus")) {
-    preferences.eliminationBallotMode = eliminationMode;
+  if (ballotsByStage.elimination.any) {
+    if (eliminationMode !== (preferences.ballotMode ?? "consensus")) preferences.eliminationBallotMode = eliminationMode;
+    else delete preferences.eliminationBallotMode;
   }
   for (const motion of motions) motion.rounds = [...(motionRounds.get(motion.id) ?? [])];
 

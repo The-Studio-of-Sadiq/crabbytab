@@ -4,8 +4,11 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
-import { Plus, Upload, Trash2, Edit2, Search, Key } from "lucide-react";
+import { Plus, Upload, Trash2, Edit2, Search, Key, FileText, UserPlus, UserMinus } from "lucide-react";
 import { Team, Adjudicator, Institution } from "@/types";
+import { createEntityId } from "@/features/tournament/application/entities";
+import { ballotsWithSpeaker } from "@/features/tournament/application/stateGuards";
+import { hasCodeName } from "@/lib/codeNames";
 import {
   adjudicatorConflictIds,
   applyConflictSelection,
@@ -16,6 +19,8 @@ import {
 } from "@/lib/adjudicators/conflicts";
 import { participantRegion } from "@/lib/adjudicators/diversity";
 import { AdjudicatorConflictsEditor } from "@/features/tournament/components/AdjudicatorConflictsEditor";
+import { prepareTeamForSave, TeamIdentityFields } from "@/features/tournament/components/TeamIdentityFields";
+import { cleanCoaches, InstitutionCoachesField } from "@/features/tournament/components/InstitutionCoachesField";
 import { BreakEligibilityField, SpeakerCategoriesInput } from "@/features/tournament/components/TeamCategoryFields";
 import { CsvImportDialog } from "@/features/tournament/components/CsvImportDialog";
 import { effectiveSpeakerCategories, speakerCategoryNames, speakerCategoryRefs } from "@/lib/speakerCategories";
@@ -101,6 +106,7 @@ export default function ImportDirectory({
     adjudicators,
     institutions,
     breakCategories,
+    ballots,
     addTeam,
     updateTeam,
     deleteTeam,
@@ -118,7 +124,12 @@ export default function ImportDirectory({
 
   // Modals state
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [editingTeam, setEditingTeamState] = useState<Team | null>(null);
+  const [teamSaveError, setTeamSaveError] = useState("");
+  const setEditingTeam = (team: Team | null) => {
+    setTeamSaveError("");
+    setEditingTeamState(team);
+  };
 
   const [showAddAdjModal, setShowAddAdjModal] = useState(false);
   const [editingAdj, setEditingAdj] = useState<Adjudicator | null>(null);
@@ -241,7 +252,7 @@ export default function ImportDirectory({
     e.preventDefault();
     if (!editingInst || !editingInst.name.trim()) return;
 
-    await updateInstitution(editingInst);
+    await updateInstitution(cleanCoaches(editingInst));
     setEditingInst(null);
   };
 
@@ -277,8 +288,8 @@ export default function ImportDirectory({
     }
 
     await addTeam({
+      // No code name until one is set or generated: the real name must never stand in for it.
       name: newTeamName.trim(),
-      codeName: newTeamName.trim(),
       institutionId: selectedInst ? selectedInst.id : undefined,
       institutionName: selectedInst ? selectedInst.name : undefined,
       speakers,
@@ -305,8 +316,30 @@ export default function ImportDirectory({
     e.preventDefault();
     if (!editingTeam || !editingTeam.name.trim()) return;
 
-    await updateTeam(editingTeam);
+    // A speaker slot added in this dialog but left blank is dropped rather than saved nameless.
+    const storedIds = new Set((teams.find((team) => team.id === editingTeam.id)?.speakers ?? []).map((speaker) => speaker.id));
+    const speakers = editingTeam.speakers.filter((speaker) => storedIds.has(speaker.id) || speaker.name.trim() !== "");
+    try {
+      await updateTeam(prepareTeamForSave({ ...editingTeam, speakers }, institutions, tournament?.preferences?.teamNameDisplay));
+    } catch (error) {
+      setTeamSaveError(error instanceof Error ? error.message : t("setup.imports.teamSaveError"));
+      return;
+    }
     setEditingTeam(null);
+  };
+
+  /** Ballots with speeches by a speaker; a speaker with any cannot be removed (the save is refused too). */
+  const speakerBallotCount = (speakerId: string) => ballotsWithSpeaker(speakerId, ballots).length;
+  const addSpeakerToEditingTeam = () => {
+    if (!editingTeam) return;
+    setEditingTeam({
+      ...editingTeam,
+      speakers: [...(editingTeam.speakers ?? []), { id: createEntityId("spk"), name: "" }],
+    });
+  };
+  const removeSpeakerFromEditingTeam = (speakerId: string) => {
+    if (!editingTeam || speakerBallotCount(speakerId) > 0) return;
+    setEditingTeam({ ...editingTeam, speakers: editingTeam.speakers.filter((speaker) => speaker.id !== speakerId) });
   };
 
   // Adjudicator Handlers
@@ -509,6 +542,14 @@ export default function ImportDirectory({
                           <Key aria-hidden="true" />
                         </Link>
                       )}
+                      <Link
+                        href={`/${tournamentSlug}/team/${team.id}`}
+                        className={iconButtonClasses({ size: "sm" })}
+                        aria-label={t("setup.imports.teamRecordNamed", { name: team.name })}
+                        title={t("setup.imports.teamRecordNamed", { name: team.name })}
+                      >
+                        <FileText aria-hidden="true" />
+                      </Link>
                       <IconButton
                         size="sm"
                         icon={<Edit2 aria-hidden="true" />}
@@ -768,6 +809,7 @@ export default function ImportDirectory({
                 onChange={(e) => setEditingInst({ ...editingInst, region: e.target.value })}
               />
             </div>
+            <InstitutionCoachesField institution={editingInst} onChange={setEditingInst} />
           </form>
         )}
       </Dialog>
@@ -891,11 +933,18 @@ export default function ImportDirectory({
               onChange={(e) => setEditingTeam({ ...editingTeam, name: e.target.value })}
             />
 
+            <TeamIdentityFields
+              team={editingTeam}
+              institutions={institutions}
+              display={tournament?.preferences?.teamNameDisplay}
+              onChange={setEditingTeam}
+            />
+
             {/* Public identity (Tabbycat code names and emoji) */}
             <div className="grid grid-cols-[1fr_6rem] gap-2">
               <Input
                 label={t("setup.imports.codeName")}
-                value={editingTeam.codeName ?? ""}
+                value={hasCodeName(editingTeam) ? editingTeam.codeName ?? "" : ""}
                 onChange={(e) => setEditingTeam({ ...editingTeam, codeName: e.target.value || undefined })}
                 placeholder={t("setup.imports.teamCodeNamePlaceholder")}
               />
@@ -994,6 +1043,27 @@ export default function ImportDirectory({
                       setEditingTeam({ ...editingTeam, speakers: newSpeakers });
                     }}
                   />
+                  <Input
+                    value={spk.lastName || ""}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, lastName: e.target.value.trimStart() || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.namedLastName", { name: speakerLabel(spk.name, idx) })}
+                    placeholder={t("setup.imports.lastNamePlaceholder")}
+                  />
+                  <Input
+                    value={spk.pronoun || ""}
+                    maxLength={20}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, pronoun: e.target.value.trimStart() || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.namedPronoun", { name: speakerLabel(spk.name, idx) })}
+                    placeholder={t("setup.imports.pronounPlaceholder")}
+                  />
                   <div className="sm:col-span-2">
                     <SpeakerCategoriesInput
                       id={`edit-speaker-${idx}-categories`}
@@ -1007,8 +1077,33 @@ export default function ImportDirectory({
                       }}
                     />
                   </div>
+                  <div className="flex items-center justify-between gap-2 sm:col-span-2">
+                    {speakerBallotCount(spk.id) > 0 ? (
+                      <p className="text-xs text-fg-muted">
+                        {plural("setup.imports.speakerHasResults", speakerBallotCount(spk.id))}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={speakerBallotCount(spk.id) > 0}
+                      onClick={() => removeSpeakerFromEditingTeam(spk.id)}
+                      className="hover:text-danger"
+                    >
+                      <UserMinus aria-hidden="true" />
+                      {t("setup.imports.removeSpeakerNamed", { name: speakerLabel(spk.name, idx) })}
+                    </Button>
+                  </div>
                 </div>
               ))}
+              <Button type="button" variant="secondary" size="sm" onClick={addSpeakerToEditingTeam}>
+                <UserPlus aria-hidden="true" />
+                {t("setup.imports.addSpeaker")}
+              </Button>
+              <p className="text-xs text-fg-muted">{t("setup.imports.speakerChangesHelp")}</p>
             </fieldset>
 
             <BreakEligibilityField
@@ -1016,6 +1111,12 @@ export default function ImportDirectory({
               value={editingTeam.breakCategories ?? []}
               onChange={(categoryIds) => setEditingTeam({ ...editingTeam, breakCategories: categoryIds })}
             />
+
+            {teamSaveError && (
+              <Alert tone="danger" role="alert">
+                {teamSaveError}
+              </Alert>
+            )}
           </form>
         )}
       </Dialog>
@@ -1179,11 +1280,37 @@ export default function ImportDirectory({
                 onChange={(e) => setEditingAdj({ ...editingAdj, breaking: e.target.checked || undefined })}
               />
               <Checkbox
+                label={t("setup.imports.testerAdjudicator")}
+                description={editingAdj.adjCore ? t("setup.imports.testerCoreHelp") : undefined}
+                checked={editingAdj.isTester === true || editingAdj.adjCore === true}
+                disabled={editingAdj.adjCore === true}
+                onChange={(e) => setEditingAdj({ ...editingAdj, isTester: e.target.checked || undefined })}
+              />
+              <Checkbox
                 label={t("setup.imports.anonymousPublic")}
                 checked={editingAdj.anonymous === true}
                 onChange={(e) => setEditingAdj({ ...editingAdj, anonymous: e.target.checked || undefined })}
               />
             </fieldset>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label={t("setup.imports.lastName")}
+                help={t("setup.imports.lastNameHelp")}
+                value={editingAdj.lastName || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, lastName: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, lastName: e.target.value.trim() || undefined })}
+              />
+              <Input
+                label={t("setup.imports.pronoun")}
+                help={t("setup.imports.pronounHelp")}
+                maxLength={20}
+                value={editingAdj.pronoun || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, pronoun: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, pronoun: e.target.value.trim() || undefined })}
+                placeholder={t("setup.imports.pronounPlaceholder")}
+              />
+            </div>
 
             <Input
               label={t("setup.imports.codeName")}

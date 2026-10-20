@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BallotSubmission, Debate, Round } from "@/types";
 import {
+  filterParticipantVisibleDebates,
   filterTeamVisibleDebates,
   getPrivatePortalBallots,
+  isDrawVisibleToAdjudicators,
   isDrawVisibleToTeams,
   sanitizeTeamPrivateDebate,
 } from "./privatePortalBallots";
@@ -147,6 +149,23 @@ describe("team draw and panel visibility", () => {
     expect(isDrawVisibleToTeams({ ...round, drawStatus: "confirmed", cancelled: true })).toBe(false);
     expect(isDrawVisibleToTeams({ ...round, drawStatus: "confirmed" })).toBe(true);
     expect(isDrawVisibleToTeams({ ...round, drawStatus: "released" })).toBe(true);
+  });
+
+  it("shows a teams-only release to teams but not to adjudicators; never a locked draw", () => {
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "teams_released" })).toBe(true);
+    expect(isDrawVisibleToAdjudicators({ ...round, drawStatus: "teams_released" })).toBe(false);
+    expect(isDrawVisibleToTeams({ ...round, drawStatus: "locked" })).toBe(false);
+    expect(isDrawVisibleToAdjudicators({ ...round, drawStatus: "locked" })).toBe(false);
+    expect(isDrawVisibleToAdjudicators({ ...round, drawStatus: "confirmed" })).toBe(true);
+    const rounds = new Map([["round-1", { ...round, drawStatus: "teams_released" as const }]]);
+    expect(filterParticipantVisibleDebates([debate], rounds, "team")).toHaveLength(1);
+    expect(filterParticipantVisibleDebates([debate], rounds, "adjudicator")).toHaveLength(0);
+  });
+
+  it("never shows the panel in a teams-only release, even when adjudicators are revealed", () => {
+    const teamsOnly = sanitizeTeamPrivateDebate(debate, { ...round, drawStatus: "teams_released", adjudicatorsRevealed: true });
+    expect(teamsOnly.adjudicators.chairId).toBeUndefined();
+    expect(teamsOnly.teams.OG?.teamId).toBe("team-1");
   });
 
   it("drops debates whose draw is unpublished", () => {

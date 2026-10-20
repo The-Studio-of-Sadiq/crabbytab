@@ -1,4 +1,4 @@
-import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { ballotMatchesDebate, ballotVotesPossible } from "@/lib/ballots/result";
 import { roundWeight as configuredRoundWeight } from "@/lib/ballots/ballotRules";
 import { applyBallotSides } from "@/lib/draw/manualSides";
 import {
@@ -44,7 +44,7 @@ const LEGACY_REPLY_ID = /^reply-(AFF|NEG)$/;
  * Substantive speeches that count for a speaker: ghosts are excluded, and for ballots saved before
  * ghost flags existed, any repeat speech by the same speaker is treated as the ghost.
  */
-function countedSubstantiveSpeeches(entries: SpeakerScoreEntry[], replyEnabled: boolean): SpeakerScoreEntry[] {
+export function countedSubstantiveSpeeches(entries: SpeakerScoreEntry[], replyEnabled: boolean): SpeakerScoreEntry[] {
   const seen = new Set<string>();
   return entries.filter((entry) => {
     if (replyEnabled && entry.position === 4) return false;
@@ -223,10 +223,8 @@ export function calculateStandings(
       const isForfeit = Boolean(ballot.forfeitSide) || Boolean(ballot.noSpeakerScores);
       const substantiveEntries = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
       // Voting ballots record each side's votes; consensus ballots record none (and carry none).
-      const votesPossible = teamScore?.votes !== undefined
-        ? ballot.sheets?.length ||
-          Object.values(ballot.teamScores).reduce((sum, score) => sum + (score?.votes ?? 0), 0)
-        : undefined;
+      // A self-split ballot's single sheet counts as a 2:1 panel (3 votes).
+      const votesPossible = teamScore?.votes !== undefined ? ballotVotesPossible(ballot) : undefined;
 
       const pts = teamScore ? teamScore.points || 0 : 0;
       // Tabbycat records no wins in BP preliminary rounds (TeamScore.win is unset), so BP "wins"

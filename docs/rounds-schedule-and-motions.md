@@ -28,6 +28,16 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
 - **Admin pages.** Draw, allocation, results and availability show a "Running at the same time"
   bar (`CurrentRoundsBar`) when the active round has concurrent rounds: one click switches round,
   each shows its progress, and clashes are listed.
+- **Current round.** By default the current round is derived: the latest round whose draw is
+  released to the public. **Make ... current** on the Draw page (Tabbycat `tournament-set-current-round`)
+  stores an explicit `preferences.currentRoundId` instead; public pages ("current round only" draw
+  mode, the round they open on, public ballots), the projector and private URLs (the round they open
+  on) then use that round and the rounds of its schedule slot. **Use automatic current round**
+  clears it; a deleted or cancelled round also falls back to the derivation. An explicit current
+  round never publishes a draw that is not released. Unlike Tabbycat, setting it does not mark
+  rounds complete or incomplete.
+- **Projector.** The projector shows every concurrent round of the shown round's slot together
+  (see [public-pages-and-notifications.md](./public-pages-and-notifications.md#projector-display-slugdisplay)).
 - **Live sync.** The admin device listens to the debates and ballots of the active round *and* its
   concurrent rounds (`liveListenerScopes(activeRoundId, concurrentRoundIds)`), so clashes and free
   adjudicators are current across operators.
@@ -93,3 +103,11 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
   motions across the tournaments you administer, from the working copies on this device (no cloud
   reads). Motions are matched by normalised text; BP and two-team results are never pooled.
   Tournaments you administer that are not on the device are listed so you can open them first.
+- **Public cross-tournament statistics** (`/tournaments/motions/public`, data from
+  `/api/public/motions`): the same table pooled across every published tournament that released
+  its motion statistics (Tabbycat `motion_tab_released`, CrabbyTab's motion statistics setting).
+  Each publish stores a small per-motion summary on the tournament's public view root
+  (`PublicViewRoot.motionSummary`, `src/lib/motions/publicSummary.ts`), built from the public view
+  only: released motions and public results. The page therefore costs one read per such tournament,
+  cached for an hour, and shows nothing the tournaments' own public pages do not. A tournament joins
+  (or leaves) at its next publish that changes public data.

@@ -84,6 +84,17 @@ describe("ties at the break cutoff", () => {
     expect(calculateBreaks([category(1)], teams, table)[0].cutoffTies).toEqual([]);
   });
 
+  it("gives teams tied inside the break one shared break rank, keeping unique seeds for pairing", () => {
+    const [result] = calculateBreaks([category(5)], teams, table);
+    expect(result.breakingTeams.map((entry) => [entry.team.id, entry.breakRank, entry.seed])).toEqual([
+      ["a", 1, 1],
+      ["b", 2, 2],
+      ["c", 2, 3],
+      ["d", 2, 4],
+      ["e", 5, 5],
+    ]);
+  });
+
   it("fills reserve places after the tied group, counting the group's extra teams", () => {
     // Break 3 + 2 reserves = 5 places: the tie takes places 2-4 (with a team over), leaving e as reserve 1.
     const [result] = calculateBreaks([category(3, 2)], teams, table);

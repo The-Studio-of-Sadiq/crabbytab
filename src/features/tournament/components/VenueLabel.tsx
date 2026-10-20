@@ -3,6 +3,7 @@
 import React from "react";
 import { ExternalLink } from "lucide-react";
 import type { Debate, Venue, VenueCategoryInfo } from "@/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { safeVenueUrl, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
 
 /**
@@ -22,6 +23,7 @@ export function VenueLabel({
   audience: "admin" | "public";
   fallback?: string;
 }) {
+  const { t } = useI18n();
   const venue = debate.venueId ? venues.find((item) => item.id === debate.venueId) : undefined;
   const name = venue ? venueDisplayName(venue, categories) : debate.venueName || fallback || "";
   const url = safeVenueUrl(venue?.url);
@@ -34,10 +36,10 @@ export function VenueLabel({
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-0.5 text-blue-700 underline hover:text-blue-900 dark:text-blue-300"
-          aria-label={`Open the room link for ${name}`}
+          aria-label={t("venue.openLink", { name })}
         >
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          <span className="text-[11px] font-semibold">Join / map</span>
+          <span className="text-[11px] font-semibold">{t("venue.joinMap")}</span>
         </a>
       )}
     </span>

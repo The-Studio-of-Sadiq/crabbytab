@@ -62,6 +62,44 @@ export async function runWrite<T>(
 }
 
 /**
+ * A participant's own submission (private URL key + passcode), run atomically like any write and
+ * audited as "participant:<type>:<id>".
+ */
+export async function runParticipantWrite<T>(
+  context: WriteContext,
+  operation: (session: ApiCommandSession) => Promise<T | (() => T)>
+): Promise<T> {
+  const store = context.store;
+  const participant = context.participant;
+  if (!store || !participant) throw new ApiError(401, "unauthenticated", "A private URL key and passcode are required.");
+  return store.transaction(async (transaction) => {
+    const tournament = await transaction.getTournament();
+    if (!tournament) throw notFound("Tournament");
+    const session = new ApiCommandSession(
+      transaction,
+      tournament as unknown as Tournament,
+      {
+        tokenId: "",
+        tokenName: participant.name,
+        requestId: context.requestId,
+        actorId: `participant:${participant.type}:${participant.id}`,
+        actorName: participant.name,
+        actorType: "public",
+      },
+      context.now
+    );
+    let result: T | (() => T);
+    try {
+      result = await operation(session);
+    } catch (error) {
+      throw commandError(error);
+    }
+    await session.commit();
+    return typeof result === "function" ? (result as () => T)() : result;
+  });
+}
+
+/**
  * Commands report refusals that are not rule violations as errors of their own: named ones
  * (e.g. DrawHasResultsError) become 409, plain `Error`s with a user-facing message (e.g. "That
  * round no longer exists.") become 422. Rule violations, API errors and infrastructure errors

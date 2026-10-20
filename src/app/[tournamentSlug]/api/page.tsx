@@ -46,6 +46,7 @@ const RESOURCE_KEYS: Record<ApiResource, MessageKey> = {
   feedback: "setup.staff.api.resourceFeedback",
   checkins: "setup.staff.api.resourceCheckins",
   standings: "setup.staff.api.resourceStandings",
+  staff: "setup.staff.api.resourceStaff",
 };
 
 const DATE_TIME: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };

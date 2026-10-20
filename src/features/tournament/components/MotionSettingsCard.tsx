@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Switch } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { buttonClasses } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { TournamentPreferences } from "@/types";
 
 /**
@@ -15,6 +16,7 @@ import type { TournamentPreferences } from "@/types";
  * order is a public-site setting, `publicMotionsOrder`.)
  */
 export function MotionSettingsCard() {
+  const { t } = useI18n();
   const { tournament, isOwnerOrAdmin, saveTournament } = useTournament();
   const [error, setError] = useState("");
   if (!tournament || !isOwnerOrAdmin) return null;
@@ -25,7 +27,7 @@ export function MotionSettingsCard() {
     try {
       await saveTournament({ ...tournament, preferences: { ...preferences, ...patch } });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save the motion settings.");
+      setError(caught instanceof Error ? caught.message : t("tabroom.schedule.motionSettings.saveFailed"));
     }
   };
 
@@ -33,11 +35,11 @@ export function MotionSettingsCard() {
     <Card>
       <CardHeader
         icon={<Settings2 aria-hidden="true" />}
-        title="Motion settings"
+        title={t("tabroom.schedule.motionSettings.title")}
         actions={
           <Link href="/tournaments/motions" className={buttonClasses({ variant: "ghost", size: "sm" })}>
             <BarChart3 aria-hidden="true" />
-            Statistics across your tournaments
+            {t("tabroom.schedule.motionSettings.statistics")}
           </Link>
         }
       />
@@ -47,8 +49,8 @@ export function MotionSettingsCard() {
           id="motion-preferences"
           checked={preferences.enableMotionPreferences === true}
           onCheckedChange={(checked) => void save({ enableMotionPreferences: checked })}
-          label="Record ranked motion preferences"
-          description="Ballots record each team's motion ranking (most preferred first) alongside vetoes, for motion statistics."
+          label={t("tabroom.schedule.motionSettings.preferences")}
+          description={t("tabroom.schedule.motionSettings.preferencesHelp")}
         />
       </CardBody>
     </Card>

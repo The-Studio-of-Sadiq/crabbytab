@@ -32,6 +32,11 @@ export class MemoryRateLimiter {
 export const RATE_LIMITS = {
   /** Requests per client address per minute, before any token lookup. */
   perAddressPerMinute: 600,
+  /**
+   * Requests without a token per client address per minute (public endpoints only; served from
+   * the cached public view, so they cost no Firestore reads).
+   */
+  anonymousPerAddressPerMinute: 60,
   /** Requests per token per minute. */
   perTokenPerMinute: 300,
   /** Writes per token per hour (durable, shared across instances). */

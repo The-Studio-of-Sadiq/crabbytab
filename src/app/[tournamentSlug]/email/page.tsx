@@ -18,6 +18,7 @@ import {
   findCredentialEmailConflict,
   renderEmailTemplate,
   resolveEmailRecipients,
+  institutionCoachRecipients,
   usesPrivateCredentials,
   MAX_CAMPAIGN_RECIPIENTS,
 } from "@/lib/email/messaging";
@@ -40,6 +41,7 @@ const RECIPIENT_GROUP_LABELS: Record<EmailRecipientGroup, MessageKey> = {
   round_adjudicators: "setup.email.groupRoundAdjudicators",
   chairs: "setup.email.groupChairs",
   panellists: "setup.email.groupPanellists",
+  institution_coaches: "setup.email.groupInstitutionCoaches",
 };
 
 const ROUND_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
@@ -102,6 +104,8 @@ export default function EmailSettingsPage() {
     adjudicators,
     debates,
     venues,
+    breakCategories,
+    institutions,
   } = useTournament();
   const { user } = useAuth();
   const { t, plural, formatDateTime, formatList } = useI18n();
@@ -166,6 +170,8 @@ export default function EmailSettingsPage() {
           tournamentSlug: tournament?.slug,
           preserveDuplicateEmails: includesPrivateCredentials,
           venues,
+          breakCategories,
+          coaches: institutionCoachRecipients(institutions),
         }
       ),
     [
@@ -178,6 +184,8 @@ export default function EmailSettingsPage() {
       includesPrivateCredentials,
       tournament?.slug,
       venues,
+      breakCategories,
+      institutions,
     ]
   );
 
@@ -459,7 +467,7 @@ export default function EmailSettingsPage() {
           <div className="rounded-md border border-border bg-muted p-3 text-xs text-fg">
             <p className="font-semibold">{t("setup.email.variablesTitle")}</p>
             <p className="mt-1 break-words font-mono">
-              {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
+              {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}} {{speakers}} {{code_name}} {{emoji}} {{break_categories}}"}
             </p>
             <p className="mt-1 text-fg-muted">{t("setup.email.variablesHelp")}</p>
           </div>
@@ -528,8 +536,10 @@ export default function EmailSettingsPage() {
         <EmailSettingsPanel
           tournamentId={tournament.id}
           user={user}
-          onUseTemplate={(template) => {
+          onUseTemplate={(template, event) => {
             setTemplateId("custom");
+            // Tabbycat sends team registration details to every team's speakers.
+            if (event === "team_registration") setRecipientGroup("all_teams");
             setSubject(template.subject);
             setBody(template.body);
             clearCampaignResult();

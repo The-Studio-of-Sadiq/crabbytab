@@ -25,6 +25,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Alert } from "@/components/ui/Feedback";
 import { returnLocation } from "@/lib/printOptions";
+import { nameWithPronoun } from "@/lib/participants/person";
 
 export default function PrintableBallotsPage() {
   const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
@@ -120,7 +121,10 @@ export default function PrintableBallotsPage() {
             debate.adjudicators?.chairId,
             ...(debate.adjudicators?.panellistIds ?? []),
           ].filter((id): id is string => Boolean(id));
-          const panelNames = panelIds.map((id) => adjudicatorMap.get(id)?.name ?? id);
+          const panelNames = panelIds.map((id) => {
+            const adjudicator = adjudicatorMap.get(id);
+            return adjudicator ? nameWithPronoun(adjudicator) : id;
+          });
           const room = debate.venueName || pt("tabroom.ops.sheet.room", { number: debate.roomRank });
           // Sides chosen at the debate: the adjudicator ticks each team's side on the sheet.
           const sideChoice = sidesPending(debate) ? sides : undefined;
@@ -210,7 +214,7 @@ export default function PrintableBallotsPage() {
                         teamName={slot?.teamName ?? team?.name ?? pt("tabroom.ops.sheet.unassigned")}
                         speakerNames={scored
                           ? Array.from({ length: speakerCount }, (_, index) =>
-                              speakers[index]?.name || pt("tabroom.ops.sheet.speakerN", { number: index + 1 })
+                              (speakers[index]?.name ? nameWithPronoun(speakers[index]) : pt("tabroom.ops.sheet.speakerN", { number: index + 1 }))
                             ).concat(replyEnabled ? [pt("tabroom.ops.sheet.reply")] : [])
                           : [""]}
                       />

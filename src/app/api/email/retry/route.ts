@@ -11,6 +11,7 @@ import {
   prepareEmailMessages,
   sendEmailCampaign,
   privateCredentials,
+  speakerOrTeamCredentials,
   usesPrivateCredentials,
 } from "@/lib/email/messaging";
 import {
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
         const credentials = adjudicator
           ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, linkOptions)
           : team
-            ? privateCredentials("team", team.privateUrlKey, team.privatePasscode, linkOptions)
+            ? speakerOrTeamCredentials(team, recipient.speakerId, linkOptions)
             : { privateUrl: "", passcode: "" };
         return { ...recipient, ...credentials };
       });

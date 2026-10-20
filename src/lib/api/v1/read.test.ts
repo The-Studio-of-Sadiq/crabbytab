@@ -32,10 +32,23 @@ describe("authentication and scopes", () => {
     expect(result.headers["Cache-Control"]).toContain("no-store");
   });
 
-  it("requires a bearer token", async () => {
-    const result = await api.call("GET", `${base}/teams`);
+  it("requires a bearer token for administrator endpoints and bad credentials", async () => {
+    const result = await api.call("GET", `${base}/feedback`);
     expect(result.status).toBe(401);
     expect(body(result)).toMatchObject({ error: { code: "unauthenticated" } });
+    expect((await api.call("GET", `${base}/motions`, { headers: { authorization: "Basic abc" } })).status).toBe(401);
+    expect((await api.call("POST", `${base}/venues`, { body: { name: "R", priority: 1 } })).status).toBe(401);
+  });
+
+  it("serves public endpoints anonymously, exactly as the public view and rate-limited", async () => {
+    // Unreleased lists stay closed, as for read:public tokens.
+    expect((await api.call("GET", `${base}/teams`)).status).toBe(403);
+    const motions = await api.call("GET", `${base}/motions`, { address: "198.51.100.9" });
+    expect(motions.status).toBe(200);
+    expect(JSON.stringify(motions.body)).not.toContain("THW secret motion");
+    let last = motions;
+    for (let index = 0; index < 60; index += 1) last = await api.call("GET", `${base}/rounds`, { address: "198.51.100.9" });
+    expect(last.status).toBe(429);
   });
 
   it("rejects unknown and revoked tokens", async () => {
@@ -219,9 +232,15 @@ describe("administrator reads", () => {
     ]);
   });
 
-  it("refuses to combine feedback filters", async () => {
-    const result = await api.call("GET", `${base}/feedback?roundId=a&sourceId=b`, { token: admin });
-    expect(result.status).toBe(400);
+  it("combines feedback filters", async () => {
+    const none = await api.call("GET", `${base}/feedback?roundId=a&sourceId=b`, { token: admin });
+    expect(none.status).toBe(200);
+    expect((none.body as { data: unknown[] }).data).toHaveLength(0);
+    const feedback = api.harness.feedback[0];
+    const both = await api.call("GET", `${base}/feedback?roundId=other,${feedback.roundId}&sourceType=team&sourceId=${feedback.sourceId}`, { token: admin });
+    expect((both.body as { data: Array<{ id: string }> }).data.map((item) => item.id)).toEqual([feedback.id]);
+    const wrongType = await api.call("GET", `${base}/feedback?sourceType=adjudicator&sourceId=${feedback.sourceId}`, { token: admin });
+    expect((wrongType.body as { data: unknown[] }).data).toHaveLength(0);
   });
 });
 
@@ -256,8 +275,9 @@ describe("public tokens see only the public site's data", () => {
       const teams = await api.call("GET", `${base}/teams?limit=200`, { token: publicToken });
       expect(teams.status).toBe(200);
       expect(JSON.stringify(teams.body)).not.toContain("institutionConflictIds");
-      // A public token cannot ask for a partial tab.
-      expect((await api.call("GET", `${base}/teams/standings?round=1`, { token: publicToken })).status).toBe(400);
+      // A public token may step back only within the released tab's (completed) rounds.
+      expect((await api.call("GET", `${base}/teams/standings?round=1`, { token: publicToken })).status).toBe(200);
+      expect((await api.call("GET", `${base}/teams/standings?round=2`, { token: publicToken })).status).toBe(404);
     } finally {
       entry.tournament.preferences = original;
     }

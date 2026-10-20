@@ -132,7 +132,8 @@ describe("break application commands", () => {
       averageSpeakerScore: 0,
       breakCategories: [],
       roundResults: [],
-      metrics: {} as TeamStandingRow["metrics"],
+      // Metrics agree with the ranks: a non-general category re-ranks its teams on them.
+      metrics: { points: 5 - index } as TeamStandingRow["metrics"],
     }));
     const rounds = ["SF", "GF"].map((abbr, index) => ({
       ...createRoundRecord({ tournamentId: tournament.id, roundSeq: index + 1, name: abbr, abbr, stage: "elimination" }),

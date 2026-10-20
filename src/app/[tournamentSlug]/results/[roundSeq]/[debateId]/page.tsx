@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Badge, StatusPill } from "@/components/ui/Badge";
-import { Select } from "@/components/ui/Field";
+import { Checkbox, Select } from "@/components/ui/Field";
 import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { Tabs, TabPanel } from "@/components/ui/Tabs";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
@@ -36,6 +36,7 @@ import {
   buildBallotResult,
   diffBallots,
   effectiveRanks,
+  selfSplitAllowed,
   sheetOutcome,
   substantiveSpeakerCount,
   usesSpeakerScores,
@@ -51,7 +52,7 @@ import { MotionPreferencesFields } from "@/features/tournament/components/ballot
 import { normalizeMotionPreferences, validateMotionPreferences } from "@/lib/motions/preferences";
 import { motionsEnabled, speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
-import { mergeIndividualBallots } from "@/lib/ballots/individualBallots";
+import { mergeIndividualBallots, votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 const ERROR_SUMMARY_ID = "ballot-entry-errors";
@@ -137,6 +138,9 @@ export default function BallotEntryPage() {
     checkMode: preferences?.ballotCheckMode,
   });
   const availableMotions = useMemo(() => roundMotions(motions, round?.id), [motions, round?.id]);
+  const votingAdjudicatorCount = debate ? votingAdjudicatorIds(debate).length : 0;
+  // Tabbycat allow_self_split_ballots: a solo adjudicator may declare a 2:1 split.
+  const offersSelfSplit = selfSplitAllowed(rules, votingAdjudicatorCount);
 
   const blank = useMemo(
     () => (debate ? blankEntry(debate, rosters, adjudicators, rules) : null),
@@ -203,14 +207,19 @@ export default function BallotEntryPage() {
     () =>
       entry
         ? [
-            ...validateBallotEntry(entry, { ...rules, rosters, roundMotionIds: availableMotions.map((motion) => motion.id) }),
+            ...validateBallotEntry(entry, {
+              ...rules,
+              rosters,
+              roundMotionIds: availableMotions.map((motion) => motion.id),
+              votingAdjudicatorCount,
+            }),
             ...(recordsMotionPreferences
               ? validateMotionPreferences(entry.motionPreferences, availableMotions.map((motion) => motion.id), entry.vetoes)
                   .map((problem) => problem.message)
               : []),
           ]
         : [],
-    [entry, rules, rosters, availableMotions, recordsMotionPreferences]
+    [entry, rules, rosters, availableMotions, recordsMotionPreferences, votingAdjudicatorCount]
   );
   const preview = useMemo(() => {
     if (!entry || errors.length > 0) return null;
@@ -375,6 +384,7 @@ export default function BallotEntryPage() {
       ...(result.sheets ? { sheets: result.sheets } : {}),
       ...(usingMotions && Object.keys(vetoes).length > 0 ? { vetoes } : {}),
       ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
+      ...(result.selfSplit ? { selfSplit: true } : {}),
       ...(usingMotions && Object.keys(motionPreferences).length > 0 ? { motionPreferences } : {}),
       ...(entry.forfeitSide ? { forfeitSide: entry.forfeitSide } : {}),
       ...(chairId ? { chairId } : {}),
@@ -560,9 +570,10 @@ export default function BallotEntryPage() {
                 portalBallotCount={portalBallotCount}
                 onFillFromPortal={() => {
                   const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
-                  updateEntry({ sheets: result.sheets });
                   // Individual ballots must agree on speakers, motion and vetoes (Tabbycat's merge check).
                   const merge = mergeIndividualBallots(debate, debateBallots, rules);
+                  // A solo adjudicator's declared split comes with their sheet.
+                  updateEntry({ sheets: result.sheets, ...(merge.result?.selfSplit ? { selfSplit: true } : {}) });
                   setMessage(
                     result.filled === 0
                       ? t("results.ballot.portal.none")
@@ -573,6 +584,15 @@ export default function BallotEntryPage() {
                           : ""
                   );
                 }}
+              />
+            )}
+
+            {!entry.forfeitSide && voting && (offersSelfSplit || entry.selfSplit) && (
+              <Checkbox
+                label={t("results.ballot.selfSplit")}
+                description={t("results.ballot.selfSplitHelp")}
+                checked={entry.selfSplit === true}
+                onChange={(event) => updateEntry({ selfSplit: event.target.checked || undefined })}
               />
             )}
 

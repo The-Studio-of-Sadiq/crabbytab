@@ -1,3 +1,4 @@
+import { teamInstitutionIds } from "@/lib/compositeTeams";
 import type {
   Adjudicator,
   Debate,
@@ -9,6 +10,7 @@ import type {
   AdjudicatorPanelStrategy,
   PanelSizingMode,
   PreformedPanel,
+  PreformedPanelPlacement,
 } from "@/types";
 import { solveHungarian } from "./hungarian";
 import { allocateTabbycatHungarian, type TabbycatHungarianMode } from "./tabbycatHungarian";
@@ -136,6 +138,8 @@ export function adjudicatorsConflict(first: Adjudicator, second: Adjudicator): b
 
 function sharesInstitution(adj: Adjudicator, team: Team): boolean {
   if (adj.independent) return false;
+  // A composite team's other institutions count as its own (lib/compositeTeams.ts).
+  if (team.isComposite && adj.institutionId && teamInstitutionIds(team).includes(adj.institutionId)) return true;
   if (adj.institutionId && team.institutionId) return adj.institutionId === team.institutionId;
   return Boolean(
     adj.institutionName &&
@@ -874,6 +878,8 @@ interface PreformedPlacementInput {
   weights: AllocationWeights;
   includePanellists: boolean;
   includeTrainees: boolean;
+  /** "direct": panels by room rank onto debates by room rank, without optimisation. Default "optimise". */
+  placement?: PreformedPanelPlacement;
 }
 
 /**
@@ -901,6 +907,23 @@ export function placePreformedPanels(
     }))
     .filter((panel) => panel.chairId || panel.panellistIds.length > 0);
   if (usable.length === 0 || debatesByPriority.length === 0) return placements;
+
+  if (input.placement === "direct") {
+    // Tabbycat's DirectPreformedPanelAllocator: debates and panels both in room-rank order,
+    // zipped. Panels without a room rank (made by hand) follow those with one, in stored order.
+    const byRoomRank = <T extends { roomRank?: number }>(items: T[]) =>
+      items
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) =>
+          (a.item.roomRank ?? Number.POSITIVE_INFINITY) - (b.item.roomRank ?? Number.POSITIVE_INFINITY) ||
+          a.index - b.index)
+        .map(({ item }) => item);
+    const debates = byRoomRank(debatesByPriority);
+    byRoomRank(usable).forEach((panel, index) => {
+      if (index < debates.length) placements.set(debates[index].id, panel);
+    });
+    return placements;
+  }
 
   const votingAverage = (panel: PreformedPanel) => {
     const ids = [panel.chairId, ...panel.panellistIds].filter((id): id is string => Boolean(id));
@@ -1112,6 +1135,7 @@ export function autoAllocateAdjudicators(
         weights,
         includePanellists: !noPanellists,
         includeTrainees: !noTrainees,
+        placement: options.preferences?.preformedPanelPlacement,
       }
     );
     for (const [debateId, panel] of placements) {

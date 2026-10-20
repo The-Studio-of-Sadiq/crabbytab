@@ -84,7 +84,7 @@ export function mergePreferences(current: TournamentPreferences, patch: Record<s
   return merged;
 }
 
-const questionSchema = s.object({
+export const questionSchema = s.object({
   id: s.string({ min: 1, max: 80, pattern: /^[A-Za-z0-9_-]+$/ }),
   label: s.string({ min: 1, max: 500 }),
   type: s.enum(["text", "textarea", "scale", "yes_no", "select_one", "select_many", "integer", "float", "checkbox", "integer_scale"] as const),
@@ -94,6 +94,26 @@ const questionSchema = s.object({
   max: s.optional(s.number()),
   sources: s.array(s.enum(["team", "adjudicator"] as const), { min: 1, unique: true, description: "Who is asked the question." }),
 });
+
+/**
+ * Saves the full question list with who is asked each: the combined list plus the team and
+ * adjudicator lists, each validated as the feedback settings page validates them.
+ */
+export async function saveFeedbackQuestions(tabRoom: SessionTabRoom, questions: Array<FeedbackQuestion & { sources: readonly ("team" | "adjudicator")[] }>): Promise<void> {
+  const toQuestion = ({ sources: _sources, ...question }: (typeof questions)[number]): FeedbackQuestion => question;
+  const all = questions.map(toQuestion);
+  const team = questions.filter((question) => question.sources.includes("team")).map(toQuestion);
+  const adjudicator = questions.filter((question) => question.sources.includes("adjudicator")).map(toQuestion);
+  for (const list of [all, team, adjudicator]) {
+    const error = validateFeedbackQuestions(list);
+    if (error) throw new ApiError(422, "validation_failed", error);
+  }
+  const tournament = tabRoom.session.tournament;
+  await tabRoom.saveTournament({
+    ...tournament,
+    preferences: { ...tournament.preferences, feedbackQuestions: all, teamFeedbackQuestions: team, adjudicatorFeedbackQuestions: adjudicator },
+  });
+}
 
 const speakerCategoryInput = {
   name: s.string({ min: 1, max: 80 }),
@@ -182,24 +202,8 @@ export const tournamentWriteRoutes = [
     body: s.object({ questions: s.array(questionSchema, { max: 100 }) }),
     response: s.object({ data: s.array(s.unknown()) }),
     async handler(context) {
-      return runWrite(context, async (tabRoom, session) => {
-        const toQuestion = ({ sources: _sources, ...question }: (typeof context.body.questions)[number]): FeedbackQuestion => question;
-        const all = context.body.questions.map(toQuestion);
-        const team = context.body.questions.filter((question) => question.sources.includes("team")).map(toQuestion);
-        const adjudicator = context.body.questions.filter((question) => question.sources.includes("adjudicator")).map(toQuestion);
-        for (const list of [all, team, adjudicator]) {
-          const error = validateFeedbackQuestions(list);
-          if (error) throw new ApiError(422, "validation_failed", error);
-        }
-        await tabRoom.saveTournament({
-          ...session.tournament,
-          preferences: {
-            ...session.tournament.preferences,
-            feedbackQuestions: all,
-            teamFeedbackQuestions: team,
-            adjudicatorFeedbackQuestions: adjudicator,
-          },
-        });
+      return runWrite(context, async (tabRoom) => {
+        await saveFeedbackQuestions(tabRoom, context.body.questions);
         return { data: context.body.questions };
       });
     },

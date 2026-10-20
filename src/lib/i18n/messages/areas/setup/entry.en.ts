@@ -169,4 +169,5 @@ export const entryEn = {
   "setup.entry.import.countVotingBallots": "of which voting ballots",
   "setup.entry.import.countFeedback": "Feedback submissions",
   "setup.entry.import.countFeedbackQuestions": "Feedback questions",
+  "setup.entry.motions.publicLink": "Public statistics across tournaments",
 } as const;

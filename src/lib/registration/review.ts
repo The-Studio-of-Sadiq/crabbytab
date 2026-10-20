@@ -119,10 +119,25 @@ export function suggestInstitutionCode(name: string, existingCodes: string[]): s
   }
 }
 
+/** "Oxford A" from "A" and "Oxford", unless the name already starts with the institution. */
+export function prefixedTeamName(name: string, institutionName: string | undefined): string {
+  const prefix = institutionName?.trim();
+  if (!prefix) return name;
+  return name.toLowerCase().startsWith(`${prefix.toLowerCase()} `) || name.toLowerCase() === prefix.toLowerCase()
+    ? name
+    : `${prefix} ${name}`;
+}
+
+/**
+ * The team an approval creates. Optional registered fields (docs/registration.md, "Team fields")
+ * are applied when still valid: break categories that still exist (when `breakCategoryIds` is
+ * given), and the emoji only when no other team has it (the organiser can assign one later).
+ */
 export function buildTeamFromSubmission(
   submission: RegistrationSubmission,
   institution: Pick<Institution, "id" | "name"> | undefined,
-  createId: (prefix: string) => string
+  createId: (prefix: string) => string,
+  context: { teams?: Array<Pick<Team, "emoji">>; breakCategoryIds?: string[] } = {}
 ): Omit<Team, "id" | "tournamentId"> {
   if (submission.kind !== "team" || !submission.team) throw new Error("This submission is not a team registration.");
   const speakers: Speaker[] = submission.team.speakers.map((speaker) => {
@@ -134,12 +149,29 @@ export function buildTeamFromSubmission(
     if (speaker.categories.length > 0) record.categories = [...speaker.categories];
     return record;
   });
+  const registered = submission.team;
+  const knownCategories = context.breakCategoryIds ? new Set(context.breakCategoryIds) : null;
   const team: Omit<Team, "id" | "tournamentId"> = {
-    name: submission.team.name,
+    name: registered.useInstitutionPrefix
+      ? prefixedTeamName(registered.name, institution?.name ?? submission.institution?.name)
+      : registered.name,
     speakers,
-    breakCategories: [],
+    breakCategories: (registered.breakCategories ?? []).filter((id) => !knownCategories || knownCategories.has(id)),
     speakerCategories: [],
   };
+  if (registered.useInstitutionPrefix) {
+    // Kept the Tabbycat way too (lib/teamNames.ts): the reference without the institution.
+    const prefix = (institution?.name ?? submission.institution?.name ?? "").trim();
+    const typed = registered.name.trim();
+    team.reference = prefix && typed.toLowerCase().startsWith(`${prefix.toLowerCase()} `)
+      ? typed.slice(prefix.length).trim()
+      : typed;
+    team.useInstitutionPrefix = true;
+  }
+  if (registered.seed !== undefined) team.seed = registered.seed;
+  if (registered.emoji && !(context.teams ?? []).some((existing) => existing.emoji === registered.emoji)) {
+    team.emoji = registered.emoji;
+  }
   if (institution) {
     team.institutionId = institution.id;
     team.institutionName = institution.name;

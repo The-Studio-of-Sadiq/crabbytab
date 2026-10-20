@@ -118,6 +118,31 @@ export function usesSpeakerScores(rules: BallotRules): boolean {
 }
 
 /**
+ * Tabbycat's `allow_self_split_ballots` (Karl Popper rules): a solo adjudicator may declare their
+ * decision a 2:1 split. Like Tabbycat it applies only to a two-team voting ballot (`per-adj`) of a
+ * debate with exactly one voting adjudicator, since only voting ballots record votes.
+ */
+export function selfSplitAllowed(rules: BallotRules, votingAdjudicatorCount: number): boolean {
+  return rules.format !== "bp" &&
+    rules.preferences?.allowSelfSplitBallots === true &&
+    usesVotingBallots(rules) &&
+    votingAdjudicatorCount === 1;
+}
+
+/** Votes recorded for a self-split ballot (Tabbycat `teamscore_field_votes_given/possible`). */
+export const SELF_SPLIT_VOTES = { winner: 2, loser: 1 } as const;
+
+/**
+ * The votes a voting ballot's panel could give: one per scoresheet, or 3 for a self-split ballot
+ * (its single sheet counts as a 2:1 panel). Falls back to the votes recorded when there are no sheets.
+ */
+export function ballotVotesPossible(ballot: Pick<BallotSubmission, "sheets" | "teamScores" | "selfSplit">): number {
+  const recorded = Object.values(ballot.teamScores || {}).reduce((sum, score) => sum + (score?.votes ?? 0), 0);
+  if (ballot.selfSplit === true) return recorded;
+  return ballot.sheets?.length || recorded;
+}
+
+/**
  * With score criteria, each speech's score is the weighted sum of its criterion scores; criteria
  * that do not apply to the speech are dropped. Without criteria the entries are returned as they are.
  */
@@ -255,6 +280,8 @@ export interface VotingResult {
   winner: DebateSide;
   votes: Record<DebateSide, number>;
   majorityAdjudicatorIds: string[];
+  /** The single sheet was declared a 2:1 split, so the votes are 2 and 1. */
+  selfSplit: boolean;
 }
 
 /**
@@ -265,14 +292,19 @@ export interface VotingResult {
  * median (`scoreAggregation`) of their scores; with score criteria each criterion is aggregated
  * separately and the speech score is their weighted sum (medians do not add up). Team totals and
  * margins are always the mean of the sheets' own totals, as in Tabbycat.
+ *
+ * `options.selfSplit` (checked by the caller with `selfSplitAllowed`) records a single sheet as a
+ * 2:1 split: the winner gets 2 votes and the loser 1. Scores, winner and margin are unchanged.
  */
 export function aggregateVotingSheets(
   sheets: AdjudicatorSheet[],
   chairId: string | undefined,
   teamIds: SideRecord<string>,
-  rules: BallotRules
+  rules: BallotRules,
+  options: { selfSplit?: boolean } = {}
 ): VotingResult {
   if (sheets.length === 0) throw new Error("A voting ballot needs at least one adjudicator's scoresheet.");
+  const selfSplit = options.selfSplit === true && sheets.length === 1;
   const outcomes = sheets.map((sheet) => sheetOutcome(sheet, rules));
   const votes = Object.fromEntries(
     TWO_TEAM_SIDES.map((side) => [side, outcomes.filter((outcome) => outcome.winner === side).length])
@@ -318,7 +350,11 @@ export function aggregateVotingSheets(
   }
 
   const loser = winner === first ? second : first;
-  const mean = (values: number[]) => cleanScore(values.reduce((sum, value) => sum + value, 0) / values.length);
+  if (selfSplit) {
+    votes[winner] = SELF_SPLIT_VOTES.winner;
+    votes[loser] = SELF_SPLIT_VOTES.loser;
+  }
+  const mean =(values: number[]) => cleanScore(values.reduce((sum, value) => sum + value, 0) / values.length);
   const margin = mean(relevantOutcomes.map((outcome) => outcome.totals[winner] - outcome.totals[loser]));
   const teamScores = {} as Record<DebateSide, TeamScoreEntry>;
   for (const side of TWO_TEAM_SIDES) {
@@ -341,6 +377,7 @@ export function aggregateVotingSheets(
     winner,
     votes,
     majorityAdjudicatorIds: majority.map((sheet) => sheet.adjudicatorId),
+    selfSplit,
   };
 }
 
@@ -381,12 +418,16 @@ export interface BallotEntry {
   vetoes?: SideRecord<string>;
   /** Ranked motion preferences per side, most preferred first (see lib/motions/preferences). */
   motionPreferences?: SideRecord<string[]>;
+  /** A solo adjudicator's decision declared a 2:1 split (see `selfSplitAllowed`). */
+  selfSplit?: boolean;
 }
 
 export interface BallotValidationContext extends BallotRules {
   rosters: SideRecord<Speaker[]>;
   /** Motions available in this round; empty means motions are not tracked per round. */
   roundMotionIds?: string[];
+  /** Voting adjudicators on the debate's panel, for self-split checks. Absent = the number of sheets entered. */
+  votingAdjudicatorCount?: number;
 }
 
 function formatTotal(value: number): string {
@@ -650,6 +691,13 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
 
   const scored = usesSpeakerScores(context);
 
+  if (entry.selfSplit === true) {
+    const panelSize = context.votingAdjudicatorCount ?? (entry.sheets || []).length;
+    if (!selfSplitAllowed(context, panelSize)) {
+      errors.push("A split decision can only be declared by a solo adjudicator, when self-split ballots are allowed.");
+    }
+  }
+
   if (usesVotingBallots(context)) {
     const sheets = (entry.sheets || []).map((sheet) => ({
       ...sheet,
@@ -717,6 +765,8 @@ export interface BallotResult {
   sheets?: AdjudicatorSheet[];
   /** Set for a results-only ballot (no speaker scores); store it on the BallotSubmission. */
   noSpeakerScores?: boolean;
+  /** Set for a self-split voting ballot; store it on the BallotSubmission. */
+  selfSplit?: boolean;
 }
 
 function emptySides(sides: DebateSide[]): Record<DebateSide, SpeakerScoreEntry[]> {
@@ -756,12 +806,15 @@ export function buildBallotResult(
           ) as Record<DebateSide, SpeakerScoreEntry[]>)
         : emptySides(sides),
     }));
-    const result = aggregateVotingSheets(sheets, chairId, teamIds, rules);
+    // Validation checks the panel size; here a single sheet is all that can be checked.
+    const selfSplit = entry.selfSplit === true && selfSplitAllowed(rules, sheets.length);
+    const result = aggregateVotingSheets(sheets, chairId, teamIds, rules, { selfSplit });
     return {
       speakerScores: result.speakerScores,
       teamScores: result.teamScores,
       sheets,
       ...(scored ? {} : { noSpeakerScores: true }),
+      ...(result.selfSplit ? { selfSplit: true } : {}),
     };
   }
   if (!scored) {
@@ -819,8 +872,8 @@ function diffScoreSets(
 
 /** Field-by-field differences between two entries of the same ballot (for double-entry checks). */
 export function diffBallots(
-  first: Pick<BallotSubmission, "motionId" | "motionText" | "speakerScores" | "teamScores" | "sheets" | "vetoes" | "forfeitSide">,
-  second: Pick<BallotSubmission, "motionId" | "motionText" | "speakerScores" | "teamScores" | "sheets" | "vetoes" | "forfeitSide">,
+  first: Pick<BallotSubmission, "motionId" | "motionText" | "speakerScores" | "teamScores" | "sheets" | "vetoes" | "forfeitSide" | "selfSplit">,
+  second: Pick<BallotSubmission, "motionId" | "motionText" | "speakerScores" | "teamScores" | "sheets" | "vetoes" | "forfeitSide" | "selfSplit">,
   format: TournamentFormat
 ): BallotDifference[] {
   const sides = ballotSides(format);
@@ -834,6 +887,9 @@ export function diffBallots(
   }
   if ((first.forfeitSide || "") !== (second.forfeitSide || "")) {
     differences.push({ field: "Forfeit", first: first.forfeitSide || "None", second: second.forfeitSide || "None" });
+  }
+  if ((first.selfSplit === true) !== (second.selfSplit === true)) {
+    differences.push({ field: "Split decision", first: first.selfSplit ? "2:1 split" : "No", second: second.selfSplit ? "2:1 split" : "No" });
   }
   for (const side of sides) {
     if ((first.vetoes?.[side] || "") !== (second.vetoes?.[side] || "")) {

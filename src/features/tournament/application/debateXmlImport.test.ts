@@ -445,6 +445,13 @@ describe("DebateXML import", () => {
       { teamId: "T2", type: "personal" },
       { institutionId: "I1", type: "institution" },
     ]);
+    // Four-team debates with no style get Tabbycat's BP preset, as its importer does; the
+    // archive's motions stay enabled even though that preset turns motion selection off.
+    expect(tournament.preferences).toMatchObject({ teamScoreIncludesGhosts: true, enableMotions: true, ballotMode: "consensus" });
+    expect(result.notes.some((note) => note.includes("British Parliamentary"))).toBe(true);
+
+    const excluded = runImport(xml.replace('<tournament name="Tabbycat Open"', '<tournament teamscore-includes-ghosts="false" name="Tabbycat Open"'));
+    expect(excluded.data!.tournament.preferences.teamScoreIncludesGhosts).toBe(false);
   });
 
   describe("rejects malformed or hostile input without returning data", () => {

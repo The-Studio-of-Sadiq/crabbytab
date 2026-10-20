@@ -1,7 +1,8 @@
-import { Adjudicator, Debate, Round, Team, Venue } from "@/types";
+import { Adjudicator, BreakCategory, Debate, Round, Team, Venue } from "@/types";
 import { safeVenueUrl } from "@/lib/venues/venues";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
 import { getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
+import { getSpeakerPrivatePath } from "@/lib/privateSpeakerUrls";
 
 /** Header naming the tournament and campaign of a message, echoed by delivery webhooks. */
 export const DELIVERY_REF_HEADER = "X-CrabbyTab-Ref";
@@ -20,7 +21,28 @@ export const EMAIL_RECIPIENT_GROUPS = [
   "round_adjudicators",
   "chairs",
   "panellists",
+  "institution_coaches",
 ] as const;
+
+/**
+ * An institution coach or representative (Tabbycat Coach; the "Institution coaches" group, Tabbycat
+ * INSTITUTION_CUSTOM): the coaches stored on institutions and, on the server, the institutions'
+ * active registration representatives.
+ */
+export interface CoachRecipient {
+  name: string;
+  email?: string;
+  institution: string;
+}
+
+/** Every coach stored on the institutions, as recipients. */
+export function institutionCoachRecipients(
+  institutions: ReadonlyArray<{ name: string; coaches?: Array<{ name: string; email?: string }> }>
+): CoachRecipient[] {
+  return institutions.flatMap((institution) =>
+    (institution.coaches ?? []).map((coach) => ({ name: coach.name, email: coach.email, institution: institution.name }))
+  );
+}
 
 export type EmailRecipientGroup = (typeof EMAIL_RECIPIENT_GROUPS)[number];
 
@@ -30,6 +52,8 @@ export interface EmailRecipient {
   adjudicatorId?: string;
   /** Set for team speakers, so a retry can look the team's private credentials up again. */
   teamId?: string;
+  /** Set for speakers who have their own private URL, so a retry sends that URL again. */
+  speakerId?: string;
   team?: string;
   institution?: string;
   round?: string;
@@ -53,6 +77,40 @@ export interface EmailRecipient {
   url?: string;
   teamsAllocated?: string;
   adjudicatorsAllocated?: string;
+  /** Team registration details (Tabbycat `team_email_*`): who is on the team and its other identifiers. */
+  speakers?: string;
+  codeName?: string;
+  emoji?: string;
+  breakCategories?: string;
+}
+
+/** Break categories as {{break_categories}} needs them. */
+export type EmailBreakCategory = Pick<BreakCategory, "id" | "name" | "isGeneral" | "seq">;
+
+/**
+ * The names of the break categories a team is in, as Tabbycat lists them: the general categories
+ * (every team is in them) and the team's own, in category order.
+ */
+export function teamBreakCategoryNames(team: Pick<Team, "breakCategories">, categories: EmailBreakCategory[]): string {
+  const own = new Set(team.breakCategories ?? []);
+  return [...categories]
+    .filter((category) => category.isGeneral || own.has(category.id))
+    .sort((left, right) => left.seq - right.seq || left.name.localeCompare(right.name))
+    .map((category) => category.name)
+    .join(", ");
+}
+
+/** {{speakers}}, {{code_name}}, {{emoji}} and {{break_categories}} for one team's speakers. */
+export function teamRegistrationVariables(
+  team: Pick<Team, "speakers" | "codeName" | "emoji" | "breakCategories">,
+  categories: EmailBreakCategory[] = []
+): Pick<EmailRecipient, "speakers" | "codeName" | "emoji" | "breakCategories"> {
+  return {
+    speakers: (team.speakers ?? []).map((speaker) => speaker.name).filter(Boolean).join(", "),
+    codeName: team.codeName ?? "",
+    emoji: team.emoji ?? "",
+    breakCategories: teamBreakCategoryNames(team, categories),
+  };
 }
 
 /** Headers added to every message of a send (docs/email-notifications.md). */
@@ -142,6 +200,10 @@ export function resolveEmailRecipients(
     preserveDuplicateEmails?: boolean;
     /** Rooms, so {{venue_url}} can carry each debate's room link. */
     venues?: Array<Pick<Venue, "id" | "url">>;
+    /** Break categories, so {{break_categories}} can name each team's categories. */
+    breakCategories?: EmailBreakCategory[];
+    /** Coaches and representatives for the "institution_coaches" group. */
+    coaches?: CoachRecipient[];
   } = {}
 ): EmailRecipient[] {
   const roundDebates = round ? debates.filter((debate) => debate.roundId === round.id) : [];
@@ -204,13 +266,16 @@ export function resolveEmailRecipients(
           email: speaker.email,
           name: speaker.name,
           teamId: team.id,
+          ...(speaker.privateUrlKey ? { speakerId: speaker.id } : {}),
           team: team.name,
           institution: team.institutionName,
           round: round?.name,
+          ...teamRegistrationVariables(team, options.breakCategories),
           ...debateVariables(teamDebate, adjudicators, options.venues),
           ...(assignedTeamSlot?.pulledUp ? { team: `${team.name} (pulled up)` } : {}),
+          // A speaker with their own private URL gets it (Tabbycat sends each person theirs).
           ...(options.includePrivateCredentials
-            ? privateCredentials("team", team.privateUrlKey, team.privatePasscode, options)
+            ? speakerOrTeamCredentials(team, speaker.id, options)
             : {}),
         });
       }
@@ -256,6 +321,14 @@ export function resolveEmailRecipients(
     }
   }
 
+  // Coaches have no private URL; {{private_url}} stays empty for them.
+  if (group === "institution_coaches") {
+    for (const coach of options.coaches ?? []) {
+      if (!coach.email?.trim()) continue;
+      addRecipient({ email: coach.email, name: coach.name, institution: coach.institution, round: round?.name });
+    }
+  }
+
   // With credentials, an address shared by two participants is kept twice (with different links) so
   // findCredentialEmailConflict can refuse the send; speakers of one team share one link.
   const unique = new Map<string, EmailRecipient>();
@@ -268,9 +341,21 @@ ${recipient.privateUrl ?? ""}` : email;
   return [...unique.values()];
 }
 
+/** A speaker's own private URL when they have one, otherwise their team's. */
+export function speakerOrTeamCredentials(
+  team: Pick<Team, "privateUrlKey" | "privatePasscode" | "speakers">,
+  speakerId: string | undefined,
+  options: { privateUrlOrigin?: string; tournamentSlug?: string }
+): Pick<EmailRecipient, "privateUrl" | "passcode"> {
+  const speaker = speakerId ? (team.speakers ?? []).find((item) => item.id === speakerId) : undefined;
+  return speaker?.privateUrlKey && speaker.privatePasscode
+    ? privateCredentials("speaker", speaker.privateUrlKey, speaker.privatePasscode, options)
+    : privateCredentials("team", team.privateUrlKey, team.privatePasscode, options);
+}
+
 /** The private portal link and passcode for one participant. */
 export function privateCredentials(
-  type: "adjudicator" | "team",
+  type: "adjudicator" | "team" | "speaker",
   privateUrlKey: string | undefined,
   passcode: string | undefined,
   options: { privateUrlOrigin?: string; tournamentSlug?: string }
@@ -278,7 +363,9 @@ export function privateCredentials(
   const path = privateUrlKey && options.tournamentSlug
     ? type === "adjudicator"
       ? getAdjudicatorPrivatePath(options.tournamentSlug, privateUrlKey)
-      : getTeamPrivatePath(options.tournamentSlug, privateUrlKey)
+      : type === "speaker"
+        ? getSpeakerPrivatePath(options.tournamentSlug, privateUrlKey)
+        : getTeamPrivatePath(options.tournamentSlug, privateUrlKey)
     : "";
   return {
     privateUrl: path && options.privateUrlOrigin ? new URL(path, options.privateUrlOrigin).toString() : "",
@@ -340,6 +427,10 @@ export function renderEmailTemplate(
     url: recipient.url || "",
     teams_allocated: recipient.teamsAllocated || "",
     adjudicators_allocated: recipient.adjudicatorsAllocated || "",
+    speakers: recipient.speakers || "",
+    code_name: recipient.codeName || "",
+    emoji: recipient.emoji || "",
+    break_categories: recipient.breakCategories || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {

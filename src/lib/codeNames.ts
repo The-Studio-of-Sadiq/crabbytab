@@ -1,4 +1,4 @@
-import type { Team } from "@/types";
+import type { Team, TeamCodeNameMode } from "@/types";
 import { shuffle as shuffled, type Rng } from "@/lib/draw/rng";
 
 /**
@@ -66,9 +66,9 @@ function lastName(name: string): string {
   return parts[parts.length - 1] ?? "";
 }
 
-/** "Jones & Smith" from the speakers' last names, as Tabbycat's last-names standard. */
+/** "Jones & Smith" from the speakers' last names (stored `lastName`, else the last word of the name), as Tabbycat's last-names standard. */
 export function lastNamesCodeName(team: Pick<Team, "speakers">): string {
-  const names = (team.speakers ?? []).map((speaker) => lastName(speaker.name)).filter(Boolean);
+  const names = (team.speakers ?? []).map((speaker) => speaker.lastName?.trim() || lastName(speaker.name)).filter(Boolean);
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
 }
@@ -99,4 +99,44 @@ export function generateTeamCodeNames(teams: Team[], method: CodeNameMethod, ran
       const base = lastNamesCodeName(team);
       return base ? [{ ...team, codeName: unique(base) }] : [];
     });
+}
+
+/** A team name as the tab room shows it, with the other name for a tooltip when the mode adds one. */
+export interface TabroomTeamName {
+  name: string;
+  tooltip?: { kind: "code" | "real"; name: string };
+}
+
+/**
+ * Team names on tab-room pages under Tabbycat's `team_code_names` (TabbycatTableBuilder for admins):
+ * - "all-tooltips" / "admin-tooltips-code": the real name, the code name in a tooltip;
+ * - "admin-tooltips-real": the code name, the real name in a tooltip;
+ * - "off" / "everywhere": the real name only. (Tabbycat also shows code names to admins under
+ *   "everywhere"; CrabbyTab keeps real names in the tab room for that mode.)
+ * A team without a code name always shows its real name with no tooltip.
+ */
+export function tabroomTeamName(
+  team: Pick<Team, "name" | "codeName"> | undefined,
+  storedName: string | undefined,
+  mode: TeamCodeNameMode
+): TabroomTeamName {
+  const real = storedName || team?.name || "";
+  if (!team || !hasCodeName(team)) return { name: real };
+  const code = team.codeName!.trim();
+  if (mode === "all-tooltips" || mode === "admin-tooltips-code") return { name: real, tooltip: { kind: "code", name: code } };
+  if (mode === "admin-tooltips-real") return { name: code, tooltip: { kind: "real", name: real } };
+  return { name: real };
+}
+
+/**
+ * The team without a code name that is only a (current or previous) real name. Older versions
+ * stored the team name as its code name; after a rename that old name would no longer match the
+ * team name and would be published as if it were a code name, so it is cleared instead.
+ */
+export function withoutRealNameCodeName<T extends Pick<Team, "name" | "codeName">>(team: T, previousName?: string): T {
+  const code = team.codeName?.trim();
+  if (code === undefined) return team;
+  const realNames = [team.name, previousName].map((name) => name?.trim()).filter(Boolean);
+  if (code !== "" && !realNames.includes(code)) return team;
+  return { ...team, codeName: undefined };
 }

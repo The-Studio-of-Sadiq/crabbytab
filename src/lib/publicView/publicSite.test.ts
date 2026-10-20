@@ -240,6 +240,23 @@ describe("tabs and limits", () => {
     expect(projection.tabs?.teamTab).toBeUndefined();
   });
 
+  it("applies each break category's own public tab limit", () => {
+    const data = source();
+    data.breakCategories = [{ ...data.breakCategories[0], limit: 1 }];
+    const projection = project({ releaseBreakCategoryTabs: true }, data);
+    expect(projection.tabs?.breakCategoryTabs?.open.map((row) => [row.teamId, row.rank])).toEqual([["team-a", 1]]);
+    expect(projection.tabs?.limits.breakCategories).toEqual({ open: 1 });
+  });
+
+  it("lists every team on a general category's tab unless marked ineligible", () => {
+    const data = source();
+    data.teams = data.teams.map((team) => ({ ...team, breakCategories: [] }));
+    data.breakCategories = [{ id: "all", name: "All", seq: 1, breakSize: 2, priority: 1, isGeneral: true }];
+    expect(project({ releaseBreakCategoryTabs: true }, data).tabs?.breakCategoryTabs?.all.map((row) => row.teamId)).toEqual(["team-a", "team-b"]);
+    data.breakCategories = [{ ...data.breakCategories[0], teamOverrides: { "team-a": "ineligible" } }];
+    expect(project({ releaseBreakCategoryTabs: true }, data).tabs?.breakCategoryTabs?.all.map((row) => [row.teamId, row.rank])).toEqual([["team-b", 1]]);
+  });
+
   it("publishes break metrics for breaking teams only", () => {
     const data = source();
     data.breakCategories = [{ ...data.breakCategories[0], generatedBreak: { breakingTeamIds: ["team-a"], reserveTeamIds: [], generatedAt: "x" } }];
@@ -274,6 +291,16 @@ describe("scoresheets and splits", () => {
   it("names splitting adjudicators only when the setting is on", () => {
     expect(project().collections.ballots[0]).not.toHaveProperty("splitAdjudicatorIds");
     expect(project({ showSplittingAdjudicators: true }).collections.ballots[0].splitAdjudicatorIds).toEqual(["adj-3"]);
+  });
+
+  it("names a solo adjudicator who declared a 2:1 split (allowSelfSplitBallots)", () => {
+    const data = source();
+    const ballot = data.ballots[0];
+    const soloSheet = (ballot.sheets as unknown[]).slice(0, 1);
+    data.ballots[0] = { ...ballot, sheets: soloSheet, selfSplit: true };
+    expect(project({ showSplittingAdjudicators: true }, data).collections.ballots[0].splitAdjudicatorIds).toEqual(["adj-1"]);
+    data.ballots[0] = { ...ballot, sheets: soloSheet };
+    expect(project({ showSplittingAdjudicators: true }, data).collections.ballots[0].splitAdjudicatorIds ?? []).toEqual([]);
   });
 });
 
@@ -375,5 +402,78 @@ describe("admin diversity statistics", () => {
     );
     // Both rounds' speaker scores count, including the silent round 2.
     expect(statistics.speakerScores.reduce((sum, row) => sum + row.count, 0)).toBe(12);
+  });
+});
+
+describe("motions in results and the motion tab", () => {
+  const withDebateMotions = () => {
+    const data = source();
+    data.debates = data.debates.map((debate) => ({ ...debate, motionId: "m1", motionText: "THW test" }));
+    return data;
+  };
+  const debateMotionIds = (projection: ReturnType<typeof project>) =>
+    projection.collections.debates.map((debate) => (debate as { motionId?: string }).motionId);
+  const ballotMotionIds = (projection: ReturnType<typeof project>) =>
+    projection.collections.ballots.map((ballot) => (ballot as { motionId?: string }).motionId);
+
+  it("keeps publishing each debate's motion by default (motion tab follows the motions page)", () => {
+    const projection = project({}, withDebateMotions());
+    expect(debateMotionIds(projection)).toEqual(["m1", "m1"]);
+    expect(ballotMotionIds(projection)).toEqual(["m1"]);
+  });
+
+  it("drops which debate had which motion when the motion tab is withdrawn and results do not show motions", () => {
+    const projection = project({ motionTabReleased: false }, withDebateMotions());
+    expect(debateMotionIds(projection)).toEqual([undefined, undefined]);
+    expect(ballotMotionIds(projection)).toEqual([undefined]);
+    expect(text(projection.collections.debates)).not.toContain("THW test");
+    // The motions page itself is unchanged.
+    expect(projection.collections.motions.map((motion) => motion.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("shows motions in results only for rounds whose results are public", () => {
+    const projection = project({ motionTabReleased: false, showMotionsInResults: true }, withDebateMotions());
+    // r1's results are public; r2 is silent.
+    expect(debateMotionIds(projection)).toEqual(["m1", undefined]);
+    expect(ballotMotionIds(projection)).toEqual(["m1"]);
+  });
+
+  it("releases the motion tab without the motions page, and nothing without either", () => {
+    const tabOnly = project({ publicMotions: false, motionTabReleased: true }, withDebateMotions());
+    expect(tabOnly.collections.motions.map((motion) => motion.id)).toEqual(["m1", "m2"]);
+    expect(debateMotionIds(tabOnly)).toEqual(["m1", "m1"]);
+    const neither = project({ publicMotions: false }, withDebateMotions());
+    expect(neither.collections.motions).toEqual([]);
+    expect(debateMotionIds(neither)).toEqual([undefined, undefined]);
+    expect(text(neither)).not.toContain("THW test");
+  });
+
+  it("publishes released motions for results alone when the motions page is off", () => {
+    const projection = project({ publicMotions: false, showMotionsInResults: true }, withDebateMotions());
+    expect(projection.collections.motions.map((motion) => motion.id)).toEqual(["m1", "m2"]);
+    expect(debateMotionIds(projection)).toEqual(["m1", undefined]);
+  });
+});
+
+describe("unexpected feedback on public feedback progress", () => {
+  const withUnexpected = () => {
+    const data = source();
+    // Self-feedback is never expected under any path.
+    data.feedback = [
+      ...(data.feedback ?? []),
+      { id: "f2", roundId: "r1", debateId: "d1", targetType: "adjudicator", targetAdjudicatorId: "adj-1", sourceType: "adjudicator", sourceId: "adj-1", score: 9, confirmed: true },
+    ];
+    return data;
+  };
+
+  it("counts unexpected submissions by default (Tabbycat show_unexpected_feedback)", () => {
+    const rows = project({ publicFeedbackProgress: true }, withUnexpected()).derived.feedbackProgress!.rows;
+    expect(rows.find((row) => row.sourceId === "adj-1")?.unexpected).toBe(1);
+    expect(rows.find((row) => row.sourceId === "team-a")?.unexpected).toBeUndefined();
+  });
+
+  it("leaves them out when the setting is off", () => {
+    const rows = project({ publicFeedbackProgress: true, showUnexpectedFeedback: false }, withUnexpected()).derived.feedbackProgress!.rows;
+    expect(rows.some((row) => row.unexpected !== undefined)).toBe(false);
   });
 });

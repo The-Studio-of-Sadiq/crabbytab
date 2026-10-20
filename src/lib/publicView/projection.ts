@@ -23,7 +23,7 @@ import {
 import { resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
 import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
 import { publicScheduleEvents } from "@/lib/schedule/events";
-import { currentDrawRoundId, getPublicSiteSettings, isRoundDrawPublic, type PublicSiteSettings } from "@/lib/publicFeatures";
+import { currentDrawRoundIds, getPublicSiteSettings, isRoundDrawPublic, type PublicSiteSettings } from "@/lib/publicFeatures";
 import { sheetOutcome } from "@/lib/ballots/result";
 import { createPublicNamer, renamePanel, type PublicNamer } from "@/lib/publicView/names";
 import { hasCodeName } from "@/lib/codeNames";
@@ -86,9 +86,16 @@ export interface AvailabilityRecord {
   roundAvailabilityAt?: Record<string, string>;
 }
 
+/** A team or adjudicator on the public per-person check-in list, under its public name. */
+export interface PublicCheckinPerson extends AvailabilityRecord {
+  name: string;
+}
+
 /**
- * Anonymous availability data for the public check-in status page. It holds no names or ids; the
- * route only ever returns aggregate counts computed from it.
+ * Availability data for the public check-in status page. `teams` and `adjudicators` hold no names
+ * or ids and only feed the per-round counts. `people` (Tabbycat's public check-in list of each
+ * person and team) is stored only when the participants list is public too, under public names
+ * (code names when those are on); anonymous adjudicators are left out of it. Still no ids.
  */
 export interface PublicCheckinsSource {
   enabled: boolean;
@@ -97,6 +104,7 @@ export interface PublicCheckinsSource {
   rounds: Array<{ id: string; name: string; seq: number }>;
   teams: AvailabilityRecord[];
   adjudicators: AvailabilityRecord[];
+  people?: { teams: PublicCheckinPerson[]; adjudicators: PublicCheckinPerson[] };
 }
 
 function pick<T extends object, K extends keyof T>(value: T, keys: K[]): Pick<T, K> {
@@ -172,6 +180,10 @@ function publicSheets(sheets: unknown, namer: PublicNamer): Record<string, unkno
 /** Voting adjudicators whose own sheet picked the losing team (Tabbycat "splitting adjudicators"). */
 function splittingAdjudicatorIds(ballot: BallotSubmission, tournament: Pick<Tournament, "format" | "preferences">): string[] {
   const winner = Object.values(ballot.teamScores || {}).find((score) => score?.win === true)?.side;
+  // A solo adjudicator who declared a 2:1 split is shown as splitting, as in Tabbycat.
+  if (winner && ballot.selfSplit === true && Array.isArray(ballot.sheets) && ballot.sheets.length === 1) {
+    return ballot.sheets[0].adjudicatorId ? [ballot.sheets[0].adjudicatorId] : [];
+  }
   if (!winner || !Array.isArray(ballot.sheets) || ballot.sheets.length < 2) return [];
   const rules = { format: tournament.format, preferences: tournament.preferences };
   return ballot.sheets
@@ -247,8 +259,10 @@ export function buildPublicProjection(
     } as Tournament["preferences"];
   }
 
-  const currentRoundId = currentDrawRoundId(allRounds);
-  const isDrawPublished = (round: Round) => isRoundDrawPublic(round, settings.drawMode, currentRoundId);
+  // The explicit current round (with its concurrent rounds) or, when unset, the latest released
+  // draw. Only fully released draws are ever public; a locked or teams-only draw never is.
+  const currentRoundIds = currentDrawRoundIds(allRounds, preferences.currentRoundId);
+  const isDrawPublished = (round: Round) => isRoundDrawPublic(round, settings.drawMode, currentRoundIds);
   const areResultsPublished = (round: Round) =>
     preferences.publicResults !== false && round.resultsReleased === true && round.silent !== true;
 
@@ -267,9 +281,19 @@ export function buildPublicProjection(
       !round.cancelled && (inReleasedTab(round) || isDrawPublished(round) || areResultsPublished(round))
   );
   const visibleRoundById = new Map(visibleRounds.map((round) => [round.id, round]));
+  // The explicit current round is published only when that round itself is public.
+  if (tournament.preferences && "currentRoundId" in tournament.preferences) {
+    const { currentRoundId, ...rest } = tournament.preferences;
+    tournament.preferences = (
+      currentRoundId && visibleRoundById.has(currentRoundId) ? { ...rest, currentRoundId } : rest
+    ) as Tournament["preferences"];
+  }
   const motionRecords = active(source.motions) as unknown as Motion[];
+  // Released motions are public through the motions page, the motion statistics (Tabbycat
+  // `motion_tab_released`) or the results (`show_motions_in_results`); which debate had which
+  // motion is published only for the last two.
   const visibleMotionIds = new Set(
-    preferences.publicMotions !== false
+    settings.motionsPage || settings.motionTab || settings.motionsInResults
       ? motionRecords.filter((motion) => motion.released === true).map((motion) => motion.id)
       : []
   );
@@ -285,6 +309,8 @@ export function buildPublicProjection(
   const adjudicatorRecords = active(source.adjudicators) as unknown as Adjudicator[];
   const namer = createPublicNamer(teamRecords, adjudicatorRecords, settings);
   const revealsPanel = (round: Round) => settings.drawMode !== "off" && round.adjudicatorsRevealed === true;
+  // Which motion a debate had: for the motion statistics, or with the round's public results.
+  const debateMotionsPublic = (round: Round) => settings.motionTab || (settings.motionsInResults && resultsVisible(round));
   const speakerScoresVisible = (round: Round) =>
     resultsVisible(round) && (round.teamSpeaksReleased === true || inReleasedTab(round));
 
@@ -294,7 +320,7 @@ export function buildPublicProjection(
       const round = visibleRoundById.get(debate.roundId)!;
       const resultsPublished = resultsVisible(round);
       const speakerScoresPublished = speakerScoresVisible(round);
-      const motionVisible = Boolean(debate.motionId && visibleMotionIds.has(debate.motionId));
+      const motionVisible = debateMotionsPublic(round) && Boolean(debate.motionId && visibleMotionIds.has(debate.motionId));
       return {
         ...pick(debate, [
           "tournamentId",
@@ -352,7 +378,7 @@ export function buildPublicProjection(
     .map((ballot) => {
       const round = visibleRoundById.get(ballot.roundId)!;
       const showSpeakerScores = speakerScoresVisible(round);
-      const motionVisible = visibleMotionIds.has(ballot.motionId || "");
+      const motionVisible = debateMotionsPublic(round) && visibleMotionIds.has(ballot.motionId || "");
       // Splits are part of the result, but naming who split needs the panel to be public.
       const splits = settings.showSplittingAdjudicators && revealsPanel(round)
         ? splittingAdjudicatorIds(ballot, tournament)
@@ -543,7 +569,7 @@ export function buildPublicProjection(
     id: institution.id,
   }));
   const venues = (active(source.venues) as unknown as Venue[]).map((venue) => ({
-    ...pick(venue, ["tournamentId", "name", "category", "capacity", "accessible", "online", "available"]),
+    ...pick(venue, ["tournamentId", "name", "category", "categories", "capacity", "accessible", "online", "available"]),
     // Room links appear with the public draw, as in Tabbycat; only http(s) links are published.
     ...(safeVenueUrl(venue.url) ? { url: safeVenueUrl(venue.url) } : {}),
     id: venue.id,
@@ -608,6 +634,27 @@ export function buildPublicCheckinsSource(
   const tournament = tournamentRecord as Partial<Tournament> & SourceRecord;
   const enabled = tournament.preferences?.publicCheckInStatus === true;
   const expiresAfterHours = tournament.preferences?.checkInExpiresAfterHours;
+  // Names appear only where the participants list is public anyway (Tabbycat lists everyone).
+  const listPeople = enabled && getPublicRelease(tournament.preferences).participants;
+  const people = (() => {
+    if (!listPeople) return undefined;
+    const teamRecords = active(source.teams) as unknown as Team[];
+    const adjudicatorRecords = active(source.adjudicators) as unknown as Adjudicator[];
+    const namer = createPublicNamer(teamRecords, adjudicatorRecords, getPublicSiteSettings(tournament.preferences));
+    const byName = (left: PublicCheckinPerson, right: PublicCheckinPerson) => left.name.localeCompare(right.name);
+    return {
+      teams: teamRecords
+        .map((team) => ({ ...availability(team as unknown as SourceRecord), name: namer.team(team.id, team.name) }))
+        .sort(byName),
+      adjudicators: adjudicatorRecords
+        .filter((adjudicator) => !namer.isAdjudicatorAnonymous(adjudicator.id))
+        .map((adjudicator) => ({
+          ...availability(adjudicator as unknown as SourceRecord),
+          name: namer.adjudicator(adjudicator.id, adjudicator.name),
+        }))
+        .sort(byName),
+    };
+  })();
   return {
     enabled,
     tournamentName: tournament.shortName || tournament.name || "Tournament",
@@ -621,5 +668,6 @@ export function buildPublicCheckinsSource(
       : [],
     teams: enabled ? active(source.teams).map(availability) : [],
     adjudicators: enabled ? active(source.adjudicators).map(availability) : [],
+    ...(people ? { people } : {}),
   };
 }

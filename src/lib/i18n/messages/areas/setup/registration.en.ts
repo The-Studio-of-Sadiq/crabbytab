@@ -185,6 +185,26 @@ export const registrationEn = {
   "setup.registration.speakers": "Speakers",
   "setup.registration.adjudicators": "Adjudicators",
   "setup.registration.institutionRegion": "Ask institutions for their region",
+  "setup.registration.teamFields": "Optional team fields",
+  "setup.registration.summaryPrefix": "Prefixed with institution",
+  "setup.registration.summaryBreakCategories": "Break categories: {list}",
+  "setup.registration.summarySeed": "Seed: {seed}",
+  "setup.registration.summaryEmoji": "Emoji: {emoji}",
+  "setup.registration.teamFieldPrefix": "Prefix name with institution",
+  "setup.registration.teamFieldPrefixHelp":
+    "Registrants with an institution may tick “Prefix with institution”: the team is created as “Institution Name”.",
+  "setup.registration.teamFieldPrefixGenerated":
+    "Not shown: generated team names already start with the institution.",
+  "setup.registration.teamFieldBreakCategories": "Break categories",
+  "setup.registration.teamFieldBreakCategoriesHelp":
+    "Registrants choose from the tournament's non-general break categories as they were when these settings were last saved (saved: {count}). Save again after changing break categories.",
+  "setup.registration.teamFieldSeed": "Seed",
+  "setup.registration.teamFieldSeedHelp": "A whole number (higher is stronger, as seeded draws read it).",
+  "setup.registration.teamFieldSeedTitleHelp":
+    "A seed title (Unseeded, Free, Half or Full seed), as the team seed setting on the CSV import asks.",
+  "setup.registration.teamFieldEmoji": "Emoji",
+  "setup.registration.teamFieldEmojiHelp":
+    "Registrants may pick an emoji; it is kept on approval unless another team already has it.",
   "setup.registration.teamMessage": "Message on the team form",
   "setup.registration.adjudicatorMessage": "Message on the adjudicator form",
   "setup.registration.institutionMessage": "Message on the institution form",
@@ -232,4 +252,25 @@ export const registrationEn = {
     "Representatives can ask to give team or adjudicator places to another institution. Approving moves the places between the two representatives' limits.",
   "setup.registration.noTransfers": "No transfer requests",
   "setup.registration.transferSummary": "{from} → {to}: {teams} team places and {adjudicators} adjudicator places",
+  // access-comms
+  "setup.registration.teamInvites.title": "Team invitations",
+  "setup.registration.teamInvites.description": "A link for one team through which its speakers add themselves (Tabbycat's team invitations). The registration window and the maximum speakers per team apply; the link can only add speakers to its own team.",
+  "setup.registration.teamInvites.team": "Team",
+  "setup.registration.teamInvites.chooseTeam": "Choose a team…",
+  "setup.registration.teamInvites.create": "Create invitation link",
+  "setup.registration.teamInvites.issued": "Invitation link for {team}. It is shown only now: copy it and send it to the team's speakers.",
+  "setup.registration.teamInvites.copy": "Copy link",
+  "setup.registration.teamInvites.status": "Status",
+  "setup.registration.teamInvites.joined": "Speakers joined",
+  "setup.registration.teamInvites.active": "Active",
+  "setup.registration.teamInvites.revoked": "Withdrawn",
+  "setup.registration.teamInvites.newLink": "New link",
+  "setup.registration.teamInvites.revoke": "Withdraw",
+  "setup.registration.teamInvites.failed": "The team invitation request failed.",
+  // access-comms
+  "setup.registration.coaches.intro": "Store the representatives as coaches of their institutions, so they are emailed with the \"Institution coaches and representatives\" group.",
+  "setup.registration.coaches.save": "Save representatives as coaches ({count} institutions)",
+  "setup.registration.coaches.saved": "Representatives saved as coaches.",
+  "setup.registration.coaches.savedUnmatched": "Saved. No institution matches: {institutions}. Add those institutions first.",
+  "setup.registration.coaches.failed": "Could not save the coaches.",
 } as const;

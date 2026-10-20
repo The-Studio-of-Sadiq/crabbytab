@@ -15,7 +15,7 @@ tournament, a settings reference, a comparison with Tabbycat and developer
 notes. Algorithm details live in [`docs/`](./docs).
 
 The public pages and private portals can be shown in other languages (English
-and a machine-drafted Bengali today). [`docs/internationalization.md`](./docs/internationalization.md)
+and 25 machine-drafted catalogues covering every language Tabbycat offers). [`docs/internationalization.md`](./docs/internationalization.md)
 explains how to translate a string or add a language.
 
 ## What it can do

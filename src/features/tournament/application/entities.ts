@@ -12,11 +12,13 @@ import type {
 import {
   checkAdjudicatorDeletion,
   checkInstitutionDeletion,
+  checkSpeakerRemoval,
   checkTeamDeletion,
   checkVenueDeletion,
   enforceGuards,
 } from "./stateGuards";
 import { scoreChangesBetween, withScoreHistory } from "@/lib/feedback/scoreHistory";
+import { withoutRealNameCodeName } from "@/lib/codeNames";
 
 export interface EntityAuditEvent {
   action: string;
@@ -52,6 +54,8 @@ export interface EntityCommandDependencies {
   generatePrivateKey(prefix?: string): string;
   /** Who is editing, stamped on base/test score history entries. */
   currentActor?(): { id?: string; name?: string };
+  /** The tournament's current round, stamped on base/test score history entries. */
+  currentRoundId?(): string | undefined;
   now?(): string;
   cloudRepository?: {
     saveMotion(motion: Motion): Promise<void>;
@@ -95,6 +99,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     const actor = dependencies.currentActor?.();
     return {
       timestamp: dependencies.now?.() ?? new Date().toISOString(),
+      roundId: dependencies.currentRoundId?.(),
       actorId: actor?.id,
       actorName: actor?.name,
       reason,
@@ -164,7 +169,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
   const addTeams = async (data: Omit<Team, "id" | "tournamentId">[]): Promise<Team[]> => {
     if (data.length === 0) return [];
     const created = data.map((item) => ({
-      ...item,
+      ...withoutRealNameCodeName(item),
       id: createId("team"),
       tournamentId,
       privateUrlKey: item.privateUrlKey || generatePrivateKey("team"),
@@ -188,8 +193,11 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     return created;
   };
 
-  const updateTeam = async (team: Team) => {
-    const previous = teams.find((item) => item.id === team.id);
+  const updateTeam = async (edited: Team) => {
+    const previous = teams.find((item) => item.id === edited.id);
+    enforceGuards(checkSpeakerRemoval(previous, edited, { ballots }));
+    // A code name equal to the real (or just-replaced) name would publish the real name.
+    const team = withoutRealNameCodeName(edited, previous?.name);
     repositories.teams.save(teams.map((item) => (item.id === team.id ? team : item)));
     await recordAuditEvent({
       action: "team.updated",

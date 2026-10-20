@@ -47,6 +47,7 @@ export const PUBLIC_SITE_RELEASE_KEYS = {
   diversity: "publicDiversity",
   vetoStatistics: "publicVetoStatistics",
   feedbackProgress: "publicFeedbackProgress",
+  motionTab: "motionTabReleased",
 } as const satisfies Record<string, keyof TournamentPreferences>;
 
 export type PublicSiteReleaseKind = keyof typeof PUBLIC_SITE_RELEASE_KEYS;
@@ -142,6 +143,7 @@ export function redactUnreleasedBreak<T extends Partial<Pick<Team, "breakStatus"
 }
 
 export interface PublicBreakTeam {
+  /** Break rank: teams on the same tab rank share one (1, 2, 2, 4). */
   seed: number;
   team: Team;
 }
@@ -178,7 +180,15 @@ export function buildPublicBreak(
               (rankOf(left.id) ?? Number.MAX_SAFE_INTEGER) - (rankOf(right.id) ?? Number.MAX_SAFE_INTEGER) ||
               left.name.localeCompare(right.name)
             );
-      return { category, teams: breakingTeams.map((team, index) => ({ seed: index + 1, team })) };
+      // Teams on the same tab rank share a break rank (Tabbycat break_rank: 1, 2, 2, 4).
+      const ranks = breakingTeams.map((team) => rankOf(team.id));
+      return {
+        category,
+        teams: breakingTeams.map((team, index) => {
+          const firstTied = ranks[index] === undefined ? index : ranks.indexOf(ranks[index]);
+          return { seed: firstTied + 1, team };
+        }),
+      };
     })
     .filter((entry) => entry.teams.length > 0);
 }

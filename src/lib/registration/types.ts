@@ -1,4 +1,4 @@
-import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
+import type { FeedbackAnswer, FeedbackQuestion, TeamSeedMode } from "@/types";
 import type { CodeNameGenerator, TeamNameGenerator } from "@/lib/registration/names";
 
 /**
@@ -16,6 +16,18 @@ export type RegistrationConfirmation = "always" | "open" | "never";
 
 /** Optional person fields a form asks for (mapped to Speaker / Adjudicator fields on approval). */
 export type PersonField = "phone" | "gender";
+
+/**
+ * Optional team fields registrants may fill (Tabbycat `reg_team_fields`): prefixing the team name
+ * with the institution, choosing break categories, a seed and an emoji.
+ */
+export type TeamRegistrationField = "use_institution_prefix" | "break_categories" | "seed" | "emoji";
+
+/** A break category registrants may choose (copied from the tournament when settings are saved). */
+export interface RegistrationBreakCategory {
+  id: string;
+  name: string;
+}
 
 export interface RegistrationSettings {
   enabled: boolean;
@@ -51,6 +63,15 @@ export interface RegistrationSettings {
   codeNameGenerator?: CodeNameGenerator;
   speakerFields?: PersonField[];
   adjudicatorFields?: PersonField[];
+  /** Optional team fields (Tabbycat `reg_team_fields`); absent = none (the form as before). */
+  teamFields?: TeamRegistrationField[];
+  /**
+   * The tournament's non-general break categories, copied when the settings are saved so the
+   * public form needs no extra reads. Re-save the settings after changing break categories.
+   */
+  teamBreakCategories?: RegistrationBreakCategory[];
+  /** The tournament's seed mode (preferences.teamSeedMode), copied when the settings are saved. */
+  teamSeedMode?: TeamSeedMode;
   /** Ask institutions for their region. */
   institutionRegion?: boolean;
   /** Per-form messages shown above the team / adjudicator / institution form. Plain text. */
@@ -78,6 +99,12 @@ export interface RegisteredSpeaker {
 export interface TeamRegistrationData {
   name: string;
   speakers: RegisteredSpeaker[];
+  /** Optional team fields (present only when the settings ask for them). */
+  useInstitutionPrefix?: boolean;
+  /** Break category ids, from RegistrationSettings.teamBreakCategories. */
+  breakCategories?: string[];
+  seed?: number;
+  emoji?: string;
 }
 
 export interface AdjudicatorRegistrationData {
@@ -211,6 +238,11 @@ export interface PublicRegistrationForm {
   slotTransfers: boolean;
   speakerFields: PersonField[];
   adjudicatorFields: PersonField[];
+  /** Optional team fields; the prefix option is listed only when the team-name generator is "user". */
+  teamFields: TeamRegistrationField[];
+  teamBreakCategories: RegistrationBreakCategory[];
+  /** How the seed field asks: "title" offers Tabbycat's seed titles, anything else a number. */
+  teamSeedMode: TeamSeedMode;
   institutionRegion: boolean;
   teamMessage: string;
   adjudicatorMessage: string;

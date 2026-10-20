@@ -1,3 +1,4 @@
+import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import type { BallotSubmission, Debate, DebateSide, Round, Team } from "@/types";
 
 export interface BracketTeam {
@@ -57,7 +58,7 @@ export function bracketRounds(
       return (
         round.stage === "elimination" &&
         round.cancelled !== true &&
-        (drawPublic ?? (round.drawStatus === "confirmed" || round.drawStatus === "released"))
+        (drawPublic ?? isDrawPubliclyReleased(round))
       );
     })
     .sort((left, right) => left.seq - right.seq)

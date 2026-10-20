@@ -229,3 +229,28 @@ describe("wave 5 results settings in presets", () => {
     });
   });
 });
+
+describe("Karl Popper preset", () => {
+  it("applies median scoring, voting individual ballots and self-split ballots", async () => {
+    const { getRulesPreset, rulesPresetPreferences, UNSUPPORTED_TABBYCAT_PRESETS } = await import("./presets");
+    const preset = getRulesPreset("karl_popper")!;
+    expect(preset.tabbycatName).toBe("Karl Popper (Czechia)");
+    expect(rulesPresetPreferences(preset)).toMatchObject({
+      teamsInDebate: 2,
+      substantiveSpeakers: 3,
+      replyScoresEnabled: false,
+      minSpeakerScore: 50,
+      maxSpeakerScore: 100,
+      scoreAggregation: "median",
+      marginIncludesDissenters: true,
+      ballotMode: "voting",
+      eliminationBallotMode: "voting",
+      winnersInBallots: "high-points",
+      individualBallots: true,
+      allowSelfSplitBallots: true,
+      privateUrlBallots: true,
+      teamStandingsPrecedence: ["wins", "num_adjs", "wbw", "speaks_sum", "draw_strength"],
+    });
+    expect(UNSUPPORTED_TABBYCAT_PRESETS["Karl Popper (Czechia)"]).toBeUndefined();
+  });
+});

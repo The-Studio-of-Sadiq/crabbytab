@@ -37,22 +37,24 @@ them with their defaults.
 
 | Setting (Tabbycat) | Preference | Effect |
 | --- | --- | --- |
-| Public draw (`public_draw`) | `publicDrawMode`: off / current / all (absent: all, or off if the legacy `publicDraw` is false) | "Current round only" publishes only the latest released draw; earlier rounds stay public only through released results. Each projected round carries `drawPublic`. The projector and the v1 draws API (without the draws scope) follow it. |
+| Public draw (`public_draw`) | `publicDrawMode`: off / current / all (absent: all, or off if the legacy `publicDraw` is false) | "Current round only" publishes the current round's draw: the explicit current round set on the Draw page (Tabbycat "set current round", `preferences.currentRoundId`) together with the other released rounds of its schedule slot, else the latest released draw. Setting a current round never publishes a draw that is not released, and its id is only published when that round is public. Earlier rounds stay public only through released results. Each projected round carries `drawPublic`. The projector and the v1 draws API (without the draws scope) follow it. |
 | Record pages (`public_record`, default on) | `publicRecordPages` | `/[slug]/public/team/[id]` and `/adjudicator/[id]`: a participant's public debates and results, built from the projection only. Anonymous adjudicators have no record page. |
 | Adjudicator tab (`adjudicators_tab_released`, `adjudicators_tab_shows`) | `releaseAdjudicatorTab`, `adjudicatorTabShows`: test / final / all | Base score, feedback-blended score (weight of the latest published round), or both plus per-round feedback averages. Computed at publish time; feedback content is never published. |
 | Scoresheets (`ballots_released`) | `releaseBallots` | Each adjudicator's sheet, for rounds whose speaker scores **and** panels are public. Sheets are copied generically: known fields plus any numeric / side-valued field (criteria, ranks, declared winner); free text never passes. |
 | Private scoresheets (`private_ballots_released`) | `releasePrivateBallots` | A team's private URL shows its own debates' full scoresheets once the round's results are released (even before team speaks); sheets need the panel to be public. |
 | Tab limits (`team/speaker/replies_tab_limit`) | `teamTabLimit`, `speakerTabLimit`, `repliesTabLimit` (0 = all) | Tabs are computed at publish time (`tabs` section). With a limit, rounds visible only through a released tab (e.g. silent rounds) publish no individual results, so ranks below the cutoff cannot be rebuilt. Ties at the cutoff are kept. |
-| Break category team tabs (`break_category_tabs_released`) | `releaseBreakCategoryTabs` | A team tab per break category, eligible teams re-ranked within it (shared ranks kept). |
+| Break category team tabs (`break_category_tabs_released`) | `releaseBreakCategoryTabs` | A team tab per break category: the category's teams (every team not marked ineligible for a general category) ranked within it, who-beat-whom re-evaluated, cut at the category's public tab limit (see [standings-and-breaks.md](standings-and-breaks.md#public-tab-limit-per-category)). |
 | Break page metrics (`public_break_metrics_to_show`) | `publicBreakMetrics` (-1 all, 0 none, n) | The first n team precedence metrics of each breaking team. |
 | Break categories on participants (`public_break_categories`) | `publicBreakCategories` | Team break eligibility is published only with this (or with category tabs). Before wave 4 eligibility was always published. |
 | Pre-allocated sides (`public_side_allocations`) | `publicSideAllocations` | "Sides" tab: each team's pre-allocated side per preliminary round. |
 | Elimination bracket | `publicBracket` | Built from public elimination draws and results; BP teams advance with 2+ points. |
 | Diversity (`public_diversity`) | `publicDiversity` | Gender / region / category counts of speakers and adjudicators, chair / panellist / trainee allocations by gender, average speaker score by gender (public speaker scores only), average feedback received and given by gender. Counts and averages only. |
 | Veto statistics | `publicVetoStatistics` (needs `enableMotionVetoes`) | Vetoes per motion and side, from ballots of rounds with public results. |
-| Feedback progress (`feedback_progress`) | `publicFeedbackProgress` | Per public team / adjudicator, feedback owed and submitted in rounds whose panels are public. |
+| Feedback progress (`feedback_progress`) | `publicFeedbackProgress` | Per public team / adjudicator, feedback owed and submitted in rounds whose panels are public. With `showUnexpectedFeedback` (Tabbycat `show_unexpected_feedback`, default on) each row also counts submissions no feedback path expected (`unexpected`, shown as "+N?"); off, they are left out. |
+| Motion statistics (`motion_tab_released`) | `motionTabReleased` (absent = follows `publicMotions`, the behaviour before this setting) | Win / selection statistics per released motion. Released on its own (motions page off) it shows a "Motion statistics" tab with the motions and their statistics but no info slides or presentation mode. Without it (and without motions in results) the projection drops `motionId` / `motionText` from debates and ballots, so which debate had which motion is not public. |
+| Motions in results (`show_motions_in_results`) | `showMotionsInResults` (default off) | A "Motion" column on public results and team / adjudicator record pages: the confirmed ballot's motion, else the debate's, else the round's only released motion. Only released motions; a debate's motion is published with the round's public results. Released motions are published for this even when the motions page is off. |
 | Institutions (`show_team_institutions`, `show_adjudicator_institutions`) | `showTeamInstitutions`, `showAdjudicatorInstitutions` | When off, institution ids and names are removed from teams, adjudicators and tabs. |
-| Team code names (`team_code_names`) | `teamCodeNames`: off / all-tooltips / admin-tooltips-code / admin-tooltips-real / everywhere | Every mode except off and all-tooltips publishes **only** the code name (teams without one have an empty name and show "(no public name)"). all-tooltips publishes the real name and the code name as a tooltip. A code name equal to the team name (what older versions stored) counts as none. |
+| Team code names (`team_code_names`) | `teamCodeNames`: off / all-tooltips / admin-tooltips-code / admin-tooltips-real / everywhere | Every mode except off and all-tooltips publishes **only** the code name (teams without one have an empty name and show "(no public name)"). all-tooltips publishes the real name and the code name as a tooltip. A code name equal to the team name (what older versions stored) counts as none. Tab-room draw, allocation, results and standings pages follow Tabbycat's admin modes: all-tooltips and admin-tooltips-code show the real name with the code name in a tooltip; admin-tooltips-real shows the code name with the real name in a tooltip (standings search matches both). Under "everywhere" the tab room keeps real names (Tabbycat shows code names to admins there). |
 | Participant code names (`participant_code_names`) | `participantCodeNames`: off / everywhere | Speakers and adjudicators are published under `codeName`. |
 | Anonymous people (`Person.anonymous`) | `Speaker.anonymous`, `Adjudicator.anonymous` (participant directory) | Name published as empty with `anonymous: true`; pages show "Redacted". In tab rows an anonymous speaker also loses their team and gets an opaque id. |
 | Emoji / speakers in draw / splitting adjudicators | `showEmoji`, `showSpeakersInDraw` (default on), `showSplittingAdjudicators` | Emoji are removed when off; splits are published as `splitAdjudicatorIds` on ballots whose panel is public. |
@@ -120,7 +122,61 @@ Motion statistics count one confirmed ballot per debate, skip forfeits, and use 
 (falling back to the debate's). BP counts first places and average points per position; two-team
 formats count wins per side. The χ² balance test is the existing `analyzeMotionBalance`.
 
+## Public forms (Tabbycat `participant_ballots` / `participant_feedback` = "public")
+
+Besides private URLs, participants can enter ballots and feedback from public pages, picking
+themselves from a list, as in Tabbycat's public modes. Settings (Staff page, **Public forms** card):
+
+| Setting | Preference | Behaviour |
+| --- | --- | --- |
+| Public ballot form | `publicBallotForm` | `/[slug]/public/ballots` lists the voting adjudicators (chairs and panellists; trainees cannot submit) of the current round and lets each enter their ballot. |
+| Public feedback form | `publicFeedbackForm` | `/[slug]/public/feedback` lists every team and adjudicator; each picks themselves, then one of the people they may rate. Needs feedback switched on (`feedbackEnabled`). |
+| Require the tournament password | `publicFormsUsePassword` | Every submission must carry the tournament password (`public_use_password` / `public_password`). |
+
+All absent = off, so existing tournaments are unchanged. The public tab shows links to the forms
+while they are on.
+
+- **Password.** Set on the same card and saved at once through
+  `PUT /api/tournaments/{id}/public-forms` (administrators only). Only a salted scrypt hash is kept,
+  in `tournaments/{id}/serverOnly/publicForms`, which `firestore.rules` deny to every client; it is
+  never in the preferences, the public snapshot or any response. While the password is required
+  but none is set, the forms refuse every submission. Wrong passwords are counted per network and
+  tournament (30 per hour, then HTTP 429).
+- **Which round.** Ballots are taken for the current round only: the tab room's explicit current
+  round, else the newest round whose draw is released (the full release; a teams-only release is
+  not enough). As in Tabbycat, the form refuses while the round's motions are unreleased (when the
+  round has motions), when the adjudicator has no debate or more than one debate in the round, and
+  when the debate has no chair. Feedback can be given for any debate of a round whose draw is
+  released, on the targets the feedback paths allow (teams see the panel only once adjudicators
+  are revealed), exactly as on private URLs.
+- **Submission.** Pages call `POST /api/public/tournaments/{slug}/forms` (`action: "load" |
+  "submit"`, `kind: "ballot" | "feedback"`), a firebase-admin route like the private-URL sync
+  route. It checks that the form is on, the password, and rate limits (240 requests per hour per
+  network and tournament, 6000 per tournament), then validates with the same code as private URLs
+  (`buildPrivateBallot`; the feedback checks in `src/lib/publicForms.ts` mirror the private sync
+  route). The server sets the ballot id and submitter; the form cannot choose them.
+- **Confirmation.** Anyone who can open the page can submit, so a public ballot is **always stored
+  unconfirmed** and waits for the tab room, whatever `privateBallotConfirmation` says (Tabbycat's
+  public ballots are unconfirmed too). In individual-ballot rounds it is stored as that
+  adjudicator's own sheet and never merged automatically. Ballot receipts are emailed as for
+  private URLs, which also tells an adjudicator when someone submitted in their name. Feedback is
+  stored confirmed on submission, as in Tabbycat and on private URLs; the tab room can unconfirm or
+  ignore it on the feedback page.
+- **Pickers cost no reads.** The lists are built at publish time into the public snapshot
+  (`derived.publicForms`) and served by `GET /api/public/tournaments/{slug}/forms` from the cached
+  snapshot. A room is shown next to an adjudicator only once the round's panels are public. Names
+  follow the public code-name settings; the stored records keep the real names.
+- **Private URLs.** Tabbycat's three modes are exclusive (off / private URLs / public). Here the
+  public forms are independent switches: private-URL ballots stay on unless switched off with
+  `privateUrlBallots`, and private-URL feedback follows `feedbackEnabled`.
+
 ## Projector display (`/[slug]/display`)
+
+When the shown round shares its schedule slot with other rounds of the same stage (concurrent
+rounds), the projector shows every one of them, each under its own heading (Tabbycat
+`draw-display-current-rounds-*`); **All current rounds** narrows it to the shown round alone.
+Public viewers only see rounds whose draw is on the public draw page (a teams-only release never
+is); staff see every round of the slot (`projectorRounds` in `src/lib/display.ts`).
 
 Three views: **Draw by room** (responsive: one column on phones, two on tablets, four BP positions on
 wide screens), **Draw by team** (alphabetical, with side, room and opponents) and **Motion reveal**.
@@ -171,8 +227,26 @@ How it works:
   the ballot submission.
 
 Private portal links and passcodes can now also be emailed to teams (`{{private_url}}` and
-`{{passcode}}` resolve to the team's link for each speaker). A send is refused if one address would
-receive two different links.
+`{{passcode}}` resolve to the team's link for each speaker, or to the speaker's own link when they
+have one). A send is refused if one address would receive two different links.
+
+## Speaker private URLs
+
+Tabbycat gives every speaker their own URL. In CrabbyTab this is optional, alongside the team's
+URL and passcode, which never change because of it (printed links and QR codes keep working).
+**Speaker private URLs** on the private URLs page (Teams tab) creates a key and passcode for every
+speaker without one (`speakers[].privateUrlKey` / `privatePasscode`, prefix `spk_`), lists them,
+and can remove them all. A speaker's link, `/{slug}/private/speaker/{key}`, opens the same portal
+as the team link, with the speaker's passcode.
+
+The server (`/api/private/team`, `/api/private/sync`) finds the team by the team key or through
+the team's `speakerUrlKeys` index (one `array-contains` query) and checks the key and passcode
+against the speaker record itself (`src/lib/privateSpeakerAccess.ts`): a speaker's key opens only
+its own team, never with the team's or another speaker's passcode, and a key left in the index
+after its speaker was removed opens nothing. Everything the portal does, it does as that team.
+Speaker keys and passcodes are removed from assistant copies and never returned by participant or
+public routes. The public API's participant authentication (`/api/v1`) accepts team and
+adjudicator keys only.
 
 ## QR slips
 
@@ -196,6 +270,13 @@ has, the device keeps its own version and lists the participant as a sync confli
 organiser keeps either version; uploading that older local copy
 without choosing records a sync conflict in the cloud instead of silently overwriting the check-in.
 The public check-in counts update at the next publish.
+
+The public check-in page (`/{slug}/checkins/public`, *Public check-in status*) shows per-round
+counts. When the participants list is public too, it also lists each team and adjudicator with
+whether they are checked in for a chosen round (Tabbycat's public check-in statuses). Names follow
+the public naming rules: team code names when those are on (a team without one shows "No public
+name"), participant code names, and anonymous adjudicators are left out of the list (they are still
+counted). No ids are stored or returned.
 
 ## Check-ins (history, bulk, speakers, printed forms)
 

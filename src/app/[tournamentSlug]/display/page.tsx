@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
-import { DebateSide, Motion } from "@/types";
+import { Debate, DebateSide, Motion, Round } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { Monitor, Lock, ChevronLeft, ChevronRight } from "lucide-react";
 import {
@@ -12,6 +12,7 @@ import {
   buildMotionRevealSteps,
   motionsForDisplay,
   nextRevealStep,
+  projectorRounds,
 } from "@/lib/display";
 import { safeJsonParse } from "@/lib/safeJson";
 import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
@@ -39,11 +40,13 @@ const toggleClasses = (active: boolean) =>
 export default function DisplayPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
-  const { tournament, activeRound, debates, motions, isOwnerOrAdmin } = useTournament();
+  const { tournament, activeRound, rounds, debates, motions, isOwnerOrAdmin } = useTournament();
   const { t, plural, formatList } = useI18n();
   const [scale, setScale] = useState(1);
   const [autoScroll, setAutoScroll] = useState(true);
   const [view, setView] = useState<DisplayView>("rooms");
+  /** Concurrent rounds (same schedule slot) are shown together unless narrowed to the active round. */
+  const [showConcurrent, setShowConcurrent] = useState(true);
   const [revealIndex, setRevealIndex] = useState(0);
   const [staffMotions, setStaffMotions] = useState<Motion[] | null>(null);
 
@@ -76,16 +79,21 @@ export default function DisplayPage() {
   // For non-staff viewers, the round's draw must be on the public draw page: the projection marks
   // it under the draw mode (current round only / every released draw); older views fall back to
   // the legacy switch and the draw status.
-  const publicDrawFlag = (activeRound as (typeof activeRound & { drawPublic?: boolean }) | null)?.drawPublic;
-  const showDraw =
-    isOwnerOrAdmin ||
-    (publicDrawFlag ??
-      (prefs?.publicDraw !== false &&
-        (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released")));
-  const showAdjudicators = isOwnerOrAdmin || activeRound?.adjudicatorsRevealed === true;
+  // Concurrent rounds of the active round's schedule slot are shown together (Tabbycat's "current
+  // rounds" display), each under its own heading.
+  const slotRounds = projectorRounds(activeRound, rounds, { staff: true, legacyPublicDraw: true, concurrent: true });
+  const hasConcurrent = slotRounds.length > 1;
+  const shownRounds = projectorRounds(activeRound, rounds, {
+    staff: isOwnerOrAdmin,
+    legacyPublicDraw: prefs?.publicDraw !== false,
+    concurrent: showConcurrent,
+  });
+  const showDraw = shownRounds.length > 0;
+  const showAdjudicatorsFor = (round: Round) => isOwnerOrAdmin || round.adjudicatorsRevealed === true;
   const showMotions = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
-  const roundDebates = activeRound && showDraw ? debates.filter((d) => d.roundId === activeRound.id) : [];
+  const shownRoundIds = new Set(shownRounds.map((round) => round.id));
+  const roundDebates = debates.filter((d) => shownRoundIds.has(d.roundId));
   // Three-state release: viewers see nothing, the info slides only, or the motions (motionRelease.ts).
   const motionsStatus = motionsStatusOf(activeRound ?? undefined);
   const infoSlidesOnly = !isOwnerOrAdmin && motionsStatus === "info_slides_released";
@@ -95,7 +103,6 @@ export default function DisplayPage() {
   const revealSteps = buildMotionRevealSteps(roundMotions, { roundId: activeRound?.id, infoSlidesOnly });
   const revealStep = revealSteps[Math.min(revealIndex, revealSteps.length - 1)];
   const releasedHeaderMotion = roundMotions.find((motion) => motion.released === true);
-  const alphabeticalRows = view === "teams" ? buildAlphabeticalDraw(roundDebates, isBP) : [];
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
   useEffect(() => {
@@ -161,6 +168,99 @@ export default function DisplayPage() {
     return reference ?? "";
   };
 
+  /** One round's draw in the selected view (by team or by room). */
+  const renderRoundDraw = (round: Round, debatesOfRound: Debate[]) => {
+    const showAdjudicators = showAdjudicatorsFor(round);
+    return view === "teams" ? (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-start">
+                <caption className="sr-only">{t("results.display.byTeamCaption")}</caption>
+                <thead className="bg-muted text-sm uppercase tracking-wide text-fg-muted">
+                  <tr>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.team")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.side")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.room")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.against")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {buildAlphabeticalDraw(debatesOfRound, isBP).map((row) => (
+                    <tr key={row.teamId} className="bg-surface">
+                      <th scope="row" className="px-4 py-2 text-start font-semibold">{row.teamName}</th>
+                      <td className="px-4 py-2">
+                        {row.side
+                          ? <SideBadge side={row.side} preferences={prefs} />
+                          : row.bye ? t("results.display.bye") : t("results.display.sidesAtDebate")}
+                      </td>
+                      <td className="px-4 py-2 font-semibold text-accent-text">
+                        {row.bye ? "—" : row.venueName || t("common.tba")}
+                      </td>
+                      <td className="px-4 py-2 text-fg-muted">{row.opponents.length ? formatList(row.opponents) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+    ) : (
+            <div className="space-y-3">
+              {debatesOfRound.map((debate) => {
+                const byeTeam = debate.byeTeamId
+                  ? Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId)
+                  : undefined;
+                return (
+                  <div key={debate.id} className="rounded-lg border border-border bg-surface p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-accent-text">
+                        {debate.byeTeamId
+                          ? t("results.display.bye")
+                          : debate.venueName || t("results.display.roomFallback", { rank: debate.roomRank })}
+                      </span>
+                      <span className="text-sm text-fg-muted">
+                        {debate.byeTeamId
+                          ? t("results.display.noAdjudicatorNeeded")
+                          : t("results.display.chair", {
+                              name: showAdjudicators ? debate.adjudicators?.chairName || t("common.tba") : t("common.tba"),
+                            })}
+                      </span>
+                    </div>
+                    {debate.byeTeamId ? (
+                      <div className="rounded-md border border-border bg-muted p-4">
+                        <div className="font-semibold">{byeTeam?.teamName || t("results.display.teamFallback")}</div>
+                        <div className="mt-1 text-sm text-fg-muted">
+                          {debate.byeResult === "win" ? t("results.display.byeWin") : t("results.display.byeAbsent")}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", isBP && "xl:grid-cols-4")}>
+                        {sides.map((side) => (
+                          <div key={side} className="rounded-md border border-border bg-muted p-3">
+                            {sidesPending(debate)
+                              ? <span className="text-[11px] font-semibold uppercase text-fg-muted">{t("results.display.sidesAtDebate")}</span>
+                              : <SideBadge side={side} preferences={prefs} />}
+                            <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {showAdjudicators && !debate.byeTeamId &&
+                      ((debate.adjudicators?.panellistNames?.length || 0) > 0 ||
+                        (debate.adjudicators?.traineeNames?.length || 0) > 0) && (
+                      <div className="mt-3 space-y-1 text-sm text-fg-muted">
+                        {debate.adjudicators?.panellistNames?.length ? (
+                          <p>{t("results.display.panellists", { names: formatList(debate.adjudicators.panellistNames) })}</p>
+                        ) : null}
+                        {debate.adjudicators?.traineeNames?.length ? (
+                          <p>{t("results.display.trainees", { names: formatList(debate.adjudicators.traineeNames) })}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+    );
+  };
+
   // `theme-projector` (globals.css) is a high-contrast palette for projection: black canvas,
   // white text, yellow accent, saturated side colours. It ignores the viewer's light/dark choice.
   return (
@@ -174,7 +274,9 @@ export default function DisplayPage() {
           <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
             {t("results.display.heading", {
               tournament: tournament?.name ?? "",
-              round: activeRound?.name || t("results.display.noRound"),
+              round: view !== "motions" && shownRounds.length > 1
+                ? formatList(shownRounds.map((round) => round.name))
+                : activeRound?.name || t("results.display.noRound"),
             })}
           </h1>
           {view !== "motions" && releasedHeaderMotion && (
@@ -213,6 +315,11 @@ export default function DisplayPage() {
           >
             A+
           </Button>
+          {view !== "motions" && hasConcurrent && (
+            <Button onClick={() => setShowConcurrent((v) => !v)} aria-pressed={showConcurrent}>
+              {t("results.display.concurrentRounds")}
+            </Button>
+          )}
           {view !== "motions" && (
             <Button onClick={() => setAutoScroll((v) => !v)} aria-pressed={autoScroll}>
               {autoScroll ? t("results.display.pauseScroll") : t("results.display.autoScroll")}
@@ -315,90 +422,19 @@ export default function DisplayPage() {
             drawHidden
           ) : roundDebates.length === 0 ? (
             <p className="text-fg-muted">{t("results.display.noDraw")}</p>
-          ) : view === "teams" ? (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-start">
-                <caption className="sr-only">{t("results.display.byTeamCaption")}</caption>
-                <thead className="bg-muted text-sm uppercase tracking-wide text-fg-muted">
-                  <tr>
-                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.team")}</th>
-                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.side")}</th>
-                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.room")}</th>
-                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.against")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {alphabeticalRows.map((row) => (
-                    <tr key={row.teamId} className="bg-surface">
-                      <th scope="row" className="px-4 py-2 text-start font-semibold">{row.teamName}</th>
-                      <td className="px-4 py-2">
-                        {row.side
-                          ? <SideBadge side={row.side} preferences={prefs} />
-                          : row.bye ? t("results.display.bye") : t("results.display.sidesAtDebate")}
-                      </td>
-                      <td className="px-4 py-2 font-semibold text-accent-text">
-                        {row.bye ? "—" : row.venueName || t("common.tba")}
-                      </td>
-                      <td className="px-4 py-2 text-fg-muted">{row.opponents.length ? formatList(row.opponents) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           ) : (
-            <div className="space-y-3">
-              {roundDebates.map((debate) => {
-                const byeTeam = debate.byeTeamId
-                  ? Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId)
-                  : undefined;
+            <div className="space-y-6">
+              {shownRounds.map((round) => {
+                const debatesOfRound = roundDebates.filter((debate) => debate.roundId === round.id);
                 return (
-                  <div key={debate.id} className="rounded-lg border border-border bg-surface p-4">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-accent-text">
-                        {debate.byeTeamId
-                          ? t("results.display.bye")
-                          : debate.venueName || t("results.display.roomFallback", { rank: debate.roomRank })}
-                      </span>
-                      <span className="text-sm text-fg-muted">
-                        {debate.byeTeamId
-                          ? t("results.display.noAdjudicatorNeeded")
-                          : t("results.display.chair", {
-                              name: showAdjudicators ? debate.adjudicators?.chairName || t("common.tba") : t("common.tba"),
-                            })}
-                      </span>
-                    </div>
-                    {debate.byeTeamId ? (
-                      <div className="rounded-md border border-border bg-muted p-4">
-                        <div className="font-semibold">{byeTeam?.teamName || t("results.display.teamFallback")}</div>
-                        <div className="mt-1 text-sm text-fg-muted">
-                          {debate.byeResult === "win" ? t("results.display.byeWin") : t("results.display.byeAbsent")}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", isBP && "xl:grid-cols-4")}>
-                        {sides.map((side) => (
-                          <div key={side} className="rounded-md border border-border bg-muted p-3">
-                            {sidesPending(debate)
-                              ? <span className="text-[11px] font-semibold uppercase text-fg-muted">{t("results.display.sidesAtDebate")}</span>
-                              : <SideBadge side={side} preferences={prefs} />}
-                            <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
-                          </div>
-                        ))}
-                      </div>
+                  <section key={round.id} aria-label={round.name} className="space-y-3">
+                    {shownRounds.length > 1 && (
+                      <h2 className="text-lg font-bold uppercase tracking-wide text-accent-text">{round.name}</h2>
                     )}
-                    {showAdjudicators && !debate.byeTeamId &&
-                      ((debate.adjudicators?.panellistNames?.length || 0) > 0 ||
-                        (debate.adjudicators?.traineeNames?.length || 0) > 0) && (
-                      <div className="mt-3 space-y-1 text-sm text-fg-muted">
-                        {debate.adjudicators?.panellistNames?.length ? (
-                          <p>{t("results.display.panellists", { names: formatList(debate.adjudicators.panellistNames) })}</p>
-                        ) : null}
-                        {debate.adjudicators?.traineeNames?.length ? (
-                          <p>{t("results.display.trainees", { names: formatList(debate.adjudicators.traineeNames) })}</p>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
+                    {debatesOfRound.length === 0
+                      ? <p className="text-fg-muted">{t("results.display.noDraw")}</p>
+                      : renderRoundDraw(round, debatesOfRound)}
+                  </section>
                 );
               })}
             </div>

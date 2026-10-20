@@ -3,6 +3,7 @@ import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
 import { resolveAssistantAccess, resolveStaffPermissions } from "@/lib/staffPermissions";
+import { loadCustomPermissionGroups } from "@/lib/staffAccessServer";
 
 export const runtime = "nodejs";
 
@@ -54,13 +55,16 @@ export async function GET(
     // Data-entry staff also learn their effective permissions (docs/staff-access.md), so the app
     // can hide what the server would refuse anyway.
     const preferences = data.preferences as { assistantAccess?: unknown } | undefined;
+    const customGroups = role === "dataEntry"
+      ? await loadCustomPermissionGroups(tournamentSnapshot.ref, staffSnapshot.data())
+      : [];
     return NextResponse.json(
       {
         role,
         globalAdmin: false,
         ...(role === "dataEntry"
           ? {
-              permissions: resolveStaffPermissions(staffSnapshot.data(), preferences?.assistantAccess),
+              permissions: resolveStaffPermissions(staffSnapshot.data(), preferences?.assistantAccess, customGroups),
               assistantAccess: resolveAssistantAccess(preferences?.assistantAccess),
             }
           : {}),

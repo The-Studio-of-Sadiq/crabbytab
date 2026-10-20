@@ -5,7 +5,7 @@ import { Copy, Plus, Trash2 } from "lucide-react";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n";
 import type { FeedbackQuestion, FeedbackQuestionType } from "@/types";
-import type { PersonField, RegistrationConfirmation, RegistrationSettings } from "@/lib/registration/types";
+import type { PersonField, RegistrationConfirmation, RegistrationSettings, TeamRegistrationField } from "@/lib/registration/types";
 import type { CodeNameGenerator, TeamNameGenerator } from "@/lib/registration/names";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -39,6 +39,54 @@ const CODE_NAME_OPTIONS: Array<{ value: CodeNameGenerator; label: MessageKey }> 
   { value: "emoji", label: "setup.registration.codeNameEmoji" },
   { value: "last_names", label: "setup.registration.codeNameLastNames" },
 ];
+
+const TEAM_FIELD_OPTIONS: Array<{ value: TeamRegistrationField; label: MessageKey }> = [
+  { value: "use_institution_prefix", label: "setup.registration.teamFieldPrefix" },
+  { value: "break_categories", label: "setup.registration.teamFieldBreakCategories" },
+  { value: "seed", label: "setup.registration.teamFieldSeed" },
+  { value: "emoji", label: "setup.registration.teamFieldEmoji" },
+];
+
+/** Tabbycat's "Customizable team fields" (reg_team_fields). */
+function TeamFieldsEditor({
+  settings,
+  onChange,
+}: {
+  settings: RegistrationSettings;
+  onChange: (fields: TeamRegistrationField[]) => void;
+}) {
+  const { t } = useI18n();
+  const fields = settings.teamFields ?? [];
+  const toggle = (field: TeamRegistrationField, checked: boolean) =>
+    onChange(checked ? [...fields.filter((item) => item !== field), field] : fields.filter((item) => item !== field));
+  const help: Partial<Record<TeamRegistrationField, string>> = {
+    use_institution_prefix:
+      (settings.teamNameGenerator ?? "user") === "user"
+        ? t("setup.registration.teamFieldPrefixHelp")
+        : t("setup.registration.teamFieldPrefixGenerated"),
+    break_categories: t("setup.registration.teamFieldBreakCategoriesHelp", {
+      count: (settings.teamBreakCategories ?? []).length,
+    }),
+    seed: t(settings.teamSeedMode === "title" ? "setup.registration.teamFieldSeedTitleHelp" : "setup.registration.teamFieldSeedHelp"),
+    emoji: t("setup.registration.teamFieldEmojiHelp"),
+  };
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-semibold text-fg">{t("setup.registration.teamFields")}</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {TEAM_FIELD_OPTIONS.map((option) => (
+          <Checkbox
+            key={option.value}
+            label={t(option.label)}
+            description={help[option.value]}
+            checked={fields.includes(option.value)}
+            onChange={(event) => toggle(option.value, event.target.checked)}
+          />
+        ))}
+      </div>
+    </fieldset>
+  );
+}
 
 function PersonFieldsEditor({
   legend,
@@ -328,6 +376,7 @@ export function RegistrationSettingsForm({
       <Card>
         <CardHeader title={t("setup.registration.fieldsTitle")} description={t("setup.registration.fieldsDescription")} />
         <CardBody className="space-y-4">
+          <TeamFieldsEditor settings={settings} onChange={(teamFields) => set({ teamFields })} />
           <PersonFieldsEditor legend={t("setup.registration.speakers")} fields={settings.speakerFields ?? []} onChange={(speakerFields) => set({ speakerFields })} />
           <PersonFieldsEditor legend={t("setup.registration.adjudicators")} fields={settings.adjudicatorFields ?? []} onChange={(adjudicatorFields) => set({ adjudicatorFields })} />
           <Checkbox

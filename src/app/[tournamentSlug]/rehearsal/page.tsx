@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
 import { Input, Select } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { randomSeed } from "@/lib/draw/rng";
 import { isDemoTournament } from "@/lib/rehearsal/demoTournament";
 
@@ -19,6 +20,7 @@ import { isDemoTournament } from "@/lib/rehearsal/demoTournament";
  * every run is recorded in the audit log.
  */
 export default function RehearsalPage() {
+  const { t, plural, rich } = useI18n();
   const { tournament, rounds, isOwnerOrAdmin, loading, simulateRoundResults, simulateRoundFeedback } = useTournament();
   const ids = { round: useId(), seed: useId(), confirm: useId() };
   const drawnRounds = useMemo(
@@ -32,9 +34,9 @@ export default function RehearsalPage() {
   const [outcome, setOutcome] = useState<{ kind: "results" | "feedback"; result: RehearsalOutcome } | null>(null);
   const [error, setError] = useState("");
 
-  if (loading) return <p className="p-6 text-sm text-fg-muted">Loading…</p>;
+  if (loading) return <p className="p-6 text-sm text-fg-muted">{t("setup.common.loading")}</p>;
   if (!tournament || !isOwnerOrAdmin) {
-    return <p role="alert" className="p-6 text-sm text-danger">Only tournament administrators can use the rehearsal tools.</p>;
+    return <p role="alert" className="p-6 text-sm text-danger">{t("setup.data.rehearsal.adminOnly")}</p>;
   }
 
   const demo = isDemoTournament(tournament);
@@ -57,7 +59,7 @@ export default function RehearsalPage() {
       setConfirmation("");
     } catch (runError) {
       // Rule violations (e.g. a completed round) and cancelled overrides arrive here; nothing was saved.
-      setError(runError instanceof Error ? runError.message : "The simulation failed. Nothing was saved.");
+      setError(runError instanceof Error ? runError.message : t("setup.data.rehearsal.failed"));
     } finally {
       setBusy(null);
     }
@@ -66,36 +68,36 @@ export default function RehearsalPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
-        title="Rehearsal tools"
-        description="Fill a round with random but valid results or feedback to rehearse running the tournament."
-        meta={demo ? <span className="rounded bg-info-subtle px-2 py-0.5 text-xs font-semibold text-info">Demo tournament</span> : undefined}
+        title={t("setup.data.rehearsal.title")}
+        description={t("setup.data.rehearsal.description")}
+        meta={demo ? <span className="rounded bg-info-subtle px-2 py-0.5 text-xs font-semibold text-info">{t("setup.data.rehearsal.demoBadge")}</span> : undefined}
       />
 
-      <Alert tone={demo ? "info" : "warning"} title={demo ? "Rehearsal data" : "This is not a demo tournament"}>
+      <Alert tone={demo ? "info" : "warning"} title={demo ? t("setup.data.rehearsal.demoTitle") : t("setup.data.rehearsal.liveTitle")}>
         {demo
-          ? "Simulated ballots and feedback are confirmed like real ones and marked “Simulated (rehearsal)”."
-          : "Simulated ballots are confirmed and count in the standings like real ones. Use these tools only for a rehearsal, never during the event. Each run is recorded in the audit log."}
+          ? t("setup.data.rehearsal.demoBody")
+          : t("setup.data.rehearsal.liveBody")}
       </Alert>
 
       <Card>
-        <CardHeader title="Round and seed" icon={<FlaskConical aria-hidden="true" />} />
+        <CardHeader title={t("setup.data.rehearsal.cardTitle")} icon={<FlaskConical aria-hidden="true" />} />
         <CardBody className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor={ids.round} className="mb-1 block text-xs font-medium text-fg">Round (with a draw)</label>
+            <label htmlFor={ids.round} className="mb-1 block text-xs font-medium text-fg">{t("setup.data.rehearsal.roundLabel")}</label>
             <Select id={ids.round} value={selectedRoundId} onChange={(event) => setRoundId(event.target.value)} disabled={drawnRounds.length === 0}>
-              {drawnRounds.length === 0 && <option value="">No round has a draw yet</option>}
+              {drawnRounds.length === 0 && <option value="">{t("setup.data.rehearsal.noDrawnRound")}</option>}
               {drawnRounds.map((round) => <option key={round.id} value={round.id}>{round.name}</option>)}
             </Select>
           </div>
           <div>
-            <label htmlFor={ids.seed} className="mb-1 block text-xs font-medium text-fg">Seed</label>
+            <label htmlFor={ids.seed} className="mb-1 block text-xs font-medium text-fg">{t("setup.data.rehearsal.seedLabel")}</label>
             <Input id={ids.seed} inputMode="numeric" value={seed} onChange={(event) => setSeed(event.target.value.trim())} aria-describedby={`${ids.seed}-help`} />
-            <p id={`${ids.seed}-help`} className="mt-1 text-xs text-fg-muted">The same seed on the same draw gives the same results.</p>
+            <p id={`${ids.seed}-help`} className="mt-1 text-xs text-fg-muted">{t("setup.data.rehearsal.seedHelp")}</p>
           </div>
           {!demo && (
             <div className="sm:col-span-2">
               <label htmlFor={ids.confirm} className="mb-1 block text-xs font-medium text-fg">
-                Type <span className="font-mono">{expectedConfirmation}</span> to confirm this is a rehearsal
+                {rich("setup.data.rehearsal.confirmLabel", { code: (text) => <span className="font-mono">{text}</span> }, { name: expectedConfirmation })}
               </label>
               <Input id={ids.confirm} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
             </div>
@@ -109,7 +111,7 @@ export default function RehearsalPage() {
             loading={busy === "results"}
           >
             <Shuffle aria-hidden="true" />
-            Simulate results
+            {t("setup.data.rehearsal.simulateResults")}
           </Button>
           <Button
             onClick={() => void run("feedback")}
@@ -117,14 +119,14 @@ export default function RehearsalPage() {
             loading={busy === "feedback"}
           >
             <MessageSquareHeart aria-hidden="true" />
-            Simulate feedback
+            {t("setup.data.rehearsal.simulateFeedback")}
           </Button>
         </div>
       </Card>
 
       {error && <Alert tone="danger" role="alert">{error}</Alert>}
       {outcome && (
-        <Alert tone="success" role="status" title={`${outcome.result.created} ${outcome.kind === "results" ? "ballot(s)" : "feedback submission(s)"} simulated`}>
+        <Alert tone="success" role="status" title={plural(outcome.kind === "results" ? "setup.data.rehearsal.resultsSimulated" : "setup.data.rehearsal.feedbackSimulated", outcome.result.created)}>
           {outcome.result.skipped.length > 0 && (
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {outcome.result.skipped.map((item, index) => (

@@ -10,6 +10,8 @@ import {
   formatNumber,
   formatTime,
   isLocale,
+  loadCatalogue,
+  loadedCatalogue,
   lookupMessage,
   lookupPluralMessage,
   matchLocale,
@@ -122,7 +124,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const locale = resolveLocale({ stored: preference, tournamentDefault, browserLanguages: languages });
+  const requested = resolveLocale({ stored: preference, tournamentDefault, browserLanguages: languages });
+  const locale = useLoadedLocale(requested);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -150,6 +153,31 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+/**
+ * `locale` once its catalogue has loaded. Until then the previous language stays on screen, so a
+ * switch never flashes English mid-way. If the catalogue cannot load (offline before its chunk
+ * was cached) the language still applies and every message falls back to English.
+ */
+export function useLoadedLocale(locale: Locale): Locale {
+  const [shown, setShown] = useState<Locale>(() => (loadedCatalogue(locale) ? locale : DEFAULT_LOCALE));
+  useEffect(() => {
+    if (loadedCatalogue(locale)) {
+      setShown(locale);
+      return;
+    }
+    let active = true;
+    loadCatalogue(locale)
+      .catch((error: unknown) => console.warn(`Could not load the ${locale} translation; showing English:`, error))
+      .finally(() => {
+        if (active) setShown(locale);
+      });
+    return () => {
+      active = false;
+    };
+  }, [locale]);
+  return shown;
 }
 
 export function useI18n(): I18nContextValue {

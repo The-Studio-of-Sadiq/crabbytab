@@ -16,32 +16,21 @@ import {
   recordPrivateFailure,
 } from "@/lib/privateTeamRateLimit";
 import { passcodesMatch } from "@/lib/passcode";
-import { buildPrivateBallot } from "@/lib/privateBallot";
+import { findTeamsByPrivateKey, matchPrivateTeamCredential } from "@/lib/privateSpeakerAccess";
+import { buildPrivateBallot, privateUrlBallotsEnabled } from "@/lib/privateBallot";
 import {
-  filterTeamVisibleDebates,
+  filterParticipantVisibleDebates,
+  isDrawVisibleToAdjudicators,
   getPrivatePortalBallots,
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
-import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
-import {
-  applyPrivateBallotConfirmation,
-  planIndividualBallotWrites,
-} from "@/lib/privateIndividualBallots";
+import { selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
+import { checkParticipantFeedback, planParticipantBallotWrites } from "@/lib/participantSubmissions";
+import { applyPrivateBallotConfirmation } from "@/lib/privateIndividualBallots";
 import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTeamsById } from "@/lib/privateParticipantData";
-import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { checkInEvent } from "@/lib/checkins/history";
-import { validateFeedbackScore } from "@/lib/scoring/validator";
-import {
-  canSubmitParticipantFeedback,
-  isFeedbackAnswerRecord,
-  isFeedbackEnabledForRound,
-  questionsForFeedbackSource,
-  validateFeedbackAnswers,
-} from "@/lib/feedback/questions";
-import { feedbackPathsForRound } from "@/lib/feedback/paths";
-import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 export const runtime = "nodejs";
@@ -103,17 +92,16 @@ export async function POST(request: NextRequest) {
       id: tournamentSnapshot.id,
     } as Tournament;
 
-    const [adjudicatorSnapshot, teamIdentitySnapshot] = await Promise.all([
+    const [adjudicatorSnapshot, teamCandidates] = await Promise.all([
       tournamentRef.collection("adjudicators").where("privateUrlKey", "==", privateUrlKey).get(),
-      tournamentRef.collection("teams").where("privateUrlKey", "==", privateUrlKey).get(),
+      // The team's own key, or one of its speakers' keys: either acts as that team only.
+      findTeamsByPrivateKey(tournamentRef.collection("teams"), privateUrlKey),
     ]);
     const adjudicatorDocument = adjudicatorSnapshot.docs.find(
       (document) => typeof document.data().deletedAt !== "string"
     );
     const adjudicator = adjudicatorDocument?.data();
-    const teamDocument = teamIdentitySnapshot.docs.find(
-      (document) => typeof document.data().deletedAt !== "string"
-    );
+    const teamDocument = teamCandidates.length === 1 ? teamCandidates[0] : undefined;
     const team = teamDocument?.data();
     if (!adjudicatorDocument && !teamDocument) {
       await noteFailedAttempt();
@@ -143,7 +131,7 @@ export async function POST(request: NextRequest) {
 
     const actorType = passcodesMatch(adjudicator?.privatePasscode, passcode)
       ? "adjudicator"
-      : passcodesMatch(team?.privatePasscode, passcode)
+      : matchPrivateTeamCredential(team, privateUrlKey, passcode)
         ? "team"
         : null;
     const actorDocument = actorType === "adjudicator" ? adjudicatorDocument : teamDocument;
@@ -170,9 +158,10 @@ export async function POST(request: NextRequest) {
 
     // The index only narrows the read; assignment is checked from the debates themselves.
     const actorDebates = selectAssignedDebates(participantDebates, actorType, actorDocument.id);
-    // Participants never see (or submit for) debates from unpublished draws.
+    // Participants never see (or submit for) debates from unpublished draws; a teams-only release
+    // reaches team portals but not adjudicators.
     const assignedDebates = new Map(
-      filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate])
+      filterParticipantVisibleDebates(actorDebates.values(), roundById, actorType).map((debate) => [debate.id, debate])
     );
     const teams: Map<string, Team> = await loadTeamsById(
       tournamentRef,
@@ -204,6 +193,12 @@ export async function POST(request: NextRequest) {
         if (actorType !== "adjudicator") {
           return NextResponse.json({ error: "Teams cannot submit ballots." }, { status: 403 });
         }
+        if (!privateUrlBallotsEnabled(tournament)) {
+          return NextResponse.json(
+            { error: "Ballot submission through private URLs is turned off for this tournament. Give your ballot to the tab room." },
+            { status: 403 }
+          );
+        }
         const debate = assignedDebates.get(debateId)!;
         const canVote =
           !actor.trainee &&
@@ -231,114 +226,18 @@ export async function POST(request: NextRequest) {
         ballotSubmissions.push(applyPrivateBallotConfirmation(ballot, tournament, roundById.get(debate.roundId)));
       } else {
         const debate = assignedDebates.get(debateId)!;
-        const panel = debate.adjudicators;
-        const targetType = record.targetType === undefined
-          ? "adjudicator"
-          : record.targetType === "adjudicator" || record.targetType === "team"
-            ? record.targetType
-            : undefined;
-        if (!targetType) {
-          return NextResponse.json({ error: "Feedback target type is invalid." }, { status: 400 });
-        }
-        const targetAdjudicatorId = typeof record.targetAdjudicatorId === "string"
-          ? record.targetAdjudicatorId
-          : undefined;
-        const targetTeamId = typeof record.targetTeamId === "string"
-          ? record.targetTeamId
-          : undefined;
-        const score = record.score;
-        const answers = record.answers === undefined ? {} : record.answers;
-        const targetAdjudicatorIsAssigned =
-          typeof targetAdjudicatorId === "string" &&
-          (panel.chairId === targetAdjudicatorId ||
-            panel.panellistIds?.includes(targetAdjudicatorId) ||
-            panel.traineeIds?.includes(targetAdjudicatorId));
-        const targetTeamSlot = typeof targetTeamId === "string"
-          ? Object.values(debate.teams || {}).find((slot) => slot?.teamId === targetTeamId)
-          : undefined;
-        const sourceIsAuthorized =
-          record.sourceType === actorType &&
-          record.sourceId === actorDocument.id &&
-          (actorType === "adjudicator" || Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id));
-        const panelVisibleToActor =
-          actorType === "adjudicator" || roundById.get(debate.roundId)?.adjudicatorsRevealed === true;
-        const targetIsAuthorized = targetType === "adjudicator"
-          ? targetAdjudicatorIsAssigned && panelVisibleToActor && targetAdjudicatorId !== actorDocument.id
-          : targetType === "team" && Boolean(targetTeamSlot) &&
-            (actorType !== "team" || targetTeamId !== actorDocument.id);
-        const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;
-        const targetIsChair = Boolean(targetAdjudicatorId && panel.chairId === targetAdjudicatorId);
-        const round = roundById.get(debate.roundId);
-        const sourceRole = actorType === "adjudicator" ? adjudicatorRoleInDebate(debate, actorDocument.id) : "team";
-        const targetRole = targetAdjudicatorId ? adjudicatorRoleInDebate(debate, targetAdjudicatorId) : undefined;
-        const feedbackAllowed = Boolean(sourceRole) && canSubmitParticipantFeedback({
-          sourceType: actorType,
-          sourceId: actorDocument.id,
-          sourceIsChair: sourceRole === "chair",
-          sourceRole,
-          targetType,
-          targetId: targetId || "",
-          targetIsChair,
-          targetRole,
-          path: feedbackPathsForRound(tournament.preferences, round),
-        });
-        if (
-          !sourceIsAuthorized ||
-          !targetIsAuthorized ||
-          !feedbackAllowed ||
-          tournament.preferences?.feedbackEnabled === false ||
-          !isFeedbackEnabledForRound(
-            debate,
-            round,
-            tournament.preferences?.feedbackInEliminationRounds !== false
-          )
-        ) {
-          return NextResponse.json({ error: "Feedback does not match this participant or debate." }, { status: 403 });
-        }
-        if (
-          typeof score !== "number" ||
-          !validateFeedbackScore(score, tournament.preferences).valid ||
-          (record.comments !== undefined &&
-            (typeof record.comments !== "string" || record.comments.length > 5000)) ||
-          (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean") ||
-          !isFeedbackAnswerRecord(answers) ||
-          Boolean(validateFeedbackAnswers(
-            questionsForFeedbackSource(actorType, tournament.preferences),
-            answers
-          ))
-        ) {
-          return NextResponse.json({ error: "Feedback contains invalid details." }, { status: 400 });
-        }
-        const feedback: FeedbackSubmission = {
-          id: record.id,
+        const checked = checkParticipantFeedback(record, {
+          tournament,
           tournamentId,
-          roundId: debate.roundId,
-          debateId: debate.id,
-          targetType,
-          ...(targetType === "adjudicator" ? {
-            targetAdjudicatorId: targetAdjudicatorId!,
-            targetAdjudicatorName:
-              panel.chairId === targetAdjudicatorId
-                ? panel.chairName || ""
-                : panel.panellistIds?.includes(targetAdjudicatorId as string)
-                  ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId as string)] || ""
-                  : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId as string) ?? -1] || "",
-          } : {
-            targetTeamId: targetTeamId!,
-            targetTeamName: teams.get(targetTeamId as string)?.name || targetTeamSlot?.teamName || "",
-          }),
-          sourceType: actorType,
-          sourceId: actorDocument.id,
-          sourceName: actor.name,
-          score,
-          ...(typeof record.agreeWithDecision === "boolean"
-            ? { agreeWithDecision: record.agreeWithDecision }
-            : {}),
-          ...(typeof record.comments === "string" ? { comments: record.comments } : {}),
-          ...(Object.keys(answers).length > 0 ? { answers } : {}),
-          confirmed: true,
+          participant: { type: actorType, id: actorDocument.id, name: actor.name },
+          debate,
+          round: roundById.get(debate.roundId),
+          teams,
+          id: record.id as string,
           timestamp: new Date().toISOString(),
-        };
+        });
+        if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+        const feedback = checked.feedback;
         const feedbackRef = tournamentRef.collection("feedback").doc(feedback.id);
         const existingFeedback = await feedbackRef.get();
         if (
@@ -383,30 +282,14 @@ export async function POST(request: NextRequest) {
             data: document.data() as Partial<BallotSubmission>,
           })),
         ]));
-        // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
-        const lockedDebateIds = new Set(debateIds.filter((debateId) =>
-          isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
-        ));
-        const individual = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator === true);
-        const consensus = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator !== true);
-        const consensusPlan = planPrivateBallotWrites(consensus, existingByDebate, lockedDebateIds);
-        const individualPlan = planIndividualBallotWrites({
-          submissions: individual,
+        const plan = planParticipantBallotWrites({
+          submissions: ballotSubmissions,
           existingByDebate,
-          lockedDebateIds,
           debates: assignedDebates,
-          rulesFor: (debate) => ({
-            format: tournament.format,
-            preferences: tournament.preferences,
-            stage: roundById.get(debate.roundId)?.stage,
-          }),
-          autoConfirm: tournament.preferences?.privateBallotConfirmation !== "tab_room",
+          roundById,
+          tournament,
           timestamp: new Date().toISOString(),
         });
-        const plan = {
-          discardExistingIds: [...new Set([...consensusPlan.discardExistingIds, ...individualPlan.discardExistingIds])],
-          writes: [...consensusPlan.writes, ...individualPlan.writes],
-        };
         const existingById = new Map(
           [...existingBallotsByDebate.values()].flatMap((snapshot) =>
             snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)

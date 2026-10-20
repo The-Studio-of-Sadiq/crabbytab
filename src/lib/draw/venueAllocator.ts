@@ -13,10 +13,7 @@ export function getVenueIncompatibilities(debate: Debate, venue: Venue): string[
   const reasons: string[] = [];
   const requiredCategory = debate.requiredVenueCategory?.trim().toLowerCase();
 
-  if (
-    requiredCategory &&
-    venue.category?.trim().toLowerCase() !== requiredCategory
-  ) {
+  if (requiredCategory && !venueInCategory(venue, requiredCategory)) {
     reasons.push(`requires ${debate.requiredVenueCategory} category`);
   }
   if (

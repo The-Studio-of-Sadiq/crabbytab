@@ -20,6 +20,7 @@ import type {
   PublicSideAllocations,
 } from "@/lib/publicView/derived";
 import { bracketRounds, type BracketRound } from "@/lib/publicBracket";
+import type { PublicDebateMotion } from "@/lib/publicRecords";
 
 /**
  * Panels for the public-site features of waves 4–5. They render only what the public projection
@@ -87,6 +88,22 @@ export function PublicTeamName({
     >
       {content}
     </Link>
+  );
+}
+
+/**
+ * The motion a debate was held on (Tabbycat `show_motions_in_results`): its reference, with the
+ * full text in a tooltip and for screen readers.
+ */
+export function PublicDebateMotionLabel({ motion }: { motion?: PublicDebateMotion }) {
+  const { t } = useI18n();
+  if (!motion) return <>—</>;
+  const reference = motion.reference || t("public.motionFallback");
+  return (
+    <abbr title={motion.text} className="no-underline">
+      <span aria-hidden="true">{reference}</span>
+      <span className="sr-only">{reference}: {motion.text}</span>
+    </abbr>
   );
 }
 
@@ -456,7 +473,7 @@ export function DiversityPanel({ diversity }: { diversity: PublicDiversity }) {
 }
 
 export function FeedbackProgressPanel({ progress }: { progress: NonNullable<PublicDerived["feedbackProgress"]> }) {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   return (
     <Panel title={t("public.feedbackProgressTitle")} description={t("public.feedbackProgressHint")}>
       {progress.rows.length === 0 ? (
@@ -482,7 +499,15 @@ export function FeedbackProgressPanel({ progress }: { progress: NonNullable<Publ
                       </span>
                       <span className="font-semibold text-fg"><PublicPersonName name={row.name} /></span>
                     </TD>
-                    <TD className="text-end font-mono text-xs">{row.submitted} / {row.expected}</TD>
+                    <TD className="text-end font-mono text-xs">
+                      {row.submitted} / {row.expected}
+                      {row.unexpected ? (
+                        <span className="ms-2 text-fg-muted" title={plural("public.feedbackUnexpected", row.unexpected)}>
+                          <span aria-hidden="true">+{row.unexpected}?</span>
+                          <span className="sr-only">{plural("public.feedbackUnexpected", row.unexpected)}</span>
+                        </span>
+                      ) : null}
+                    </TD>
                     <TD className="text-end text-xs">
                       {owed === 0 ? <Badge tone="success">{t("public.feedbackComplete")}</Badge> : <Badge tone="warning">{owed}</Badge>}
                     </TD>

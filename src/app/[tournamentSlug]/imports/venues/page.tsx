@@ -7,7 +7,15 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { parseVenuesCsv } from "@/lib/csv/importer";
 import { CheckCircle2, ExternalLink, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { Venue } from "@/types";
-import { isVenueAvailableForRound, safeVenueUrl, setVenueRoundAvailability, venueTooltip } from "@/lib/venues/venues";
+import {
+  isVenueAvailableForRound,
+  parseVenueCategoryList,
+  safeVenueUrl,
+  setVenueRoundAvailability,
+  venueCategoryNames,
+  venueTooltip,
+  withVenueCategories,
+} from "@/lib/venues/venues";
 import { VenueCategoriesEditor } from "@/features/tournament/components/VenueCategoriesEditor";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -67,15 +75,14 @@ export default function VenuesPage() {
     }
     setUrlError("");
 
-    const venueFields = {
+    const venueFields = withVenueCategories({
       name: newName.trim(),
       priority: newPriority,
-      category: newCategory.trim() || undefined,
       capacity: newCapacity ? Number(newCapacity) : undefined,
       accessible: newAccessible,
       online: newOnline,
       url,
-    };
+    }, parseVenueCategoryList(newCategory));
     if (editingVenue) {
       await updateVenue({ ...editingVenue, ...venueFields });
     } else {
@@ -96,7 +103,7 @@ export default function VenuesPage() {
     setEditingVenue(venue);
     setNewName(venue.name);
     setNewPriority(venue.priority || 10);
-    setNewCategory(venue.category || "");
+    setNewCategory(venueCategoryNames(venue).join(", "));
     setNewCapacity(venue.capacity === undefined ? "" : String(venue.capacity));
     setNewAccessible(venue.accessible === true);
     setNewOnline(venue.online === true);
@@ -327,11 +334,13 @@ export default function VenuesPage() {
                       <TD>
                         <Input
                           aria-label={t("setup.importsExtra.venues.categoryOf", { name: venue.name })}
-                          defaultValue={venue.category || ""}
+                          defaultValue={venueCategoryNames(venue).join(", ")}
                           placeholder={t("setup.importsExtra.venues.generalCategory")}
                           onBlur={(e) => {
-                            const category = e.currentTarget.value.trim() || undefined;
-                            if (category !== venue.category) void updateVenue({ ...venue, category });
+                            const next = parseVenueCategoryList(e.currentTarget.value);
+                            if (next.join("|") !== venueCategoryNames(venue).join("|")) {
+                              void updateVenue(withVenueCategories(venue, next));
+                            }
                           }}
                           className="h-7 min-w-24 text-xs"
                         />
@@ -471,7 +480,7 @@ export default function VenuesPage() {
           />
           <Input
             label={t("setup.importsExtra.venues.categoryLabel")}
-            help={t("setup.importsExtra.venues.categoryHelp")}
+            help={`${t("setup.importsExtra.venues.categoryHelp")} ${t("setup.importsExtra.venues.categoryMultipleHelp")}`}
             type="text"
             placeholder={t("setup.importsExtra.venues.generalCategory")}
             value={newCategory}
@@ -600,7 +609,7 @@ export default function VenuesPage() {
                         <TD className="font-mono text-xs text-fg-muted">{idx + 1}</TD>
                         <TD className="font-semibold">{v.name}</TD>
                         <TD numeric>{v.priority}</TD>
-                        <TD className="text-fg-muted">{v.category || t("setup.importsExtra.venues.generalCategory")}</TD>
+                        <TD className="text-fg-muted">{venueCategoryNames(v).join(", ") || t("setup.importsExtra.venues.generalCategory")}</TD>
                       </TR>
                     ))}
                   </TBody>

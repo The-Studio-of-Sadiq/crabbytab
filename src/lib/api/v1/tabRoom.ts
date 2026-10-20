@@ -1,14 +1,15 @@
-import { autoAllocateCommand, updateDebateCommand, type AllocationDependencies } from "@/features/tournament/application/allocation";
+import { autoAllocateCommand, updateDebateCommand, updateDebatesCommand, type AllocationDependencies } from "@/features/tournament/application/allocation";
 import {
   confirmBallotCommand,
   discardBallotCommand,
   submitBallotCommand,
   type BallotWorkflowDependencies,
 } from "@/features/tournament/application/ballots";
-import { generateBreakCommand, saveBreakCategoriesCommand, type BreakDependencies } from "@/features/tournament/application/breaks";
+import { clearBreakCommand, generateBreakCommand, saveBreakCategoriesCommand, type BreakDependencies } from "@/features/tournament/application/breaks";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { createTournamentEntityCommands } from "@/features/tournament/application/entities";
-import { addFeedbackCommand, reviewFeedbackCommand, type FeedbackReviewChange } from "@/features/tournament/application/feedback";
+import { currentRounds } from "@/features/tournament/application/schedule";
+import { addFeedbackCommand, deleteFeedbackCommand, reviewFeedbackCommand, type FeedbackReviewChange } from "@/features/tournament/application/feedback";
 import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
 import { savePreformedPanelsCommand } from "@/features/tournament/application/preformedPanels";
 import { deleteRoundCommand } from "@/features/tournament/application/roundAdministration";
@@ -16,6 +17,7 @@ import { createRoundCommand, updateRoundCommand, type CreateRoundRecordInput } f
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import type { RuleOverride } from "@/features/tournament/application/stateGuards";
 import { calculateBreaks } from "@/lib/breakqual/calculator";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { validateDraw } from "@/lib/draw/validateDraw";
@@ -26,6 +28,7 @@ import type {
   BallotSubmission,
   BreakCategory,
   Debate,
+  DrawType,
   FeedbackSubmission,
   Institution,
   Motion,
@@ -33,6 +36,7 @@ import type {
   Round,
   Team,
   Tournament,
+  TournamentPreferences,
   Venue,
 } from "@/types";
 import { randomUUID } from "node:crypto";
@@ -119,6 +123,9 @@ export class SessionTabRoom {
       createId: (prefix) => this.createId(prefix),
       generatePrivateKey,
       currentActor: () => ({ name: "API" }),
+      // Uses whatever rounds (and debates) the operation loaded; none loaded = no round stamp.
+      currentRoundId: () =>
+        currentRounds(session.view<Round>("rounds"), session.view<Debate>("debates"), session.view<BreakCategory>("breakCategories"))[0]?.id,
     });
   }
 
@@ -201,11 +208,28 @@ export class SessionTabRoom {
 
   /* Draws and allocation -------------------------------------------------- */
 
-  async generateDraw(roundId: string, options: { discardExistingResults?: boolean; override?: RuleOverride }): Promise<void> {
+  /**
+   * `drawType` (persisted on the round, as a PATCH of its draw type would) and `drawOptions`
+   * (overlaid on the tournament's draw preferences for this generation only, never saved) mirror
+   * Tabbycat's generate-draw request. Both are recorded in the draw's audit event.
+   */
+  async generateDraw(roundId: string, options: {
+    discardExistingResults?: boolean;
+    override?: RuleOverride;
+    drawType?: DrawType;
+    drawOptions?: Partial<TournamentPreferences>;
+  }): Promise<void> {
     await this.loadAll("rounds", "teams", "institutions", "venues", "debates", "ballots", "motions");
+    const { drawType, drawOptions, ...commandOptions } = options;
+    const hasOptions = drawOptions !== undefined && Object.keys(drawOptions).length > 0;
+    const tournament: Tournament = hasOptions
+      ? { ...this.tournament, preferences: { ...this.tournament.preferences, ...drawOptions } }
+      : this.tournament;
+    const rounds = this.session.view<Round>("rounds")
+      .map((round) => (round.id === roundId && drawType ? { ...round, drawType } : round));
     await generateDrawCommand(roundId, {
-      tournament: this.tournament,
-      rounds: this.session.view<Round>("rounds"),
+      tournament,
+      rounds,
       teams: this.session.view<Team>("teams"),
       institutions: this.session.view<Institution>("institutions"),
       venues: this.session.view<Venue>("venues"),
@@ -219,10 +243,16 @@ export class SessionTabRoom {
         saveBallots: (ballots) => this.session.save("ballots", ballots),
         // The session soft-deletes the replaced debates itself (they drop out of the saved list).
         markDebatesRemoved: () => undefined,
-        saveRounds: (rounds) => this.session.save("rounds", rounds),
+        saveRounds: (next) => this.session.save("rounds", next),
       },
       recordAuditEvent: this.session.recordAuditEvent,
-    }, options);
+    }, {
+      ...commandOptions,
+      auditDetails: {
+        ...(drawType ? { requestedDrawType: drawType } : {}),
+        ...(hasOptions ? { requestedDrawOptions: drawOptions } : {}),
+      },
+    });
   }
 
   private hideRevealedAdjudicators = async (roundIds: Set<string>) => {
@@ -259,6 +289,22 @@ export class SessionTabRoom {
   async updateDebate(debate: Debate, override?: RuleOverride): Promise<void> {
     await this.loadAll("rounds", "debates", "ballots", "teams", "adjudicators", "venues");
     await updateDebateCommand(debate, this.session.view<Debate>("debates"), this.allocationDependencies(), override);
+  }
+
+  /**
+   * The draw editor's save (add, delete or re-team debates): `next` is the tournament's whole
+   * debate list after the edit, as the draw page passes it.
+   */
+  async updateDebates(next: Debate[], override?: RuleOverride): Promise<void> {
+    await this.loadAll("rounds", "debates", "ballots", "teams", "adjudicators", "venues");
+    const dependencies = this.allocationDependencies();
+    await updateDebatesCommand(next, this.session.view<Debate>("debates"), {
+      rounds: dependencies.rounds,
+      ballots: dependencies.ballots,
+      repository: dependencies.repository,
+      hideRevealedAdjudicators: dependencies.hideRevealedAdjudicators,
+      recordAuditEvent: dependencies.recordAuditEvent,
+    }, override);
   }
 
   async savePreformedPanels(roundId: string, panels: PreformedPanel[]): Promise<void> {
@@ -325,7 +371,7 @@ export class SessionTabRoom {
       rounds: this.session.view<Round>("rounds"),
       teams,
       breakCategories: categories,
-      breakResults: calculateBreaks(categories, teams, this.standings().teams, this.tournament.format),
+      breakResults: calculateBreaks(categories, teams, this.standings().teams, this.tournament.format, resolveTeamPrecedence(this.tournament.format, this.tournament.preferences)),
       debates: this.session.view<Debate>("debates"),
       ballots: this.session.view<BallotSubmission>("ballots"),
       localRepository: {
@@ -340,6 +386,10 @@ export class SessionTabRoom {
 
   async saveBreakCategories(categories: BreakCategory[]): Promise<void> {
     await saveBreakCategoriesCommand(categories, await this.breakDependencies());
+  }
+
+  async clearBreak(categoryId: string): Promise<void> {
+    await clearBreakCommand(categoryId, await this.breakDependencies());
   }
 
   async generateBreak(categoryId: string, override?: RuleOverride): Promise<Round | null> {
@@ -370,6 +420,16 @@ export class SessionTabRoom {
     });
     if (!createdId) throw new Error("Feedback was not saved.");
     return createdId;
+  }
+
+  async deleteFeedback(feedbackId: string): Promise<void> {
+    await this.session.byIds("feedback", [feedbackId]);
+    await deleteFeedbackCommand(feedbackId, {
+      feedback: this.session.view<FeedbackSubmission>("feedback"),
+      // `save` drops the record from the loaded view, which the session soft-deletes.
+      repository: { saveFeedback: (feedback) => this.session.save("feedback", feedback) },
+      recordAuditEvent: this.session.recordAuditEvent,
+    });
   }
 
   async reviewFeedback(feedbackId: string, change: FeedbackReviewChange): Promise<void> {

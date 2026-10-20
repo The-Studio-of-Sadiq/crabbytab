@@ -82,8 +82,50 @@ Settings added for the source-level audit's registration items:
   must be international (`+country code`). On approval they are copied to the real fields
   (`Speaker.phone/gender`, `Adjudicator.phone/gender`), so gender appears on the diversity page.
   Phones are organiser-only: assistant data and public pages leave them out.
+- **Team fields** (`reg_team_fields`, "Optional team fields"; none ticked by default, so existing
+  forms are unchanged): registrants may
+  - tick **Prefix the team name with the institution** (only with an institution, and only while
+    team names are "as registered"; generated names already carry the institution): the team is
+    created as "Institution Name" (not doubled if the name already starts with it);
+  - choose **break categories** among the tournament's non-general ones. The list is copied into
+    the registration settings when they are saved (the public form makes no extra reads), so save
+    the settings again after adding or renaming break categories. Categories deleted by approval
+    time are dropped; general categories need no choice (every team is in them);
+  - give a **seed**: a whole number 0–99,999, or, when the team seed setting on the team CSV import
+    is "seed title", one of Unseeded / Free / Half / Full seed (stored 0–3, as Tabbycat). The seed
+    mode is also copied on save;
+  - pick an **emoji** from CrabbyTab's team emoji set. It is kept on approval unless another team
+    already has it (then the team has none, and **Generate missing code names** can assign one).
+    Unlike Tabbycat, no emoji is picked automatically for a registrant who leaves it empty.
+  The server validates every shown field (unknown categories, bad seeds or emoji are refused) and
+  ignores values for fields the form no longer shows. The review queue lists the chosen values.
 - **Per-form messages** shown above the team, adjudicator and institution forms, and extra
   **question sets** for institutions and for each speaker (asked once per speaker).
+
+## Team invitations
+
+Tabbycat's team invitation links: speakers add themselves to an existing team. **Team
+invitations** (Registration -> Representatives) creates a link for one team
+(`/register/{slug}/join#...`), shown once to copy; **New link** replaces it, **Withdraw** stops it.
+Only a hash of the link secret is stored (`serverOnly/registration/teamInvitations/{teamId}`).
+
+The join page shows the team and its free places and asks for the speaker's name, optional email,
+the configured speaker categories and person fields. `POST .../registration`
+`{action: "joinTeam", token, speaker, website, startedAt}` applies the public form's checks
+(honeypot, timing, rate limits, link-failure throttle, the team form's speaker validation) and the
+registration window, needs team registration on, and in one transaction re-checks the link, adds
+the speaker only to the link's own team (never another), refuses a repeated name or email and a
+team already at the maximum speakers, and bumps the team's `syncVersion`. The organiser issuing
+the link is the approval: joining needs no review. Per-speaker questions are not asked (a speaker
+on a team has nowhere to keep the answers).
+
+## Coach view of the institution's response
+
+The representative link's page also lists what has been registered for the institution
+(Tabbycat `reg-inst-view-response`): teams (with speaker names), adjudicators and places requests
+made with the link or for the same institution, with their status (waiting, accepted, not
+accepted) and, for places requests, the places given. Contact details, phone numbers, answers and
+rejection reasons are not shown (`src/lib/registration/institutionResponse.ts`).
 
 ## Approval and live collaboration
 
@@ -157,6 +199,8 @@ example by another administrator, is refused with a reload message instead of be
 | `POST …/registration` `{action: "representative", token}` | link holder | institution and places left |
 | `POST …/registration` `{action: "submit", registration, representativeToken?, website, startedAt}` | public | store a submission (accepted at once when no confirmation is needed) |
 | `POST …/registration` `{action: "transfer", token, transfer: {toRepresentativeId, teams, adjudicators}}` | link holder | ask to give places away |
+| `POST …/registration` `{action: "teamInvitation", token}` / `{action: "joinTeam", token, speaker, website, startedAt}` | team link holder | the invited team / join it |
+| `GET / POST / DELETE /api/tournaments/{id}/registration/team-invitations` `{teamId}` | administrators | list, create (or replace), withdraw team links |
 | `GET /api/tournaments/{id}/registration` | administrators | settings, submissions, representatives, counters |
 | `PUT …/registration` `{settings}` | administrators | save settings |
 | `POST …/registration/submissions` `{action, submissionId, revision, …}` | administrators | `edit`, `reject`, `reopen`, `claim`, `release`, `approve`, `allocate` (institutions: `teamsAllocated`, `adjudicatorsAllocated`) |

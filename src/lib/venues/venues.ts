@@ -65,9 +65,42 @@ export function normaliseCategory(name: string | undefined): string {
   return (name ?? "").trim().toLowerCase();
 }
 
-export function venueInCategory(venue: Pick<Venue, "category">, category: string): boolean {
+type CategorisedVenue = Pick<Venue, "category" | "categories">;
+
+/**
+ * Every category a room belongs to (Tabbycat VenueCategory is many-to-many): the `categories` list
+ * plus the older single `category` field, which older data and clients still write. Trimmed,
+ * de-duplicated ignoring case, in stored order with `category` first.
+ */
+export function venueCategoryNames(venue: Partial<CategorisedVenue>): string[] {
+  const byKey = new Map<string, string>();
+  for (const name of [venue.category, ...(Array.isArray(venue.categories) ? venue.categories : [])]) {
+    if (typeof name !== "string") continue;
+    const trimmed = name.trim();
+    const key = normaliseCategory(trimmed);
+    if (key && !byKey.has(key)) byKey.set(key, trimmed);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * The room with these categories: `category` keeps the first (so older readers still see one) and
+ * `categories` the full list; with at most one category, `categories` is cleared (set undefined, so
+ * a merge-style save also drops a stale list).
+ */
+export function withVenueCategories<T extends object>(venue: T, names: string[]): T & Partial<CategorisedVenue> {
+  const list = venueCategoryNames({ categories: names });
+  return { ...venue, category: list[0], categories: list.length > 1 ? list : undefined };
+}
+
+/** Splits "Accessible, Large" into category names. */
+export function parseVenueCategoryList(text: string): string[] {
+  return venueCategoryNames({ categories: text.split(/[,;]/) });
+}
+
+export function venueInCategory(venue: Partial<CategorisedVenue>, category: string): boolean {
   const wanted = normaliseCategory(category);
-  return wanted !== "" && normaliseCategory(venue.category) === wanted;
+  return wanted !== "" && venueCategoryNames(venue).some((name) => normaliseCategory(name) === wanted);
 }
 
 export function validVenueConstraints(constraints: VenueConstraint[] | undefined): VenueConstraint[] {
@@ -129,7 +162,7 @@ export function debateVenueConstraints(debate: Debate, lookup: ConstraintLookup)
 /** Constraints of the debate its room does not meet. */
 export function unmetVenueConstraints(
   debate: Debate,
-  venue: Pick<Venue, "category">,
+  venue: Partial<CategorisedVenue>,
   lookup: ConstraintLookup
 ): ApplicableVenueConstraint[] {
   return debateVenueConstraints(debate, lookup).filter((constraint) => !venueInCategory(venue, constraint.category));
@@ -146,31 +179,38 @@ export function venueCategoryInfo(
   return (categories ?? []).find((category) => normaliseCategory(category.name) === wanted);
 }
 
-/** The room's name with its category as prefix or suffix, as configured (Tabbycat display_name). */
+/** The room's name with its categories as prefix or suffix, as configured (Tabbycat display_name). */
 export function venueDisplayName(
-  venue: Pick<Venue, "name" | "category">,
+  venue: Pick<Venue, "name"> & Partial<CategorisedVenue>,
   categories: VenueCategoryInfo[] | undefined
 ): string {
-  const info = venueCategoryInfo(categories, venue.category);
-  if (!info || !venue.category?.trim()) return venue.name;
-  if (info.displayInName === "prefix") return `${venue.category.trim()} ${venue.name}`;
-  if (info.displayInName === "suffix") return `${venue.name} ${venue.category.trim()}`;
-  return venue.name;
+  const prefixes: string[] = [];
+  const suffixes: string[] = [];
+  for (const name of venueCategoryNames(venue)) {
+    const info = venueCategoryInfo(categories, name);
+    if (info?.displayInName === "prefix") prefixes.push(name);
+    else if (info?.displayInName === "suffix") suffixes.push(name);
+  }
+  return [...prefixes, venue.name, ...suffixes].join(" ");
 }
 
 /**
- * Tooltip text for a room ("This room has step-free access."). On public pages only categories
- * marked for the public tooltip are described; admin pages always describe them.
+ * Tooltip text for a room ("This room has step-free access."), one sentence per category with a
+ * description. On public pages only categories marked for the public tooltip are described; admin
+ * pages always describe them.
  */
 export function venueTooltip(
-  venue: Pick<Venue, "category">,
+  venue: Partial<CategorisedVenue>,
   categories: VenueCategoryInfo[] | undefined,
   audience: "admin" | "public"
 ): string | undefined {
-  const info = venueCategoryInfo(categories, venue.category);
-  const description = info?.description?.trim();
-  if (!description || (audience === "public" && !info?.publicTooltip)) return undefined;
-  return `This room ${description.replace(/[.\s]+$/, "")}.`;
+  const sentences = venueCategoryNames(venue).flatMap((name) => {
+    const info = venueCategoryInfo(categories, name);
+    const description = info?.description?.trim();
+    if (!description || (audience === "public" && !info?.publicTooltip)) return [];
+    return [`This room ${description.replace(/[.\s]+$/, "")}.`];
+  });
+  return sentences.length > 0 ? sentences.join(" ") : undefined;
 }
 
 /**

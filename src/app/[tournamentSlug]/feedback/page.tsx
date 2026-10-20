@@ -21,6 +21,7 @@ import { feedbackSourcesForTarget, roundFeedbackProgress, unexpectedFeedback } f
 import { defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adminFeedbackLinkError } from "@/features/tournament/application/feedback";
+import { AdjudicatorFlagToggle } from "@/features/tournament/components/AdjudicatorFlagToggle";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -316,6 +317,9 @@ export default function FeedbackPage() {
               <Users2 aria-hidden="true" />
               {t("results.feedback.viewSubmissions")}
             </Link>
+            <Link href={`/${tournament?.slug}/feedback/duplicates`} className={buttonClasses({ variant: "ghost" })}>
+              {t("results.feedback.duplicates.link")}
+            </Link>
             {isOwnerOrAdmin && (
               <>
                 <Button onClick={exportFeedbackCsv} title={t("results.feedback.exportFeedbackHint")}>
@@ -582,6 +586,16 @@ export default function FeedbackPage() {
                 <TH align="right">{t("results.feedback.ratings.col.weightedAverage")}</TH>
                 <TH align="right" title={scoreWeightHint}>{t("results.feedback.field.score")}</TH>
                 <TH align="right">{t("results.feedback.ratings.col.agreement")}</TH>
+                {isOwnerOrAdmin && (
+                  <>
+                    <TH align="center" title={t("results.feedback.tester.breakingHelp")}>
+                      {t("results.feedback.tester.breakingColumn")}
+                    </TH>
+                    <TH align="center" title={t("results.feedback.tester.columnHelp")}>
+                      {t("results.feedback.tester.column")}
+                    </TH>
+                  </>
+                )}
               </TR>
             </THead>
             <TBody>
@@ -607,11 +621,31 @@ export default function FeedbackPage() {
                       {formatDecimal(blendAdjudicatorScore(adj, summary?.scaledAverage, activeRound?.feedbackWeight), 2)}
                     </TD>
                     <TD numeric>{stat && stat.answered > 0 ? percent(stat.agrees / stat.answered) : "—"}</TD>
+                    {isOwnerOrAdmin && (
+                      <>
+                        <TD align="center">
+                          <AdjudicatorFlagToggle
+                            adjudicator={adj}
+                            flag="breaking"
+                            label={t("results.feedback.tester.breakingLabel", { name: adj.name })}
+                          />
+                        </TD>
+                        <TD align="center">
+                          <AdjudicatorFlagToggle
+                            adjudicator={adj}
+                            flag="isTester"
+                            label={t("results.feedback.tester.label", { name: adj.name })}
+                            disabled={adj.adjCore === true}
+                            disabledReason={t("results.feedback.tester.coreAlways")}
+                          />
+                        </TD>
+                      </>
+                    )}
                   </TR>
                 );
               })}
               {filteredAdjs.length === 0 && (
-                <TableEmpty colSpan={8}>
+                <TableEmpty colSpan={isOwnerOrAdmin ? 10 : 8}>
                   {adjudicators.length === 0 ? t("results.feedback.ratings.emptyNone") : t("results.feedback.ratings.emptySearch")}
                 </TableEmpty>
               )}

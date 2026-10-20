@@ -20,6 +20,7 @@ import { buildBreakCategorySchedule, eliminationRoundCount, slugify, validateBre
 import {
   applyGuards,
   checkBreakCategoryDeletion,
+  checkBreakClear,
   checkBreakGeneration,
   enforceGuards,
   type RuleOverride,
@@ -93,6 +94,7 @@ export async function saveBreakCategoriesCommand(
       previous.priority !== category.priority ||
       previous.isGeneral !== category.isGeneral ||
       previous.maxPerInstitution !== category.maxPerInstitution ||
+      (previous.limit ?? 0) !== (category.limit ?? 0) ||
       previous.qualificationRule !== category.qualificationRule ||
       JSON.stringify(previous.teamOverrides ?? {}) !== JSON.stringify(category.teamOverrides ?? {})
     ) {
@@ -106,6 +108,7 @@ export async function saveBreakCategoriesCommand(
           priority: previous.priority,
           isGeneral: previous.isGeneral,
           maxPerInstitution: previous.maxPerInstitution,
+          limit: previous.limit ?? 0,
           qualificationRule: previous.qualificationRule,
           teamOverrides: previous.teamOverrides ?? {},
         },
@@ -116,6 +119,7 @@ export async function saveBreakCategoriesCommand(
           priority: category.priority,
           isGeneral: category.isGeneral,
           maxPerInstitution: category.maxPerInstitution,
+          limit: category.limit ?? 0,
           qualificationRule: category.qualificationRule,
           teamOverrides: category.teamOverrides ?? {},
         },
@@ -233,6 +237,56 @@ export async function generateBreakCommand(
   return firstCategoryRound;
 }
 
+/**
+ * Clears a category's generated break (Tabbycat's DELETE on a category's breaking teams): the
+ * category forgets its break, its teams stop breaking in it and the elimination rounds stop
+ * hosting it. Refused once one of those rounds has a draw. A team's break status follows the
+ * breaks that remain; with no generated break left, teams have no break status at all.
+ */
+export async function clearBreakCommand(categoryId: string, dependencies: BreakDependencies): Promise<void> {
+  const category = dependencies.breakCategories.find((item) => item.id === categoryId);
+  if (!category) throw new Error("That break category no longer exists.");
+  enforceGuards(checkBreakClear(category, dependencies.rounds, dependencies.debates));
+  const categories = dependencies.breakCategories.map((item) =>
+    item.id === categoryId ? { ...item, generatedBreak: undefined } : item
+  );
+  const anyBreakLeft = categories.some((item) => item.generatedBreak);
+  const teams = dependencies.teams.map((team) => {
+    const had = team.breakCategoryIds?.includes(categoryId) ?? false;
+    if (!anyBreakLeft) {
+      if (team.breakStatus === undefined && team.breakCategoryIds === undefined) return team;
+      const { breakStatus: _status, breakCategoryIds: _ids, eliminatedInRoundId: _round, ...rest } = team;
+      return rest as Team;
+    }
+    if (!had) return team;
+    const breakCategoryIds = (team.breakCategoryIds ?? []).filter((id) => id !== categoryId);
+    return { ...team, breakCategoryIds, breakStatus: breakCategoryIds.length > 0 ? "breaking" as const : "eliminated" as const };
+  });
+  const rounds = dependencies.rounds.map((round) =>
+    round.breakCategoryIds?.includes(categoryId)
+      ? { ...round, breakCategoryIds: round.breakCategoryIds.filter((id) => id !== categoryId) }
+      : round
+  );
+  dependencies.localRepository.saveTeams(teams);
+  dependencies.localRepository.saveRounds(rounds);
+  dependencies.localRepository.saveBreakCategories(categories);
+  if (dependencies.cloudRepository) {
+    await dependencies.cloudRepository.saveGeneratedBreak(teams, rounds);
+    await dependencies.cloudRepository.saveBreakCategories(categories);
+  }
+  await dependencies.recordAuditEvent({
+    action: "break.cleared",
+    category: "break",
+    summary: `Cleared the ${category.name} break`,
+    details: {
+      categoryId,
+      categoryName: category.name,
+      previousBreakingTeamIds: category.generatedBreak?.breakingTeamIds ?? [],
+      previousReserveTeamIds: category.generatedBreak?.reserveTeamIds ?? [],
+    },
+  });
+}
+
 export async function proceedToNextEliminationRoundCommand(
   roundId: string,
   dependencies: BreakDependencies
@@ -310,6 +364,8 @@ export interface BreakCategoryDraft {
   isGeneral: boolean;
   maxPerInstitution: number;
   qualificationRule: BreakQualificationRule;
+  /** Public tab limit (0 = none). Absent keeps the category's current limit. */
+  limit?: number;
 }
 
 /** Returns an error message, or "" when the draft can be saved. */
@@ -331,6 +387,9 @@ export function validateBreakCategoryDraft(
   if (!Number.isInteger(draft.maxPerInstitution) || draft.maxPerInstitution < 0) {
     return "The institution limit must be 0 (no limit) or more.";
   }
+  if (draft.limit !== undefined && (!Number.isInteger(draft.limit) || draft.limit < 0)) {
+    return "The public tab limit must be 0 (no limit) or more.";
+  }
   return "";
 }
 
@@ -350,6 +409,7 @@ export function upsertBreakCategory(
     isGeneral: draft.isGeneral,
     maxPerInstitution: draft.maxPerInstitution > 0 ? draft.maxPerInstitution : undefined,
     qualificationRule: draft.qualificationRule,
+    ...(draft.limit !== undefined ? { limit: draft.limit > 0 ? draft.limit : undefined } : {}),
   };
   if (editingId) {
     return categories.map((category) => (category.id === editingId ? { ...category, ...fields } : category));

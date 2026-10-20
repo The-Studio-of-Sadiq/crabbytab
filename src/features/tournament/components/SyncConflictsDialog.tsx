@@ -5,12 +5,14 @@ import { AlertTriangle } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Lists records changed both on this device and in the cloud, with the fields that differ, and
  * lets staff keep either version per record or for all of them.
  */
 export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t, plural } = useI18n();
   const { divergedRecordSummaries: summaries, resolveDivergedRecords } = useTournament();
   const [error, setError] = useState("");
 
@@ -19,14 +21,14 @@ export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose:
     try {
       resolveDivergedRecords(keep, keys);
     } catch (resolveError) {
-      setError(resolveError instanceof Error ? resolveError.message : "Could not resolve the conflict.");
+      setError(resolveError instanceof Error ? resolveError.message : t("setup.data.sync.resolveFailed"));
     }
   };
 
   const resolveAll = (keep: "cloud" | "local") => {
     const prompt = keep === "cloud"
-      ? `Use the cloud version of all ${summaries.length} record(s)? This device's changes to them are discarded. Export a tournament backup first to keep a copy.`
-      : `Keep this device's version of all ${summaries.length} record(s)? The next upload replaces the cloud versions, which are archived for recovery.`;
+      ? plural("setup.data.sync.useAllCloudConfirm", summaries.length)
+      : plural("setup.data.sync.keepAllMineConfirm", summaries.length);
     if (window.confirm(prompt)) resolve(keep);
   };
 
@@ -36,23 +38,23 @@ export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose:
       onClose={onClose}
       size="lg"
       icon={<AlertTriangle className="text-warning" aria-hidden="true" />}
-      title="Sync conflicts"
-      description="These records changed on this device and in the cloud since this device last synced them. This device's version stays in use until you choose."
+      title={t("setup.data.sync.title")}
+      description={t("setup.data.sync.description")}
       footer={
         summaries.length > 0 ? (
           <>
-            <Button variant="secondary" onClick={() => resolveAll("local")}>Keep all of mine</Button>
-            <Button variant="danger" onClick={() => resolveAll("cloud")}>Use all cloud versions</Button>
+            <Button variant="secondary" onClick={() => resolveAll("local")}>{t("setup.data.sync.keepAllMine")}</Button>
+            <Button variant="danger" onClick={() => resolveAll("cloud")}>{t("setup.data.sync.useAllCloud")}</Button>
           </>
         ) : (
-          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button variant="secondary" onClick={onClose}>{t("common.close")}</Button>
         )
       }
     >
       {error && <p role="alert" className="mb-3 text-[13px] text-danger">{error}</p>}
       {summaries.length === 0 ? (
         <p role="status" className="text-[13px] text-fg-muted">
-          No conflicts left. Upload to send the versions you kept to the cloud.
+          {t("setup.data.sync.noneLeft")}
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
@@ -68,31 +70,31 @@ export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose:
                     size="sm"
                     variant="secondary"
                     onClick={() => resolve("local", [summary.key])}
-                    aria-label={`Keep this device's version of ${summary.kind.toLowerCase()} ${summary.name}`}
+                    aria-label={t("setup.data.sync.keepMineLabel", { kind: summary.kind.toLowerCase(), name: summary.name })}
                   >
-                    Keep mine
+                    {t("setup.data.sync.keepMine")}
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => resolve("cloud", [summary.key])}
-                    aria-label={`Use the cloud version of ${summary.kind.toLowerCase()} ${summary.name}`}
+                    aria-label={t("setup.data.sync.useCloudLabel", { kind: summary.kind.toLowerCase(), name: summary.name })}
                   >
-                    Use cloud
+                    {t("setup.data.sync.useCloud")}
                   </Button>
                 </div>
               </div>
               {summary.missingLocally ? (
-                <p className="mt-2 text-xs text-fg-muted">This device no longer has this record.</p>
+                <p className="mt-2 text-xs text-fg-muted">{t("setup.data.sync.missingLocally")}</p>
               ) : (
                 <div className="mt-2 overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <caption className="sr-only">Fields that differ for {summary.name}</caption>
+                    <caption className="sr-only">{t("setup.data.sync.fieldsCaption", { name: summary.name })}</caption>
                     <thead className="text-fg-muted">
                       <tr>
-                        <th scope="col" className="py-1 pr-3 font-medium">Field</th>
-                        <th scope="col" className="py-1 pr-3 font-medium">This device</th>
-                        <th scope="col" className="py-1 font-medium">Cloud</th>
+                        <th scope="col" className="py-1 pr-3 font-medium">{t("setup.data.sync.colField")}</th>
+                        <th scope="col" className="py-1 pr-3 font-medium">{t("setup.data.sync.colThisDevice")}</th>
+                        <th scope="col" className="py-1 font-medium">{t("setup.data.sync.colCloud")}</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -13,7 +13,7 @@ import {
 } from "@/types";
 import { generatePowerPairedDraw, MatchupHistory, PairedDebateDraft } from "./powerPaired";
 import { allocateSidesForDebate, SideAllocationOptions } from "./sideAllocator";
-import { generateRoundRobinDraw } from "./roundRobin";
+import { generateBPRoundRobinDraw, generateRoundRobinDraw } from "./roundRobin";
 import { generateRandomTwoTeamDraw, generateTwoTeamDraw, orderBySeed, TwoTeamDrawConfig } from "./twoTeamDraw";
 import { eliminationRoomCount, planEliminationRound, resolveBracketPositions } from "./elimination";
 import { createSeededRng, randomInt, randomSeed, Rng, shuffle } from "./rng";
@@ -22,6 +22,7 @@ import { allocateVenuesToDebates } from "./venueAllocator";
 import { isVenueAvailableForRound, type VenueConstraintContext } from "@/lib/venues/venues";
 import { MANUAL_SIDES_FLAG, sidesPending } from "./manualSides";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -38,6 +39,11 @@ export interface GenerateDrawParams {
    * share it; see roundRobinIndex in schedule.ts). Absent = round.seq.
    */
   roundRobinIndex?: number;
+  /**
+   * Two-team round robin: continue a cycle begun with the legacy rotation in stored team order
+   * (see legacyRoundRobinInProgress in roundRobin.ts) instead of the Berger schedule in seed order.
+   */
+  legacyRoundRobin?: boolean;
 }
 
 export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Team[] {
@@ -252,7 +258,11 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       byeTeams = shuffled.slice(0, excess);
     } else if (byeMethod === "lowest_ranked") {
       const standingMap = new Map(standings.map((s) => [s.teamId, s.rank ?? 9999]));
-      const sorted = [...byeCandidates].sort((a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999));
+      // Teams tied on rank (every team before round 1) are shuffled with the draw's seed first, so
+      // the stable sort settles the tie at random rather than always benching the first-listed teams.
+      const sorted = shuffle(byeCandidates, rng).sort(
+        (a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999)
+      );
       byeTeams = sorted.slice(0, excess);
     }
     const byeIds = new Set(byeTeams.map((team) => team.id));
@@ -295,7 +305,11 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     bpAssignmentMethod: preferences?.bpAssignmentMethod,
     ...sideLimits,
   };
+  // Power-paired brackets are formed on the first team-standings metric (Tabbycat's
+  // team.points = first precedence metric), so round weights and bye points shape the brackets.
+  const bracketMetric = resolveTeamPrecedence(tournament.format, preferences)[0];
   const twoTeamConfig: Partial<TwoTeamDrawConfig> = {
+    bracketMetric,
     pairingMethod: preferences?.pairingMethod,
     oddBracketMethod: preferences?.oddBracketMethod,
     conflictAvoidance: preferences?.conflictAvoidance,
@@ -318,7 +332,11 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   };
   const markSidesOnBallot = (debates: Debate[]): Debate[] =>
     sidesOnBallot
-      ? debates.map((debate) => ({ ...debate, sidesConfirmed: false, flags: [...debate.flags, MANUAL_SIDES_FLAG] }))
+      ? debates.map((debate) => ({
+          ...debate,
+          sidesConfirmed: false,
+          flags: debate.flags.includes(MANUAL_SIDES_FLAG) ? debate.flags : [...debate.flags, MANUAL_SIDES_FLAG],
+        }))
       : debates;
 
   // Handle Manual draw: create empty debates with room ranks and venues
@@ -371,6 +389,8 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   let debateDrafts: (Pick<PairedDebateDraft, "bracket" | "teamsWithSides" | "pulledUpTeamIds"> & {
     breakCategoryId?: string;
     bracketPositions?: Partial<Record<DebateSide, number>>;
+    /** Elimination sides drawn at random and left to be confirmed (eliminationSideRule "random"). */
+    sidesUnconfirmed?: boolean;
   })[] = [];
   const eliminationByes: { team: Team; position: number; breakCategoryId?: string }[] = [];
 
@@ -383,6 +403,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         }))
       : [{ categoryId: undefined, teams: activeTeams }];
     const rankByTeamId = new Map(standings.map((standing, index) => [standing.teamId, standing.rank ?? index + 1]));
+    const randomEliminationSides = preferences?.eliminationSideRule === "random";
     const rankOf = (team: Team) => rankByTeamId.get(team.id) ?? Number.MAX_SAFE_INTEGER;
 
     for (const group of groups) {
@@ -416,18 +437,27 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       for (const room of plan.rooms) {
         const teamsWithSides = {} as Record<DebateSide, Team>;
         const bracketPositions: Partial<Record<DebateSide, number>> = {};
-        room.teams.forEach(({ team, side, position }) => {
-          teamsWithSides[side] = team;
-          bracketPositions[side] = position;
+        // By seed, the plan's seat order stands (top seed AFF / OG). Random, as Tabbycat's
+        // elimination generators: the room's teams are shuffled over its seats with the draw's seed.
+        const seats = room.teams.map(({ side }) => side);
+        const seated = randomEliminationSides ? shuffle(room.teams, rng) : room.teams;
+        seated.forEach(({ team, position }, index) => {
+          teamsWithSides[seats[index]] = team;
+          bracketPositions[seats[index]] = position;
         });
-        debateDrafts.push({ bracket: 0, teamsWithSides, breakCategoryId: group.categoryId, bracketPositions });
+        debateDrafts.push({
+          bracket: 0,
+          teamsWithSides,
+          breakCategoryId: group.categoryId,
+          bracketPositions,
+          ...(randomEliminationSides ? { sidesUnconfirmed: true } : {}),
+        });
       }
       plan.byes.forEach((bye) => eliminationByes.push({ ...bye, breakCategoryId: group.categoryId }));
     }
+  } else if (round.drawType === "round_robin" && isBP) {
+    debateDrafts = generateBPRoundRobinDraw(activeTeams, params.roundRobinIndex ?? round.seq, history.sides, sideLimits);
   } else if (round.drawType === "round_robin") {
-    if (isBP) {
-      throw new Error("Round-robin scheduling is only supported for two-team formats.");
-    }
     debateDrafts = generateRoundRobinDraw(
       activeTeams,
       params.roundRobinIndex ?? round.seq,
@@ -435,12 +465,18 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       tournament.format,
       nonPreallocatedSideRule,
       sideAllocationOptions,
-      rng
+      rng,
+      params.legacyRoundRobin === true
     );
+  } else if (round.drawType === "seeded" && isBP) {
+    // Tabbycat's SeededDrawManager for BP: every team on 0 points (one bracket), rows in seed
+    // order, rooms and positions settled by the BP assignment on position history alone.
+    debateDrafts = generatePowerPairedDraw(orderBySeed(activeTeams, rng), [], history, {
+      ...sideAllocationOptions,
+      sideRule: nonPreallocatedSideRule,
+      keepInputOrder: true,
+    }, rng);
   } else if (round.drawType === "seeded") {
-    if (isBP) {
-      throw new Error("Seeded draws are only supported for two-team formats.");
-    }
     debateDrafts = generateTwoTeamDraw(
       activeTeams,
       [],
@@ -480,6 +516,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       pullupPenalty: preferences?.pullupPenalty,
       bpPullupDistribution: preferences?.bpPullupDistribution,
       sideRule: nonPreallocatedSideRule,
+      bracketMetric,
     }, rng);
   } else {
     debateDrafts = generateTwoTeamDraw(activeTeams, standings, history, tournament.format, twoTeamConfig, rng);
@@ -515,8 +552,10 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       roomRank: idx + 1,
       importance: 0,
       resultStatus: "none" as DebateResultStatus,
-      sidesConfirmed: true,
-      flags: [],
+      sidesConfirmed: !draft.sidesUnconfirmed,
+      // Two-team ballots can record the sides taken (manual-ballot machinery); BP ballots cannot,
+      // so a BP room keeps its drawn seats, which the draw editor can still swap.
+      flags: draft.sidesUnconfirmed && !isBP ? [MANUAL_SIDES_FLAG] : [],
       ...requirements,
       teams: teamsSlotRecord as Record<DebateSide, any>,
       adjudicators: {

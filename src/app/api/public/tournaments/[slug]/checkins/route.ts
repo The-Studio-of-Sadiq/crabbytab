@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { PublicCheckinsSource } from "@/lib/publicView/projection";
-import { countCheckins } from "@/lib/publicView/snapshot";
+import { countCheckins, listCheckins } from "@/lib/publicView/snapshot";
 import { getPublicSections, publicCacheHeaders, PublicViewError } from "@/lib/publicView/store";
 
 export const runtime = "nodejs";
@@ -22,6 +22,7 @@ export async function GET(
         tournamentName: checkins.tournamentName,
         updatedAt: new Date(now).toISOString(),
         rounds: countCheckins(checkins, now),
+        ...(checkins.people ? { people: listCheckins(checkins, now) } : {}),
       },
       { headers: publicCacheHeaders(15, 30) }
     );

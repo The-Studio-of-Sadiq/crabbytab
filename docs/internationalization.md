@@ -1,20 +1,36 @@
 # Internationalization (UI languages)
 
-CrabbyTab's interface can be shown in more than one language. English is the
-source language. Bengali (বাংলা) ships as a working second language. Its
-catalogue was **machine-drafted** and still needs review by a fluent speaker.
+CrabbyTab's interface can be shown in 26 languages: English (the source
+language) and every language Tabbycat v2.12.1 offers (`settings.LANGUAGES`,
+apart from its `tzl` test locale): Arabic, Asturian, Bengali, Bulgarian,
+Catalan, Czech, German, Greek, Spanish, French, Hebrew, Hindi, Indonesian,
+Italian, Japanese, Kazakh, Malay, Portuguese, Romanian, Russian, Slovak,
+Turkish, Ukrainian, Vietnamese and Simplified Chinese. Arabic and Hebrew are
+laid out right to left.
 
-Only part of the app is translated so far: the public pages and the private
-portals. See [What is translated](#what-is-translated).
+**Every catalogue other than English was machine-drafted** and still needs
+review by a fluent speaker. Debate terms follow Tabbycat's own translation for
+that language where it has one; where Tabbycat's translation was empty or
+clearly wrong (for example Italian "Bye" → "Ciao"), the drafter chose a term
+and the switcher shows the "machine-drafted" label. Portuguese follows the
+Brazilian wording Tabbycat's `pt` catalogue uses.
+
+The public pages, the private portals and almost every staff page are
+translated. Messages produced by shared code in `src/lib/**`, server errors and
+emails are still English. See [What is translated](#what-is-translated).
 
 ## How it works
 
 CrabbyTab uses a small typed dictionary in `src/lib/i18n/` instead of a
 library such as next-intl. The reasons:
 
-- **Offline first.** Every catalogue is a TypeScript module bundled with the
-  app, so switching language never needs the network. That includes a
-  portal that was cached for offline use.
+- **Offline first, small first load.** English is bundled with every page
+  as the fallback. Every other catalogue is its own code-split chunk
+  (`loadCatalogue` in `src/lib/i18n/messages/index.ts`), fetched once when
+  that language is chosen and then cached by the service worker with the
+  rest of `/_next/static`, so it keeps working offline afterwards. A
+  language never opened before cannot load offline; the page then stays in
+  English (key by key fallback) and logs a warning.
 - **No routing changes.** Library i18n for the App Router usually puts the
   locale in the URL (`/bn/...`) or reads it from a cookie on the server. A
   locale segment would break every existing private URL, QR code and printed
@@ -29,7 +45,7 @@ library such as next-intl. The reasons:
 | --- | --- |
 | `src/lib/i18n/config.ts` | `LOCALES`, text direction, locale matching and selection (`resolveLocale`), and the pre-paint `localeInitScript` |
 | `src/lib/i18n/messages/en.ts` | English source catalogue. Every key is defined here. |
-| `src/lib/i18n/messages/<code>.ts` | One catalogue per language. Missing keys fall back to English. |
+| `src/lib/i18n/messages/bn.ts`, `messages/locales/<code>.json` | One catalogue per language (Bengali as TypeScript, the others as JSON), loaded on demand. Missing keys fall back to English. |
 | `src/lib/i18n/translate.ts` | Lookup, `{placeholder}` interpolation, plurals and `<tag>` rich text |
 | `src/lib/i18n/format.ts` | Cached `Intl` formatters for numbers, decimals, dates and lists |
 | `src/components/i18n/I18nProvider.tsx` | `I18nProvider`, `useI18n()` and `useTournamentLocale()` |
@@ -47,8 +63,11 @@ library such as next-intl. The reasons:
    (`/[slug]/config/visibility`). Participants often leave their browser in
    English even when a tournament runs in another language, so the
    organiser's choice comes before the browser.
-3. **The browser's languages** (`navigator.languages`), in order. A regional
-   tag such as `bn-BD` matches `bn`.
+3. **The browser's languages** (`navigator.languages`), in order. Trailing
+   subtags are dropped until one matches: `bn-BD` → `bn`, `pt-BR` → `pt`,
+   `zh-Hans-CN` → `zh-Hans`; `zh` and `zh-CN`/`zh-SG` also match Simplified
+   Chinese. Traditional Chinese tags (`zh-TW`, `zh-HK`, `zh-Hant`) match
+   nothing rather than showing Simplified characters.
 4. **English.**
 
 ### `lang`, `dir` and the first paint
@@ -86,16 +105,21 @@ tag if a tournament needs native digits.
 
 ## Translating a new string
 
-1. Add the key to `src/lib/i18n/messages/en.ts`. Name it `area.subject`, for
-   example `teamPortal.emptyTitle`. Use `common.*` only for words that mean
-   the same thing everywhere.
+1. Add the key to the English catalogue: the page area's own file
+   (`src/lib/i18n/messages/areas/en-*.ts`, or its part under
+   `areas/setup/*.en.ts` / `areas/tabroom/*.en.ts`, keys
+   `setup.<part>.<subject>`, `tabroom.<part>.<subject>`), or
+   `src/lib/i18n/messages/en.ts` for words shared across areas. Name it
+   `area.subject`, for example `teamPortal.emptyTitle`. Use `common.*` only
+   for words that mean the same thing everywhere.
 2. In the component, call `const { t } = useI18n();` and render
    `{t("teamPortal.emptyTitle")}`. Keys are type-checked, so a typo fails the
    build.
-3. Add the same key to every other catalogue. `npm test` fails until you do
-   (see [Tests](#tests)). If you cannot translate it yet, copy the English
-   text and mention it in the pull request. A missing key still falls back to
-   English at runtime.
+3. Add the same key to every other catalogue (`bn` and each
+   `locales/<code>.json`, with the plural categories each language needs).
+   `npm test` fails until you do (see [Tests](#tests)). If you cannot
+   translate it yet, copy the English text and mention it in the pull
+   request. A missing key still falls back to English at runtime.
 
 Message syntax:
 
@@ -132,9 +156,10 @@ translated.
    ```
    Use a BCP 47 primary language code. Add a region (`pt-BR`) only if you
    ship regional variants.
-2. Create `src/lib/i18n/messages/es.ts` exporting `const es: Catalogue = { ... }`.
-   Copy the keys from `en.ts`.
-3. Register the catalogue in `src/lib/i18n/messages/index.ts`.
+2. Create `src/lib/i18n/messages/locales/es.json` with every key from
+   `en.ts` (a flat JSON object).
+3. Add a loader for it in `src/lib/i18n/messages/index.ts` (a literal
+   `import()` path, so the bundler makes it its own chunk).
 4. Run `npm test`. The catalogue test lists every missing key, unknown key,
    missing plural category, and placeholder or markup mismatch.
 5. Check the public page and both portals in the new language. Look at long
@@ -168,39 +193,53 @@ mirror correctly:
   and the same placeholders and markup as English.
 - `src/lib/i18n/config.test.ts` covers locale matching, the selection order,
   text direction and the pre-paint script.
-- `src/lib/i18n/translate.test.ts` covers interpolation, fallback, plurals,
-  rich text and formatting.
+- `src/lib/i18n/translate.test.ts` covers on-demand loading (English until a
+  catalogue has loaded), interpolation, fallback, plurals, rich text and
+  formatting.
 
 ## What is translated
 
-Translated:
+Translated (the viewer's language unless noted):
 
-- The public tournament page (`/[slug]/public`) and its participant,
-  institution, adjudicator and motion-statistics panels
-- Public check-in counts (`/[slug]/checkins/public`) and the public audit log
-  (`/[slug]/audit/public`)
-- The team and adjudicator private portals, including the passcode screen,
-  self check-in, feedback forms, tournament feedback questions and in-portal
-  ballot entry
-- The language menu in the staff account menu
-- Tab-room pages (`tabroom.*`): draw, allocation, preformed panels, admin
-  check-ins, and the printable ballots and feedback sheets. Printed sheets use
-  the tournament's public language (`usePrintTranslator`), whatever language
-  the tab director's screen is in. Draw-check issues, allocator warnings and
-  venue/clash reasons from `src/lib/**` are still English.
+- **Public pages:** the public tournament page (`/[slug]/public`) with its
+  participant, institution, team and adjudicator record, motion-statistics
+  and results panels; public check-ins, the public audit log, the public
+  schedule, public ballot and feedback forms, and public registration
+  (`/register/[slug]`). On these pages the tournament's public language
+  applies when the viewer has not chosen one.
+- **Private portals:** the team and adjudicator portals, including the
+  passcode screen, self check-in, feedback forms, tournament feedback
+  questions and in-portal ballot entry.
+- **Staff pages:** the navbar, sidebar and sync menu; the tournament home;
+  draw, allocation, preformed panels and check-ins; results, ballot entry and
+  ballot intake; standings, breaks, feedback review, motions, analytics and
+  the projector display (`/[slug]/display`); settings, imports, exports,
+  backups and sync conflicts, staff and API access, email, private URLs,
+  registration admin, audit log, schedule and rehearsal tools; shared
+  dialogs (confirmations, rule overrides, public releases, the dialog close
+  button, notifications and the theme menu).
+- **Entry pages:** home, login and password reset, invitations, the
+  tournament list, cross-tournament motion statistics, the setup wizard,
+  tournament import and demo tournament pages, and the API reference text
+  (`/tournaments/api`).
+- **Printed ballots and feedback forms** use the tournament's public
+  language (`usePrintTranslator`), whatever language the tab director's
+  screen is in.
 
-Not translated yet (English only):
+Still English:
 
-- The staff tournament admin: navbar, sidebar, draw, allocation, results,
-  standings, breaks, settings, imports, check-ins, feedback review, email,
-  private URLs, audit and analytics
-- The home, login and forgot-password pages, the tournament list, and the
-  setup wizard and import pages
-- The projector display (`/[slug]/display`) and printable ballots and
-  feedback sheets
-- Messages from shared code that the portals show as they are: score
-  validation (`src/lib/scoring/validator.ts`), feedback-question validation
-  (`src/lib/feedback/questions.ts`), sync and server errors from
-  `TournamentContext` and the API routes, and offline banners
-  (`OfflineSupport`)
-- Email notifications and the `<title>`/metadata in `src/app/layout.tsx`
+- **Messages produced by shared code in `src/lib/**` and
+  `src/features/**/application`**, which pages show as they are: draw-check
+  issues, allocator warnings, venue and clash reasons, tournament-rule
+  violations, score and feedback-question validation, backup validation
+  issues, schedule-event validation, sync and upload status
+  (`TournamentContext`), the record kinds in the sync-conflicts list, and the
+  reasons a public release is blocked.
+- **Server responses:** errors from the API routes (`src/app/api/**`) and
+  the REST API, the OpenAPI document, and the route summaries and
+  descriptions on the API reference page.
+- **Emails** (campaigns and automatic notifications) and the
+  `<title>`/metadata of pages (`src/app/layout.tsx`, the API reference).
+- **Data entered by organisers or saved into records** (names, motions,
+  feedback questions, audit summaries, CSV exports), which is never
+  translated (see [Translating a new string](#translating-a-new-string)).

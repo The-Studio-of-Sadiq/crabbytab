@@ -1,8 +1,12 @@
+"use client";
+
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { encodeCode39, supportsCode39 } from "@/lib/checkins/code39";
 
 export function Code39Barcode({ value, label }: { value: string; label: string }) {
+  const { t } = useI18n();
   if (!supportsCode39(value)) {
-    return <span className="font-mono text-xs">No Code 39 barcode available for this ID.</span>;
+    return <span className="font-mono text-xs">{t("common.noBarcode")}</span>;
   }
   const elements = encodeCode39(value);
   const width = elements.reduce((total, element) => total + element.width, 0);
@@ -12,7 +16,7 @@ export function Code39Barcode({ value, label }: { value: string; label: string }
     <svg
       viewBox={`0 0 ${width} 36`}
       role="img"
-      aria-label={`${label} barcode ${value}`}
+      aria-label={t("common.barcodeLabel", { label, value })}
       className="h-10 w-full max-w-[280px]"
       preserveAspectRatio="none"
     >

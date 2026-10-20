@@ -1,4 +1,6 @@
-import type { Debate, DebateSide, Motion, MotionsStatus } from "@/types";
+import type { Debate, DebateSide, Motion, MotionsStatus, Round } from "@/types";
+import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
+import { scheduleGroupOf } from "@/features/tournament/application/schedule";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { motionSeqInRound } from "@/lib/motions/roundMotions";
 
@@ -112,5 +114,41 @@ export function motionsForDisplay(
     (includeUnreleased ||
       motion.released === true ||
       (status === "info_slides_released" && Boolean(motion.infoSlide?.trim())))
+  );
+}
+
+type ProjectorRound = Pick<Round, "id" | "seq" | "stage" | "cancelled" | "scheduleGroup" | "drawStatus"> & {
+  /** Set by the public projection: whether the round is on the public draw page. */
+  drawPublic?: boolean;
+};
+
+/**
+ * The rounds the projector shows (Tabbycat draw-display-current-rounds): the active round and,
+ * with `concurrent`, every other live round of the same stage in its schedule slot, by sequence.
+ * Viewers who are not staff only see rounds whose draw is public (the projection's `drawPublic`
+ * mark, or for older views a fully released draw while the legacy public-draw switch is on).
+ */
+export function projectorRounds<R extends ProjectorRound>(
+  activeRound: R | null | undefined,
+  rounds: readonly R[],
+  options: { staff: boolean; legacyPublicDraw: boolean; concurrent: boolean }
+): R[] {
+  if (!activeRound) return [];
+  const slot = scheduleGroupOf(activeRound);
+  const candidates = options.concurrent
+    ? [
+        activeRound,
+        ...rounds.filter((round) =>
+          round.id !== activeRound.id &&
+          round.cancelled !== true &&
+          round.stage === activeRound.stage &&
+          scheduleGroupOf(round) === slot
+        ),
+      ].sort((left, right) => left.seq - right.seq)
+    : [activeRound];
+  if (options.staff) return candidates;
+  return candidates.filter((round) =>
+    round.cancelled !== true &&
+    (round.drawPublic ?? (options.legacyPublicDraw && isDrawPubliclyReleased(round)))
   );
 }

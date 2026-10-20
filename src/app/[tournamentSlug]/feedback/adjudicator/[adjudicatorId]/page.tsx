@@ -19,6 +19,7 @@ import {
 import { agreementTally, analyzeFeedbackAnswers, type FeedbackQuestionAnalysis } from "@/lib/feedback/answers";
 import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 import { MAX_SCORE_CHANGE_REASON_LENGTH } from "@/lib/feedback/scoreHistory";
+import { isAdjudicatorTester, testedRounds } from "@/lib/adjudicators/testers";
 import { FeedbackReviewControls } from "@/features/tournament/components/FeedbackReviewControls";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -154,6 +155,10 @@ export default function AdjudicatorFeedbackDetailPage() {
     [adjudicator?.scoreHistory]
   );
   const roundsById = useMemo(() => new Map(rounds.map((round) => [round.id, round])), [rounds]);
+  const roundsTested = useMemo(
+    () => testedRounds(adjudicators, debates).get(adjudicatorId) ?? new Set<string>(),
+    [adjudicators, debates, adjudicatorId]
+  );
 
   const backLink = (
     <Link href={`/${tournament?.slug}/feedback`} className={buttonClasses({ variant: "ghost", size: "sm", className: "-ms-2.5" })}>
@@ -220,7 +225,14 @@ export default function AdjudicatorFeedbackDetailPage() {
         <PageHeader
           title={adjudicator.name}
           description={adjudicator.institutionName ?? t("common.independent")}
-          meta={adjudicator.trainee ? <Badge>{t("role.trainee")}</Badge> : undefined}
+          meta={
+            adjudicator.trainee || isAdjudicatorTester(adjudicator) ? (
+              <>
+                {adjudicator.trainee && <Badge>{t("role.trainee")}</Badge>}
+                {isAdjudicatorTester(adjudicator) && <Badge tone="info">{t("results.feedback.tester.badge")}</Badge>}
+              </>
+            ) : undefined
+          }
         />
       </div>
 
@@ -328,7 +340,14 @@ export default function AdjudicatorFeedbackDetailPage() {
                 const role = row.role ? roleLabel(row.role) : t("results.feedback.detail.notAllocated");
                 return (
                   <TR key={row.roundId}>
-                    <TD className="font-medium">{row.roundName}</TD>
+                    <TD className="font-medium">
+                      {row.roundName}
+                      {roundsTested.has(row.roundId) && (
+                        <Badge tone="info" className="ms-2" title={t("results.feedback.tester.testedHelp")}>
+                          {t("results.feedback.tester.tested")}
+                        </Badge>
+                      )}
+                    </TD>
                     <TD className="text-fg-muted">
                       {venue ? t("results.feedback.detail.roleWithVenue", { role, venue }) : role}
                     </TD>
@@ -352,6 +371,7 @@ export default function AdjudicatorFeedbackDetailPage() {
             <THead>
               <TR>
                 <TH>{t("results.feedback.detail.col.when")}</TH>
+                <TH>{t("results.feedback.field.round")}</TH>
                 <TH>{t("results.feedback.field.score")}</TH>
                 <TH>{t("results.feedback.detail.col.change")}</TH>
                 <TH>{t("results.feedback.detail.col.by")}</TH>
@@ -362,6 +382,7 @@ export default function AdjudicatorFeedbackDetailPage() {
               {scoreChanges.map((change, index) => (
                 <TR key={`${change.timestamp}-${change.field}-${index}`}>
                   <TD className="whitespace-nowrap text-fg-muted">{formatDateTime(change.timestamp) || change.timestamp}</TD>
+                  <TD className="text-fg-muted">{(change.roundId && roundsById.get(change.roundId)?.name) || "—"}</TD>
                   <TD className="font-medium">
                     {t(change.field === "baseScore" ? "results.feedback.detail.fieldBase" : "results.feedback.detail.fieldTest")}
                   </TD>
@@ -375,7 +396,7 @@ export default function AdjudicatorFeedbackDetailPage() {
                 </TR>
               ))}
               {scoreChanges.length === 0 && (
-                <TableEmpty colSpan={5}>{t("results.feedback.detail.changesEmpty")}</TableEmpty>
+                <TableEmpty colSpan={6}>{t("results.feedback.detail.changesEmpty")}</TableEmpty>
               )}
             </TBody>
           </Table>

@@ -3,7 +3,33 @@ import type { DocumentReference, Firestore, Transaction } from "firebase-admin/f
 import type { NextRequest } from "next/server";
 import type { Tournament } from "@/types";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
-import { resolveStaffPermissions, type StaffPermission } from "@/lib/staffPermissions";
+import {
+  normalizeCustomGroups,
+  resolveStaffPermissions,
+  usesCustomGroups,
+  type CustomPermissionGroup,
+  type StaffPermission,
+} from "@/lib/staffPermissions";
+
+/** Organiser-defined permission groups (docs/staff-access.md), server-only. */
+export function customPermissionGroupsRef(tournamentRef: DocumentReference): DocumentReference {
+  return tournamentRef.collection("serverOnly").doc("staffPermissionGroups");
+}
+
+/**
+ * Reads the custom groups only when the staff member uses one, so ordinary assistants cost no
+ * extra read. Inside a transaction the read is part of it.
+ */
+export async function loadCustomPermissionGroups(
+  tournamentRef: DocumentReference,
+  staff: { groups?: unknown } | undefined,
+  transaction?: Transaction
+): Promise<CustomPermissionGroup[]> {
+  if (!usesCustomGroups(staff)) return [];
+  const ref = customPermissionGroupsRef(tournamentRef);
+  const snapshot = transaction ? await transaction.get(ref) : await ref.get();
+  return normalizeCustomGroups(snapshot.data()?.groups);
+}
 
 /**
  * Server-side authorization of data-entry staff (docs/staff-access.md). Every assistant route
@@ -58,7 +84,13 @@ export async function authorizeDataEntryStaff(
     return { error: "Data-entry access is not assigned to this account.", status: 403 };
   }
   const tournament = { ...tournamentSnapshot.data(), id: tournamentSnapshot.id } as Tournament;
-  const permissions = resolveStaffPermissions(staff, tournament.preferences?.assistantAccess);
+  let customGroups: CustomPermissionGroup[];
+  try {
+    customGroups = await loadCustomPermissionGroups(tournamentRef, staff);
+  } catch {
+    return { error: "Could not check tournament access.", status: 503 };
+  }
+  const permissions = resolveStaffPermissions(staff, tournament.preferences?.assistantAccess, customGroups);
   if (permissions.length === 0) {
     return { error: "Data-entry access is switched off for this tournament.", status: 403 };
   }
@@ -80,9 +112,10 @@ export class DataEntryAccessChangedError extends Error {
  */
 export async function currentDataEntryPermissions(
   transaction: Transaction,
-  authorization: Pick<DataEntryAuthorization, "staffRef" | "tournament">
+  authorization: Pick<DataEntryAuthorization, "staffRef" | "tournament" | "tournamentRef">
 ): Promise<StaffPermission[]> {
   const staff = (await transaction.get(authorization.staffRef)).data();
   if (staff?.role !== "dataEntry") throw new DataEntryAccessChangedError();
-  return resolveStaffPermissions(staff, authorization.tournament.preferences?.assistantAccess);
+  const customGroups = await loadCustomPermissionGroups(authorization.tournamentRef, staff, transaction);
+  return resolveStaffPermissions(staff, authorization.tournament.preferences?.assistantAccess, customGroups);
 }

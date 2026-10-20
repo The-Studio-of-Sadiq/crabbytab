@@ -184,6 +184,12 @@ export type FeedbackSourceRole = "team" | "chair" | "panellist" | "trainee";
 /** The role the rated adjudicator held in that debate. */
 export type FeedbackTargetRole = "chair" | "panellist" | "trainee";
 export type FeedbackWeightKey = `${FeedbackSourceRole}_on_${FeedbackTargetRole}`;
+/** See Round.roundRobinAlgorithm. */
+export type RoundRobinAlgorithm = "berger_seed";
+/** See TournamentPreferences.eliminationSideRule. */
+export type EliminationSideRule = "by_seed" | "random";
+/** See TournamentPreferences.preformedPanelPlacement. */
+export type PreformedPanelPlacement = "optimise" | "direct";
 /** "fixed": every debate gets the same panel size; "by_priority": odd panels grow in priority order. */
 export type PanelSizingMode = "fixed" | "by_priority";
 export type BreakQualificationRule =
@@ -208,6 +214,8 @@ export interface FeedbackQuestion {
 /** One change to an adjudicator's base or test score, newest last. */
 export interface AdjudicatorScoreChange {
   field: "baseScore" | "testScore";
+  /** The tournament's current round when the score was set (Tabbycat AdjudicatorBaseScoreHistory.round); absent before any round or in older entries. */
+  roundId?: string;
   /** Undefined: there was no test score (or it was cleared). */
   previous?: number;
   value?: number;
@@ -218,6 +226,11 @@ export interface AdjudicatorScoreChange {
 }
 
 export interface TournamentPreferences {
+  /**
+   * Which Tabbycat name teams with a `reference` show (lib/teamNames.ts): "long" (absent;
+   * "Victoria 1") or "short" ("VUW 1"). Teams without a reference keep their typed name.
+   */
+  teamNameDisplay?: "long" | "short";
   teamsInDebate: 4 | 2;
   substantiveSpeakers: number; // 2 for BP, 3 for UADC/Australs/WSDC
   replyScoresEnabled: boolean; // true for Australs/WSDC/UADC, false for BP
@@ -262,6 +275,12 @@ export interface TournamentPreferences {
   checkInExpiresAfterHours?: number;
   publicCheckInStatus?: boolean;
   /**
+   * Tabbycat `show_seed_in_importer`: whether the team CSV import and the team registration form
+   * ask for a seed, as a number or as a title (Unseeded / Free / Half / Full seed = 0–3; see
+   * src/lib/teamSeeds.ts). Absent = "off".
+   */
+  teamSeedMode?: TeamSeedMode;
+  /**
    * UI language for public pages and private portals when the viewer has not picked one
    * (a code from LOCALES in src/lib/i18n/config.ts). Absent = follow each viewer's browser.
    */
@@ -302,6 +321,12 @@ export interface TournamentPreferences {
   /** How voting adjudicator strength is matched to debate priority. */
   adjudicatorPanelStrategy?: AdjudicatorPanelStrategy;
   usePreformedPanels?: boolean;
+  /**
+   * How preformed panels are matched to debates. "optimise" (absent): a Hungarian assignment by
+   * importance, conflicts and history. "direct": the i-th panel by room rank goes to the debate
+   * with the i-th room rank, without optimisation (Tabbycat's direct preformed allocator).
+   */
+  preformedPanelPlacement?: PreformedPanelPlacement;
   /** How auto-allocation sizes voting panels. Absent -> "fixed". */
   panelSizingMode?: PanelSizingMode;
   /** Multiplier per feedback source/target pair when averaging feedback. Absent keys weigh 1. */
@@ -335,6 +360,12 @@ export interface TournamentPreferences {
 
   byeTeamResults?: ByeTeamResults; // "absent"
   byeTeamSelectionMethod?: ByeTeamSelectionMethod; // "none"
+  /**
+   * Sides in elimination rounds. "by_seed" (absent): the higher seed takes the first side
+   * (AFF / OG) and sides are confirmed. "random": sides are drawn at random with the draw's seed
+   * and left unconfirmed, as Tabbycat; in two-team formats each ballot records the sides taken.
+   */
+  eliminationSideRule?: EliminationSideRule;
 
   /** Tabbycat Scoring & Ballots Features */
   marginIncludesDissenters?: boolean; // If checked, a team's winning margin includes dissenting adjudicators
@@ -355,6 +386,16 @@ export interface TournamentPreferences {
   individualBallots?: boolean;
   /** Absent = "chair". See PrivateBallotConfirmation. */
   privateBallotConfirmation?: PrivateBallotConfirmation;
+  /**
+   * Tabbycat `participant_ballots` "private-urls" (on) / "off": adjudicators may submit ballots
+   * through their private URLs. Absent = on. Enforced by the private sync route.
+   */
+  privateUrlBallots?: boolean;
+  /**
+   * Tabbycat `allow_self_split_ballots`: a solo adjudicator on a voting ballot may declare their
+   * decision a 2:1 split (Karl Popper rules). Absent = off. See lib/ballots/result selfSplitAllowed.
+   */
+  allowSelfSplitBallots?: boolean;
   /**
    * @deprecated Superseded by winnersInBallots ("low-points"). Still read when winnersInBallots is
    * absent, and kept in step with it on save, so older settings and clients behave the same.
@@ -426,6 +467,13 @@ export interface TournamentPreferences {
    */
   /** Tabbycat `public_draw`. Absent: "all" unless the legacy `publicDraw` is false. */
   publicDrawMode?: PublicDrawMode;
+  /**
+   * Tabbycat "set current round": the round public pages ("current round" draw mode, projector)
+   * and portals treat as current, with its concurrent rounds. Absent (or naming a deleted or
+   * cancelled round) = derived: the latest publicly released draw. Never makes a draw public by
+   * itself; see currentDrawRoundIds() in src/lib/publicFeatures.ts.
+   */
+  currentRoundId?: string;
   /** Tabbycat `public_record`: public team and adjudicator record pages. Absent = on. */
   publicRecordPages?: boolean;
   /** Tabbycat `adjudicators_tab_released` / `adjudicators_tab_shows`. Absent = unreleased / "final". */
@@ -472,6 +520,13 @@ export interface TournamentPreferences {
   tournamentStaff?: string;
   /** Tabbycat `public_motions_order`. Absent = "forward" (CrabbyTab's order before this setting). */
   publicMotionsOrder?: PublicMotionsOrder;
+  /**
+   * Tabbycat `motion_tab_released`: the public motion statistics. Absent = follows `publicMotions`
+   * (CrabbyTab's behaviour before this setting); true releases them even without the motions page.
+   */
+  motionTabReleased?: boolean;
+  /** Tabbycat `show_motions_in_results`: the debated motion on public results and record pages. Absent = off. */
+  showMotionsInResults?: boolean;
   /** Tabbycat `participant_ballots` / `participant_feedback` = "public": forms without a private URL. */
   publicBallotForm?: boolean;
   publicFeedbackForm?: boolean;
@@ -627,9 +682,21 @@ export interface PublicAuditEvent {
 }
 
 export type RoundStage = "preliminary" | "elimination";
-/** "seeded": two-team only; one bracket ordered by Team.seed (higher is stronger), as Tabbycat. */
+/**
+ * "seeded": one bracket ordered by Team.seed (higher is stronger), as Tabbycat.
+ * "round_robin": teams ordered by Team.seed (two-team: Berger schedule; BP: Tabbycat's preset tables).
+ */
 export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual" | "seeded";
-export type DrawStatus = "none" | "draft" | "confirmed" | "released";
+
+/** How team seeds are asked for (Tabbycat `show_seed_in_importer`). */
+export type TeamSeedMode = "off" | "numeric" | "title";
+/**
+ * Stored draw status. "confirmed" and "released" both mean the public release (CrabbyTab's original
+ * meaning, kept for existing data and the API); "locked" is Tabbycat's confirmed-but-unreleased
+ * stage and "teams_released" Tabbycat's teams-only release. Read through drawStageOf() in
+ * src/lib/draw/drawStatus.ts.
+ */
+export type DrawStatus = "none" | "draft" | "locked" | "teams_released" | "confirmed" | "released";
 /** Tabbycat's Round.motions_status: info slides can be shown before the motions themselves. */
 export type MotionsStatus = "not_released" | "info_slides_released" | "motions_released";
 
@@ -674,6 +741,13 @@ export interface Round {
   preallocatedSides?: Record<string, TwoTeamSide>;
   /** Seed of the draw generator's random source for the current draw; regenerating with it reproduces the draw. */
   drawSeed?: number;
+  /**
+   * Two-team round robin: the schedule the round's draw was generated with. "berger_seed" is
+   * Tabbycat's Berger schedule in seed order. Absent on a drawn round-robin round = the legacy
+   * rotation in stored team order (drawn before Berger/seed ordering existed); a cycle begun
+   * with it keeps it, so the schedule never changes mid-cycle (see legacyRoundRobinInProgress).
+   */
+  roundRobinAlgorithm?: RoundRobinAlgorithm;
   /** Tabbycat Round.weight: team points earned in this round count this many times. Absent = 1. */
   weight?: number;
 }
@@ -718,6 +792,18 @@ export interface Institution {
   venueRequirements?: VenueRequirements;
   /** Soft room preferences for every team of this institution. */
   venueConstraints?: VenueConstraint[];
+  /**
+   * Coaches / representatives (Tabbycat Coach): people of the institution who are not speakers or
+   * adjudicators. Organiser-only (never on public pages or in assistant copies); they receive
+   * custom emails sent to the "Institution coaches" group.
+   */
+  coaches?: Coach[];
+}
+
+export interface Coach {
+  id: string;
+  name: string;
+  email?: string;
 }
 
 export interface VenueRequirements {
@@ -731,6 +817,10 @@ export interface VenueRequirements {
 export interface Speaker {
   id: string;
   name: string;
+  /** Tabbycat Person.last_name: stored family name, used for "last names" code names. Absent = last word of `name`. */
+  lastName?: string;
+  /** Tabbycat Person.pronoun (e.g. "she/her"); can be pre-printed on ballots. */
+  pronoun?: string;
   email?: string;
   gender?: string;
   /** Overrides the institution region for diversity displays. */
@@ -749,6 +839,14 @@ export interface Speaker {
   anonymous?: boolean;
   /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
   codeName?: string;
+  /**
+   * Optional per-speaker private URL (Tabbycat Person.url_key), alongside the team's URL. The
+   * speaker's URL opens their team's portal and acts only for that team. Organiser-only: removed
+   * from assistant copies and never returned by participant or public routes.
+   */
+  privateUrlKey?: string;
+  /** Passcode for the speaker's private URL (as for team and adjudicator URLs). */
+  privatePasscode?: string;
   /** Swing teams: the registered speaker this swing speaker stands in for, if any. */
   swingSourceSpeakerId?: string;
 }
@@ -784,12 +882,39 @@ export interface Team {
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
   /**
+   * Index of the speakers' private URL keys (`speakers[].privateUrlKey`), so the server can find a
+   * team by a speaker key with one `array-contains` query. Written with the keys; a key listed
+   * here but no longer on a speaker opens nothing.
+   */
+  speakerUrlKeys?: string[];
+  /**
    * A swing (composite) team formed to fill a room. It is drawn only in `swingRoundIds`, its
    * results count for its opponents, and it is left out of team and speaker standings and breaks.
    */
   isSwing?: boolean;
   /** Rounds a swing team is drawn in. */
   swingRoundIds?: string[];
+  /**
+   * Tabbycat Team.reference ("1", "A"): the name without the institution. Set only for teams named
+   * the Tabbycat way (lib/teamNames.ts); then `name` is derived from it. Absent = `name` as typed.
+   */
+  reference?: string;
+  /** Tabbycat Team.short_reference: the reference in the short name, when different. */
+  shortReference?: string;
+  /** Tabbycat Team.use_institution_prefix: names read "Institution reference". */
+  useInstitutionPrefix?: boolean;
+  /** Derived (Tabbycat long_name): institution name + reference. Kept with `reference`. */
+  longName?: string;
+  /** Derived (Tabbycat short_name): institution code + short reference. Kept with `reference`. */
+  shortName?: string;
+  /**
+   * Tabbycat Team.type "composite": speakers from more than one institution. Unlike a swing team
+   * it is a normal team (standings, breaks); its other institutions count as its own for
+   * adjudicator conflicts and same-institution draw avoidance.
+   */
+  isComposite?: boolean;
+  /** The composite team's other institutions (besides `institutionId`). */
+  compositeInstitutionIds?: string[];
 }
 
 export interface AdjudicatorConflict {
@@ -803,6 +928,10 @@ export interface Adjudicator {
   id: string;
   tournamentId: string;
   name: string;
+  /** Tabbycat Person.last_name. Absent = last word of `name`. */
+  lastName?: string;
+  /** Tabbycat Person.pronoun (e.g. "they/them"); can be pre-printed on ballots. */
+  pronoun?: string;
   email?: string;
   institutionId?: string;
   institutionName?: string;
@@ -828,6 +957,11 @@ export interface Adjudicator {
   adjCore?: boolean;
   /** Breaking adjudicator (shown on the public breaking adjudicators list when released). */
   breaking?: boolean;
+  /**
+   * Tabbycat Adjudicator.is_tester: tests other adjudicators (members of the adjudication core
+   * always do). An adjudicator counts as tested in a round when a tester sat on their panel.
+   */
+  isTester?: boolean;
   /** Tabbycat Person.anonymous: name redacted on public pages. */
   anonymous?: boolean;
   /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
@@ -844,7 +978,10 @@ export interface Venue {
   tournamentId: string;
   name: string;
   priority: number; // higher = better room
+  /** First (or only) room category; older data has only this. Read both through venueCategoryNames. */
   category?: string;
+  /** Every room category (Tabbycat VenueCategory is many-to-many), including `category`. */
+  categories?: string[];
   capacity?: number;
   accessible?: boolean;
   online?: boolean;
@@ -1015,6 +1152,11 @@ export interface BallotSubmission {
   checksVersion?: number;
   discardedBy?: string;
   discardedTimestamp?: string;
+  /**
+   * Voting ballot of a solo adjudicator who declared a 2:1 split (allowSelfSplitBallots): the
+   * winner is recorded with 2 votes and the loser with 1, out of 3.
+   */
+  selfSplit?: boolean;
 }
 
 export interface Motion {
@@ -1083,6 +1225,11 @@ export interface BreakCategory {
   priority: number;
   /** Maximum breaking and reserve teams selected from one institution. */
   maxPerInstitution?: number;
+  /**
+   * Public tab limit for this category (Tabbycat's BreakCategory.limit): the public break category
+   * team tab shows only teams ranked this high or better. Absent or 0 = no limit.
+   */
+  limit?: number;
   qualificationRule?: BreakQualificationRule;
   /** Manual break decisions for this category, keyed by team id. */
   teamOverrides?: Record<string, BreakTeamOverride>;

@@ -14,9 +14,16 @@ import { Select, Textarea } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StaffInvitationsPanel } from "@/features/tournament/components/StaffInvitationsPanel";
 import { StaffAccessSettings } from "@/features/tournament/components/StaffAccessSettings";
+import { PublicFormsSettings } from "@/features/tournament/components/PublicFormsSettings";
 import { StaffPermissionGroups } from "@/features/tournament/components/StaffPermissionGroups";
+import { StaffCustomGroupsEditor } from "@/features/tournament/components/StaffCustomGroupsEditor";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { isPermissionGroupId, type PermissionGroupId } from "@/lib/staffPermissions";
+import {
+  isCustomGroupId,
+  isPermissionGroupId,
+  normalizeCustomGroups,
+  type CustomPermissionGroup,
+} from "@/lib/staffPermissions";
 
 interface StaffMember {
   uid: string;
@@ -34,8 +41,10 @@ function errorNotice(caught: unknown, fallback: MessageKey): Notice {
   return caught instanceof Error && caught.message ? { text: caught.message } : { key: fallback };
 }
 
-function memberGroups(member: StaffMember): PermissionGroupId[] {
-  const groups = Array.isArray(member.groups) ? member.groups.filter(isPermissionGroupId) : [];
+function memberGroups(member: StaffMember): string[] {
+  const groups = Array.isArray(member.groups)
+    ? member.groups.filter((group): group is string => isPermissionGroupId(group) || isCustomGroupId(group))
+    : [];
   return groups.length > 0 ? groups : ["tab_assistant"];
 }
 
@@ -51,6 +60,7 @@ export default function StaffPage() {
   const [error, setError] = useState<Notice | null>(null);
   const [message, setMessage] = useState<Notice | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<StaffMember | null>(null);
+  const [customGroups, setCustomGroups] = useState<CustomPermissionGroup[]>([]);
 
   const renderNotice = (notice: Notice) => {
     if ("text" in notice) return notice.text;
@@ -79,8 +89,15 @@ export default function StaffPage() {
           staff?: StaffMember[];
         };
         if (!response.ok) throw new Error(result.error || "");
+        const groupsResponse = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/staff/groups`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const groupsResult = await groupsResponse.json() as { error?: string; groups?: unknown };
+        if (!groupsResponse.ok) throw new Error(groupsResult.error || "");
         if (active) {
           setStaff(result.staff || []);
+          setCustomGroups(normalizeCustomGroups(groupsResult.groups));
         }
       } catch (loadError) {
         if (active) setError(errorNotice(loadError, "setup.staff.loadError"));
@@ -153,7 +170,27 @@ export default function StaffPage() {
     }
   };
 
-  const saveGroups = async (uid: string, groups: PermissionGroupId[]) => {
+  const saveCustomGroups = async (groups: CustomPermissionGroup[]) => {
+    if (!user || !tournament) return;
+    setError(null);
+    setMessage(null);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/staff/groups`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ groups }),
+      });
+      const result = await response.json() as { error?: string; groups?: unknown };
+      if (!response.ok) throw new Error(result.error || "");
+      setCustomGroups(normalizeCustomGroups(result.groups));
+      setMessage({ key: "setup.staff.customGroupsSaved" });
+    } catch (saveError) {
+      setError(errorNotice(saveError, "setup.staff.customGroupsError"));
+    }
+  };
+
+  const saveGroups = async (uid: string, groups: string[]) => {
     if (!user || !tournament) return;
     setError(null);
     setMessage(null);
@@ -196,6 +233,10 @@ export default function StaffPage() {
       <StaffInvitationsPanel tournamentId={tournament.id} user={user} />
 
       <StaffAccessSettings tournament={tournament} onSave={saveTournament} />
+
+      <PublicFormsSettings tournament={tournament} user={user} onSave={saveTournament} />
+
+      <StaffCustomGroupsEditor groups={customGroups} disabled={busy} onSave={saveCustomGroups} />
 
       <Card className="max-w-3xl">
         <CardHeader
@@ -260,6 +301,7 @@ export default function StaffPage() {
                         uid={member.uid}
                         email={member.email}
                         groups={memberGroups(member)}
+                        customGroups={customGroups}
                         disabled={busy}
                         onSave={saveGroups}
                       />

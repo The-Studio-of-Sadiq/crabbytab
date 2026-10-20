@@ -33,7 +33,11 @@ Allocation is a heuristic. It finds a good allocation, not a proven optimum.
    by their average voting score, and the i-th panel is steered towards the i-th
    highest-priority debate. Members' team conflicts and history add to the cost.
    Members who are unavailable this round are left out. A panel with no available voting
-   member is not placed.
+   member is not placed. *Placing preformed panels: by room rank* (Configuration →
+   Adjudicators) instead ports Tabbycat's direct allocator: the panel with the lowest room
+   rank goes to the debate with the lowest room rank, and so on, with no optimisation
+   (panels without a room rank, such as ones made by hand, follow in their stored order).
+   Extra panels are left unplaced; conflicts are still reported after allocation.
 3. Voting panels for the remaining debates are sized as follows:
    - *Same size everywhere:* every debate gets the chosen size. Seats that cannot be
      filled are dropped from the lowest-priority panels first.
@@ -174,7 +178,11 @@ requirements or preferences (`lib/draw/venueAllocator.ts`), with a minimum-cost 
   per round), with the public draw data, and in emails as `{{venue_url}}`.
 - **Room categories** (Venues page): a description (tooltip "This room …", always on admin pages,
   on public pages only when marked) and whether the category is shown as a prefix or suffix of
-  room names. A room has one category (Tabbycat allows several).
+  room names. A room can be in several categories, as in Tabbycat (`Venue.categories`; the
+  older single `Venue.category` keeps the first and is still read, so older data and clients
+  keep working). Type them comma-separated on the Venues page or in the venues CSV
+  (`"Large; Accessible"`). A required category, a room preference and the category filters match
+  any of a room's categories; prefixes, suffixes and tooltips combine every category that has one.
 
 ## Feedback paths
 
@@ -268,4 +276,23 @@ recorded too, without a reason. The history travels with the adjudicator record,
 (a malformed history is a backup warning) and it is private like the scores. It is written as one
 field, so if two devices change the same adjudicator's scores at the same moment, one entry can be
 lost (the audit log keeps both changes as `scoreChanges`). Changes made before this existed are not
-listed. The page shows it next to the feedback-derived score history by round.
+listed. The page shows it next to the feedback-derived score history by round. Each entry also
+records the tournament's current round when the score was set (`roundId`, Tabbycat
+`AdjudicatorBaseScoreHistory.round`: the first unfinished preliminary round, else the current
+elimination round); entries made before any round, and older entries, have none.
+
+## Testers
+
+Tabbycat's `Adjudicator.is_tester` is `Adjudicator.isTester`, set from the **Tester** column of the
+feedback overview (or the adjudicator's edit dialog). Members of the adjudication core are always
+testers (their checkbox is ticked and locked). An adjudicator counts as *tested* in a round when a
+tester other than themselves sat on their panel (`src/lib/adjudicators/testers.ts`, Tabbycat
+`adjfeedback/testers.py`); the per-adjudicator page marks those rounds "Tested". The feedback
+overview also has an inline **Breaking** column, as Tabbycat's.
+
+## Duplicate feedback
+
+*Feedback → Duplicate feedback* (`/feedback/duplicates`) lists feedback submitted more than once by
+the same team or adjudicator on the same target in the same debate (Tabbycat's
+`printmultiplefeedback` command), with the usual confirm / ignore controls on each copy. It changes
+nothing by itself.

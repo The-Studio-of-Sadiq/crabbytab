@@ -26,6 +26,7 @@ import { Checkbox, Input } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { TabPanel, Tabs } from "@/components/ui/Tabs";
+import { SpeakerPrivateUrlsPanel } from "@/features/tournament/components/SpeakerPrivateUrlsPanel";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import {
   buildPrivateUrlSlips,
@@ -51,6 +52,7 @@ export default function PrivateUrlsManagementPage() {
     generatePrivateUrlKeys,
     updateAdjudicator,
     updateTeam,
+    saveEntityBatch,
   } = useTournament();
 
   const [activeTab, setActiveTab] = useState<ParticipantTab>("adjudicators");
@@ -456,6 +458,14 @@ export default function PrivateUrlsManagementPage() {
           </TableContainer>
         )}
       </TabPanel>
+
+      {activeTab === "teams" && (
+        <SpeakerPrivateUrlsPanel
+          tournamentSlug={tournamentSlug}
+          teams={teams}
+          onSave={(teamsUpdated) => saveEntityBatch({ teamsUpdated }, "Speaker private URLs")}
+        />
+      )}
 
       <Alert tone="warning">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

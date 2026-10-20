@@ -167,8 +167,30 @@ Tabbycat's `PointsMetricAnnotator`, and it applies to the `points` metric and th
 Wins, speaks, firsts/seconds and who-beat-whom are not weighted. DebateXML does not carry round
 weights; Tabbycat's archive has none either.
 
+## Self-split ballots (`allowSelfSplitBallots`)
+
+Tabbycat's `allow_self_split_ballots` (Karl Popper rules), set on the Staff page. A solo
+adjudicator may declare their decision a 2:1 split. It applies only to a two-team voting ballot of
+a debate with exactly one voting adjudicator (trainees do not count), as in Tabbycat
+(`selfSplitAllowed` in `src/lib/ballots/result.ts`).
+
+- The tab-room ballot page shows **This was a 2:1 split decision (self-declared)** under the
+  voting sheet. The ballot stores `selfSplit: true`. The winner is recorded with 2 votes and the
+  loser with 1. Scores, winner and margin do not change.
+- In standings, such a ballot counts 3 possible votes (`ballotVotesPossible`), so `num_adjs`
+  credits the winner 2/3 and the loser 1/3 of a panel, as Tabbycat's
+  `teamscore_field_votes_given/possible` does.
+- With *Show splitting adjudicators* on, the public site marks the solo adjudicator as splitting.
+- Validation rejects a declared split when the setting is off, the panel has more than one voting
+  adjudicator, or the round uses consensus ballots. Double-entry comparison reports a changed
+  declaration.
+- **Private URLs:** the checkbox appears only when individual ballots are on, because only then is
+  the adjudicator's sheet merged into a voting ballot. The sync route checks the flag again and
+  refuses it otherwise. Without individual ballots, a private-URL ballot is stored without votes,
+  so a split would mean nothing. The tab room can still record the split when it enters the
+  voting ballot. *Fill from private URLs* carries a solo adjudicator's split over.
+- Turning the setting off does not change ballots already saved.
+
 ## Not done
 
-- Karl Popper's self-declared split ballots (`allow_self_split_ballots`). This is why the Karl
-  Popper preset is still not offered.
 - Showing per-criterion scores on public scoresheets.

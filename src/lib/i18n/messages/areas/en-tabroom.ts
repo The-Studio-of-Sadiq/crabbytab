@@ -5,16 +5,18 @@
  *
  * The tabroom area is split again into parts (./tabroom/*.en.ts), one per group of pages:
  * `common` (shared words and components), `draw`, `allocation` (incl. preformed panels and
- * shards) and `ops` (check-ins, print pages). Keys are `tabroom.<part>.<subject>`.
+ * shards) `ops` (check-ins, print pages) and `schedule` (schedule, round motions and motion release). Keys are `tabroom.<part>.<subject>`.
  */
 import { commonEn } from "@/lib/i18n/messages/areas/tabroom/common.en";
 import { drawEn } from "@/lib/i18n/messages/areas/tabroom/draw.en";
 import { allocationEn } from "@/lib/i18n/messages/areas/tabroom/allocation.en";
 import { opsEn } from "@/lib/i18n/messages/areas/tabroom/ops.en";
+import { scheduleEn } from "@/lib/i18n/messages/areas/tabroom/schedule.en";
 
 export const enTabroom = {
   ...commonEn,
   ...drawEn,
   ...allocationEn,
   ...opsEn,
+  ...scheduleEn,
 } as const;

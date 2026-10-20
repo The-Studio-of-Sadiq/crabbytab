@@ -20,6 +20,7 @@ import {
 } from "@/features/tournament/application/schedule";
 import { motionsStatusOf, preparationMinutes } from "@/features/tournament/application/motionRelease";
 import { fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/schedule/time";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 interface Draft {
   scheduleGroup: string;
@@ -27,9 +28,9 @@ interface Draft {
 }
 
 const MOTION_STATUS_LABEL = {
-  not_released: "Motions hidden",
-  info_slides_released: "Info slides out",
-  motions_released: "Motions out",
+  not_released: "tabroom.schedule.rounds.motionsHidden",
+  info_slides_released: "tabroom.schedule.rounds.infoSlidesOut",
+  motions_released: "tabroom.schedule.rounds.motionsOut",
 } as const;
 
 /**
@@ -37,6 +38,7 @@ const MOTION_STATUS_LABEL = {
  * parallel-panels grouping of preliminary rounds (prelim_panels) and preparation time.
  */
 export function RoundScheduleCard() {
+  const { t, plural, formatList } = useI18n();
   const { tournament, rounds, debates, breakCategories, isOwnerOrAdmin, updateRounds, saveTournament } = useTournament();
   const live = useMemo(() => [...rounds].filter((round) => !round.cancelled).sort((left, right) => left.seq - right.seq), [rounds]);
   const current = useMemo(() => new Set(currentRounds(rounds, debates, breakCategories).map((round) => round.id)), [rounds, debates, breakCategories]);
@@ -89,7 +91,7 @@ export function RoundScheduleCard() {
       await action();
       setSaved(done);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save the schedule.");
+      setError(caught instanceof Error ? caught.message : t("tabroom.schedule.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -101,8 +103,8 @@ export function RoundScheduleCard() {
     <Card>
       <CardHeader
         icon={<CalendarClock aria-hidden="true" />}
-        title="Rounds and start times"
-        description="Rounds in the same schedule slot run at the same time (parallel panels): they are current together, and no team, adjudicator or venue may be in two of them."
+        title={t("tabroom.schedule.rounds.title")}
+        description={t("tabroom.schedule.rounds.description")}
       />
       <CardBody className="space-y-4">
         {error && <Alert tone="danger" role="alert">{error}</Alert>}
@@ -111,14 +113,14 @@ export function RoundScheduleCard() {
           <Table>
             <THead>
               <TR>
-                <TH>Round</TH>
-                <TH>Slot</TH>
-                <TH>Starts at</TH>
-                <TH>Status</TH>
+                <TH>{t("tabroom.schedule.rounds.colRound")}</TH>
+                <TH>{t("tabroom.schedule.rounds.colSlot")}</TH>
+                <TH>{t("tabroom.schedule.rounds.colStartsAt")}</TH>
+                <TH>{t("tabroom.schedule.rounds.colStatus")}</TH>
               </TR>
             </THead>
             <TBody>
-              {live.length === 0 && <TableEmpty colSpan={4}>No rounds yet.</TableEmpty>}
+              {live.length === 0 && <TableEmpty colSpan={4}>{t("tabroom.schedule.rounds.empty")}</TableEmpty>}
               {live.map((round) => {
                 const draft = draftFor(round);
                 const update = (patch: Partial<Draft>) => setDrafts((all) => ({ ...all, [round.id]: { ...draft, ...patch } }));
@@ -126,11 +128,11 @@ export function RoundScheduleCard() {
                   <TR key={round.id}>
                     <TD>
                       <span className="font-medium text-fg">{round.name}</span>
-                      <span className="ml-1.5 text-xs text-fg-muted">{round.stage === "elimination" ? "Elimination" : "Preliminary"}</span>
+                      <span className="ml-1.5 text-xs text-fg-muted">{round.stage === "elimination" ? t("tabroom.schedule.rounds.elimination") : t("tabroom.schedule.rounds.preliminary")}</span>
                     </TD>
                     <TD>
                       <Input
-                        aria-label={`${round.name} schedule slot`}
+                        aria-label={t("tabroom.schedule.rounds.slotLabel", { round: round.name })}
                         type="number"
                         min={1}
                         step={1}
@@ -142,7 +144,7 @@ export function RoundScheduleCard() {
                     </TD>
                     <TD>
                       <Input
-                        aria-label={`${round.name} start time`}
+                        aria-label={t("tabroom.schedule.rounds.startLabel", { round: round.name })}
                         type="datetime-local"
                         value={draft.startsAt}
                         disabled={!isOwnerOrAdmin || busy}
@@ -152,9 +154,9 @@ export function RoundScheduleCard() {
                     </TD>
                     <TD>
                       <div className="flex flex-wrap gap-1">
-                        {current.has(round.id) && <StatusPill tone="accent">Current</StatusPill>}
-                        {round.completed && <StatusPill tone="success">Complete</StatusPill>}
-                        <Badge>{MOTION_STATUS_LABEL[motionsStatusOf(round)]}</Badge>
+                        {current.has(round.id) && <StatusPill tone="accent">{t("tabroom.schedule.rounds.current")}</StatusPill>}
+                        {round.completed && <StatusPill tone="success">{t("tabroom.schedule.rounds.complete")}</StatusPill>}
+                        <Badge>{t(MOTION_STATUS_LABEL[motionsStatusOf(round)])}</Badge>
                       </div>
                     </TD>
                   </TR>
@@ -164,9 +166,9 @@ export function RoundScheduleCard() {
           </Table>
         </TableContainer>
         {invalid.length > 0 && (
-          <Alert tone="warning">Check {invalid.map((round) => round.name).join(", ")}: slots are whole numbers from 1 and times must be complete.</Alert>
+          <Alert tone="warning">{t("tabroom.schedule.rounds.invalid", { rounds: formatList(invalid.map((round) => round.name)) })}</Alert>
         )}
-        {problems.length > 0 && <Alert tone="warning" title="These changes need a look">{problems.join(" ")}</Alert>}
+        {problems.length > 0 && <Alert tone="warning" title={t("tabroom.schedule.rounds.problemsTitle")}>{problems.join(" ")}</Alert>}
         {isOwnerOrAdmin && (
           <div className="flex flex-wrap gap-2">
             <Button
@@ -176,12 +178,12 @@ export function RoundScheduleCard() {
               onClick={() => run(async () => {
                 await updateRounds(changedRounds, `Round schedule updated (${changedRounds.map((round) => round.name).join(", ")})`);
                 setDrafts({});
-              }, "Round schedule saved.")}
+              }, t("tabroom.schedule.rounds.saved"))}
             >
-              Save round schedule
+              {t("tabroom.schedule.rounds.save")}
             </Button>
             <Button variant="ghost" disabled={busy || Object.keys(drafts).length === 0} onClick={() => setDrafts({})}>
-              Discard changes
+              {t("tabroom.schedule.rounds.discard")}
             </Button>
           </div>
         )}
@@ -191,14 +193,14 @@ export function RoundScheduleCard() {
             <div className="space-y-2">
               <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
                 <Layers className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
-                Parallel preliminary panels
+                {t("tabroom.schedule.rounds.panelsTitle")}
               </h3>
               <p className="text-xs text-fg-muted">
-                Groups the preliminary rounds into slots of this many rounds (e.g. 2 makes &ldquo;Round 1 (A)&rdquo; and &ldquo;Round 1 (B)&rdquo;). Custom round names are kept.
+                {t("tabroom.schedule.rounds.panelsHelp")}
               </p>
               <div className="flex flex-wrap items-end gap-2">
                 <Input
-                  label="Rounds per slot"
+                  label={t("tabroom.schedule.rounds.panelsLabel")}
                   type="number"
                   min={1}
                   max={26}
@@ -210,18 +212,18 @@ export function RoundScheduleCard() {
                   disabled={busy || !(Number(panels) >= 1) || (grouping.length === 0 && Number(panels) === panelsSetting)}
                   onClick={() => setConfirmGrouping(true)}
                 >
-                  Group preliminary rounds
+                  {t("tabroom.schedule.rounds.groupButton")}
                 </Button>
               </div>
             </div>
             <div className="space-y-2">
-              <h3 className="text-[13px] font-semibold text-fg">Preparation time</h3>
+              <h3 className="text-[13px] font-semibold text-fg">{t("tabroom.schedule.rounds.preparationTitle")}</h3>
               <p className="text-xs text-fg-muted">
-                Minutes from motion release to the round&apos;s start. Releasing a round&apos;s motions sets its start time. Leave empty to turn this off.
+                {t("tabroom.schedule.rounds.preparationHelp")}
               </p>
               <div className="flex flex-wrap items-end gap-2">
                 <Input
-                  label="Minutes"
+                  label={t("tabroom.schedule.rounds.minutes")}
                   type="number"
                   min={0}
                   max={600}
@@ -234,9 +236,9 @@ export function RoundScheduleCard() {
                   onClick={() => run(() => saveTournament({
                     ...tournament,
                     preferences: { ...tournament.preferences, preparationTime: preparationDraft === "" ? -1 : Math.floor(Number(preparationDraft)) },
-                  }), "Preparation time saved.")}
+                  }), t("tabroom.schedule.rounds.preparationSaved"))}
                 >
-                  Save
+                  {t("tabroom.schedule.rounds.savePreparation")}
                 </Button>
               </div>
             </div>
@@ -245,11 +247,13 @@ export function RoundScheduleCard() {
       </CardBody>
       {confirmGrouping && tournament && (
         <ConfirmActionDialog
-          title="Group the preliminary rounds?"
+          title={t("tabroom.schedule.rounds.groupConfirmTitle")}
           description={grouping.length === 0
-            ? `The rounds already form slots of ${Number(panels)}; only the setting is saved.`
-            : `${grouping.length} round${grouping.length === 1 ? "" : "s"} change slot or name: ${grouping.map((round) => `${round.name} (slot ${round.scheduleGroup})`).join(", ")}.`}
-          confirmLabel="Group rounds"
+            ? t("tabroom.schedule.rounds.groupUnchanged", { size: Number(panels) })
+            : plural("tabroom.schedule.rounds.groupChanges", grouping.length, {
+              changes: formatList(grouping.map((round) => t("tabroom.schedule.rounds.groupChangeItem", { round: round.name, slot: round.scheduleGroup ?? "" }))),
+            })}
+          confirmLabel={t("tabroom.schedule.rounds.groupConfirm")}
           isBusy={busy}
           error={error}
           onCancel={() => setConfirmGrouping(false)}
@@ -261,7 +265,7 @@ export function RoundScheduleCard() {
             await updateRounds(grouping, `Preliminary rounds grouped into slots of ${Number(panels)}`);
             await saveTournament({ ...tournament, preferences: { ...tournament.preferences, preliminaryPanels: Math.floor(Number(panels)) } });
             setConfirmGrouping(false);
-          }, "Preliminary rounds grouped.")}
+          }, t("tabroom.schedule.rounds.grouped"))}
         />
       )}
     </Card>

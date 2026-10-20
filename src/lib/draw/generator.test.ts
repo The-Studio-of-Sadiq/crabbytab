@@ -304,6 +304,33 @@ describe("Round draw eligibility", () => {
     expect(buildMatchupHistory([bye!]).sides.size).toBe(0);
   });
 
+  it("breaks a tie for the lowest-ranked bye with the draw's seed, not list order", () => {
+    const drawTeams = Array.from({ length: 9 }, (_, index) => ({
+      ...teams[0],
+      id: `team-${index + 1}`,
+      name: `Team ${index + 1}`,
+    }));
+    const tournament = {
+      id: "t1",
+      format: "uadc",
+      preferences: { teamsInDebate: 2, byeTeamSelectionMethod: "lowest_ranked", byeTeamResults: "win" },
+    } as Tournament;
+    const byeFor = (seed: number) =>
+      generateRoundDraw({
+        tournament,
+        round: makeRound("preliminary"),
+        teams: drawTeams,
+        venues: Array.from({ length: 4 }, (_, index) => ({ id: `v${index}`, tournamentId: "t1", name: `Room ${index}`, priority: 10 })),
+        pastDebates: [],
+        standings: [],
+        seed,
+      }).find((debate) => debate.byeTeamId)?.byeTeamId;
+
+    const byes = Array.from({ length: 12 }, (_, seed) => byeFor(seed));
+    expect(new Set(byes).size).toBeGreaterThan(1);
+    expect(byeFor(7)).toBe(byeFor(7));
+  });
+
   it("records each BP remainder team as a bye and keeps them out of debate rooms", () => {
     const drawTeams = Array.from({ length: 6 }, (_, index) => ({
       ...teams[0],
@@ -529,7 +556,7 @@ describe("Draw generation parity (step 5)", () => {
     expect(history.sides.get("b")).toEqual(["NEG", "NEG"]);
   });
 
-  it("draws a seeded round from Team.seed and rejects it for BP", () => {
+  it("draws a seeded round from Team.seed (BP seeded draws are covered in drawParityGaps.test.ts)", () => {
     const drawTeams = fieldTeams(4);
     const seededRound = { ...makeRound("preliminary"), drawType: "seeded" as const };
     const debates = generateRoundDraw({
@@ -543,15 +570,6 @@ describe("Draw generation parity (step 5)", () => {
     });
     const roomsOf = debates.map((debate) => Object.values(debate.teams).map((slot) => slot.teamId).sort().join(" v "));
     expect(roomsOf.sort()).toEqual(["team-0 v team-3", "team-1 v team-2"]);
-
-    expect(() => generateRoundDraw({
-      tournament: tournamentFor("bp"),
-      round: seededRound,
-      teams: drawTeams,
-      venues,
-      pastDebates: [],
-      standings: [],
-    })).toThrow(/only supported for two-team/);
   });
 
   it("uses the round's preallocated sides and rejects them for BP", () => {

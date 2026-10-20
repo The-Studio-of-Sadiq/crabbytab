@@ -23,7 +23,8 @@ function createStanding(teamId: string, teamName: string, rank: number, points: 
     averageSpeakerScore: (300 - rank * 2) / 2,
     breakCategories: [],
     roundResults: [],
-    metrics: {} as any,
+    // Metrics agree with the rank: a non-general category re-ranks its teams on them.
+    metrics: { points, speaks_sum: 300 - rank * 2 } as TeamStandingRow["metrics"],
   };
 }
 

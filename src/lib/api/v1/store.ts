@@ -44,6 +44,8 @@ export interface TournamentTransaction extends TournamentReader {
 
 export interface TournamentStore extends TournamentReader {
   readonly tournamentId: string;
+  /** The organiser-defined staff permission groups (raw `serverOnly/staffPermissionGroups.groups`). */
+  getCustomPermissionGroups(): Promise<unknown>;
   /**
    * Runs `fn` atomically: reads inside it see one consistent state and the writes are applied
    * together or not at all (Firestore retries the function on contention).

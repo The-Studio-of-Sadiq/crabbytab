@@ -22,8 +22,22 @@ describe("matchLocale", () => {
     expect(matchLocale("en-US-u-ca-gregory")).toBe("en");
   });
 
+  it("matches region and script tags for Tabbycat's languages", () => {
+    expect(matchLocale("pt-BR")).toBe("pt");
+    expect(matchLocale("ar-EG")).toBe("ar");
+    expect(matchLocale("zh-Hans")).toBe("zh-Hans");
+    expect(matchLocale("ZH_hans_cn")).toBe("zh-Hans");
+    expect(matchLocale("zh-CN")).toBe("zh-Hans");
+    expect(matchLocale("zh")).toBe("zh-Hans");
+  });
+
+  it("does not give Traditional Chinese readers the Simplified catalogue", () => {
+    expect(matchLocale("zh-TW")).toBeNull();
+    expect(matchLocale("zh-Hant-HK")).toBeNull();
+  });
+
   it("returns null for unsupported or invalid input", () => {
-    expect(matchLocale("fr-FR")).toBeNull();
+    expect(matchLocale("sw-KE")).toBeNull();
     expect(matchLocale("")).toBeNull();
     expect(matchLocale(null)).toBeNull();
     expect(matchLocale(42)).toBeNull();
@@ -33,11 +47,11 @@ describe("matchLocale", () => {
 describe("resolveLocale", () => {
   it("defaults to English with no signals", () => {
     expect(resolveLocale({})).toBe(DEFAULT_LOCALE);
-    expect(resolveLocale({ browserLanguages: ["fr", "de"] })).toBe("en");
+    expect(resolveLocale({ browserLanguages: ["sw", "fi"] })).toBe("en");
   });
 
   it("uses the first supported browser language", () => {
-    expect(resolveLocale({ browserLanguages: ["fr-FR", "bn-BD", "en"] })).toBe("bn");
+    expect(resolveLocale({ browserLanguages: ["sw-KE", "bn-BD", "en"] })).toBe("bn");
     expect(resolveLocale({ browserLanguages: ["en-GB", "bn"] })).toBe("en");
   });
 
@@ -46,7 +60,7 @@ describe("resolveLocale", () => {
   });
 
   it("ignores an unsupported tournament language", () => {
-    expect(resolveLocale({ tournamentDefault: "fr", browserLanguages: ["bn"] })).toBe("bn");
+    expect(resolveLocale({ tournamentDefault: "sw", browserLanguages: ["bn"] })).toBe("bn");
   });
 
   it("lets the viewer's explicit choice win over everything", () => {
@@ -104,6 +118,10 @@ describe("localeInitScript", () => {
   it("applies the same precedence as resolveLocale before hydration", () => {
     expect(run(null, ["bn-BD"])).toEqual({ lang: "bn", dir: "ltr" });
     expect(run("en", ["bn"])).toEqual({ lang: "en", dir: "ltr" });
-    expect(run("nope", ["fr"])).toEqual({ lang: "en", dir: "ltr" });
+    expect(run("nope", ["sw"])).toEqual({ lang: "en", dir: "ltr" });
+    expect(run(null, ["he-IL"])).toEqual({ lang: "he", dir: "rtl" });
+    expect(run(null, ["zh-CN"])).toEqual({ lang: "zh-Hans", dir: "ltr" });
+    expect(run(null, ["zh-TW", "fr"])).toEqual({ lang: "fr", dir: "ltr" });
+    expect(run("zh-Hans", ["en"])).toEqual({ lang: "zh-Hans", dir: "ltr" });
   });
 });

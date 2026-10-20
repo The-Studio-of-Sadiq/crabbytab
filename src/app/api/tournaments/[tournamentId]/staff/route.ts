@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { normalizeEmail } from "@/lib/linkTokens";
 import { isTournamentAdministrator } from "@/lib/tournamentAccess";
-import { groupPermissions, normalizePermissionAssignment } from "@/lib/staffPermissions";
+import {
+  groupPermissions,
+  normalizeCustomGroups,
+  normalizePermissionAssignment,
+  type CustomPermissionGroup,
+} from "@/lib/staffPermissions";
+import { customPermissionGroupsRef } from "@/lib/staffAccessServer";
 import {
   assertStillAdministrator,
   authorizeTournamentAdministrator,
@@ -21,12 +27,13 @@ function validUid(value: unknown): value is string {
 
 /**
  * Permission groups of a data-entry staff member (docs/staff-access.md). `permissions` is derived
- * from the groups and stored so firestore.rules can check direct live writes.
+ * from the groups (built-in and the tournament's custom groups) and stored so firestore.rules can
+ * check direct live writes. Custom group ids that do not exist are dropped.
  */
-function permissionFields(body: unknown) {
+function permissionFields(body: unknown, customGroups: readonly CustomPermissionGroup[]) {
   const record = isRecord(body) ? body : {};
-  const { groups, extraPermissions } = normalizePermissionAssignment(record);
-  return { groups, extraPermissions, permissions: groupPermissions({ groups, extraPermissions }) };
+  const { groups, extraPermissions } = normalizePermissionAssignment(record, customGroups);
+  return { groups, extraPermissions, permissions: groupPermissions({ groups, extraPermissions }, customGroups) };
 }
 
 const authorizeAdministrator = (request: NextRequest, tournamentId: string) =>
@@ -105,6 +112,9 @@ export async function POST(
   try {
     staffAssignments = await authorization.firestore.runTransaction(async (transaction) => {
       const current = await assertStillAdministrator(transaction, authorization);
+      const customGroups = normalizeCustomGroups(
+        (await transaction.get(customPermissionGroupsRef(tournamentRef))).data()?.groups
+      );
       const assignments = invitedUsers.map((invitedUser) => {
         const assignmentRole: "admin" | "dataEntry" = isGlobalAdminUid(invitedUser.uid) ||
           isTournamentAdministrator(
@@ -128,7 +138,7 @@ export async function POST(
           role: assignment.role,
           addedAt: assignment.addedAt,
           addedBy: user.uid,
-          ...(assignment.role === "dataEntry" ? permissionFields(body) : {}),
+          ...(assignment.role === "dataEntry" ? permissionFields(body, customGroups) : {}),
         });
       }
       return assignments;
@@ -203,16 +213,21 @@ export async function PATCH(
   }
   const uid = isRecord(body) ? body.uid : undefined;
   if (!validUid(uid)) return NextResponse.json({ error: "Invalid staff account." }, { status: 400 });
-  const fields = permissionFields(body);
+  let fields: ReturnType<typeof permissionFields>;
   try {
-    await authorization.firestore.runTransaction(async (transaction) => {
+    fields = await authorization.firestore.runTransaction(async (transaction) => {
       await assertStillAdministrator(transaction, authorization);
       const staffRef = authorization.tournamentRef.collection("staff").doc(uid);
-      const staffSnapshot = await transaction.get(staffRef);
+      const [staffSnapshot, groupsSnapshot] = await Promise.all([
+        transaction.get(staffRef),
+        transaction.get(customPermissionGroupsRef(authorization.tournamentRef)),
+      ]);
       if (staffSnapshot.data()?.role !== "dataEntry") {
         throw new Error("Permission groups apply to data-entry staff only.");
       }
-      transaction.update(staffRef, { ...fields, permissionsUpdatedAt: new Date().toISOString(), permissionsUpdatedBy: authorization.user.uid });
+      const next = permissionFields(body, normalizeCustomGroups(groupsSnapshot.data()?.groups));
+      transaction.update(staffRef, { ...next, permissionsUpdatedAt: new Date().toISOString(), permissionsUpdatedBy: authorization.user.uid });
+      return next;
     });
   } catch (error) {
     return NextResponse.json(
