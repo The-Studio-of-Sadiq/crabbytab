@@ -1,6 +1,7 @@
 import type { BallotSubmission, Debate, DebateResultStatus, TournamentPreferences } from "@/types";
 import { validateFeedbackScore, validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
 import { isFeedbackAnswerRecord, questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import type { StaffPermission } from "@/lib/staffPermissions";
 
 /**
  * Field whitelists for records a data-entry assistant may sync. Assistants
@@ -10,11 +11,11 @@ import { isFeedbackAnswerRecord, questionsForFeedbackSource, validateFeedbackAns
 export const DATA_ENTRY_FIELDS = {
   teams: [
     "id", "tournamentId", "name", "codeName", "institutionId", "institutionName", "speakers",
-    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt",
+    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
   ],
   adjudicators: [
     "id", "tournamentId", "name", "institutionId", "institutionName", "trainee", "independent",
-    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "gender",
+    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
   ],
   institutions: ["id", "tournamentId", "name", "code", "region"],
   ballots: [
@@ -41,7 +42,7 @@ export const ASSISTANT_LIVE_BALLOT_FIELDS = [
   "confirmed", "discarded", "submitterType", "submitterId", "submitterName", "chairId", "syncVersion",
 ] as const;
 export const ASSISTANT_LIVE_CHECK_IN_FIELDS = [
-  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion",
+  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion",
 ] as const;
 
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */
@@ -51,6 +52,33 @@ export const DATA_ENTRY_CREATE_ONLY_FIELDS: Partial<Record<DataEntryCollection, 
 };
 
 export type DataEntryCollection = keyof typeof DATA_ENTRY_FIELDS;
+
+const CHECK_IN_ONLY_KEYS = new Set<string>(["id", "tournamentId", ...ASSISTANT_LIVE_CHECK_IN_FIELDS]);
+
+/**
+ * The staff permission a synced record needs (lib/staffPermissions.ts). A team or adjudicator
+ * change that touches only check-in fields is a check-in; anything else, including creating the
+ * record, edits participants.
+ */
+export function requiredDataEntryPermission(
+  collectionName: DataEntryCollection,
+  isNew: boolean,
+  changedKeys: readonly string[]
+): StaffPermission {
+  switch (collectionName) {
+    case "ballots":
+      return "results.enter";
+    case "feedback":
+      return "feedback.enter";
+    case "ballotIntake":
+      return "ballots.intake";
+    case "institutions":
+      return "participants.edit";
+    case "teams":
+    case "adjudicators":
+      return !isNew && changedKeys.every((key) => CHECK_IN_ONLY_KEYS.has(key)) ? "checkins.edit" : "participants.edit";
+  }
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -85,7 +113,8 @@ export function sanitizeDataEntryRecord(
   const createOnly = pickFields(value, DATA_ENTRY_CREATE_ONLY_FIELDS[collectionName] ?? []);
   if (collectionName === "teams") {
     record.speakers = Array.isArray(value.speakers)
-      ? value.speakers.filter(isRecord).map((speaker) => pickFields(speaker, ["id", "name", "categories"]))
+      ? value.speakers.filter(isRecord).map((speaker) =>
+          pickFields(speaker, ["id", "name", "categories", "roundAvailability", "checkInHistory"]))
       : [];
   }
   if (collectionName === "adjudicators") {
@@ -280,19 +309,22 @@ export function nextAssistantResultStatus(
 
 /**
  * Hides parts of a debate a data-entry assistant must not see yet: the panel
- * until adjudicators are revealed and the motion until motions are released.
+ * until adjudicators are revealed and the motion until motions are released (or, with the
+ * "motions.display" staff permission, before release).
  */
 export function redactAssistantDebate(
   debate: Record<string, unknown>,
-  round: { adjudicatorsRevealed?: boolean; motionsReleased?: boolean } | undefined
+  round: { adjudicatorsRevealed?: boolean; motionsReleased?: boolean } | undefined,
+  options: { showUnreleasedMotions?: boolean } = {}
 ): Record<string, unknown> {
   const { adjudicators, motionId, motionText, ...rest } = debate;
+  const motionVisible = round?.motionsReleased === true || options.showUnreleasedMotions === true;
   return {
     ...rest,
     adjudicators: round?.adjudicatorsRevealed === true && adjudicators !== undefined
       ? adjudicators
       : { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
-    ...(round?.motionsReleased === true && motionId !== undefined ? { motionId } : {}),
-    ...(round?.motionsReleased === true && motionText !== undefined ? { motionText } : {}),
+    ...(motionVisible && motionId !== undefined ? { motionId } : {}),
+    ...(motionVisible && motionText !== undefined ? { motionText } : {}),
   };
 }

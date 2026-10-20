@@ -1,4 +1,22 @@
-import type { Adjudicator, AuditCategory, PreformedPanel, Round } from "@/types";
+import type {
+  Adjudicator,
+  AuditCategory,
+  BallotSubmission,
+  BreakCategory,
+  Debate,
+  PreformedPanel,
+  Round,
+  Team,
+  Tournament,
+} from "@/types";
+import { calculateStandings } from "@/lib/standings/calculator";
+import {
+  calculateAnticipatedDraw,
+  importanceByBracket,
+  openLiveThresholds,
+  type AnticipatedRoom,
+  type LiveThresholds,
+} from "@/lib/draw/anticipatedDraw";
 
 export type PanelRole = "chair" | "panellist" | "trainee";
 
@@ -74,6 +92,134 @@ export function panelsFromPreformedIds(adjudicators: Adjudicator[]): PreformedPa
   });
 }
 
+export interface AnticipationSource {
+  tournament: Tournament;
+  rounds: Round[];
+  teams: Team[];
+  debates: Debate[];
+  ballots: BallotSubmission[];
+  breakCategories: BreakCategory[];
+}
+
+export interface Anticipation {
+  rooms: AnticipatedRoom[];
+  thresholds: LiveThresholds | null;
+  /** Why the rooms carry no bracket range (first round, no previous draw, elimination round). */
+  notice?: string;
+}
+
+/**
+ * The anticipated draw for `round` from the previous preliminary round's draw and the points teams
+ * had before it (confirmed ballots only). Swing teams are not counted for the team total.
+ */
+export function anticipateRound(round: Round, source: AnticipationSource): Anticipation {
+  const teamsPerDebate = source.tournament.format === "bp" ? 4 : 2;
+  const live = source.rounds.filter((item) => !item.cancelled);
+  const prelims = live.filter((item) => item.stage === "preliminary");
+  const open = source.breakCategories.find((category) => category.isGeneral);
+  const regularTeams = source.teams.filter((team) => !team.isSwing);
+  const thresholds =
+    round.stage === "preliminary" && open
+      ? openLiveThresholds({
+          teamsPerDebate,
+          roundSeq: round.seq,
+          breakSize: open.breakSize,
+          totalTeams: regularTeams.length,
+          totalPrelimRounds: prelims.length,
+        })
+      : null;
+
+  if (round.stage === "elimination") {
+    const category = source.breakCategories.find((item) => round.breakCategoryIds?.includes(item.id)) ?? open;
+    return {
+      rooms: calculateAnticipatedDraw({ teamsPerDebate, pointsBefore: new Map(), teamCount: category?.breakSize ?? regularTeams.length }),
+      thresholds: null,
+      notice: "Elimination round: every room is equally live, so panels are not annotated with brackets.",
+    };
+  }
+  const previous = prelims.filter((item) => item.seq < round.seq).sort((a, b) => b.seq - a.seq)[0];
+  const previousDebates = previous
+    ? source.debates
+        .filter((debate) => debate.roundId === previous.id && !debate.byeTeamId && !debate.postponed)
+        .sort((a, b) => a.roomRank - b.roomRank)
+    : [];
+  if (!previous || previousDebates.length === 0) {
+    return {
+      rooms: calculateAnticipatedDraw({ teamsPerDebate, pointsBefore: new Map(), teamCount: regularTeams.length }),
+      thresholds,
+      notice: previous
+        ? "The previous round has no draw yet, so panels are not annotated with brackets and liveness."
+        : "This is the first round, so panels are not annotated with brackets and liveness.",
+    };
+  }
+
+  const earlierIds = new Set(prelims.filter((item) => item.seq < previous.seq).map((item) => item.id));
+  const standings = calculateStandings(
+    source.tournament,
+    source.rounds.filter((item) => earlierIds.has(item.id)),
+    source.teams,
+    source.debates.filter((debate) => earlierIds.has(debate.roundId)),
+    source.ballots
+  );
+  const pointsBefore = new Map(standings.teams.map((row) => [row.teamId, row.points]));
+  return {
+    rooms: calculateAnticipatedDraw({
+      teamsPerDebate,
+      previousDebates: previousDebates.map((debate) => Object.values(debate.teams).map((slot) => slot.teamId)),
+      pointsBefore,
+      teamCount: regularTeams.length,
+      thresholds,
+    }),
+    thresholds,
+  };
+}
+
+/**
+ * Tabbycat "create preformed panels": one panel per anticipated room. A panel that already has the
+ * room's rank keeps its members and importance and gets the new bracket range and liveness; other
+ * rooms get a new empty panel. Panels without a room rank are kept as they are.
+ */
+export function panelsFromAnticipatedDraw(
+  existing: PreformedPanel[],
+  rooms: AnticipatedRoom[],
+  newId: () => string
+): PreformedPanel[] {
+  const byRank = new Map(
+    existing.filter((panel) => panel.roomRank !== undefined).map((panel) => [panel.roomRank!, panel])
+  );
+  const annotated = rooms.map((room) => ({
+    ...(byRank.get(room.roomRank) ?? emptyPreformedPanel(newId())),
+    roomRank: room.roomRank,
+    bracketMin: room.bracketMin,
+    bracketMax: room.bracketMax,
+    liveness: room.liveness,
+  }));
+  const roomRanks = new Set(rooms.map((room) => room.roomRank));
+  const kept = existing.filter((panel) => panel.roomRank === undefined || !roomRanks.has(panel.roomRank));
+  return [...annotated, ...kept];
+}
+
+/**
+ * Tabbycat's automatic panel importance. "bracket": by the middle of each panel's bracket range in
+ * four levels. "liveness": panels with a possibly live team get 10 (Tabbycat 1), panels whose lowest
+ * bracket is already safe 7 (Tabbycat 0), the rest 0 (Tabbycat -2), as importanceByBracket maps levels.
+ */
+export function prioritisePanels(
+  panels: PreformedPanel[],
+  method: "bracket" | "liveness",
+  thresholds?: LiveThresholds | null
+): PreformedPanel[] {
+  if (method === "bracket") {
+    const levels = importanceByBracket(panels, (panel) => ((panel.bracketMin ?? 0) + (panel.bracketMax ?? 0)) / 2);
+    return panels.map((panel) => ({ ...panel, importance: levels.get(panel) ?? panel.importance }));
+  }
+  if (!thresholds) throw new Error("Panel liveness needs an open break category with a break size.");
+  return panels.map((panel) => ({
+    ...panel,
+    importance: (panel.liveness ?? 0) > 0 ? 10 : (panel.bracketMin ?? 0) >= thresholds.safe ? 7 : 0,
+  }));
+}
+
 /** Problems that would make a set of panels unusable; empty when they can be saved. */
 export function validatePreformedPanels(
   panels: PreformedPanel[],
@@ -91,7 +237,8 @@ export function validatePreformedPanels(
     if (!Number.isFinite(panel.importance) || panel.importance < 0 || panel.importance > 10) {
       errors.push(`${label}: importance must be between 0 and 10.`);
     }
-    if (!panel.chairId) errors.push(`${label} needs a chair.`);
+    // An empty panel (e.g. one room of an anticipated draw not filled yet) is allowed; allocation skips it.
+    if (!panel.chairId && panelMemberIds(panel).length > 0) errors.push(`${label} needs a chair.`);
     for (const id of panelMemberIds(panel)) {
       const adjudicator = byId.get(id);
       if (!adjudicator) {

@@ -23,10 +23,15 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
-import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import {
+  applyPrivateBallotConfirmation,
+  planIndividualBallotWrites,
+} from "@/lib/privateIndividualBallots";
+import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTeamsById } from "@/lib/privateParticipantData";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
+import { checkInEvent } from "@/lib/checkins/history";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -37,6 +42,7 @@ import {
 } from "@/lib/feedback/questions";
 import { feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 export const runtime = "nodejs";
 
@@ -222,7 +228,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        ballotSubmissions.push(ballot);
+        ballotSubmissions.push(applyPrivateBallotConfirmation(ballot, tournament, roundById.get(debate.roundId)));
       } else {
         const debate = assignedDebates.get(debateId)!;
         const panel = debate.adjudicators;
@@ -370,20 +376,37 @@ export async function POST(request: NextRequest) {
           return false;
         }
 
-        const plan = planPrivateBallotWrites(
-          ballotSubmissions,
-          new Map(debateIds.map((debateId) => [
-            debateId,
-            existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
-              id: document.id,
-              data: document.data() as Partial<BallotSubmission>,
-            })),
-          ])),
-          // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
-          new Set(debateIds.filter((debateId) =>
-            isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
-          ))
-        );
+        const existingByDebate = new Map(debateIds.map((debateId) => [
+          debateId,
+          existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
+            id: document.id,
+            data: document.data() as Partial<BallotSubmission>,
+          })),
+        ]));
+        // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
+        const lockedDebateIds = new Set(debateIds.filter((debateId) =>
+          isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
+        ));
+        const individual = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator === true);
+        const consensus = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator !== true);
+        const consensusPlan = planPrivateBallotWrites(consensus, existingByDebate, lockedDebateIds);
+        const individualPlan = planIndividualBallotWrites({
+          submissions: individual,
+          existingByDebate,
+          lockedDebateIds,
+          debates: assignedDebates,
+          rulesFor: (debate) => ({
+            format: tournament.format,
+            preferences: tournament.preferences,
+            stage: roundById.get(debate.roundId)?.stage,
+          }),
+          autoConfirm: tournament.preferences?.privateBallotConfirmation !== "tab_room",
+          timestamp: new Date().toISOString(),
+        });
+        const plan = {
+          discardExistingIds: [...new Set([...consensusPlan.discardExistingIds, ...individualPlan.discardExistingIds])],
+          writes: [...consensusPlan.writes, ...individualPlan.writes],
+        };
         const existingById = new Map(
           [...existingBallotsByDebate.values()].flatMap((snapshot) =>
             snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)
@@ -422,6 +445,9 @@ export async function POST(request: NextRequest) {
         checkIn.available,
         new FieldPath("roundAvailabilityAt", checkIn.roundId),
         checkedInAt,
+        // Check-in history (lib/checkins/history.ts); self check-ins are rare, so not capped here.
+        "checkInHistory",
+        FieldValue.arrayUnion(checkInEvent({ available: checkIn.available, source: "self", roundId: checkIn.roundId, at: checkedInAt })),
         "syncVersion",
         FieldValue.increment(1)
       );
@@ -437,7 +463,8 @@ export async function POST(request: NextRequest) {
         firestore,
         tournament,
         adjudicator: { id: actorDocument.id, name: actor.name, email: actor.email },
-        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true),
+        // Receipts cover what this adjudicator submitted, not a merge of the panel's sheets.
+        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true && ballot.submitterId === actorDocument.id),
         debates: assignedDebates,
         rounds: roundById,
       });
@@ -456,7 +483,8 @@ export async function POST(request: NextRequest) {
       assignedBallots.filter((ballot) => assignedDebates.has(ballot.debateId)),
       allRounds,
       actorType,
-      tournament.preferences?.publicResults !== false
+      tournament.preferences?.publicResults !== false,
+      getPublicSiteSettings(tournament.preferences).privateBallots
     );
     const feedback = feedbackSnapshot.docs.map((document) => ({
       ...document.data(),
@@ -523,6 +551,11 @@ export async function POST(request: NextRequest) {
     } : undefined;
 
     const roundsById = new Map(allRounds.map((round) => [round.id, round]));
+    // Room links (online rooms, maps) for debates of rounds still running.
+    const venues = await loadPortalVenues(
+      tournamentRef,
+      [...assignedDebates.values()].filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
+    );
     const responseDebates = [...assignedDebates.values()].map((debate) =>
       actorType === "team"
         ? sanitizeTeamPrivateDebate(
@@ -551,6 +584,7 @@ export async function POST(request: NextRequest) {
       teams: privateTeams,
       rounds: privateRounds,
       debates: responseDebates,
+      venues,
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);

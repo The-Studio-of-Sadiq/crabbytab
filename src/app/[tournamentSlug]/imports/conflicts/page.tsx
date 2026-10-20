@@ -10,6 +10,7 @@ import { Alert } from "@/components/ui/Feedback";
 import { Checkbox, Textarea } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/Badge";
 import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { RecordedConflicts } from "@/features/tournament/components/RecordedConflicts";
 import { applyConflictsPlan, planConflictsImport, type ConflictKind, type ConflictsPlan } from "@/lib/csv/conflictsImport";
 
 const KIND_LABELS: Record<ConflictKind, string> = {
@@ -192,6 +193,8 @@ export default function ConflictsImportPage() {
           )}
         </section>
       )}
+
+      <RecordedConflicts />
     </div>
   );
 }

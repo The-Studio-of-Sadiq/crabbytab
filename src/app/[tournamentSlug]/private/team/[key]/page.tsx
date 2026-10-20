@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { sidesPending } from "@/lib/draw/manualSides";
+import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
@@ -23,7 +24,7 @@ import {
   Award,
 } from "lucide-react";
 import { Debate, DebateSide, FeedbackAnswer } from "@/types";
-import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { validateFeedbackScore, defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
   isFeedbackEnabledForRound,
@@ -33,6 +34,8 @@ import {
 import { feedbackPathsForRound, isFeedbackPathAllowed } from "@/lib/feedback/paths";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { ScoresheetsPanel } from "@/features/tournament/components/public/PublicSitePanels";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 type PanelRole = "chair" | "panellist" | "trainee";
 
@@ -50,6 +53,8 @@ export default function TeamPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    venues,
+    ballots,
     feedback,
     addFeedback,
     syncPrivatePortal,
@@ -159,7 +164,7 @@ export default function TeamPrivatePortalPage() {
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
-    Math.round((minFeedbackScore + maxFeedbackScore) / 2)
+    defaultFeedbackScore(tournament?.preferences)
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
@@ -250,7 +255,7 @@ export default function TeamPrivatePortalPage() {
     setFeedbackTargetAdjRole(targetAdj.role);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -264,7 +269,7 @@ export default function TeamPrivatePortalPage() {
     setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -641,7 +646,12 @@ export default function TeamPrivatePortalPage() {
                       <span className="text-gray-400">&bull;</span>
                       <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{debate.venueName}</span>
+                        <VenueLabel
+                          debate={debate}
+                          venues={venues}
+                          categories={tournament?.preferences?.venueCategories}
+                          audience="public"
+                        />
                       </div>
                     </div>
 
@@ -776,6 +786,10 @@ export default function TeamPrivatePortalPage() {
                             {t("teamPortal.noAdjudicators")}
                           </p>
                         ) : (
+                          <>
+                          {feedbackPaths.teams === "orallist" && (
+                            <p className="mb-2 text-[11px] text-gray-600">{t("teamPortal.orallistPrompt")}</p>
+                          )}
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                             {ratedPanel.map((adj) => {
                               const submitted = hasSubmittedFeedback(adj.id, debate.id);
@@ -809,6 +823,7 @@ export default function TeamPrivatePortalPage() {
                               );
                             })}
                           </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -866,6 +881,35 @@ export default function TeamPrivatePortalPage() {
             })}
           </div>
         )}
+
+        {/* Tabbycat private_ballots_released: this team's own scoresheets. */}
+        {getPublicSiteSettings(tournament?.preferences).privateBallots && (() => {
+          const withSheets = [...teamDebates]
+            .sort((left, right) => left.roundSeq - right.roundSeq)
+            .map((debate) => ({ debate, ballot: ballots.find((ballot) => ballot.debateId === debate.id && ballot.confirmed && !ballot.discarded) }))
+            .filter(({ ballot }) => ballot && (ballot.sheets?.length || Object.keys(ballot.speakerScores || {}).length > 0));
+          if (withSheets.length === 0) return null;
+          const sides = (tournament?.format === "bp" ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
+          return (
+            <section className="mt-6 bg-white border border-[#d0d7de] rounded-lg overflow-hidden" aria-labelledby="team-scoresheets">
+              <h2 id="team-scoresheets" className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
+                {t("public.showScoresheets")}
+              </h2>
+              {withSheets.map(({ debate, ballot }) => (
+                <div key={debate.id}>
+                  <p className="px-3 pt-3 text-xs font-semibold text-gray-800">{roundsMap.get(debate.roundId)?.name ?? ""}</p>
+                  <ScoresheetsPanel
+                    debate={debate}
+                    ballot={ballot}
+                    sides={sides}
+                    teamName={(side) => debate.teams?.[side]?.teamName || "—"}
+                    replyPosition={tournament?.preferences?.replyScoresEnabled && tournament.format !== "bp" ? 4 : undefined}
+                  />
+                </div>
+              ))}
+            </section>
+          );
+        })()}
       </main>
 
       {/* FEEDBACK MODAL */}
@@ -897,6 +941,11 @@ export default function TeamPrivatePortalPage() {
             )}
 
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
+              {tournament?.preferences?.feedbackIntroduction?.trim() && (
+                <p className="whitespace-pre-line rounded border border-gray-200 bg-gray-50 p-2.5 text-gray-700">
+                  {tournament.preferences.feedbackIntroduction}
+                </p>
+              )}
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold uppercase block">
@@ -924,9 +973,9 @@ export default function TeamPrivatePortalPage() {
                   type="range"
                   min={minFeedbackScore}
                   max={maxFeedbackScore}
-                  step={1}
+                  step={feedbackScoreStep(tournament?.preferences)}
                   value={feedbackScore}
-                  onChange={(e) => setFeedbackScore(parseInt(e.target.value, 10))}
+                  onChange={(e) => setFeedbackScore(parseFloat(e.target.value))}
                   className="w-full accent-emerald-600 cursor-pointer"
                 />
               </div>

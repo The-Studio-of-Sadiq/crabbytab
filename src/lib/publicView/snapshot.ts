@@ -10,6 +10,7 @@ import {
   type SourceRecord,
 } from "@/lib/publicView/projection";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import type { PublicDerived, PublicTabs } from "@/lib/publicView/derived";
 import type { Tournament } from "@/types";
 
 /**
@@ -29,6 +30,8 @@ export const PUBLIC_BASE_SECTIONS = [
   "breakCategories",
   "institutions",
   "checkins",
+  "tabs",
+  "derived",
 ] as const;
 export type PublicBaseSection = (typeof PUBLIC_BASE_SECTIONS)[number];
 export type PublicRoundSection = `round-${string}`;
@@ -41,9 +44,15 @@ export const PUBLIC_PROJECTION_BASE_SECTIONS = PUBLIC_BASE_SECTIONS.filter(
  * Version of what a publish builds and how the root is laid out. Bump it when the projection or the
  * layout changes, so views published by older code are rebuilt instead of skipped (it is part of
  * the source token). Roots without it (format 1) hold whole-tournament `debates` and `ballots`
- * sections; format 2 splits them by round.
+ * sections; format 2 splits them by round; format 3 adds the `tabs` and `derived` sections (read as
+ * absent from a format-2 root until it is republished).
  */
-export const PUBLIC_VIEW_FORMAT = 2;
+export const PUBLIC_VIEW_FORMAT = 3;
+
+/** Whether a root stores debates and ballots per round (format 2 and later). */
+export function hasRoundSections(root: Pick<PublicViewRoot, "format">): boolean {
+  return (root.format ?? 1) >= 2;
+}
 
 export interface PublicRoundContent {
   debates: Record<string, unknown>[];
@@ -103,7 +112,13 @@ export function buildPublicViewSections(
   const checkins = buildPublicCheckinsSource(tournamentRecord, source);
   const { debates, ballots, feedback: _feedback, ...base } = projection.collections;
   const roundIds = base.rounds.map((round) => String(round.id));
-  const sections = { tournament: projection.tournament, ...base, checkins } as PublicViewSections;
+  const sections = {
+    tournament: projection.tournament,
+    ...base,
+    checkins,
+    tabs: projection.tabs ?? null,
+    derived: projection.derived,
+  } as PublicViewSections;
   for (const [roundId, content] of splitByRound(roundIds, debates, ballots)) sections[roundSectionName(roundId)] = content;
   return sections;
 }
@@ -134,6 +149,8 @@ export function assembleProjection(sections: Partial<PublicViewSections>): Publi
   return {
     tournament: sections.tournament as Tournament,
     collections: { ...collections, feedback: [] },
+    ...(sections.tabs ? { tabs: sections.tabs as PublicTabs } : {}),
+    derived: (sections.derived as PublicDerived | undefined) ?? {},
   };
 }
 

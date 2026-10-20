@@ -113,6 +113,10 @@ export function defineBPRooms(points: number[], distribution: BPPullupDistributi
  * The cost matrix is pre-shuffled with `rng` (Tabbycat's
  * "hungarian_preshuffled", the WUDC-compliant option), so equal-cost
  * alternatives are chosen at random but reproducibly for a given seed.
+ * `bpAssignmentMethod: "hungarian_unshuffled"` (Tabbycat's "hungarian") skips
+ * the shuffle: rows are teams in the order given (standings order) and columns
+ * rooms then positions, so equal-cost alternatives are settled by that order
+ * and the draw does not depend on the seed. It is not WUDC-compliant.
  * `bpAssignmentMethod: "random"` (or random sides) drops the position cost and
  * places teams at random within their brackets.
  *
@@ -122,17 +126,23 @@ export function defineBPRooms(points: number[], distribution: BPPullupDistributi
  * history and institution clashes, as Tabbycat and the WUDC rules do.
  */
 export function generatePowerPairedDraw(
-  teams: Team[],
+  inputTeams: Team[],
   standings: TeamStandingRow[],
   history: MatchupHistory,
   options: BPDrawOptions = {},
   rng: Rng = Math.random
 ): PairedDebateDraft[] {
-  if (teams.length === 0 || teams.length % 4 !== 0) {
-    throw new Error(`Number of teams (${teams.length}) must be a non-zero multiple of 4 for BP format.`);
+  if (inputTeams.length === 0 || inputTeams.length % 4 !== 0) {
+    throw new Error(`Number of teams (${inputTeams.length}) must be a non-zero multiple of 4 for BP format.`);
   }
 
   const standingMap = new Map(standings.map((s) => [s.teamId, s]));
+  // Without the pre-shuffle, rows follow standings order as in Tabbycat (unranked teams last, by name).
+  const standingIndex = new Map(standings.map((s, index) => [s.teamId, index]));
+  const teams = options.bpAssignmentMethod === "hungarian_unshuffled"
+    ? [...inputTeams].sort((a, b) =>
+        (standingIndex.get(a.id) ?? Infinity) - (standingIndex.get(b.id) ?? Infinity) || a.name.localeCompare(b.name))
+    : inputTeams;
   const pointsOf = (team: Team) => standingMap.get(team.id)?.points ?? 0;
   const priorPullups = (team: Team) =>
     history.pullups?.get(team.id) ?? standingMap.get(team.id)?.metrics?.pullups ?? 0;
@@ -167,8 +177,10 @@ export function generatePowerPairedDraw(
   // Larger than any sum of allowed costs, so a disallowed slot is only used when unavoidable.
   const disallowed = finite.reduce((sum, row) => sum + row.reduce((max, c) => (c > max ? c : max), 0), 0) + 1;
   const n = teams.length;
-  const rowOrder = shuffle([...Array(n).keys()], rng);
-  const colOrder = shuffle([...Array(n).keys()], rng);
+  const identity = [...Array(n).keys()];
+  const preshuffle = options.bpAssignmentMethod !== "hungarian_unshuffled";
+  const rowOrder = preshuffle ? shuffle(identity, rng) : identity;
+  const colOrder = preshuffle ? shuffle(identity, rng) : identity;
   const matrix = rowOrder.map((i) => colOrder.map((j) => (allowed[i][j] ? finite[i][j] : disallowed)));
   const solution = solveHungarian(matrix);
 

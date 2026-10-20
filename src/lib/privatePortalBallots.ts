@@ -64,7 +64,13 @@ export function getPrivatePortalBallots(
   ballots: BallotSubmission[],
   rounds: Round[],
   actorType: "adjudicator" | "team",
-  resultsEnabled = true
+  resultsEnabled = true,
+  /**
+   * Tabbycat private_ballots_released: a team sees the full scoresheets (every adjudicator's
+   * sheet and speaker scores) of its own debates once the round's results are released, even
+   * before team speaks are.
+   */
+  privateBallotsReleased = false
 ): Array<Record<string, unknown>> {
   const roundsById = new Map(rounds.map((round) => [round.id, round]));
   const visibleBallots: Array<Record<string, unknown>> = [];
@@ -87,7 +93,7 @@ export function getPrivatePortalBallots(
       continue;
     }
 
-    const showSpeakerScores = round.teamSpeaksReleased === true;
+    const showSpeakerScores = round.teamSpeaksReleased === true || privateBallotsReleased;
     const teamScores = Object.fromEntries(
       Object.entries(ballot.teamScores || {}).map(([side, score]) => [
         side,
@@ -114,6 +120,8 @@ export function getPrivatePortalBallots(
       timestamp: ballot.timestamp,
       ...(showSpeakerScores ? { speakerScores: ballot.speakerScores } : { speakerScores: {} }),
       teamScores,
+      // Sheets name their adjudicators, so they need the panel to be public too.
+      ...(privateBallotsReleased && round.adjudicatorsRevealed === true && Array.isArray(ballot.sheets) ? { sheets: ballot.sheets } : {}),
     });
   }
   return visibleBallots;

@@ -26,7 +26,7 @@ export interface MinCostPairingOptions {
 }
 
 /** Tabbycat's GraphCostMixin pairing-deviation functions; ranks are 1-based within the bracket. */
-function pairingDeviation(method: PairingMethod, a: number, b: number, size: number, isTopBracket: boolean): number {
+export function pairingDeviation(method: PairingMethod, a: number, b: number, size: number, isTopBracket: boolean): number {
   switch (method) {
     case "slide":
       return Math.abs(Math.abs(a - b) - Math.floor(size / 2));
@@ -50,7 +50,7 @@ function sideImbalanceCost(a: Team, b: Team, history: MatchupHistory): number {
   return sameLean * magnitude;
 }
 
-function conflictCost(a: Team, b: Team, history: MatchupHistory, options: MinCostPairingOptions): number {
+export function conflictCost(a: Team, b: Team, history: MatchupHistory, options: MinCostPairingOptions): number {
   let cost = clashCost(a, b, history, options.penalties);
   cost += sideImbalanceCost(a, b, history) * options.sideBalancePenalty;
   if (options.previouslySawPullupPenalty > 0 && options.wins.get(a.id) !== options.wins.get(b.id)) {

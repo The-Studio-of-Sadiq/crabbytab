@@ -10,7 +10,7 @@ import {
 import { passcodesMatch } from "@/lib/passcode";
 import { getPublicRelease, redactUnreleasedBreak } from "@/lib/publicRelease";
 import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
-import { loadParticipantDebates } from "@/lib/privateParticipantData";
+import { loadParticipantDebates, loadPortalVenues } from "@/lib/privateParticipantData";
 
 export const runtime = "nodejs";
 
@@ -120,6 +120,11 @@ export async function POST(request: NextRequest) {
     const rounds = [...liveRoundsById.values()].filter((round) => roundIds.has(round.id));
     const tournamentData = tournamentSnapshot.data()!;
     const roundsById = new Map(rounds.map((round) => [round.id, round]));
+    // Room links (online rooms, maps) for debates of rounds still running.
+    const venues = await loadPortalVenues(
+      tournamentRef,
+      debates.filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
+    );
     const safeDebates = debates.map((debate) =>
       sanitizeTeamPrivateDebate(
         debate,
@@ -167,6 +172,7 @@ export async function POST(request: NextRequest) {
       },
       rounds,
       debates: safeDebates,
+      venues,
       feedback: feedbackSnapshot.docs.map((document) => ({
         ...document.data(),
         id: document.id,

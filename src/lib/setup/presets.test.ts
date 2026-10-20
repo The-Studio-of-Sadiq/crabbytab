@@ -148,7 +148,7 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       ballotMode: "voting",
       eliminationBallotMode: "voting",
       enableMotionVetoes: true,
-      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"],
       standingsMissedDebates: 2,
       sideAllocationRule: "manual_ballot",
     });
@@ -159,7 +159,7 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       sideAllocationRule: "preallocated",
       oddBracketMethod: "intermediate2",
       enableMotionVetoes: false,
-      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"],
     });
     expect(rulesPresetPreferences(getRulesPreset("canadian")!)).toMatchObject({
       teamsInDebate: 2,

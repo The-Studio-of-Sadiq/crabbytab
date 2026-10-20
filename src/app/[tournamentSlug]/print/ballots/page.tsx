@@ -18,9 +18,14 @@ import {
   winnerDeclarationFor,
 } from "@/lib/ballots/ballotRules";
 import { sideLabel } from "@/lib/sideNames";
+import { PrintOptionsCard } from "@/features/tournament/components/PrintOptionsCard";
+import { returnLocation } from "@/lib/printOptions";
 
 export default function PrintableBallotsPage() {
-  const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
+  const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
+  const hideMotions = tournament?.preferences?.ballotsHideMotions === true;
+  const confirmDigits = tournament?.preferences?.ballotsConfirmDigits === true;
+  const returnTo = returnLocation(tournament?.preferences?.ballotReturnLocation);
   const roundDebates = activeRound
     ? debates
         .filter((debate) => debate.roundId === activeRound.id && !debate.byeTeamId)
@@ -86,6 +91,7 @@ export default function PrintableBallotsPage() {
           </button>
         </div>
         {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
+        {tournament && <PrintOptionsCard tournament={tournament} onSave={saveTournament} kind="ballots" />}
       </main>
 
       <section className="print-only printable-ballots">
@@ -114,7 +120,7 @@ export default function PrintableBallotsPage() {
                 <div className="ballot-room">
                   <strong>{room}</strong>
                   {motionsEnabled(preferences) && (
-                    <span>Motion: {debate.motionText || "________________________________"}</span>
+                    <span>Motion: {(!hideMotions && debate.motionText) || "________________________________"}</span>
                   )}
                 </div>
               </header>
@@ -129,6 +135,11 @@ export default function PrintableBallotsPage() {
               {sideChoice && (
                 <p className="ballot-intro">
                   <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.map(label).join(" or ")}).
+                </p>
+              )}
+              {confirmDigits && (
+                <p className="ballot-intro">
+                  After writing each score, circle its digits in the strip next to it, so the tab room can read it unambiguously.
                 </p>
               )}
               {tournament?.preferences?.ballotIntroExplanation && (
@@ -161,6 +172,7 @@ export default function PrintableBallotsPage() {
                         winnerBox={declaresWinner}
                         replyIndex={replyEnabled && scored ? speakerCount : -1}
                         sideChoice={sideChoice}
+                        confirmDigits={confirmDigits}
                         teamName={slot?.teamName ?? team?.name ?? "Unassigned"}
                         speakerNames={scored
                           ? Array.from({ length: speakerCount }, (_, index) =>
@@ -183,6 +195,7 @@ export default function PrintableBallotsPage() {
                 <span>
                   {sheet.adjudicatorId ? `${sheet.adjudicatorName}'s signature` : "Chair signature"}: ________________________
                 </span>
+                {returnTo && <span><strong>Return this sheet to: {returnTo}</strong></span>}
               </footer>
             </article>
           );
@@ -201,6 +214,7 @@ function FragmentRows({
   winnerBox,
   replyIndex,
   sideChoice,
+  confirmDigits,
   teamName,
   speakerNames,
 }: {
@@ -214,6 +228,8 @@ function FragmentRows({
   replyIndex: number;
   /** Sides to tick from, when sides are chosen at the debate. */
   sideChoice?: DebateSide[];
+  /** Tabbycat's ballots_confirm_digits: a strip of digits to circle next to each score. */
+  confirmDigits?: boolean;
   teamName: string;
   speakerNames: string[];
 }) {
@@ -232,7 +248,11 @@ function FragmentRows({
               {criteriaForSpeech([criterion], index === replyIndex).length === 0 ? "—" : null}
             </td>
           ))}
-          {scored && <td className="blank-score" />}
+          {scored && (
+            <td className="blank-score">
+              {confirmDigits && <span style={{ fontSize: "9px", letterSpacing: "0.35em", float: "right" }}>0123456789 . 0123456789</span>}
+            </td>
+          )}
           {ranked && <td className="blank-score">{index === replyIndex ? "—" : null}</td>}
           {index === 0 && <td rowSpan={speakerNames.length} className="blank-score">{winnerBox ? "☐" : null}</td>}
         </tr>

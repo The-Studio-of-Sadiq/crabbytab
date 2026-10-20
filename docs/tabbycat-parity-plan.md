@@ -32,18 +32,22 @@ means the sync/publish hardening PR that added this section.
 | 0.5-4 version polling | FIXED | #8 | `application/publicView.ts` polls `/version` every 45 s |
 | 0.5-5 check-in counts aggregate | PARTIAL | #8 | served from the snapshot's `checkins` section, refreshed only on publish; no per-check-in aggregate doc |
 | 0.5-6 private-URL query narrowing | MOSTLY FIXED | #32 | `api/private/sync/route.ts` loads only the participant's debates via the `array-contains` participant index (`privateParticipantData.ts`); still reads all rounds, and falls back to a full read when the index is missing |
-| 0.5-7 v1 draws from snapshot | OPEN | — | v1 route still reads live collections |
+| 0.5-7 v1 draws from snapshot | FIXED | #45 | `read:public` tokens (every v1 endpoint, including the legacy `/draws`) are served from the published public view (`lib/api/v1/data.ts` `createPublicData`) |
 | 0.5-8 `preferredRegion` | OPEN | — | not set anywhere in `src` |
 | 0.5 note: fingerprint-only publish skip missed other devices' writes | FIXED | this PR | skip also needs a matching cloud source token (`snapshot.ts` `publicSourceToken`, `canSkipPublish`) |
 | Sync: releases looked public but were local until Upload | FIXED | this PR | `ReleaseActionDialog` saves, uploads and publishes in one step |
 | Sync: Republish ignored unuploaded local changes | FIXED | this PR | asks first (`syncStatus.ts` `planRepublish`, `Navbar.tsx`) |
 | Sync: upload published despite conflicts / part-way failure | FIXED | this PR | refused (`publishBlockerAfterUpload`, `UploadIssue`) |
 | Sync: no unsynced indicator or `beforeunload` warning | FIXED | this PR | `computePendingChanges`, top-bar sync status, `useBeforeUnloadWarning` |
+| C CSV exports: participants, availability, break eligibility, conflicts | FIXED | #55 | `lib/csv/participantExports.ts`, Data exports page; conflicts round-trip through the conflicts import; see [data-import-export.md](./data-import-export.md) |
+| C demo tournament, simulated results and feedback (rehearsals) | FIXED | #55 | `lib/rehearsal/demoTournament.ts`, `application/rehearsal.ts`, Rehearsal tools page; seeded, through the ballot/feedback commands, typed confirmation outside demo tournaments, audited |
+| 24 REST API: read endpoints, per-area scopes, `/me`, OpenAPI 3.1 | FIXED | #45 | `lib/api/v1/*`, `app/api/v1/[[...path]]`; every Tabbycat v1 read resource except users/groups/global institutions/schedule events/web push; public scope = published view; see [api.md](./api.md) |
+| 24 REST API: write endpoints (CRUD, generate draw/break, allocation, ballots, check-ins, feedback, publish) | FIXED | #51 | `lib/api/v1/{session,tabRoom,ballotInput}.ts`, `routes/write/*`; every write runs the tab-room command and guards in one transaction, bumps `syncVersion`, archives the replaced version and audits with the token; overridable rules via `override.reason`; see [api.md](./api.md#writes) |
 | 1.1 elimination rounds counted in standings | FIXED | #10 | `standings/calculator.ts` filters elimination and cancelled rounds |
 | 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
 | 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |
 | 1.4 ghost / iron-person | FIXED | #10 | `ballots/result.ts` ghost flagging and `teamScoreIncludesGhosts` |
-| 1.5 pullups persisted; metric direction | FIXED | #15 | `generator.ts` writes `pulledUp`; `metrics.ts` `pullups: -1` |
+| 1.5 pullups persisted; metric direction | FIXED | #15 | `generator.ts` writes `pulledUp`; `metrics.ts` `pullups: 1` (more ranks higher, as Tabbycat's `npullups`; corrected in wave 4/5) |
 | 1.6 bye win fabricates speaks | FIXED | #15 | `standings/calculator.ts` bye records team result only |
 | 1.7 rank-vs-score (low-point win) validation | FIXED | #10 | `ballots/result.ts` checks `allowLowPointWins` |
 | 1.8 round completion for prelims | FIXED | #11 | `roundAdministration.ts` `getRoundCompletionBlockers` / `setRoundCompletion` |
@@ -65,7 +69,7 @@ means the sync/publish hardening PR that added this section.
 | 2 elim: BP elim sides by seed | UNVERIFIED | — | sides are fixed in seed order (OG = top seed); no seed-choice option |
 | 2 elim: manual break overrides and remarks | FIXED | #11 | `BreakCategory.teamOverrides`, `breakqual/calculator.ts` |
 | 2 elim: adjudicator break | FIXED | #16 | `Adjudicator.breaking` and public breaking-adjudicators list |
-| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | PARTIAL | wave 2 #8 | `wbw` (repeatable), `num_adjs`, `num_iron`, missed-speeches/replies eligibility and the high-low trimmed mean done; reply stddev/count and team points as speaker metrics still open |
+| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | FIXED | wave 2 #8, wave 4/5 | `wbw` (repeatable), `num_adjs`, `num_iron`, missed-speeches/replies eligibility and the high-low trimmed mean (wave 2); reply stddev/count and the speaker team metrics (wave 4/5) |
 | 3 voting ballots | FIXED | #10, wave 2 #9 | majority, dissent, `marginIncludesDissenters`; consensus or voting per stage (`eliminationBallotMode`, read through `ballotModeFor`) |
 | 3 blind double entry, version history, entered/checked by | FIXED | #10 | `ballotEntry.ts`, `BallotDiffDialog`, `BallotHistory` |
 | 3 vetoes, veto stats, motions by round, forfeits | FIXED | #10 | `BallotSubmission.vetoes` / `forfeitSide`; vetoes in analytics |
@@ -158,8 +162,9 @@ CrabbyTab defects left open (follow-ups):
 Rule differences worth deciding on:
 - Round-1 byes go to the first teams in the list (CrabbyTab) or the last imported (Tabbycat); neither
   is random. CrabbyTab should break the tie with the draw's seeded RNG.
-- BP draw strength counts opponents' wins in CrabbyTab and opponents' points in Tabbycat (already
-  left out of the BP preset).
+- ~~BP draw strength counts opponents' wins in CrabbyTab and opponents' points in Tabbycat~~ *Fixed in
+  wave 4/5: `draw_strength` sums opponents' points, BP records no wins, and the BP preset ends with
+  `draw_strength`; the harness's BP standings now agree 2496/2496.*
 - Teams tied inside the break get consecutive seeds in standings (name) order in CrabbyTab; Tabbycat
   gives them equal break ranks.
 - The DebateXML importer totals ballots with CrabbyTab's defaults (ghost speeches excluded) before the
@@ -184,8 +189,12 @@ questions, configurable paths, base-score history (*done: see
 exclusion; CrabbyTab leaves swing teams out of standings and breaks itself.*
 
 **Wave 4 — P3/P4 (not implemented yet; see the corrections in "B. Wave 4 corrections" below).** #18 AIDA 2019 break rule (WADL dropped: not in Tabbycat); #19 1000-team two-team allocation speed
-(7–18 s/round) and sharding; #20 soft ranked venue constraints, per-round venue availability,
-team-declared institution conflicts; #21 editable notification templates, motion/standings
+(7–18 s/round) and sharding (*done: exact-output speed-up proven by golden fixtures, Tabbycat
+voting/consensus Hungarian strategies, preformed panels from an anticipated draw, shards; see
+[adjudicator-allocation.md](adjudicator-allocation.md)*); #20 soft ranked venue constraints,
+per-round venue availability, team-declared institution conflicts (*done: room preferences with
+priorities, per-round room availability, room check-in expiry, room links, room category display,
+team–institution conflict editing and conflicts CSV export; see adjudicator-allocation.md "Rooms"*); #21 editable notification templates, motion/standings
 release emails; #22 design rollout to every page, dark mode everywhere, keyboard drag-and-drop;
 #23 admin-UI translations and more languages; #24 broader API (teams, results, standings);
 #25 diversity statistics, public veto stats; #26 optional public (non-private-URL) ballot and
@@ -222,14 +231,20 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 ### B. Wave 4 corrections (wave 4 is not implemented yet)
 - **#18**: drop WADL — it is not in Tabbycat v2.12.1 (only in historical migrations). Keep
   `aida-2019-australs-open` (cap 3, +1 per 8 teams beyond a 16-team break; `breakqual/aida.py`).
-- **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry.
+  *Done: `aida_2019_australs_open` (standings-and-breaks.md).*
+- **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry. *Done.*
 - **#21**: include Reply-To, the "ballot confirmed" event (CrabbyTab only notifies on submission),
   and per-tournament saved templates for the 8 automatic emails.
 - **#24 is underscoped**: Tabbycat's API is full read/write (66 endpoints: tournaments, rounds,
   motions, pairings + generate-draw, ballots, availabilities, check-ins, break eligibility +
   generate-break, speaker categories, teams/adjudicators/speakers/venues CRUD and standings,
   preformed panels, feedback, `/me`). Plan read **and** write endpoints with scoped tokens.
-- **#25**: diversity statistics for both admin and public views.
+- **#25**: diversity statistics for both admin and public views. *Public view done (wave 4–5
+  public-site PR): gender / region / category breakdowns, allocations by gender, speaker scores and
+  feedback by gender, plus public veto statistics; see
+  [public-pages-and-notifications.md](public-pages-and-notifications.md#public-site-settings-waves-45-tabbycat-public_features--tab_release--ui_options).
+  The admin diversity editor (imports/diversity) is unchanged; an admin statistics page is still open.*
+- **#26** (public non-private-URL ballot and feedback forms, public password): *follow-up PR.*
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
@@ -239,27 +254,30 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 6. Speaker-tab metrics: team points, team wins, 1sts/2nds/3rds, num_adjs, srank, replies count/stddev.
+   *Done except `srank` (ranked ballots).*
 7. Odd-bracket methods `pullup_lowest_ds_rank(_npulls)`; `graph_one` conflict avoidance; two-team pull-up penalty.
+   *Done: `min_cost_with_pullups` (draw-generation.md).*
 8. Score criteria (weighted per-criterion speaker scores). **Done** (wave 5 results; `docs/results-and-ballots.md`).
-9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins).
+9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins). *Done.*
 10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
 
-**Medium (workflow):** maximum margin; independent reply-score step; BP position cost `simple`;
-deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics; assistant
+**Medium (workflow):** maximum margin; independent reply-score step; ~~BP position cost `simple`;
+deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics~~ (done); assistant
 access levels and permission groups; concurrent current rounds, round start times, preparation
-time, public schedule + iCal; three-state motion release (info slides first); public draw "current
+time, public schedule + iCal; three-state motion release (info slides first); ~~public draw "current
 round only"; public team/adjudicator record pages; public adjudicator tab; public and private
 scoresheets; public tab top-N limits; noindex control; public elimination bracket; anonymity
-(anonymous speakers, hidden institutions, code names shown/generated); email delivery webhooks;
+(anonymous speakers, hidden institutions, code names shown/generated)~~ *(done: public-site PR, see
+public-pages-and-notifications.md "Public-site settings")*; email delivery webhooks;
 CSV exports (participants, availability, break eligibility, conflicts); simulated results /
 demo tournament for rehearsals; registration breadth (institution/coach self-registration,
 auto-accept, over-allocation, slot transfers, name/code-name generators, region/phone/gender
 fields); feedback score step, full team-feedback modes, intro text, unexpected and "important"
-feedback views; venue room URL and category descriptions.
+feedback views; venue room URL and category descriptions (*done*).
 
 **Low (polish):** custom side names (Gov/Opp…); toggles for the reply-speaker rule and for
-motions altogether; reverse public motion order; copy motions between rounds; cross-tournament
-motion statistics; team emoji and speakers in the draw; team references and institution prefixes;
+motions altogether; ~~reverse public motion order~~ *(done)*; copy motions between rounds; cross-tournament
+motion statistics; ~~team emoji and speakers in the draw~~ *(done)*; team references and institution prefixes;
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
 
@@ -267,6 +285,27 @@ web push.
 reply-speaker toggle and turning motions off are **done**, with the APDA preset and the WSDC
 score criteria, Canadian/UADC/WSDC side names, BP prelim-only speaker scores and the Easters
 maximum margin in the presets (`docs/results-and-ballots.md`).
+
+### Ops breadth (waves 4/5): email, registration, feedback, staff access, check-ins
+
+Status of #21 (as corrected in B) and the email, registration, feedback, staff-access and check-in
+items of C. Each row names the PR that implements it; the docs linked there describe behaviour and
+limitations.
+
+| Item | PR | Docs |
+|---|---|---|
+| #21 saved per-tournament templates for every automatic email, Reply-To | #50 | [email-notifications.md](email-notifications.md) |
+| #21 "ballot confirmed" and "motions released" emails; feedback / private URL templates; registration and "places allocated" emails | #50 | same |
+| Email delivery status via a signed, provider-agnostic webhook | #50 | same |
+| SMS hook (generic signed relay); web push documented as out of scope | #50 | same |
+| Institution and coach self-registration, auto-accept (`registration_confirmation`), over-allocation, slot transfers, team-name and code-name generators, phone/gender/region fields mapped to person fields, per-form messages, institution and per-speaker questions | #54 (stacked on #50) | [registration.md](registration.md#registration-breadth-tabbycat-parity) |
+| Feedback score step, all `feedback_from_teams` modes, feedback introduction, unexpected feedback, important feedback view, panellists-on-each-other path | #56 | [adjudicator-allocation.md](adjudicator-allocation.md#feedback-paths) |
+| Assistant access levels and permission groups (server-enforced), assistants confirming others' ballots, per-adjudicator ballots merged into voting ballots, chair-ballot confirmation option | #44 | [staff-access.md](staff-access.md) |
+| Check-in history, bulk check-in (previous round, breaking adjudicators), speaker-level check-in, printed-ballot options (return locations, circled digits, hidden motions) | #57 | [public-pages-and-notifications.md](public-pages-and-notifications.md#check-ins-history-bulk-speakers-printed-forms) |
+
+Not done here: Tabbycat's Equity and Adjudication Core permission groups (they need
+administrator-only data), web push, showing unexpected feedback on public participant pages
+(public-site work).
 
 ### D. Not gaps (different design or not applicable)
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"

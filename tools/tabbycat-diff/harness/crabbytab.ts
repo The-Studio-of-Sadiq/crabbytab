@@ -56,12 +56,14 @@ export const TEAM_METRIC_MAP: Record<string, TeamMetricId> = {
   speaks_stddev: "speaks_stddev",
   margin_sum: "margin_sum",
   margin_avg: "margin_avg",
-  draw_strength: "draw_strength_wins",
+  draw_strength: "draw_strength",
   draw_strength_speaks: "draw_strength_speaks",
+  draw_strength_rank: "draw_strength_rank",
   firsts: "firsts",
   seconds: "seconds",
   thirds: "thirds",
   npullups: "pullups",
+  pullup_debates: "pullup_debates",
   num_adjs: "num_adjs",
   num_iron: "num_iron",
 };
@@ -72,6 +74,14 @@ export const SPEAKER_METRIC_MAP: Record<string, SpeakerMetricId> = {
   stdev: "speaks_stddev",
   count: "speeches_count",
   trimmed_mean: "speaks_trimmed_mean",
+  team_points: "team_points",
+  team_wins: "team_wins",
+  firsts: "firsts",
+  seconds: "seconds",
+  thirds: "thirds",
+  num_adjs: "num_adjs",
+  replies_count: "reply_count",
+  replies_stddev: "reply_stddev",
   srank: "srank",
 };
 
@@ -80,6 +90,7 @@ export const REPLY_METRIC_MAP: Record<string, SpeakerMetricId> = {
   replies_sum: "speaks_sum",
   replies_avg: "speaks_avg",
   replies_count: "speeches_count",
+  replies_stddev: "speaks_stddev",
 };
 
 const invert = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([key, value]) => [value, key]));
@@ -152,11 +163,12 @@ export function translatePreferences(
       one_room: "top",
     } as const);
     preferences.bpPositionCost = pick("draw_rules__bp_position_cost", {
+      simple: "simple",
       entropy: "renyi_entropy",
       variance: "sum_squared_deviations",
     } as const);
     preferences.bpAssignmentMethod = pick("draw_rules__bp_assignment_method", {
-      hungarian: "hungarian",
+      hungarian: "hungarian_unshuffled",
       hungarian_preshuffled: "hungarian",
       random: "random",
     } as const);
@@ -173,6 +185,8 @@ export function translatePreferences(
       intermediate_bubble_up_down: "intermediate_bubble",
       intermediate1: "intermediate1",
       intermediate2: "intermediate2",
+      pullup_lowest_ds_rank: "pullup_lowest_ds_rank",
+      pullup_lowest_ds_rank_npulls: "pullup_lowest_ds_rank_npulls",
     } as const);
     preferences.pairingMethod = pick("draw_rules__draw_pairing_method", {
       slide: "slide",
@@ -185,6 +199,7 @@ export function translatePreferences(
       off: "off",
       one_up_one_down: "one_up_one_down",
       graph: "min_cost",
+      graph_one: "min_cost_with_pullups",
     } as const);
     preferences.pullupRestriction = pick("draw_rules__draw_pullup_restriction", {
       none: "none",
@@ -195,6 +210,11 @@ export function translatePreferences(
     const maxTimes = Number(value("draw_rules__max_times_per_side"));
     if (Number.isFinite(maxTimes) && maxTimes > 0) preferences.maxTimesPerSide = maxTimes;
     preferences.pullupPenalty = Number(value("draw_rules__draw_pullup_penalty"));
+    // Minimum-cost matching weights (absent from older golden files).
+    const weight = (key: string) => (Number.isFinite(Number(value(key))) ? Number(value(key)) : undefined);
+    preferences.previouslySawPullupPenalty = weight("draw_rules__pullup_debates_penalty");
+    preferences.sideBalancePenalty = weight("draw_rules__side_penalty");
+    preferences.pairingDeviationPenalty = weight("draw_rules__pairing_penalty");
   }
 
   if (value("debate_rules__ballots_per_debate_prelim") === "per-adj" && format !== "bp") preferences.ballotMode = "voting";

@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Eye,
   FileCheck2,
+  FileDown,
+  FlaskConical,
   History,
   Key,
   KeyRound,
@@ -145,7 +147,10 @@ function NavDisclosure({
 /** The grouped navigation shared by the desktop sidebar and the mobile drawer. */
 function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
   const pathname = usePathname();
-  const { tournament, activeRound, debates, ballots, isOwnerOrAdmin, isDataEntryAssistant } = useTournament();
+  const { tournament, activeRound, debates, ballots, isOwnerOrAdmin, isDataEntryAssistant, staffPermissions } = useTournament();
+  // Data-entry staff see only what their permissions cover (docs/staff-access.md); the server
+  // refuses the rest anyway.
+  const staffMay = (permission: string) => !isDataEntryAssistant || staffPermissions.includes(permission);
   const base = `/${tournamentSlug}`;
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
   const isConfigPage = pathname?.startsWith(`${base}/config/`) ?? false;
@@ -175,6 +180,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
             <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label="Speaker categories" />
             <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label="Conflicts" />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label="Venues" />
+            <NavLink href={`${base}/imports/venue-constraints`} icon={MapPin} label="Room preferences" />
             <NavLink href={`${base}/imports/motions`} icon={Lightbulb} label="Motions" />
           </>
         )}
@@ -186,7 +192,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
       >
         {activeRound ? (
           <>
-            <NavLink href={`${base}/checkins`} icon={Clock} label="Availability" />
+            {staffMay("checkins.edit") && <NavLink href={`${base}/checkins`} icon={Clock} label="Availability" />}
             {isOwnerOrAdmin && (
               <>
                 <NavLink
@@ -205,7 +211,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
                 <NavLink href={`${base}/allocation`} icon={Users2} label="Allocation" />
               </>
             )}
-            <NavLink href={`${base}/display`} icon={Monitor} label="Display" />
+            {staffMay("draw.display") && <NavLink href={`${base}/display`} icon={Monitor} label="Display" />}
           </>
         ) : (
           <p className="px-2 py-1 text-xs text-fg-muted">
@@ -229,7 +235,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
             ) : undefined
           }
         />
-        {feedbackEnabled && <NavLink href={`${base}/feedback`} icon={MessageSquareHeart} label="Feedback" />}
+        {feedbackEnabled && staffMay("feedback.enter") && <NavLink href={`${base}/feedback`} icon={MessageSquareHeart} label="Feedback" />}
         <NavLink href={`${base}/standings`} icon={Trophy} label="Standings" />
         <NavLink href={`${base}/break`} icon={Award} label="Break" />
         <NavLink href={`${base}/analytics`} icon={BarChart3} label="Analytics" />
@@ -253,6 +259,8 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
           </NavDisclosure>
           <NavLink href={`${base}/imports/assistants`} icon={Shield} label="Assistants" />
           <NavLink href={`${base}/audit`} icon={History} label="Audit log" />
+          <NavLink href={`${base}/exports`} icon={FileDown} label="Data exports" />
+          <NavLink href={`${base}/rehearsal`} icon={FlaskConical} label="Rehearsal tools" />
           <NavLink href={`${base}/api`} icon={KeyRound} label="API access" />
         </NavGroup>
       )}

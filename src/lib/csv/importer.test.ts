@@ -120,6 +120,13 @@ Room 102,10,Tutorial`;
       ]);
   });
 
+  it("imports room links and refuses non-http(s) ones", () => {
+    const [venue] = parseVenuesCsv("name,url\nOnline 1,https://meet.example.org/abc", "t1");
+    expect(venue.url).toBe("https://meet.example.org/abc");
+    expect(parseVenuesCsv("name\nRoom A", "t1")[0].url).toBeUndefined();
+    expect(() => parseVenuesCsv("name,url\nBad,javascript:alert(1)", "t1")).toThrow(/row 2/);
+  });
+
   it("imports the near-tab-room venue capability", () => {
     const [venue] = parseVenuesCsv("name,near_tab_room\nRoom A,true", "t1");
     expect(venue.nearTabRoom).toBe(true);

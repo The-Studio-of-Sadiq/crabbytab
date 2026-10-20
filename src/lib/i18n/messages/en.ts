@@ -7,6 +7,8 @@
  * - `{name}` is a placeholder. Plurals are `key_one` / `key_other` (+ other CLDR categories).
  * - `<b>…</b>` / `<n>…</n>` mark spans the component styles (bold text, numbers).
  */
+import { publicSiteEn } from "@/lib/i18n/messages/publicSite.en";
+
 export const en = {
   "common.tournament": "Tournament",
   "common.cancel": "Cancel",
@@ -96,11 +98,14 @@ export const en = {
   "metric.team.margin_sum": "Total margin",
   "metric.team.margin_avg": "Avg margin",
   "metric.team.draw_strength_wins": "Draw strength (wins)",
+  "metric.team.draw_strength": "Draw strength",
   "metric.team.draw_strength_speaks": "Draw strength (speaks)",
+  "metric.team.draw_strength_rank": "Draw strength (rank)",
   "metric.team.firsts": "1sts",
   "metric.team.seconds": "2nds",
   "metric.team.thirds": "3rds",
   "metric.team.pullups": "Pull-ups",
+  "metric.team.pullup_debates": "Pull-up debates",
   "metric.team.num_adjs": "Ballots carried",
   "metric.team.num_iron": "Iron-person speeches",
   "metric.speaker.speaks_sum": "Total",
@@ -110,6 +115,14 @@ export const en = {
   "metric.speaker.speeches_count": "Speeches",
   "metric.speaker.reply_sum": "Reply total",
   "metric.speaker.reply_avg": "Reply average",
+  "metric.speaker.reply_stddev": "Reply std. dev.",
+  "metric.speaker.reply_count": "Replies",
+  "metric.speaker.team_points": "Team points",
+  "metric.speaker.team_wins": "Team wins",
+  "metric.speaker.firsts": "1sts",
+  "metric.speaker.seconds": "2nds",
+  "metric.speaker.thirds": "3rds",
+  "metric.speaker.num_adjs": "Ballots carried",
   "public.col.seed": "Seed",
   "public.winningTeam": "Winning team",
   "public.losingTeam": "Losing team",
@@ -279,6 +292,7 @@ export const en = {
   "teamPortal.modalTeamTitle": "Opponent Team Feedback",
   "teamPortal.targetAdjudicator": "Target Adjudicator",
   "teamPortal.targetTeam": "Target Opponent Team",
+  "teamPortal.orallistPrompt": "If a panellist gave the oral adjudication (the chair dissented), rate that panellist instead of the chair.",
   "teamPortal.agreeQuestion": "Did you agree with this adjudicator’s decision/call?",
   "teamPortal.adjudicatorComments": "Constructive Feedback & Justification",
   "teamPortal.adjudicatorPlaceholder": "Explain constructive points: quality of oral adjudication, tracking of clash, fairness…",
@@ -425,4 +439,5 @@ export const en = {
   "register.receivedTeam": "Thank you. The tournament's organisers will review your team.",
   "register.receivedAdjudicator": "Thank you. The tournament's organisers will review your registration.",
   "register.another": "Register another",
+  ...publicSiteEn,
 } as const;

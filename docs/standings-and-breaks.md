@@ -8,10 +8,14 @@ and `src/lib/breakqual/calculator.ts`.
 ## What counts
 
 Only confirmed, non-discarded ballots in non-cancelled **preliminary** rounds count. A bye awarded
-as a win counts as a win with no speeches. Forfeits and results-only ballots (`speakersInBallots`)
-count for the result but not for speaks or margins. Ghost (iron-person) speeches never count on
-the speaker tab. Team points are multiplied by the round's weight (`Round.weight`, Tabbycat's
-`PointsMetricAnnotator`); wins and who-beat-whom are not. See `results-and-ballots.md`.
+as a win counts as a win with no speeches. **BP records no wins** (wave 4/5): as in Tabbycat, whose
+BP preliminary results leave `TeamScore.win` unset, `wins` (and the draw strength built on it) is 0
+for every BP team; BP ranks on points, and `wins` / `draw_strength_wins` are offered for two-team
+formats only. Before wave 4/5 a BP 1st or 2nd counted as a win. Forfeits and results-only ballots
+(`speakersInBallots`) count for the result but not for speaks or margins. Ghost (iron-person)
+speeches never count on the speaker tab. Team points are multiplied by the round's weight
+(`Round.weight`, Tabbycat's `PointsMetricAnnotator`); wins and who-beat-whom are not. See
+`results-and-ballots.md`.
 
 ## Team precedence
 
@@ -22,12 +26,15 @@ listed by name, which never decides anything (see ties at the cutoff below).
 
 | Metric | Id | Better | Notes |
 |---|---|---|---|
-| Wins, points | `wins`, `points` | higher | |
+| Wins, points | `wins`, `points` | higher | wins: two-team only |
 | Total / average speaks, average individual speaks, speaks std. dev. | `speaks_*` | higher (std. dev.: lower) | |
 | Total / average margin | `margin_sum`, `margin_avg` | higher | two-team only |
-| Draw strength by opponents' wins / speaks | `draw_strength_wins`, `draw_strength_speaks` | higher | |
+| **Draw strength** (opponents' points) | `draw_strength` | higher | Tabbycat's `draw_strength`: each opponent's points, multiplied by round weights once rounds have them (`Round.weight`, default 1). Ends the British Parliamentary preset's precedence, as in Tabbycat |
+| Draw strength by opponents' wins / speaks | `draw_strength_wins`, `draw_strength_speaks` | higher | wins: two-team only, unweighted |
+| **Draw strength by rank** | `draw_strength_rank` | lower | mean standings rank of the opponents; display only (Tabbycat's `extra_only`), "—" with no opponents |
 | 1sts, 2nds, 3rds | `firsts`, … | higher | BP only |
-| Times pulled up | `pullups` | lower | |
+| Times pulled up | `pullups` | higher | Tabbycat's `npullups` is not ascending (wave 4/5 corrected this; it ranked lower first before) |
+| **Debates with a pull-up** | `pullup_debates` | higher | debates the team was in where some team was pulled up (Tabbycat's `pullup_debates`) |
 | **Who-beat-whom** | `wbw` | higher | see below |
 | **Votes/ballots carried** | `num_adjs` | higher | two-team only |
 | **Iron-person speeches** | `num_iron` | lower | debates in which the team had a duplicate speech |
@@ -45,8 +52,14 @@ ballots record no votes and carry none, as in Tabbycat.
 ## Speaker precedence
 
 Speaker metrics: total, average, std. dev. (lower is better), **trimmed mean**, speeches given,
-reply total and average, and **speech ranks** (`srank`: the sum of the speaker's speech ranks,
-lower is better; needs `speakerRanks`). Default: total, then average.
+reply total, average, std. dev. (lower is better) and count. Default: total, then average.
+
+**Team metrics on the speaker tab (wave 4/5)**, as Tabbycat's `standings/speakers.py`: team
+points (`team_points`, unweighted like Tabbycat's), team wins (`team_wins`, two-team only), team
+1sts/2nds/3rds (`firsts`, `seconds`, `thirds`, BP only) and votes/ballots carried (`num_adjs`,
+two-team only). They count every preliminary debate of the speaker's team, whether or not the
+speaker spoke in it. **Speech ranks** (`srank`) are the sum of the speaker's speech ranks, lower is better; they
+need `speakerRanks` (see `results-and-ballots.md`).
 
 **Trimmed mean (changed in wave 2).** Tabbycat's "trimmed mean (high-low drop)" leaves out a
 speaker's highest *and* lowest score when they have more than two, otherwise it is the plain
@@ -75,8 +88,16 @@ page and the released public team and speaker tabs, but are not used to rank.
 Categories are processed from highest priority down; a team breaks in at most one. Manual
 overrides either force a team in ("Manually included", which takes a break place first) or
 remove it (ineligible, withdrawn, different break, disqualified, lost coin toss). The
-qualification rule (Standard, AIDA 1996, AIDA 2016 Australs/Easters) then orders the remaining
+qualification rule (Standard, AIDA 1996, AIDA 2016 Australs/Easters, AIDA 2019 Australs open) then orders the remaining
 eligible teams and applies any institution cap.
+
+**AIDA 2019 Australs (open)** (`aida_2019_australs_open`, Tabbycat's `aida-2019-australs-open`,
+`breakqual/aida.py`) is the AIDA 2016 Australs procedure (wins cutoff at the last breaking place,
+teams below the natural cutoff capped at one per institution, reinsertion in rank order) with an
+institution cap of `3 + floor(max(0, break size − 16) / 8)`: 3 up to a 23-team break, 4 for 24–31,
+5 for 32–39, and so on. The break size is the category's, including manually included teams. Like
+the AIDA 2016 rules it needs wins, so it is refused for BP. (WADL is not a Tabbycat break rule and
+is not offered.)
 
 ### Ties at the cutoff
 

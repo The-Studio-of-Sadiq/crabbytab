@@ -79,8 +79,12 @@ describe("preformed panel editing", () => {
     expect(audits).toEqual(["adjudicators.preformed_panels_saved"]);
 
     await expect(
-      savePreformedPanelsCommand("r1", [{ ...panel, chairId: undefined }], dependencies)
+      savePreformedPanelsCommand("r1", [{ ...panel, chairId: undefined, panellistIds: ["a"] }], dependencies)
     ).rejects.toThrow("Panel 1 needs a chair.");
     expect(saved).toHaveLength(1);
+
+    // Empty panels (anticipated rooms not filled yet) can be saved.
+    await savePreformedPanelsCommand("r1", [{ ...panel, chairId: undefined }], dependencies);
+    expect(saved).toHaveLength(2);
   });
 });

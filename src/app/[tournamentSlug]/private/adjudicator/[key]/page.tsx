@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
@@ -41,7 +42,7 @@ import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
 import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
-import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { validateFeedbackScore, defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
   isFeedbackEnabledForRound,
@@ -72,6 +73,7 @@ export default function AdjudicatorPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    venues,
     ballots,
     feedback,
     submitBallot,
@@ -174,7 +176,7 @@ export default function AdjudicatorPrivatePortalPage() {
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
-    Math.round((minFeedbackScore + maxFeedbackScore) / 2)
+    defaultFeedbackScore(tournament?.preferences)
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
@@ -292,7 +294,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetAdjName(targetAdj.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -306,7 +308,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -807,7 +809,12 @@ export default function AdjudicatorPrivatePortalPage() {
                       <span className="text-gray-400">&bull;</span>
                       <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{debate.venueName}</span>
+                        <VenueLabel
+                          debate={debate}
+                          venues={venues}
+                          categories={tournament?.preferences?.venueCategories}
+                          audience="public"
+                        />
                       </div>
                     </div>
 
@@ -1054,6 +1061,11 @@ export default function AdjudicatorPrivatePortalPage() {
             )}
 
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
+              {tournament?.preferences?.feedbackIntroduction?.trim() && (
+                <p className="whitespace-pre-line rounded border border-gray-200 bg-gray-50 p-2.5 text-gray-700">
+                  {tournament.preferences.feedbackIntroduction}
+                </p>
+              )}
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200">
                 <span className="text-[10px] text-gray-500 font-bold uppercase block">
                   {feedbackTargetType === "adjudicator" ? t("adjPortal.targetAdjudicator") : t("adjPortal.targetTeam")}
@@ -1074,9 +1086,9 @@ export default function AdjudicatorPrivatePortalPage() {
                   type="range"
                   min={minFeedbackScore}
                   max={maxFeedbackScore}
-                  step={1}
+                  step={feedbackScoreStep(tournament?.preferences)}
                   value={feedbackScore}
-                  onChange={(e) => setFeedbackScore(parseInt(e.target.value, 10))}
+                  onChange={(e) => setFeedbackScore(parseFloat(e.target.value))}
                   className="w-full accent-blue-600 cursor-pointer"
                 />
               </div>

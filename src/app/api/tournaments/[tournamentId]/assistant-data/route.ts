@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { redactAssistantDebate } from "@/lib/dataEntrySync";
+import { authorizeDataEntryStaff } from "@/lib/staffAccessServer";
+import { hasStaffPermission } from "@/lib/staffPermissions";
 
 export const runtime = "nodejs";
 
@@ -16,35 +17,14 @@ export async function GET(
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(tournamentId)) {
     return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
   }
-  const token = request.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/)?.[1];
-  if (!token) return NextResponse.json({ error: "Sign in to load tournament data." }, { status: 401 });
-
-  let auth;
-  let firestore;
-  try {
-    auth = getAdminAuth();
-    firestore = getAdminFirestore();
-  } catch {
-    return NextResponse.json({ error: "Server-side Firebase authorization is not configured." }, { status: 503 });
+  const authorization = await authorizeDataEntryStaff(request, tournamentId);
+  if ("error" in authorization) {
+    return NextResponse.json({ error: authorization.error }, { status: authorization.status });
   }
-
-  let user;
-  try {
-    user = await auth.verifyIdToken(token);
-  } catch {
-    return NextResponse.json({ error: "Your sign-in has expired. Please sign in again." }, { status: 401 });
-  }
+  const { tournamentRef, permissions } = authorization;
+  const source = authorization.tournament as unknown as Record<string, unknown>;
 
   try {
-    const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
-    const tournamentSnapshot = await tournamentRef.get();
-    if (!tournamentSnapshot.exists) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
-    const source = tournamentSnapshot.data()!;
-    const staffSnapshot = await tournamentRef.collection("staff").doc(user.uid).get();
-    if (staffSnapshot.data()?.role !== "dataEntry") {
-      return NextResponse.json({ error: "Data-entry access is not assigned to this account." }, { status: 403 });
-    }
-
     const names = [
       "rounds", "teams", "adjudicators", "venues", "motions", "breakCategories",
       "debates", "ballots", "feedback", "institutions", "ballotIntake",
@@ -59,14 +39,26 @@ export async function GET(
 
     const tournament = {
       ...pickFields(source, ["name", "nameLower", "shortName", "slug", "format", "seq", "active", "preferences", "createdAt", "updatedAt", "migratedAt"]),
-      id: tournamentSnapshot.id,
+      id: tournamentRef.id,
       ownerId: "",
       admins: {},
     };
     const roundsById = new Map(records.rounds.map((round) => [
       String(round.id),
-      round as { adjudicatorsRevealed?: boolean; motionsReleased?: boolean },
+      round as { adjudicatorsRevealed?: boolean; motionsReleased?: boolean; drawStatus?: unknown },
     ]));
+    // Staff access (docs/staff-access.md): without "draw.display" only confirmed or released draws
+    // are sent; with "motions.display" a round's motions are sent before they are released.
+    const drawVisible = (roundId: unknown) => {
+      const status = roundsById.get(String(roundId))?.drawStatus;
+      return status === "confirmed" || status === "released" ||
+        (hasStaffPermission(permissions, "draw.display") && status === "draft");
+    };
+    const showUnreleasedMotions = hasStaffPermission(permissions, "motions.display");
+    const motionVisible = (motion: Record<string, unknown>) =>
+      motion.released === true ||
+      (showUnreleasedMotions && Array.isArray(motion.rounds) &&
+        motion.rounds.some((roundId) => drawVisible(roundId)));
     const collections = {
       rounds: records.rounds.map((round) => pickFields(round, [
         "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
@@ -78,37 +70,41 @@ export async function GET(
         ...pickFields(team, [
           "id", "tournamentId", "name", "breakStatus", "breakCategoryIds", "eliminatedInRoundId",
           "codeName", "institutionId", "institutionName", "breakCategories", "speakerCategories",
-          "seed", "emoji", "checkedIn", "roundAvailability",
+          "seed", "emoji", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
         ]),
         speakers: Array.isArray(team.speakers)
-          ? team.speakers.map((speaker: Record<string, unknown>) => pickFields(speaker, ["id", "name", "categories"]))
+          ? team.speakers.map((speaker: Record<string, unknown>) =>
+              pickFields(speaker, ["id", "name", "categories", "roundAvailability", "checkInHistory"]))
           : [],
       })),
       adjudicators: records.adjudicators.map((adjudicator) => pickFields(adjudicator, [
         "id", "tournamentId", "name", "institutionId", "institutionName",
-        "trainee", "independent", "checkedIn", "roundAvailability", "gender",
+        "trainee", "independent", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
       ])),
       venues: records.venues.map((venue) => pickFields(venue, [
         "id", "tournamentId", "name", "priority", "category", "capacity", "accessible", "online", "available",
+        "checkedIn", "checkedInAt", "checkInHistory",
       ])),
-      motions: records.motions.filter((motion) => motion.released === true).map((motion) => pickFields(motion, [
+      motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
         "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released",
       ])),
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",
       ])),
-      debates: records.debates.map((debate) => redactAssistantDebate(
+      debates: records.debates.filter((debate) => drawVisible(debate.roundId)).map((debate) => redactAssistantDebate(
         pickFields(debate, [
           "id", "tournamentId", "roundId", "roundSeq", "byeTeamId", "byeResult", "breakCategoryId",
           "venueId", "venueName", "bracket", "roomRank", "importance", "resultStatus", "sidesConfirmed",
           "flags", "teams", "adjudicators", "motionId", "motionText",
         ]),
-        roundsById.get(String(debate.roundId))
+        roundsById.get(String(debate.roundId)),
+        { showUnreleasedMotions }
       )),
       ballots: records.ballots.map((ballot) => pickFields(ballot, [
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
-        "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores",
+        "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "checksVersion",
+        "singleAdjudicator", "mergedFromIds", "noSpeakerScores",
       ])),
       feedback: records.feedback.map((submission) => pickFields(submission, [
         "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
@@ -124,7 +120,7 @@ export async function GET(
       ])),
     };
 
-    return NextResponse.json({ tournament, collections }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ tournament, collections, permissions }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "Could not load assistant tournament data." }, { status: 503 });
   }

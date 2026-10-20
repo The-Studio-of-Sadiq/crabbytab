@@ -322,3 +322,87 @@ describe("speaker standings eligibility (Tabbycat's speeches missable)", () => {
     ]);
   });
 });
+
+describe("wave 4/5 team metrics (Tabbycat standings/teams.py)", () => {
+  // R1 (weight 1): A beats B; C beats D, with D pulled up. R2 (weight 2): A beats D; C beats B.
+  const teams = ["A", "B", "C", "D"].map((id) => team(id));
+  const rounds = [round(1), { ...round(2), weight: 2 } as Round];
+  const r1a = debate("d1", 1, "A", "B");
+  const r1b = debate("d2", 1, "C", "D");
+  (r1b.teams.NEG as { pulledUp?: boolean }).pulledUp = true;
+  const r2a = debate("d3", 2, "A", "D");
+  const r2b = debate("d4", 2, "C", "B");
+  const ballots = [
+    ballot(r1a, "AFF", flat("A", 75), flat("B", 70)),
+    ballot(r1b, "AFF", flat("C", 74), flat("D", 69)),
+    ballot(r2a, "AFF", flat("A", 75), flat("D", 69)),
+    ballot(r2b, "AFF", flat("C", 74), flat("B", 70)),
+  ];
+  const result = calculateStandings(
+    tournament({ teamStandingsPrecedence: ["points", "speaks_sum"] }),
+    rounds,
+    teams,
+    [r1a, r1b, r2a, r2b],
+    ballots
+  );
+  const metric = (id: string) => result.teams.find((row) => row.teamId === id)!.metrics;
+
+  it("draw_strength sums opponents' round-weighted points; draw_strength_wins counts their wins", () => {
+    // Weighted points: A 1 + 2 = 3, C 1 + 2 = 3, B and D 0. B met A and C; D met C and A.
+    expect(metric("B").draw_strength).toBe(6);
+    expect(metric("D").draw_strength).toBe(6);
+    expect(metric("A").draw_strength).toBe(0);
+    expect(metric("B").draw_strength_wins).toBe(4);
+  });
+
+  it("pullup_debates counts every team in a debate with a pulled-up team", () => {
+    expect([metric("C").pullup_debates, metric("D").pullup_debates, metric("A").pullup_debates]).toEqual([1, 1, 0]);
+    expect([metric("C").pullups, metric("D").pullups]).toEqual([0, 1]);
+  });
+
+  it("draw_strength_rank is the mean rank of the opponents, lower meaning a harder draw", () => {
+    // Ranks: A 1, C 2, B 3, D 4.
+    expect(result.teams.map((row) => row.teamId)).toEqual(["A", "C", "B", "D"]);
+    expect(metric("A").draw_strength_rank).toBe(3.5);
+    expect(metric("B").draw_strength_rank).toBe(1.5);
+    expect(TEAM_METRIC_DIRECTION.draw_strength_rank).toBe(-1);
+  });
+
+  it("draw_strength_rank can only be displayed, never ranked on", () => {
+    expect(resolveTeamPrecedence("australs", { teamStandingsPrecedence: ["draw_strength_rank", "points"] })).toEqual(["points"]);
+    expect(resolveTeamExtra({ teamStandingsExtra: ["draw_strength_rank"] })).toEqual(["draw_strength_rank"]);
+  });
+});
+
+describe("wave 4/5 speaker metrics (Tabbycat standings/speakers.py)", () => {
+  const teams = [team("A"), team("B")];
+  const rounds = [round(1), round(2), round(3)];
+  const debates = rounds.map((r) => debate(`d${r.seq}`, r.seq, "A", "B"));
+  // A wins R1 and R2 on 2-1 votes; B wins R3 on 2-1. A1 replies in R1 (35) and R2 (37); A2 in R3 (36).
+  const replies: [string, number][] = [["A1", 35], ["A1", 37], ["A2", 36]];
+  const ballots = debates.map((d, index) => {
+    const affWins = index < 2;
+    return ballot(d, affWins ? "AFF" : "NEG", [...flat("A", 72), replies[index]], flat("B", affWins ? 70 : 74), {
+      AFF: affWins ? 2 : 1,
+      NEG: affWins ? 1 : 2,
+    });
+  });
+  const result = calculateStandings(tournament({ replyScoresEnabled: true }), rounds, teams, debates, ballots);
+  const speaker = (id: string) => result.speakers.find((row) => row.speakerId === id)!.metrics;
+
+  it("gives every speaker their team's points, wins and votes", () => {
+    expect([speaker("A1").team_points, speaker("A1").team_wins, speaker("B1").team_wins]).toEqual([2, 2, 1]);
+    // Votes normalised to a panel of three: A carried 2 + 2 + 1, B 1 + 1 + 2.
+    expect(speaker("A3").num_adjs).toBe(5);
+    expect(speaker("B2").num_adjs).toBe(4);
+    expect([speaker("A1").firsts, speaker("A1").seconds, speaker("A1").thirds]).toEqual([0, 0, 0]);
+  });
+
+  it("counts replies and their (population) standard deviation", () => {
+    expect([speaker("A1").reply_count, speaker("A1").reply_stddev]).toEqual([2, 1]);
+    expect(speaker("A2").reply_count).toBe(1);
+    expect(speaker("B1").reply_count).toBe(0);
+    const reply = result.replies.find((row) => row.speakerId === "A1")!.metrics;
+    expect([reply.speaks_sum, reply.reply_count]).toEqual([72, 2]);
+  });
+});

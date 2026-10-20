@@ -137,7 +137,13 @@ Full run on a developer laptop (Vitest, Node 22):
 
 Known limits found by the benchmark:
 - Auto-allocation is the slowest step at this size. It runs in a Web Worker, so the page stays
-  usable, but it has not been optimised.
+  usable. Wave 4 made it faster without changing any result (golden fixtures in
+  `src/lib/draw/allocator.golden.test.ts`; details in adjudicator-allocation.md "Speed"). Back to
+  back on one (loaded) machine, WSDC allocation per round went from 6.0–17.0 s to 2.9–8.5 s; on
+  fixtures with varied adjudicator scores the gain is larger (a 300-room fixture from ~21 s to
+  ~1.3 s). The benchmark gives every adjudicator the same score, the Hungarian matching's worst
+  case (every matching ties); the table above predates the speed work.
+- Large rounds can be split into shards on the allocation board to work on part of the draw.
 - With the default two-team conflict avoidance (`one_up_one_down`), pairing ignores side limits, so
   late rounds of a long two-team tournament can pair two teams that have both reached the
   per-side limit; the draw then stops with an error naming them. `min_cost` conflict avoidance

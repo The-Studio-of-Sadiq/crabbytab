@@ -3,6 +3,7 @@ import type {
   BallotSubmission,
   Debate,
   DebateSide,
+  Institution,
   Round,
   Team,
   Tournament,
@@ -14,6 +15,7 @@ import { buildMatchupHistory, getEligibleTeamsForRound } from "./generator";
 import { sameInstitution } from "./history";
 import { BP_SIDES, TWO_TEAM_SIDES, violatesSideLimits } from "./sideAllocator";
 import { getVenueIncompatibilities } from "./venueAllocator";
+import { constraintLookup, isVenueAvailableForRound, unmetVenueConstraints } from "@/lib/venues/venues";
 import { resolveRecordedSides, sidesPending } from "./manualSides";
 
 /**
@@ -47,6 +49,7 @@ export type DrawIssueCode =
   | "venue_in_multiple_debates"
   | "venue_unavailable"
   | "venue_requirements"
+  | "venue_constraint"
   | "repeat_matchup"
   | "same_institution"
   | "adjudicator_history"
@@ -77,6 +80,8 @@ export interface ValidateDrawInput {
   now?: number;
   /** Ballots, so sides recorded on confirmed ballots (manual-ballot sides) count in the side history. */
   ballots?: BallotSubmission[];
+  /** Institutions, for their soft room constraints. */
+  institutions?: Institution[];
 }
 
 function roomLabel(debate: Debate): string {
@@ -408,6 +413,7 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
   /* Venues ----------------------------------------------------------------- */
 
   const venuePlacements = new Map<string, Debate[]>();
+  const lookup = constraintLookup({ teams: input.teams, adjudicators: input.adjudicators, institutions: input.institutions });
   for (const debate of roundDebates) {
     if (debate.byeTeamId) continue;
     if (!debate.venueId) {
@@ -445,11 +451,11 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
         venueIds: [venueId],
       });
     }
-    if (venue.available === false) {
+    if (!isVenueAvailableForRound(venue, input.round.id)) {
       add({
         code: "venue_unavailable",
         severity: "error",
-        message: `${venue.name} is marked unavailable.`,
+        message: `${venue.name} is marked unavailable${venue.roundAvailability?.[input.round.id] === false ? " for this round" : ""}.`,
         debateIds,
         venueIds: [venueId],
       });
@@ -461,6 +467,18 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
           code: "venue_requirements",
           severity: "error",
           message: `${venue.name} does not suit this debate: it ${list(reasons)}.`,
+          debateIds: [debate.id],
+          venueIds: [venueId],
+        });
+      }
+      const unmet = unmetVenueConstraints(debate, venue, lookup);
+      if (unmet.length > 0) {
+        add({
+          code: "venue_constraint",
+          severity: "warning",
+          message: `${venue.name} is not in the room category wanted by ${list(
+            unmet.map((constraint) => `${constraint.subjectName} (${constraint.category}, priority ${constraint.priority})`)
+          )}.`,
           debateIds: [debate.id],
           venueIds: [venueId],
         });

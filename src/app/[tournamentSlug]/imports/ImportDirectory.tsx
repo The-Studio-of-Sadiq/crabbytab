@@ -1008,6 +1008,30 @@ export default function ImportDirectory({
                 />
               </div>
 
+              {/* Public identity (Tabbycat code names and emoji) */}
+              <div className="grid grid-cols-[1fr_6rem] gap-2">
+                <label className="block text-xs font-semibold text-gray-700">
+                  Code name
+                  <input
+                    type="text"
+                    value={editingTeam.codeName ?? ""}
+                    onChange={(e) => setEditingTeam({ ...editingTeam, codeName: e.target.value || undefined })}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-normal"
+                    placeholder="Shown publicly when code names are on"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Emoji
+                  <input
+                    type="text"
+                    value={editingTeam.emoji ?? ""}
+                    onChange={(e) => setEditingTeam({ ...editingTeam, emoji: e.target.value.trim() || undefined })}
+                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-normal"
+                    maxLength={8}
+                  />
+                </label>
+              </div>
+
               {/* Institution Selection */}
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
                 <div className="flex items-center justify-between">
@@ -1084,6 +1108,31 @@ export default function ImportDirectory({
                       className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                       placeholder="Email (optional)"
                     />
+                    <input
+                      type="text"
+                      value={spk.codeName || ""}
+                      onChange={(e) => {
+                        const newSpeakers = [...editingTeam.speakers];
+                        newSpeakers[idx] = { ...spk, codeName: e.target.value || undefined };
+                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                      }}
+                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                      placeholder="Code name (optional)"
+                      aria-label={`${spk.name || `Speaker ${idx + 1}`} code name`}
+                    />
+                    <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={spk.anonymous === true}
+                        onChange={(e) => {
+                          const newSpeakers = [...editingTeam.speakers];
+                          newSpeakers[idx] = { ...spk, anonymous: e.target.checked || undefined };
+                          setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                        }}
+                        className="rounded border-gray-300 text-blue-600"
+                      />
+                      Anonymous on public pages
+                    </label>
                     <div className="col-span-2">
                       <SpeakerCategoriesInput
                         id={`edit-speaker-${idx}-categories`}
@@ -1338,7 +1387,27 @@ export default function ImportDirectory({
                   />
                   Breaking adjudicator
                 </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={editingAdj.anonymous === true}
+                    onChange={(e) => setEditingAdj({ ...editingAdj, anonymous: e.target.checked || undefined })}
+                    className="rounded border-gray-300 text-indigo-600"
+                  />
+                  Anonymous on public pages
+                </label>
               </fieldset>
+
+              <label className="block text-xs font-semibold text-gray-700">
+                Code name
+                <input
+                  type="text"
+                  value={editingAdj.codeName ?? ""}
+                  onChange={(e) => setEditingAdj({ ...editingAdj, codeName: e.target.value || undefined })}
+                  className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-normal"
+                  placeholder="Shown publicly when participant code names are on"
+                />
+              </label>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>

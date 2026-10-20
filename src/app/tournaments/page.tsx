@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, FileUp, Loader2, Plus, Search } from "lucide-react";
+import { ArrowRight, FileUp, FlaskConical, Loader2, Plus, Search } from "lucide-react";
 import {
   FieldPath,
   collection,
@@ -239,6 +239,12 @@ export default function TournamentsHubPage() {
             <Link href="/tournaments/import" className="-mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
               <FileUp className="w-3.5 h-3.5" />
               Or import a DebateXML archive (from Tabbycat or CrabbyTab)
+            </Link>
+          )}
+          {isGlobalAdmin && (
+            <Link href="/tournaments/demo" className="-mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
+              <FlaskConical className="w-3.5 h-3.5" />
+              Or load a demo tournament for a rehearsal
             </Link>
           )}
 
