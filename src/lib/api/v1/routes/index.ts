@@ -1,5 +1,5 @@
 import type { Debate, Round } from "@/types";
-import { notFound } from "../errors";
+import { ApiError, notFound } from "../errors";
 import { defineRoute, slugParam, type ApiRoute } from "../router";
 import { s } from "../schema";
 import { asType } from "../serializers";
@@ -8,6 +8,9 @@ import { meRoutes } from "./me";
 import { roundDataReadRoutes } from "./roundData";
 import { standingsReadRoutes } from "./standings";
 import { tournamentReadRoutes } from "./tournament";
+import { entityWriteRoutes } from "./write/entities";
+import { roundWriteRoutes } from "./write/rounds";
+import { tournamentWriteRoutes } from "./write/tournament";
 
 const rootRoute = defineRoute({
   method: "GET",
@@ -19,6 +22,26 @@ const rootRoute = defineRoute({
   response: s.object({ name: s.string(), version: s.string(), openapi: s.string(), docs: s.string() }),
   async handler() {
     return { name: "CrabbyTab Tournament API", version: "1", openapi: "/api/openapi.json", docs: "/tournaments/api" };
+  },
+});
+
+const publishRoute = defineRoute({
+  method: "POST",
+  path: "/tournaments/{slug}/publish",
+  operationId: "publishPublicView",
+  summary: "Publish the public site",
+  description:
+    "Rebuilds the public view from the cloud data, as the tab room's Publish does. API writes " +
+    "change the cloud data at once but reach the public site (and read:public tokens) only when " +
+    "it is published.",
+  tag: "tournaments",
+  auth: { kind: "token", resource: "tournament", access: "write" },
+  params: s.object({ slug: slugParam }),
+  successStatus: 200,
+  response: s.unknown("{ status: published | unchanged, version, changedSections }"),
+  async handler(context) {
+    if (!context.publishPublicView) throw new ApiError(503, "unavailable", "Publishing is not available here.");
+    return context.publishPublicView();
   },
 });
 
@@ -109,4 +132,11 @@ export const READ_ROUTES: readonly ApiRoute[] = [
   legacyDrawsRoute,
 ];
 
-export const API_ROUTES: readonly ApiRoute[] = [...READ_ROUTES];
+export const WRITE_ROUTES: readonly ApiRoute[] = [
+  ...tournamentWriteRoutes,
+  publishRoute,
+  ...entityWriteRoutes,
+  ...roundWriteRoutes,
+];
+
+export const API_ROUTES: readonly ApiRoute[] = [...READ_ROUTES, ...WRITE_ROUTES];

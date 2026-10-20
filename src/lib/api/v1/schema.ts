@@ -255,8 +255,17 @@ function record<T>(values: Schema<T>, options: { keyPattern?: RegExp; maxKeys?: 
   );
 }
 
-function optional<T>(schema: Schema<T>): Schema<T | undefined> {
+export type OptionalSchema<T> = Schema<T | undefined> & { readonly optional: true };
+
+function optional<T>(schema: Schema<T>): OptionalSchema<T> {
   return { parse: schema.parse, json: schema.json, optional: true };
+}
+
+/** Every property of a shape made optional (for PATCH bodies). */
+function partial<S extends Shape>(shape: S): { [K in keyof S]: OptionalSchema<Exclude<Infer<S[K]>, undefined>> } {
+  return Object.fromEntries(
+    Object.entries(shape).map(([key, schema]) => [key, optional(schema)])
+  ) as { [K in keyof S]: OptionalSchema<Exclude<Infer<S[K]>, undefined>> };
 }
 
 function nullable<T>(schema: Schema<T>): Schema<T | null> {
@@ -291,6 +300,7 @@ export const s = {
   object,
   record,
   optional,
+  partial,
   nullable,
   unknown: unknownValue,
   ref,

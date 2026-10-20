@@ -39,6 +39,8 @@ export interface RouteContext<P, Q, B> {
   now: Date;
   /** Request id, echoed in X-Request-Id and recorded with written audit events. */
   requestId: string;
+  /** Rebuilds the tournament's public view (administrator tokens only). */
+  publishPublicView: (() => Promise<unknown>) | null;
 }
 
 export type RouteAuth =
