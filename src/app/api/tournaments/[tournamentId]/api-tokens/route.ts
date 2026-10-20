@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { isTournamentAdministrator } from "@/lib/tournamentAccess";
-import { createApiToken, hashApiToken, isApiTokenScope } from "@/lib/apiTokens";
+import { createApiToken, hashApiToken, parseRequestedScopes, storedTokenScopes } from "@/lib/apiTokens";
 
 export const runtime = "nodejs";
 
@@ -51,7 +51,7 @@ async function authorize(request: NextRequest, tournamentId: string) {
   ) {
     return { error: "Only tournament administrators can manage API tokens.", status: 403 as const };
   }
-  return { tournamentRef, firestore };
+  return { tournamentRef, firestore, uid: user.uid };
 }
 
 export async function GET(
@@ -72,7 +72,7 @@ export async function GET(
         return {
           id: document.id,
           name: data.name,
-          scope: data.scope,
+          scopes: storedTokenScopes(data),
           createdAt: data.createdAt,
           lastUsedAt: data.lastUsedAt ?? null,
         };
@@ -101,9 +101,12 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
   const name = isRecord(body) && typeof body.name === "string" ? body.name.trim() : "";
-  const scope = isRecord(body) ? body.scope : undefined;
-  if (name.length < 1 || name.length > 80 || !isApiTokenScope(scope)) {
-    return NextResponse.json({ error: "Enter a token name (1–80 characters) and a supported read-only scope." }, { status: 400 });
+  // `scope` (one scope) is the request shape from before per-resource scopes.
+  const scopes = isRecord(body) ? parseRequestedScopes(body.scopes ?? body.scope) : null;
+  if (name.length < 1 || name.length > 80 || !scopes) {
+    return NextResponse.json({
+      error: "Enter a token name (1–80 characters) and at least one supported scope. read:public cannot be combined with other scopes.",
+    }, { status: 400 });
   }
 
   const secret = createApiToken();
@@ -112,12 +115,13 @@ export async function POST(
   try {
     await authorization.tournamentRef.collection("apiTokens").doc(id).create({
       name,
-      scope,
+      scopes,
       tokenHash: hashApiToken(secret),
       createdAt,
+      createdBy: authorization.uid,
     });
     return NextResponse.json({
-      token: { id, name, scope, createdAt, secret },
+      token: { id, name, scopes, createdAt, secret },
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Could not create tournament API token:", error);

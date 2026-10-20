@@ -32,13 +32,14 @@ means the sync/publish hardening PR that added this section.
 | 0.5-4 version polling | FIXED | #8 | `application/publicView.ts` polls `/version` every 45 s |
 | 0.5-5 check-in counts aggregate | PARTIAL | #8 | served from the snapshot's `checkins` section, refreshed only on publish; no per-check-in aggregate doc |
 | 0.5-6 private-URL query narrowing | MOSTLY FIXED | #32 | `api/private/sync/route.ts` loads only the participant's debates via the `array-contains` participant index (`privateParticipantData.ts`); still reads all rounds, and falls back to a full read when the index is missing |
-| 0.5-7 v1 draws from snapshot | OPEN | — | v1 route still reads live collections |
+| 0.5-7 v1 draws from snapshot | FIXED | wave 4 API read PR | `read:public` tokens (every v1 endpoint, including the legacy `/draws`) are served from the published public view (`lib/api/v1/data.ts` `createPublicData`) |
 | 0.5-8 `preferredRegion` | OPEN | — | not set anywhere in `src` |
 | 0.5 note: fingerprint-only publish skip missed other devices' writes | FIXED | this PR | skip also needs a matching cloud source token (`snapshot.ts` `publicSourceToken`, `canSkipPublish`) |
 | Sync: releases looked public but were local until Upload | FIXED | this PR | `ReleaseActionDialog` saves, uploads and publishes in one step |
 | Sync: Republish ignored unuploaded local changes | FIXED | this PR | asks first (`syncStatus.ts` `planRepublish`, `Navbar.tsx`) |
 | Sync: upload published despite conflicts / part-way failure | FIXED | this PR | refused (`publishBlockerAfterUpload`, `UploadIssue`) |
 | Sync: no unsynced indicator or `beforeunload` warning | FIXED | this PR | `computePendingChanges`, top-bar sync status, `useBeforeUnloadWarning` |
+| 24 REST API: read endpoints, per-area scopes, `/me`, OpenAPI 3.1 | FIXED | wave 4 API read PR | `lib/api/v1/*`, `app/api/v1/[[...path]]`; every Tabbycat v1 read resource except users/groups/global institutions/schedule events/web push; public scope = published view; see [api.md](./api.md) |
 | 1.1 elimination rounds counted in standings | FIXED | #10 | `standings/calculator.ts` filters elimination and cancelled rounds |
 | 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
 | 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |
