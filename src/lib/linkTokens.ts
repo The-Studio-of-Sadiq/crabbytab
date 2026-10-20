@@ -60,11 +60,7 @@ export function recordIdForEmail(email: string): string {
   return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 32);
 }
 
-export function normalizeEmail(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const email = value.trim().toLowerCase();
-  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
-}
+export { normalizeEmail } from "@/lib/emailAddress";
 
 /**
  * Origin used in emailed links. NEXT_PUBLIC_APP_URL wins so links never depend on the request's
