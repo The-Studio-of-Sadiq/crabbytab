@@ -455,4 +455,6 @@ export const bnPublic: Catalogue = {
   "public.noRows": "এখনো কোনো তথ্য নেই।",
   "teamPortal.portalName": "দলের পোর্টাল",
   "portal.roundFilterLabel": "যে রাউন্ডগুলো দেখাবে",
+  "adjPortal.portalName": "বিচারক পোর্টাল",
+  "adjPortal.rateTarget": "{name}-কে রেটিং দিন",
 };

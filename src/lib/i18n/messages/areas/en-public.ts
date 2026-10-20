@@ -457,4 +457,6 @@ export const enPublic = {
   "public.noRows": "No entries yet.",
   "teamPortal.portalName": "Team portal",
   "portal.roundFilterLabel": "Rounds to show",
+  "adjPortal.portalName": "Adjudicator portal",
+  "adjPortal.rateTarget": "Rate {name}",
 } as const;
