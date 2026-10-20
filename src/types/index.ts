@@ -245,6 +245,15 @@ export interface TournamentPreferences {
   eliminationBallotMode?: BallotMode;
   /** With ballotDoubleEntry: "review" = a second person reviews and confirms; "blind" = a second person re-enters without seeing the first entry. */
   ballotCheckMode?: BallotCheckMode;
+  /** Staff access (w45): data-entry staff access level. Absent = "all_areas". */
+  assistantAccess?: AssistantAccessLevel;
+  /**
+   * Voting ballots: every voting adjudicator submits their own scoresheet through their private
+   * URL and the latest sheet of each is merged into one voting ballot (Tabbycat `individual_ballots`).
+   */
+  individualBallots?: boolean;
+  /** Absent = "chair". See PrivateBallotConfirmation. */
+  privateBallotConfirmation?: PrivateBallotConfirmation;
   /** Allow a team with the lower total speaker score to be awarded the win (consensus ballots only). */
   allowLowPointWins?: boolean;
   /** Record which motion each team vetoed. */
@@ -599,6 +608,14 @@ export interface TeamScoreEntry {
 
 export type BallotMode = "consensus" | "voting";
 export type BallotCheckMode = "review" | "blind";
+/** Tabbycat's `assistant_access`: what data-entry staff may reach (see lib/staffPermissions.ts). */
+export type AssistantAccessLevel = "all_areas" | "results_draw" | "results_only" | "none";
+/**
+ * Who confirms ballots submitted through private URLs: "chair" (a chair's ballot, or a complete
+ * merge of individual ballots, counts at once; CrabbyTab's default and Tabbycat's "bypass double
+ * checking" for private URLs) or "tab_room" (they wait for the tab room, Tabbycat's default).
+ */
+export type PrivateBallotConfirmation = "chair" | "tab_room";
 
 /** One voting adjudicator's scoresheet within a voting ballot. */
 export interface AdjudicatorSheet {
@@ -632,6 +649,12 @@ export interface BallotSubmission {
   vetoes?: Partial<Record<DebateSide, string>>;
   /** Side that forfeited; a forfeit ballot carries no speaker scores. */
   forfeitSide?: DebateSide;
+  /** Individual ballots: one voting adjudicator's own scoresheet, submitted through their private URL. */
+  singleAdjudicator?: boolean;
+  /** A voting ballot merged from these individual ballots (ids). */
+  mergedFromIds?: string[];
+  /** Account id of the person who confirmed it, when confirmed by data-entry staff on the server. */
+  confirmedById?: string;
   /** Blind double entry: the version this entry was checked against. */
   checksVersion?: number;
   discardedBy?: string;

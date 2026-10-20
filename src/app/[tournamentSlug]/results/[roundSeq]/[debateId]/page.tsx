@@ -31,6 +31,7 @@ import {
 } from "@/lib/ballots/result";
 import type { AdjudicatorSheet, BallotSubmission, DebateSide, SpeakerScoreEntry } from "@/types";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
+import { mergeIndividualBallots } from "@/lib/ballots/individualBallots";
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -438,7 +439,17 @@ export default function BallotEntryPage() {
               onFillFromPortal={() => {
                 const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
                 updateEntry({ sheets: result.sheets });
-                setMessage(result.filled > 0 ? "" : "No adjudicator has submitted a ballot through their private URL yet.");
+                // Individual ballots must agree on speakers, motion and vetoes (Tabbycat's merge check).
+                const merge = mergeIndividualBallots(debate, debateBallots, rules);
+                setMessage(
+                  result.filled === 0
+                    ? "No adjudicator has submitted a ballot through their private URL yet."
+                    : merge.errors.length > 0
+                      ? `Check before confirming: ${merge.errors.join(" ")}`
+                      : merge.missingAdjudicatorIds.length > 0
+                        ? `${merge.missingAdjudicatorIds.length} voting adjudicator(s) have not submitted yet.`
+                        : ""
+                );
               }}
             />
           )}
