@@ -5,13 +5,18 @@ import { BellRing, Send } from "lucide-react";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Checkbox } from "@/components/ui/Field";
+import { Alert } from "@/components/ui/Feedback";
 import {
   baselineNotificationsCommand,
-  describeNotificationSummary,
   hasAutomaticRoundNotifications,
   sendDueNotificationsCommand,
 } from "@/features/tournament/application/notifications";
 import type { RoundNotificationEvent } from "@/lib/email/notifications";
+import type { MessageKey } from "@/lib/i18n/messages";
 import type { TournamentPreferences } from "@/types";
 
 type NotificationPreference =
@@ -23,41 +28,38 @@ type NotificationPreference =
 
 const OPTIONS: {
   key: NotificationPreference;
-  label: string;
-  description: string;
+  label: MessageKey;
+  description: MessageKey;
   events: Array<RoundNotificationEvent | "ballot_confirmed">;
 }[] = [
   {
     key: "notifyDrawReleased",
-    label: "Draw released",
-    description:
-      "Each team's speakers get their side, room and opponents once the draw is confirmed. Adjudicators get their allocation once panels are revealed.",
+    label: "setup.email.notifyDrawReleased",
+    description: "setup.email.notifyDrawReleasedHelp",
     events: ["draw_teams", "draw_adjudicators"],
   },
   {
     key: "notifyTeamPoints",
-    label: "Team results",
-    description:
-      "Each team's speakers get their result and running team points once a round's results are released (never for silent rounds).",
+    label: "setup.email.notifyTeamPoints",
+    description: "setup.email.notifyTeamPointsHelp",
     events: ["team_points"],
   },
   {
     key: "notifyMotionsReleased",
-    label: "Motions released",
-    description: "Speakers and adjudicators in the round get its motions (and info slides) once they are released.",
+    label: "setup.email.notifyMotionsReleased",
+    description: "setup.email.notifyMotionsReleasedHelp",
     events: ["motions_released"],
   },
   {
     key: "notifyBallotConfirmed",
-    label: "Ballot confirmed",
-    description:
-      "The debate's adjudicators get the confirmed result (and, with voting ballots, their own sheet as recorded) when the tab room confirms it.",
+    label: "setup.email.notifyBallotConfirmed",
+    description: "setup.email.notifyBallotConfirmedHelp",
     events: ["ballot_confirmed"],
   },
   {
     key: "notifyBallotReceipt",
-    label: "Ballot receipts",
-    description: "Adjudicators who submit a ballot from their private URL get a copy of what they submitted.",
+    label: "setup.email.notifyBallotReceipt",
+    description: "setup.email.notifyBallotReceiptHelp",
     events: [],
   },
 ];
@@ -69,6 +71,7 @@ const OPTIONS: {
 export function AutomaticNotificationsPanel({ onSent }: { onSent?: () => void }) {
   const { tournament, saveTournament, isOwnerOrAdmin } = useTournament();
   const { user } = useAuth();
+  const { t, plural } = useI18n();
   const [saving, setSaving] = useState<NotificationPreference | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -97,15 +100,16 @@ export function AutomaticNotificationsPanel({ onSent }: { onSent?: () => void })
         ...tournament,
         preferences: { ...preferences, [option.key]: enabled } as TournamentPreferences,
       });
+      const label = t(option.label);
       setMessage(
-        enabled
-          ? `${option.label} notifications are on. They take effect after the next cloud upload${
-              skipped > 0 ? `; ${skipped} already-released item(s) will not be emailed` : ""
-            }.`
-          : `${option.label} notifications are off after the next cloud upload.`
+        !enabled
+          ? t("setup.email.notificationsOff", { label })
+          : skipped > 0
+            ? plural("setup.email.notificationsOnSkipped", skipped, { label })
+            : t("setup.email.notificationsOn", { label })
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update notifications.");
+      setError(cause instanceof Error ? cause.message : t("setup.email.notificationsUpdateFailed"));
     } finally {
       setSaving(null);
     }
@@ -118,59 +122,60 @@ export function AutomaticNotificationsPanel({ onSent }: { onSent?: () => void })
     setError("");
     try {
       const summary = await sendDueNotificationsCommand({ tournamentId: tournament.id, idToken: await user.getIdToken() });
-      setMessage(describeNotificationSummary(summary).trim() || "No notifications were due.");
+      // Same cases as describeNotificationSummary, worded through the catalogue.
+      setMessage(
+        summary.campaigns === 0
+          ? t("setup.email.noneDue")
+          : summary.failed > 0
+            ? t("setup.email.dueSummaryFailed", { sent: summary.sent, failed: summary.failed })
+            : t("setup.email.dueSummary", { sent: summary.sent })
+      );
       onSent?.();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not send notifications.");
+      setError(cause instanceof Error ? cause.message : t("setup.email.sendDueFailed"));
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <section aria-labelledby="automatic-notifications-title" className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-      <div>
-        <h2 id="automatic-notifications-title" className="flex items-center gap-2 text-sm font-bold text-gray-900">
-          <BellRing className="h-4 w-4 text-blue-600" aria-hidden="true" />
-          Automatic notifications
-        </h2>
-        <p className="mt-1 text-xs text-gray-600">
-          Sent from the cloud copy only after you upload, and only for data that is released there. Each
-          notification is sent once and recorded in campaign history, where failures can be retried.
-        </p>
-      </div>
-      <ul className="divide-y divide-gray-100 rounded border border-gray-200">
-        {OPTIONS.map((option) => {
-          const enabled = preferences[option.key] === true;
-          return (
-            <li key={option.key} className="flex items-start gap-3 p-3">
-              <input
-                id={`notify-${option.key}`}
-                type="checkbox"
-                checked={enabled}
-                disabled={saving !== null}
-                onChange={(event) => void toggle(option, event.target.checked)}
-                className="mt-0.5"
-              />
-              <label htmlFor={`notify-${option.key}`} className="text-sm text-gray-800">
-                <span className="font-semibold">{option.label}</span>
-                <span className="block text-xs text-gray-600">{option.description}</span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
-      <button
-        type="button"
-        onClick={() => void sendNow()}
-        disabled={sending || !hasAutomaticRoundNotifications(preferences)}
-        className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-      >
-        <Send className="h-3.5 w-3.5" aria-hidden="true" />
-        {sending ? "Sending…" : "Send due notifications now"}
-      </button>
-      {message && <p role="status" className="text-sm text-emerald-700">{message}</p>}
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    </section>
+    <Card>
+      <CardHeader
+        icon={<BellRing aria-hidden="true" />}
+        title={t("setup.email.autoTitle")}
+        description={t("setup.email.autoDescription")}
+      />
+      <CardBody className="space-y-4">
+        <ul className="divide-y divide-border rounded-md border border-border">
+          {OPTIONS.map((option) => {
+            const enabled = preferences[option.key] === true;
+            return (
+              <li key={option.key} className="p-3">
+                <Checkbox
+                  id={`notify-${option.key}`}
+                  label={t(option.label)}
+                  description={t(option.description)}
+                  checked={enabled}
+                  disabled={saving !== null}
+                  onChange={(event) => void toggle(option, event.target.checked)}
+                />
+              </li>
+            );
+          })}
+        </ul>
+        <Button
+          size="sm"
+          onClick={() => void sendNow()}
+          disabled={!hasAutomaticRoundNotifications(preferences)}
+          loading={sending}
+          loadingText={t("setup.email.sending")}
+        >
+          <Send aria-hidden="true" />
+          {t("setup.email.sendDueNow")}
+        </Button>
+        {message && <Alert tone="success" role="status">{message}</Alert>}
+        {error && <Alert tone="danger" role="alert">{error}</Alert>}
+      </CardBody>
+    </Card>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { CheckCircle2, Pencil, RotateCcw, XCircle } from "lucide-react";
+import React, { useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock, Hourglass, Pencil, RotateCcw, XCircle } from "lucide-react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n";
 import type { Adjudicator, FeedbackQuestion, Team } from "@/types";
 import type { RegistrationSettings, RegistrationSubmission } from "@/lib/registration/types";
 import { findRegistrationDuplicates, type DuplicateFlag } from "@/lib/registration/review";
@@ -16,35 +18,51 @@ import { TabPanel, Tabs } from "@/components/ui/Tabs";
 
 type Filter = "open" | "approved" | "rejected" | "all";
 
-const STATUS: Record<RegistrationSubmission["status"], { label: string; tone: Tone }> = {
-  pending: { label: "Pending", tone: "info" },
-  approving: { label: "Being approved", tone: "warning" },
-  approved: { label: "Approved", tone: "success" },
-  rejected: { label: "Rejected", tone: "neutral" },
+type Translate = ReturnType<typeof useI18n>["t"];
+
+const STATUS: Record<RegistrationSubmission["status"], { label: MessageKey; tone: Tone; icon: React.ReactNode }> = {
+  pending: { label: "setup.registration.statusPending", tone: "info", icon: <Clock aria-hidden="true" /> },
+  approving: { label: "setup.registration.statusApproving", tone: "warning", icon: <Hourglass aria-hidden="true" /> },
+  approved: { label: "setup.registration.statusApproved", tone: "success", icon: <CheckCircle2 aria-hidden="true" /> },
+  rejected: { label: "setup.registration.statusRejected", tone: "neutral", icon: <XCircle aria-hidden="true" /> },
 };
 
-const REASON: Record<DuplicateFlag["reason"], string> = {
-  same_name: "same name",
-  same_email: "same email",
-  same_speaker: "a speaker with the same email",
+/** One whole sentence per (matched record kind, reason) pair, so translations never splice fragments. */
+const DUPLICATE_MESSAGE: Record<DuplicateFlag["against"], Record<DuplicateFlag["reason"], MessageKey>> = {
+  submission: {
+    same_name: "setup.registration.dupSubmissionSameName",
+    same_email: "setup.registration.dupSubmissionSameEmail",
+    same_speaker: "setup.registration.dupSubmissionSameSpeaker",
+  },
+  team: {
+    same_name: "setup.registration.dupTeamSameName",
+    same_email: "setup.registration.dupTeamSameEmail",
+    same_speaker: "setup.registration.dupTeamSameSpeaker",
+  },
+  adjudicator: {
+    same_name: "setup.registration.dupAdjudicatorSameName",
+    same_email: "setup.registration.dupAdjudicatorSameEmail",
+    same_speaker: "setup.registration.dupAdjudicatorSameSpeaker",
+  },
 };
 
-function formatAnswer(value: unknown): string {
-  if (value === true) return "Yes";
-  if (value === false) return "No";
+function formatAnswer(value: unknown, t: Translate): string {
+  if (value === true) return t("setup.common.yes");
+  if (value === false) return t("setup.common.no");
   if (Array.isArray(value)) return value.join(", ");
   return value === null || value === undefined ? "" : String(value);
 }
 
-function entryName(submission: RegistrationSubmission): string {
-  if (submission.kind === "institution") return submission.institution?.name ?? "(unnamed)";
-  return (submission.kind === "team" ? submission.team?.name : submission.adjudicator?.name) ?? "(unnamed)";
+function entryName(submission: RegistrationSubmission, t: Translate): string {
+  const unnamed = t("setup.registration.unnamed");
+  if (submission.kind === "institution") return submission.institution?.name ?? unnamed;
+  return (submission.kind === "team" ? submission.team?.name : submission.adjudicator?.name) ?? unnamed;
 }
 
-const KIND_LABEL: Record<RegistrationSubmission["kind"], { label: string; tone: Tone }> = {
-  team: { label: "Team", tone: "accent" },
-  adjudicator: { label: "Adjudicator", tone: "neutral" },
-  institution: { label: "Institution", tone: "info" },
+const KIND_LABEL: Record<RegistrationSubmission["kind"], { label: MessageKey; tone: Tone }> = {
+  team: { label: "setup.registration.kindTeam", tone: "accent" },
+  adjudicator: { label: "setup.registration.kindAdjudicator", tone: "neutral" },
+  institution: { label: "setup.registration.kindInstitution", tone: "info" },
 };
 
 /** Institution registrations: the places to allocate, prefilled with what was asked for. */
@@ -57,13 +75,14 @@ function AllocateForm({
   busy: boolean;
   onAllocate: (teams: number, adjudicators: number) => void;
 }) {
+  const { t } = useI18n();
   const [teams, setTeams] = useState(String(submission.institutionRequest?.teamsRequested ?? 0));
   const [adjudicators, setAdjudicators] = useState(String(submission.institutionRequest?.adjudicatorsRequested ?? 0));
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <Input label="Team places" type="number" min={0} max={1000} value={teams} onChange={(event) => setTeams(event.target.value)} wrapperClassName="w-28" />
+      <Input label={t("setup.registration.teamPlaces")} type="number" min={0} max={1000} value={teams} onChange={(event) => setTeams(event.target.value)} wrapperClassName="w-28" />
       <Input
-        label="Adjudicator places"
+        label={t("setup.registration.adjudicatorPlaces")}
         type="number"
         min={0}
         max={1000}
@@ -73,7 +92,7 @@ function AllocateForm({
       />
       <Button size="sm" variant="primary" loading={busy} onClick={() => onAllocate(Number(teams) || 0, Number(adjudicators) || 0)}>
         <CheckCircle2 aria-hidden="true" />
-        Allocate places and send link
+        {t("setup.registration.allocateAndSend")}
       </Button>
     </div>
   );
@@ -96,6 +115,7 @@ function EditDialog({
   onClose: () => void;
   onSave: (data: Record<string, unknown>) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [institution, setInstitution] = useState(submission.institution?.name ?? "");
   const [contactName, setContactName] = useState(submission.contactName);
   const [contactEmail, setContactEmail] = useState(submission.contactEmail);
@@ -142,7 +162,7 @@ function EditDialog({
       });
       onClose();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Could not save the changes.");
+      setError(saveError instanceof Error ? saveError.message : t("setup.registration.saveChangesFailed"));
     } finally {
       setSaving(false);
     }
@@ -154,39 +174,39 @@ function EditDialog({
       onClose={onClose}
       dismissible={!saving}
       size="lg"
-      title={`Edit ${entryName(submission)}`}
-      description="Changes are validated like the public form; limits and the registration window do not apply to administrators."
+      title={t("setup.registration.editTitle", { name: entryName(submission, t) })}
+      description={t("setup.registration.editDescription")}
       footer={
         <>
-          <Button onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button variant="primary" loading={saving} onClick={() => void save()}>Save changes</Button>
+          <Button onClick={onClose} disabled={saving}>{t("setup.common.cancel")}</Button>
+          <Button variant="primary" loading={saving} onClick={() => void save()}>{t("setup.common.saveChanges")}</Button>
         </>
       }
     >
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Input label="Institution" value={institution} onChange={(event) => setInstitution(event.target.value)} />
-          <Input label="Contact name" value={contactName} onChange={(event) => setContactName(event.target.value)} />
-          <Input label="Contact email" type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+          <Input label={t("setup.registration.institution")} value={institution} onChange={(event) => setInstitution(event.target.value)} />
+          <Input label={t("setup.registration.contactName")} value={contactName} onChange={(event) => setContactName(event.target.value)} />
+          <Input label={t("setup.registration.contactEmail")} type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
         </div>
         {submission.kind === "team" ? (
           <>
-            <Input label="Team name" value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+            <Input label={t("setup.registration.teamName")} value={teamName} onChange={(event) => setTeamName(event.target.value)} />
             {speakers.map((speaker, index) => (
               <div key={index} className="grid gap-2 sm:grid-cols-3">
                 <Input
-                  label={`Speaker ${index + 1}`}
+                  label={t("setup.registration.speakerNumber", { number: index + 1 })}
                   value={speaker.name}
                   onChange={(event) => setSpeakers((current) => current.map((item, position) => (position === index ? { ...item, name: event.target.value } : item)))}
                 />
                 <Input
-                  label="Email"
+                  label={t("setup.common.email")}
                   type="email"
                   value={speaker.email}
                   onChange={(event) => setSpeakers((current) => current.map((item, position) => (position === index ? { ...item, email: event.target.value } : item)))}
                 />
                 <Input
-                  label="Categories"
+                  label={t("setup.registration.categories")}
                   value={speaker.categories}
                   onChange={(event) => setSpeakers((current) => current.map((item, position) => (position === index ? { ...item, categories: event.target.value } : item)))}
                 />
@@ -196,15 +216,58 @@ function EditDialog({
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input label="Adjudicator name" value={adjudicatorName} onChange={(event) => setAdjudicatorName(event.target.value)} />
-              <Input label="Adjudicator email" type="email" value={adjudicatorEmail} onChange={(event) => setAdjudicatorEmail(event.target.value)} />
+              <Input label={t("setup.registration.adjudicatorName")} value={adjudicatorName} onChange={(event) => setAdjudicatorName(event.target.value)} />
+              <Input label={t("setup.registration.adjudicatorEmail")} type="email" value={adjudicatorEmail} onChange={(event) => setAdjudicatorEmail(event.target.value)} />
             </div>
-            <Textarea label="Institution conflicts (one per line)" rows={3} value={institutionConflicts} onChange={(event) => setInstitutionConflicts(event.target.value)} />
-            <Textarea label="Team or person conflicts (one per line)" rows={3} value={teamConflicts} onChange={(event) => setTeamConflicts(event.target.value)} />
+            <Textarea label={t("setup.registration.institutionConflictsLines")} rows={3} value={institutionConflicts} onChange={(event) => setInstitutionConflicts(event.target.value)} />
+            <Textarea label={t("setup.registration.teamConflictsLines")} rows={3} value={teamConflicts} onChange={(event) => setTeamConflicts(event.target.value)} />
           </>
         )}
         {error && <Alert tone="danger" role="alert">{error}</Alert>}
       </div>
+    </Dialog>
+  );
+}
+
+/** Replaces the old window.prompt: cancelling does nothing; confirming rejects with the (optional) reason. */
+function RejectDialog({
+  submission,
+  onCancel,
+  onConfirm,
+}: {
+  submission: RegistrationSubmission;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const { t } = useI18n();
+  const [reason, setReason] = useState("");
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  return (
+    <Dialog
+      open
+      role="alertdialog"
+      onClose={onCancel}
+      initialFocusRef={cancelRef}
+      icon={<AlertTriangle className="text-danger" aria-hidden="true" />}
+      title={t("setup.registration.rejectTitle", { name: entryName(submission, t) })}
+      description={t("setup.registration.rejectDescription")}
+      footer={
+        <>
+          <Button ref={cancelRef} onClick={onCancel}>{t("setup.common.cancel")}</Button>
+          <Button variant="danger" onClick={() => onConfirm(reason)}>
+            <XCircle aria-hidden="true" />
+            {t("setup.registration.rejectConfirm")}
+          </Button>
+        </>
+      }
+    >
+      <Textarea
+        label={t("setup.registration.rejectReason")}
+        help={t("setup.registration.rejectReasonHelp")}
+        rows={2}
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
     </Dialog>
   );
 }
@@ -229,19 +292,28 @@ function SubmissionCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const { t, formatDateTime, formatList } = useI18n();
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key);
     setError("");
     try {
       await action();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Could not update this submission.");
+      setError(actionError instanceof Error ? actionError.message : t("setup.registration.updateFailed"));
     } finally {
       setBusy(null);
     }
   };
   const status = STATUS[submission.status];
-  const answered = questions.filter((question) => formatAnswer(submission.answers[question.id]) !== "");
+  const answered = questions.filter((question) => formatAnswer(submission.answers[question.id], t) !== "");
+  const name = entryName(submission, t);
+  const institutionDetails = submission.institutionRequest
+    ? [
+        submission.institutionRequest.code ? t("setup.registration.institutionCode", { code: submission.institutionRequest.code }) : "",
+        submission.institutionRequest.region ? t("setup.registration.institutionRegionValue", { region: submission.institutionRequest.region }) : "",
+      ].filter(Boolean)
+    : [];
 
   return (
     <Card>
@@ -249,19 +321,22 @@ function SubmissionCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
-              {entryName(submission)}
-              <Badge tone={KIND_LABEL[submission.kind].tone}>{KIND_LABEL[submission.kind].label}</Badge>
-              <StatusPill tone={status.tone}>{status.label}</StatusPill>
+              {name}
+              <Badge tone={KIND_LABEL[submission.kind].tone}>{t(KIND_LABEL[submission.kind].label)}</Badge>
+              <StatusPill tone={status.tone} icon={status.icon}>{t(status.label)}</StatusPill>
               {submission.overAllocated && submission.status !== "rejected" && (
-                <StatusPill tone="warning">Above the institution&apos;s places</StatusPill>
+                <StatusPill tone="warning">{t("setup.registration.overAllocated")}</StatusPill>
               )}
-              {submission.autoApproved && <Badge tone="success">Accepted automatically</Badge>}
-              {duplicates.length > 0 && submission.status !== "approved" && <StatusPill tone="warning">Possible duplicate</StatusPill>}
+              {submission.autoApproved && <Badge tone="success">{t("setup.registration.autoApproved")}</Badge>}
+              {duplicates.length > 0 && submission.status !== "approved" && <StatusPill tone="warning">{t("setup.registration.possibleDuplicate")}</StatusPill>}
             </h3>
             <p className="text-xs text-fg-muted">
-              {submission.institution?.name ?? "No institution"} · {submission.contactName} ({submission.contactEmail}) ·{" "}
-              {new Date(submission.submittedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-              {submission.representativeId ? " · via representative link" : ""}
+              {t(submission.representativeId ? "setup.registration.submissionMetaViaLink" : "setup.registration.submissionMeta", {
+                institution: submission.institution?.name ?? t("setup.registration.noInstitution"),
+                contact: submission.contactName,
+                email: submission.contactEmail,
+                date: formatDateTime(submission.submittedAt, { dateStyle: "medium", timeStyle: "short" }),
+              })}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -276,11 +351,11 @@ function SubmissionCard({
                   onClick={() => void run("approve", () => actions.approve(submission))}
                 >
                   <CheckCircle2 aria-hidden="true" />
-                  Approve
+                  {t("setup.registration.approve")}
                 </Button>
                 <Button size="sm" disabled={busy !== null} onClick={() => setEditing(true)}>
                   <Pencil aria-hidden="true" />
-                  Edit
+                  {t("setup.common.edit")}
                 </Button>
               </>
             )}
@@ -290,20 +365,16 @@ function SubmissionCard({
                 variant="danger"
                 loading={busy === "reject"}
                 disabled={busy !== null}
-                onClick={() => {
-                  const reason = window.prompt(`Reject ${entryName(submission)}? Optionally give a reason (kept for administrators).`, "");
-                  if (reason === null) return;
-                  void run("reject", () => actions.review("reject", submission, { reason }));
-                }}
+                onClick={() => setRejecting(true)}
               >
                 <XCircle aria-hidden="true" />
-                Reject
+                {t("setup.registration.reject")}
               </Button>
             )}
             {submission.status === "rejected" && (
               <Button size="sm" loading={busy === "reopen"} disabled={busy !== null} onClick={() => void run("reopen", () => actions.review("reopen", submission))}>
                 <RotateCcw aria-hidden="true" />
-                Reopen
+                {t("setup.registration.reopen")}
               </Button>
             )}
           </div>
@@ -312,10 +383,11 @@ function SubmissionCard({
         {submission.kind === "institution" && submission.institutionRequest && (
           <div className="space-y-2 text-xs text-fg">
             <p>
-              Asks for {submission.institutionRequest.teamsRequested} team place(s) and{" "}
-              {submission.institutionRequest.adjudicatorsRequested} adjudicator place(s)
-              {submission.institutionRequest.code ? ` · code ${submission.institutionRequest.code}` : ""}
-              {submission.institutionRequest.region ? ` · ${submission.institutionRequest.region}` : ""}.
+              {t("setup.registration.institutionRequest", {
+                teams: submission.institutionRequest.teamsRequested,
+                adjudicators: submission.institutionRequest.adjudicatorsRequested,
+              })}
+              {institutionDetails.length > 0 ? ` ${institutionDetails.join(" · ")}` : ""}
             </p>
             {submission.status === "pending" && (
               <AllocateForm
@@ -326,8 +398,10 @@ function SubmissionCard({
             )}
             {submission.status === "approved" && (
               <p className="text-success">
-                Allocated {submission.teamsAllocated ?? 0} team and {submission.adjudicatorsAllocated ?? 0} adjudicator place(s); the
-                coach is the institution&apos;s representative.
+                {t("setup.registration.institutionAllocated", {
+                  teams: submission.teamsAllocated ?? 0,
+                  adjudicators: submission.adjudicatorsAllocated ?? 0,
+                })}
               </p>
             )}
           </div>
@@ -353,10 +427,10 @@ function SubmissionCard({
               {submission.adjudicator.gender ? ` · ${submission.adjudicator.gender}` : ""}
             </p>
             {submission.adjudicator.institutionConflicts.length > 0 && (
-              <p><span className="text-fg-muted">Institution conflicts:</span> {submission.adjudicator.institutionConflicts.join(", ")}</p>
+              <p><span className="text-fg-muted">{t("setup.registration.institutionConflicts")}</span> {formatList(submission.adjudicator.institutionConflicts)}</p>
             )}
             {submission.adjudicator.teamConflicts.length > 0 && (
-              <p><span className="text-fg-muted">Team or person conflicts:</span> {submission.adjudicator.teamConflicts.join(", ")}</p>
+              <p><span className="text-fg-muted">{t("setup.registration.teamConflicts")}</span> {formatList(submission.adjudicator.teamConflicts)}</p>
             )}
           </div>
         )}
@@ -365,19 +439,18 @@ function SubmissionCard({
             {answered.map((question) => (
               <React.Fragment key={question.id}>
                 <dt className="text-fg-muted">{question.label}</dt>
-                <dd className="text-fg">{formatAnswer(submission.answers[question.id])}</dd>
+                <dd className="text-fg">{formatAnswer(submission.answers[question.id], t)}</dd>
               </React.Fragment>
             ))}
           </dl>
         )}
 
         {duplicates.length > 0 && submission.status !== "approved" && (
-          <Alert tone="warning" title="Possible duplicate">
+          <Alert tone="warning" title={t("setup.registration.possibleDuplicate")}>
             <ul>
               {duplicates.map((flag) => (
                 <li key={`${flag.against}-${flag.id}-${flag.reason}`}>
-                  {flag.against === "submission" ? "Another registration" : flag.against === "team" ? "Existing team" : "Existing adjudicator"}{" "}
-                  “{flag.name}” has {REASON[flag.reason]}.
+                  {t(DUPLICATE_MESSAGE[flag.against][flag.reason], { name: flag.name })}
                 </li>
               ))}
             </ul>
@@ -385,28 +458,32 @@ function SubmissionCard({
         )}
 
         {submission.status === "approving" && (
-          <Alert tone="warning" title="Approval not finished">
+          <Alert tone="warning" title={t("setup.registration.approvalUnfinished")}>
             <p>
-              Claimed by {submission.claimedBy === currentUid ? "you" : "another administrator"}
-              {submission.claimedAt ? ` at ${new Date(submission.claimedAt).toLocaleString()}` : ""}. If the record was created, mark it approved; otherwise return it to pending.
+              {submission.claimedAt
+                ? t(submission.claimedBy === currentUid ? "setup.registration.claimedByYouAt" : "setup.registration.claimedByOtherAt", {
+                    time: formatDateTime(submission.claimedAt),
+                  })
+                : t(submission.claimedBy === currentUid ? "setup.registration.claimedByYou" : "setup.registration.claimedByOther")}{" "}
+              {t("setup.registration.approvingHelp")}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {likelyEntities.map((entity) => (
                 <Button key={entity.id} size="sm" loading={busy === `mark-${entity.id}`} disabled={busy !== null} onClick={() => void run(`mark-${entity.id}`, () => actions.markApproved(submission, entity))}>
-                  Mark approved as {entity.name}
+                  {t("setup.registration.markApprovedAs", { name: entity.name })}
                 </Button>
               ))}
               <Button size="sm" loading={busy === "release"} disabled={busy !== null} onClick={() => void run("release", () => actions.review("release", submission))}>
-                Return to pending
+                {t("setup.registration.returnToPending")}
               </Button>
             </div>
           </Alert>
         )}
         {submission.status === "approved" && submission.approvedEntityName && (
-          <p className="text-xs text-success">Added as {submission.approvedEntityName}.</p>
+          <p className="text-xs text-success">{t("setup.registration.addedAs", { name: submission.approvedEntityName })}</p>
         )}
         {submission.status === "rejected" && submission.rejectionReason && (
-          <p className="text-xs text-fg-muted">Reason: {submission.rejectionReason}</p>
+          <p className="text-xs text-fg-muted">{t("setup.registration.rejectionReason", { reason: submission.rejectionReason })}</p>
         )}
         {error && <Alert tone="danger" role="alert">{error}</Alert>}
       </CardBody>
@@ -415,6 +492,16 @@ function SubmissionCard({
           submission={submission}
           onClose={() => setEditing(false)}
           onSave={(data) => actions.review("edit", submission, { data })}
+        />
+      )}
+      {rejecting && (
+        <RejectDialog
+          submission={submission}
+          onCancel={() => setRejecting(false)}
+          onConfirm={(reason) => {
+            setRejecting(false);
+            void run("reject", () => actions.review("reject", submission, { reason }));
+          }}
         />
       )}
     </Card>
@@ -438,6 +525,7 @@ export function RegistrationQueue({
   approveBlocked: string | null;
   actions: QueueActions;
 }) {
+  const { t } = useI18n();
   const [filter, setFilter] = useState<Filter>("open");
   const duplicates = useMemo(() => findRegistrationDuplicates(submissions, teams, adjudicators), [submissions, teams, adjudicators]);
   const counts = {
@@ -454,20 +542,23 @@ export function RegistrationQueue({
     <div className="space-y-3">
       <Tabs
         id="registration-filter"
-        ariaLabel="Filter submissions"
+        ariaLabel={t("setup.registration.filterLabel")}
         value={filter}
         onValueChange={setFilter}
         items={[
-          { value: "open", label: "To review", count: counts.open },
-          { value: "approved", label: "Approved", count: counts.approved },
-          { value: "rejected", label: "Rejected", count: counts.rejected },
-          { value: "all", label: "All", count: counts.all },
+          { value: "open", label: t("setup.registration.filterOpen"), count: counts.open },
+          { value: "approved", label: t("setup.registration.filterApproved"), count: counts.approved },
+          { value: "rejected", label: t("setup.registration.filterRejected"), count: counts.rejected },
+          { value: "all", label: t("setup.registration.filterAll"), count: counts.all },
         ]}
       />
       <TabPanel id="registration-filter" value={filter} className="space-y-3">
         {approveBlocked && counts.open > 0 && <Alert tone="info">{approveBlocked}</Alert>}
         {visible.length === 0 ? (
-          <EmptyState title={filter === "open" ? "Nothing to review" : "No submissions here"} description="New registrations appear here as they arrive; reload to check for more." />
+          <EmptyState
+            title={t(filter === "open" ? "setup.registration.emptyOpen" : "setup.registration.emptyOther")}
+            description={t("setup.registration.emptyDescription")}
+          />
         ) : (
           visible.map((submission) => (
             <SubmissionCard

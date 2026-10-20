@@ -3,6 +3,13 @@
 import React, { useMemo, useState } from "react";
 import type { Venue, VenueCategoryInfo } from "@/types";
 import { normaliseCategory, venueCategoryInfo, venueDisplayName } from "@/lib/venues/venues";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Input, Select } from "@/components/ui/Field";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 
 /**
  * Display options per room category (Tabbycat VenueCategory): a description shown as the room's
@@ -18,6 +25,7 @@ export function VenueCategoriesEditor({
   categories: VenueCategoryInfo[] | undefined;
   onSave(next: VenueCategoryInfo[]): Promise<void>;
 }) {
+  const { t } = useI18n();
   const names = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const venue of venues) {
@@ -57,9 +65,9 @@ export function VenueCategoriesEditor({
       }
       await onSave([...merged.values()]);
       setDraft({});
-      setStatus({ tone: "success", text: "Room categories saved." });
+      setStatus({ tone: "success", text: t("setup.importsExtra.venueCategories.saved") });
     } catch (error) {
-      setStatus({ tone: "error", text: error instanceof Error ? error.message : "Could not save the room categories." });
+      setStatus({ tone: "error", text: error instanceof Error ? error.message : t("setup.importsExtra.venueCategories.saveError") });
     } finally {
       setSaving(false);
     }
@@ -67,89 +75,86 @@ export function VenueCategoriesEditor({
 
   const example = venues.find((venue) => venue.category?.trim());
   return (
-    <section
-      aria-labelledby="room-categories-heading"
-      className="space-y-3 rounded-lg border border-[#d0d7de] bg-white p-4 dark:border-gray-700 dark:bg-gray-900"
-    >
-      <div>
-        <h2 id="room-categories-heading" className="text-sm font-bold text-gray-900 dark:text-gray-100">Room categories</h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Describe each category (it follows “This room …” in tooltips) and choose whether its name is shown with room
-          names. Team, adjudicator and institution room preferences refer to these categories.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="text-gray-600 dark:text-gray-300">
-              <th className="py-1 pr-2">Category</th>
-              <th className="py-1 pr-2">Description</th>
-              <th className="py-1 pr-2">In room name</th>
-              <th className="py-1">Public tooltip</th>
-            </tr>
-          </thead>
-          <tbody>
-            {names.map((name) => {
-              const info = current(name);
-              return (
-                <tr key={name} className="border-t border-gray-100 dark:border-gray-800">
-                  <td className="py-1 pr-2 font-semibold text-gray-900 dark:text-gray-100">{name}</td>
-                  <td className="py-1 pr-2">
-                    <input
-                      aria-label={`${name} description`}
-                      value={info.description ?? ""}
-                      maxLength={200}
-                      placeholder="has step-free access"
-                      onChange={(event) => change(name, { description: event.target.value })}
-                      className="w-full min-w-40 rounded border border-gray-300 px-2 py-1 dark:border-gray-600 dark:bg-gray-800"
-                    />
-                  </td>
-                  <td className="py-1 pr-2">
-                    <select
-                      aria-label={`${name} shown in room names`}
-                      value={info.displayInName ?? "none"}
-                      onChange={(event) => change(name, { displayInName: event.target.value as VenueCategoryInfo["displayInName"] })}
-                      className="rounded border border-gray-300 px-2 py-1 dark:border-gray-600 dark:bg-gray-800"
-                    >
-                      <option value="none">Not shown</option>
-                      <option value="prefix">Prefix</option>
-                      <option value="suffix">Suffix</option>
-                    </select>
-                  </td>
-                  <td className="py-1">
-                    <input
-                      type="checkbox"
-                      aria-label={`Show ${name} description on public pages`}
-                      checked={info.publicTooltip === true}
-                      onChange={(event) => change(name, { publicTooltip: event.target.checked })}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={save}
-          disabled={!dirty || saving}
-          className="rounded bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save room categories"}
-        </button>
-        {example && (
-          <span className="text-[11px] text-gray-500 dark:text-gray-400">
-            Example: {venueDisplayName(example, Object.keys(draft).length ? names.map(current) : categories)}
-          </span>
-        )}
-        {status && (
-          <span role={status.tone === "error" ? "alert" : "status"} className={`text-xs ${status.tone === "error" ? "text-red-700" : "text-emerald-700"}`}>
-            {status.text}
-          </span>
-        )}
-      </div>
-    </section>
+    <Card>
+      <CardHeader
+        title={t("setup.importsExtra.venueCategories.title")}
+        description={t("setup.importsExtra.venueCategories.description")}
+      />
+      <CardBody className="space-y-3">
+        <TableContainer>
+          <Table>
+            <THead>
+              <TR>
+                <TH>{t("setup.importsExtra.venueCategories.category")}</TH>
+                <TH>{t("setup.importsExtra.venueCategories.descriptionColumn")}</TH>
+                <TH>{t("setup.importsExtra.venueCategories.inRoomName")}</TH>
+                <TH align="center">{t("setup.importsExtra.venueCategories.publicTooltip")}</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {names.map((name) => {
+                const info = current(name);
+                return (
+                  <TR key={name}>
+                    <TD className="font-semibold">{name}</TD>
+                    <TD>
+                      <Input
+                        aria-label={t("setup.importsExtra.venueCategories.descriptionOf", { name })}
+                        value={info.description ?? ""}
+                        maxLength={200}
+                        placeholder={t("setup.importsExtra.venueCategories.descriptionPlaceholder")}
+                        onChange={(event) => change(name, { description: event.target.value })}
+                        className="h-7 min-w-40 text-xs"
+                      />
+                    </TD>
+                    <TD>
+                      <Select
+                        aria-label={t("setup.importsExtra.venueCategories.shownInNames", { name })}
+                        value={info.displayInName ?? "none"}
+                        onChange={(event) => change(name, { displayInName: event.target.value as VenueCategoryInfo["displayInName"] })}
+                        className="h-7 w-auto text-xs"
+                      >
+                        <option value="none">{t("setup.importsExtra.venueCategories.notShown")}</option>
+                        <option value="prefix">{t("setup.importsExtra.venueCategories.prefix")}</option>
+                        <option value="suffix">{t("setup.importsExtra.venueCategories.suffix")}</option>
+                      </Select>
+                    </TD>
+                    <TD align="center">
+                      <input
+                        type="checkbox"
+                        aria-label={t("setup.importsExtra.venueCategories.showPublic", { name })}
+                        checked={info.publicTooltip === true}
+                        onChange={(event) => change(name, { publicTooltip: event.target.checked })}
+                        className={cn("h-4 w-4 cursor-pointer rounded-sm accent-[rgb(var(--color-accent))]", focusRing)}
+                      />
+                    </TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+        </TableContainer>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="primary" size="sm" onClick={save} disabled={!dirty} loading={saving} loadingText={t("setup.common.saving")}>
+            {t("setup.importsExtra.venueCategories.save")}
+          </Button>
+          {example && (
+            <span className="text-xs text-fg-muted">
+              {t("setup.importsExtra.venueCategories.example", {
+                name: venueDisplayName(example, Object.keys(draft).length ? names.map(current) : categories),
+              })}
+            </span>
+          )}
+          {status && (
+            <span
+              role={status.tone === "error" ? "alert" : "status"}
+              className={cn("text-xs", status.tone === "error" ? "text-danger" : "text-success")}
+            >
+              {status.text}
+            </span>
+          )}
+        </div>
+      </CardBody>
+    </Card>
   );
 }

@@ -4,22 +4,18 @@ import React, { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Upload, XCircle } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Feedback";
 import { Checkbox, Textarea } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/Badge";
 import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
-import { RecordedConflicts } from "@/features/tournament/components/RecordedConflicts";
-import { applyConflictsPlan, planConflictsImport, type ConflictKind, type ConflictsPlan } from "@/lib/csv/conflictsImport";
+import { cn } from "@/components/ui/cn";
+import { CONFLICT_KIND_KEYS, RecordedConflicts } from "@/features/tournament/components/RecordedConflicts";
+import { applyConflictsPlan, planConflictsImport, type ConflictsPlan } from "@/lib/csv/conflictsImport";
 
-const KIND_LABELS: Record<ConflictKind, string> = {
-  "adjudicator-team": "Adjudicator – team",
-  "adjudicator-adjudicator": "Adjudicator – adjudicator",
-  "adjudicator-institution": "Adjudicator – institution",
-  "team-institution": "Team – institution",
-};
-
+/** CSV example shown as the placeholder; column names are parsed back, so they stay in English. */
 const EXAMPLE = [
   "adjudicator,team,institution,other_adjudicator",
   "Eleanor Vance,Oxford A,,",
@@ -28,8 +24,15 @@ const EXAMPLE = [
   ",Oxford A,Cambridge Union,",
 ].join("\n");
 
+/** A label that opens a visually hidden file input; it shows a focus ring while the input has focus. */
+const fileLabelClasses = cn(
+  buttonClasses({ variant: "secondary" }),
+  "cursor-pointer focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-background"
+);
+
 /** Imports conflicts from CSV with a preview; nothing is saved until the organiser confirms. */
 export default function ConflictsImportPage() {
+  const { t, plural } = useI18n();
   const { teams, adjudicators, institutions, isOwnerOrAdmin, saveEntityBatch } = useTournament();
   const [text, setText] = useState("");
   const [plan, setPlan] = useState<ConflictsPlan | null>(null);
@@ -52,7 +55,7 @@ export default function ConflictsImportPage() {
       setText(await file.text());
       setPlan(null);
     } catch (error) {
-      setMessage({ tone: "danger", text: error instanceof Error ? error.message : "Could not read the file." });
+      setMessage({ tone: "danger", text: error instanceof Error ? error.message : t("setup.importsExtra.csv.readError") });
     }
   };
 
@@ -65,12 +68,12 @@ export default function ConflictsImportPage() {
     setMessage(null);
     try {
       await saveEntityBatch({ adjudicatorsUpdated: applied.adjudicators, teamsUpdated: applied.teams }, "Conflicts CSV import");
-      setMessage({ tone: "success", text: `${applied.added} conflict${applied.added === 1 ? "" : "s"} imported.` });
+      setMessage({ tone: "success", text: plural("setup.importsExtra.conflicts.imported", applied.added) });
       setPlan(null);
       setText("");
       setValidOnly(false);
     } catch (error) {
-      setMessage({ tone: "danger", text: error instanceof Error ? error.message : "Could not save the conflicts." });
+      setMessage({ tone: "danger", text: error instanceof Error ? error.message : t("setup.importsExtra.conflicts.saveError") });
     } finally {
       setSaving(false);
     }
@@ -78,21 +81,18 @@ export default function ConflictsImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Import conflicts"
-        description="Fill exactly two columns per row: adjudicator with team, other_adjudicator or institution; or team with institution. Adjudicators are matched by name or email, teams by name or code, institutions by name or code."
-      />
+      <PageHeader title={t("setup.importsExtra.conflicts.title")} description={t("setup.importsExtra.conflicts.description")} />
 
-      {!isOwnerOrAdmin && <Alert tone="info">Only tournament administrators can import conflicts.</Alert>}
+      {!isOwnerOrAdmin && <Alert tone="info">{t("setup.importsExtra.conflicts.adminOnly")}</Alert>}
 
       <div className="space-y-3">
-        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface px-3 py-1.5 text-xs font-semibold shadow-2xs hover:bg-muted">
-          <Upload className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-          <span>Choose CSV file</span>
+        <label className={fileLabelClasses}>
+          <Upload aria-hidden="true" />
+          <span>{t("setup.importsExtra.csv.chooseFile")}</span>
           <input type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
         </label>
         <Textarea
-          label="Or paste CSV text"
+          label={t("setup.importsExtra.csv.pasteLabel")}
           rows={7}
           value={text}
           placeholder={EXAMPLE}
@@ -109,33 +109,35 @@ export default function ConflictsImportPage() {
           }}
           disabled={!text.trim()}
         >
-          Preview conflicts
+          {t("setup.importsExtra.conflicts.preview")}
         </Button>
       </div>
 
       {message && <Alert tone={message.tone} role={message.tone === "danger" ? "alert" : "status"}>{message.text}</Alert>}
 
       {plan && (
-        <section className="space-y-3" aria-label="Conflicts preview">
+        <section className="space-y-3" aria-label={t("setup.importsExtra.conflicts.previewLabel")}>
           {plan.fileErrors.length > 0 && (
-            <Alert tone="danger" role="alert" title="This file cannot be imported">
-              <ul className="list-disc pl-4">{plan.fileErrors.map((error) => <li key={error}>{error}</li>)}</ul>
+            <Alert tone="danger" role="alert" title={t("setup.importsExtra.csv.fileErrorsTitle")}>
+              <ul className="list-disc ps-4">{plan.fileErrors.map((error) => <li key={error}>{error}</li>)}</ul>
             </Alert>
           )}
           {plan.ignoredColumns.length > 0 && (
-            <Alert tone="warning" title="Columns that will be ignored">{plan.ignoredColumns.join(", ")}</Alert>
+            <Alert tone="warning" title={t("setup.importsExtra.csv.ignoredColumnsTitle")}>{plan.ignoredColumns.join(", ")}</Alert>
           )}
           {plan.rows.length > 0 && (
             <div className="flex flex-wrap items-center gap-2" role="status">
-              <StatusPill tone="success">{counts.add} to add</StatusPill>
-              <StatusPill tone="neutral">{counts.exists} already recorded</StatusPill>
-              {counts.error > 0 && <StatusPill tone="danger">{counts.error} with errors</StatusPill>}
+              <StatusPill tone="success">{t("setup.importsExtra.csv.toAdd", { count: counts.add })}</StatusPill>
+              <StatusPill tone="neutral">{t("setup.importsExtra.csv.alreadyRecorded", { count: counts.exists })}</StatusPill>
+              {counts.error > 0 && (
+                <StatusPill tone="danger">{t("setup.importsExtra.csv.withErrors", { count: counts.error })}</StatusPill>
+              )}
             </div>
           )}
           {counts.error > 0 && (
             <Checkbox
-              label="Import the valid rows only"
-              description="Rows with errors are skipped."
+              label={t("setup.importsExtra.csv.validOnly")}
+              description={t("setup.importsExtra.csv.validOnlyHelp")}
               checked={validOnly}
               onChange={(event) => setValidOnly(event.target.checked)}
             />
@@ -145,10 +147,10 @@ export default function ConflictsImportPage() {
               <Table>
                 <THead>
                   <TR>
-                    <TH align="right">Row</TH>
-                    <TH>Conflict</TH>
-                    <TH>Type</TH>
-                    <TH>Result</TH>
+                    <TH align="right">{t("setup.importsExtra.csv.row")}</TH>
+                    <TH>{t("setup.importsExtra.conflicts.conflictColumn")}</TH>
+                    <TH>{t("setup.importsExtra.csv.type")}</TH>
+                    <TH>{t("setup.importsExtra.csv.result")}</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -156,17 +158,18 @@ export default function ConflictsImportPage() {
                     <TR key={row.rowNumber}>
                       <TD numeric>{row.rowNumber}</TD>
                       <TD>{row.description}</TD>
-                      <TD className="text-xs">{row.kind ? KIND_LABELS[row.kind] : "—"}</TD>
+                      <TD className="text-xs">{row.kind ? t(CONFLICT_KIND_KEYS[row.kind]) : "—"}</TD>
                       <TD className="text-xs">
                         {row.status === "add" && (
                           <span className="inline-flex items-center gap-1 text-success">
-                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Will be added
+                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {t("setup.importsExtra.csv.willBeAdded")}
                           </span>
                         )}
+                        {/* Issue messages come from the CSV planner and are shown as they are (English). */}
                         {row.issues.map((issue) => (
                           <span
                             key={issue.message}
-                            className={`flex gap-1 ${issue.severity === "error" ? "text-danger" : "text-warning"}`}
+                            className={cn("flex gap-1", issue.severity === "error" ? "text-danger" : "text-warning")}
                           >
                             {issue.severity === "error" ? (
                               <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -174,7 +177,11 @@ export default function ConflictsImportPage() {
                               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             )}
                             <span>
-                              <span className="sr-only">{issue.severity === "error" ? "Error: " : "Note: "}</span>
+                              <span className="sr-only">
+                                {issue.severity === "error"
+                                  ? t("setup.importsExtra.csv.errorPrefix")
+                                  : t("setup.importsExtra.csv.notePrefix")}{" "}
+                              </span>
                               {issue.message}
                             </span>
                           </span>
@@ -187,8 +194,14 @@ export default function ConflictsImportPage() {
             </TableContainer>
           )}
           {isOwnerOrAdmin && (
-            <Button variant="primary" onClick={confirm} disabled={blocked} loading={saving} loadingText="Importing…">
-              Import {counts.add} conflict{counts.add === 1 ? "" : "s"}
+            <Button
+              variant="primary"
+              onClick={confirm}
+              disabled={blocked}
+              loading={saving}
+              loadingText={t("setup.importsExtra.csv.importing")}
+            >
+              {plural("setup.importsExtra.conflicts.importButton", counts.add)}
             </Button>
           )}
         </section>

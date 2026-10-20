@@ -7,7 +7,16 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Select, Switch } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
-import { ASSISTANT_ACCESS_LABELS, ASSISTANT_ACCESS_LEVELS, resolveAssistantAccess } from "@/lib/staffPermissions";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { ASSISTANT_ACCESS_LEVELS, resolveAssistantAccess } from "@/lib/staffPermissions";
+
+const ACCESS_LEVEL_KEYS: Record<AssistantAccessLevel, MessageKey> = {
+  all_areas: "setup.staff.accessLevelAllAreas",
+  results_draw: "setup.staff.accessLevelResultsDraw",
+  results_only: "setup.staff.accessLevelResultsOnly",
+  none: "setup.staff.accessLevelNone",
+};
 
 /**
  * Tournament-wide staff access and private-URL ballot settings (docs/staff-access.md). They live in
@@ -21,6 +30,7 @@ export function StaffAccessSettings({
   tournament: Tournament;
   onSave: (tournament: Tournament) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const preferences = tournament.preferences;
   const [access, setAccess] = useState<AssistantAccessLevel>(resolveAssistantAccess(preferences.assistantAccess));
   const [individualBallots, setIndividualBallots] = useState(preferences.individualBallots === true);
@@ -56,9 +66,9 @@ export function StaffAccessSettings({
           privateBallotConfirmation: confirmation,
         },
       });
-      setStatus({ tone: "success", text: "Saved on this device. Upload the tournament for staff and participants to get the change." });
+      setStatus({ tone: "success", text: t("setup.staff.accessSaved") });
     } catch (error) {
-      setStatus({ tone: "danger", text: error instanceof Error ? error.message : "Could not save the settings." });
+      setStatus({ tone: "danger", text: error instanceof Error ? error.message : t("setup.staff.accessSaveError") });
     } finally {
       setSaving(false);
     }
@@ -68,44 +78,44 @@ export function StaffAccessSettings({
     <Card>
       <CardHeader
         icon={<ShieldCheck aria-hidden="true" />}
-        title="Staff access and private-URL ballots"
-        description="What data-entry staff can reach, and how ballots from adjudicators' private URLs are confirmed."
+        title={t("setup.staff.accessTitle")}
+        description={t("setup.staff.accessDescription")}
       />
       <CardBody className="space-y-4">
         <Select
-          label="Data-entry staff access"
-          help="Tabbycat's assistant access. Lower levels hide unreleased draws and motions from staff; “No access” switches every data-entry account off."
+          label={t("setup.staff.accessLevelLabel")}
+          help={t("setup.staff.accessLevelHelp")}
           value={access}
           onChange={(event) => setAccess(resolveAssistantAccess(event.target.value))}
           wrapperClassName="max-w-md"
         >
           {ASSISTANT_ACCESS_LEVELS.map((level) => (
-            <option key={level} value={level}>{ASSISTANT_ACCESS_LABELS[level]}</option>
+            <option key={level} value={level}>{t(ACCESS_LEVEL_KEYS[level])}</option>
           ))}
         </Select>
         <Select
-          label="Ballots submitted through private URLs"
-          help="With “The chair”, a chair's ballot (or a complete set of individual ballots) counts at once. With “The tab room”, every private-URL ballot waits until the tab room or data-entry staff confirm it."
+          label={t("setup.staff.ballotConfirmLabel")}
+          help={t("setup.staff.ballotConfirmHelp")}
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value === "tab_room" ? "tab_room" : "chair")}
           wrapperClassName="max-w-md"
         >
-          <option value="chair">The chair confirms (default)</option>
-          <option value="tab_room">The tab room confirms</option>
+          <option value="chair">{t("setup.staff.ballotConfirmChair")}</option>
+          <option value="tab_room">{t("setup.staff.ballotConfirmTabRoom")}</option>
         </Select>
         <Switch
           checked={individualBallots}
           onCheckedChange={setIndividualBallots}
           disabled={!votingUsed}
-          label="Individual ballots from every voting adjudicator"
+          label={t("setup.staff.individualBallotsLabel")}
           description={votingUsed
-            ? "Voting rounds: each voting adjudicator submits their own scoresheet; the latest sheet of each is merged into one voting ballot."
-            : "Only for two-team tournaments that use voting ballots (Scoring & ballots)."}
+            ? t("setup.staff.individualBallotsOn")
+            : t("setup.staff.individualBallotsOff")}
         />
         {status && <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>{status.text}</Alert>}
         <div>
           <Button variant="primary" size="sm" loading={saving} disabled={!changed} onClick={() => void save()}>
-            Save settings
+            {t("setup.staff.accessSave")}
           </Button>
         </div>
       </CardBody>

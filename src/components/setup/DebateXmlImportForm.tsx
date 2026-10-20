@@ -2,7 +2,7 @@
 
 import React, { useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2 } from "lucide-react";
+import { FileUp, Info, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { slugify, validateSlug } from "@/lib/setup/presets";
 import {
@@ -14,33 +14,42 @@ import {
 } from "@/features/tournament/application/debateXmlImport";
 import { isSlugUsedOnDevice, saveImportedTournamentLocally } from "@/features/tournament/application/importedTournamentStorage";
 import { getLocalStore } from "@/lib/offline/localStore";
+import type { MessageKey } from "@/lib/i18n";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Alert } from "@/components/ui/Feedback";
+import { Button } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Input, Label } from "@/components/ui/Field";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 
-const COUNT_LABELS: Array<[keyof DebateXmlImportCounts, string]> = [
-  ["institutions", "Institutions"],
-  ["teams", "Teams"],
-  ["speakers", "Speakers"],
-  ["adjudicators", "Adjudicators"],
-  ["conflicts", "Adjudicator conflicts"],
-  ["venues", "Venues"],
-  ["motions", "Motions"],
-  ["breakCategories", "Break categories"],
-  ["rounds", "Rounds"],
-  ["debates", "Debates"],
-  ["byes", "Byes"],
-  ["ballots", "Ballots"],
-  ["votingBallots", "of which voting ballots"],
-  ["feedback", "Feedback submissions"],
-  ["feedbackQuestions", "Feedback questions"],
+const COUNT_LABELS: Array<[keyof DebateXmlImportCounts, MessageKey]> = [
+  ["institutions", "setup.entry.import.countInstitutions"],
+  ["teams", "setup.entry.import.countTeams"],
+  ["speakers", "setup.entry.import.countSpeakers"],
+  ["adjudicators", "setup.entry.import.countAdjudicators"],
+  ["conflicts", "setup.entry.import.countConflicts"],
+  ["venues", "setup.entry.import.countVenues"],
+  ["motions", "setup.entry.import.countMotions"],
+  ["breakCategories", "setup.entry.import.countBreakCategories"],
+  ["rounds", "setup.entry.import.countRounds"],
+  ["debates", "setup.entry.import.countDebates"],
+  ["byes", "setup.entry.import.countByes"],
+  ["ballots", "setup.entry.import.countBallots"],
+  ["votingBallots", "setup.entry.import.countVotingBallots"],
+  ["feedback", "setup.entry.import.countFeedback"],
+  ["feedbackQuestions", "setup.entry.import.countFeedbackQuestions"],
 ];
 
-const inputClass =
-  "w-full rounded border border-[#d0d7de] px-3 py-1.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
+const MAX_MEGABYTES = DEBATE_XML_MAX_CHARACTERS / 1024 / 1024;
 
 /** Imports a DebateXML archive (e.g. from Tabbycat) as a new tournament on this device. */
 export function DebateXmlImportForm() {
   const router = useRouter();
   const { user, isGlobalAdmin, loading: authLoading } = useAuth();
-  const ids = { file: useId(), name: useId(), shortName: useId(), slug: useId() };
+  const { t, plural, rich, formatNumber } = useI18n();
+  const fileId = useId();
   const [xml, setXml] = useState("");
   const [preview, setPreview] = useState<DebateXmlImportResult | null>(null);
   const [name, setName] = useState("");
@@ -63,7 +72,7 @@ export function DebateXmlImportForm() {
     setXml("");
     if (!file) return;
     if (file.size > DEBATE_XML_MAX_CHARACTERS) {
-      setError(`The file is larger than ${DEBATE_XML_MAX_CHARACTERS / 1024 / 1024} MB.`);
+      setError(t("setup.entry.import.tooLarge", { size: MAX_MEGABYTES }));
       return;
     }
     setBusy(true);
@@ -77,7 +86,7 @@ export function DebateXmlImportForm() {
       setShortName(result.suggestedShortName || suggested.slice(0, 15));
       setSlug(slugify(suggested));
     } catch (readError) {
-      setError(readError instanceof Error ? readError.message : "Could not read the file.");
+      setError(readError instanceof Error ? readError.message : t("setup.entry.import.readFailed"));
     } finally {
       setBusy(false);
     }
@@ -90,7 +99,7 @@ export function DebateXmlImportForm() {
     event.preventDefault();
     setError("");
     if (!isGlobalAdmin) {
-      setError("Only a global administrator can create a tournament.");
+      setError(t("setup.entry.import.adminOnlyCreate"));
       return;
     }
     const slugError = validateSlug(slug);
@@ -99,153 +108,153 @@ export function DebateXmlImportForm() {
       return;
     }
     if (!name.trim()) {
-      setError("Enter a name for the tournament.");
+      setError(t("setup.entry.import.nameRequired"));
       return;
     }
     setBusy(true);
     try {
       if (await isSlugUsedOnDevice(getLocalStore(), slug)) {
-        throw new Error(`"${slug}" already exists on this device. Choose a different URL.`);
+        throw new Error(t("setup.entry.slugExists", { slug }));
       }
       const result = runImport(xml, { slug, name: name.trim(), shortName: shortName.trim() });
-      if (!result.data) throw new Error("The file has errors and cannot be imported.");
+      if (!result.data) throw new Error(t("setup.entry.import.hasErrors"));
       await saveImportedTournamentLocally(getLocalStore(), result.data);
       router.push(`/${slug}`);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "The import failed. Nothing was saved.");
+      setError(createError instanceof Error ? createError.message : t("setup.entry.import.importFailed"));
       setBusy(false);
     }
   };
 
   if (authLoading) {
-    return <p role="status" className="text-sm text-gray-600">Checking administrator access…</p>;
+    return <p role="status" className="text-[13px] text-fg-muted">{t("setup.entry.checkingAccess")}</p>;
   }
   if (!isGlobalAdmin) {
     return (
-      <div role="alert" className="rounded border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-        Only a global administrator can create a tournament, including by importing one.
-      </div>
+      <Alert tone="warning" role="alert">
+        {t("setup.entry.import.adminOnly")}
+      </Alert>
     );
   }
 
+  const issueLabel = (text: string) => <span className="font-semibold">{text}</span>;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Import a DebateXML archive</h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Create a new tournament from a DebateXML file exported by Tabbycat or CrabbyTab. The file is checked
-          first; nothing is saved until you confirm, and existing tournaments are never changed.
-        </p>
-      </div>
+      <PageHeader title={t("setup.entry.import.title")} description={t("setup.entry.import.intro")} />
 
-      <div className="rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-        <label htmlFor={ids.file} className="mb-1 flex items-center gap-2 text-sm font-semibold text-gray-800">
-          <FileUp className="h-4 w-4" /> DebateXML file (.xml, up to {DEBATE_XML_MAX_CHARACTERS / 1024 / 1024} MB)
-        </label>
-        <input
-          id={ids.file}
-          type="file"
-          accept=".xml,application/xml,text/xml"
-          onChange={handleFile}
-          disabled={busy}
-          className="block w-full text-sm file:mr-3 file:rounded file:border file:border-gray-300 file:bg-gray-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold"
-        />
-        {busy && !preview && (
-          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-gray-600">
-            <Loader2 className="h-4 w-4 animate-spin" /> Reading the file…
-          </p>
-        )}
-      </div>
+      <Card>
+        <CardHeader title={t("setup.entry.import.fileTitle")} icon={<FileUp aria-hidden="true" />} />
+        <CardBody className="space-y-3">
+          <Label htmlFor={fileId}>{t("setup.entry.import.fileLabel", { size: MAX_MEGABYTES })}</Label>
+          <input
+            id={fileId}
+            type="file"
+            accept=".xml,application/xml,text/xml"
+            onChange={handleFile}
+            disabled={busy}
+            className={cn(
+              "block w-full rounded-md text-[13px] text-fg-muted file:me-3 file:rounded-md file:border file:border-solid file:border-border-strong file:bg-surface file:px-3 file:py-1.5 file:text-[13px] file:font-medium file:text-fg hover:file:bg-muted disabled:opacity-50",
+              focusRing
+            )}
+          />
+          {busy && !preview && (
+            <p role="status" className="flex items-center gap-2 text-[13px] text-fg-muted">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {t("setup.entry.import.reading")}
+            </p>
+          )}
+        </CardBody>
+      </Card>
 
-      {error && (
-        <p role="alert" className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
-        </p>
-      )}
+      {/* Some messages (file problems from the parser, slug rules) come from lib code and are English for now. */}
+      {error && <Alert tone="danger" role="alert">{error}</Alert>}
 
       {preview && (
         <div className="space-y-4">
           {errors.length > 0 ? (
-            <div role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-              <p className="flex items-center gap-2 font-bold">
-                <AlertTriangle className="h-4 w-4" /> This file cannot be imported ({errors.length} error{errors.length === 1 ? "" : "s"})
-              </p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            <Alert tone="danger" role="alert" title={plural("setup.entry.import.cannotImport", errors.length)}>
+              <ul className="list-disc space-y-1 ps-5 text-xs">
                 {errors.map((issue, index) => (
-                  <li key={index}><span className="font-semibold">Error at {issue.path}:</span> {issue.message}</li>
+                  <li key={index}>
+                    {rich("setup.entry.import.errorAt", { b: issueLabel }, { path: issue.path, message: issue.message })}
+                  </li>
                 ))}
               </ul>
-            </div>
+            </Alert>
           ) : (
-            <p role="status" className="flex items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              <CheckCircle2 className="h-4 w-4" /> The file is valid and ready to import.
-            </p>
+            <Alert tone="success" role="status">{t("setup.entry.import.valid")}</Alert>
           )}
 
           {warnings.length > 0 && (
-            <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <p className="font-bold">Warnings ({warnings.length})</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            <Alert tone="warning" title={t("setup.entry.import.warningsTitle", { count: warnings.length })}>
+              <ul className="list-disc space-y-1 ps-5 text-xs">
                 {warnings.map((issue, index) => (
-                  <li key={index}><span className="font-semibold">Warning at {issue.path}:</span> {issue.message}</li>
+                  <li key={index}>
+                    {rich("setup.entry.import.warningAt", { b: issueLabel }, { path: issue.path, message: issue.message })}
+                  </li>
                 ))}
               </ul>
-            </div>
+            </Alert>
           )}
 
-          <div className="rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-            <h2 className="text-sm font-bold text-gray-900">What will be imported</h2>
-            <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
-              {COUNT_LABELS.map(([key, label]) => (
-                <div key={key} className="flex justify-between gap-2 border-b border-gray-100 py-1">
-                  <dt className="text-gray-600">{label}</dt>
-                  <dd className="font-mono font-semibold text-gray-900">{preview.counts[key]}</dd>
-                </div>
-              ))}
-            </dl>
-            {preview.notes.length > 0 && (
-              <ul className="mt-4 space-y-1 text-xs text-gray-700">
-                {preview.notes.map((note) => (
-                  <li key={note} className="flex items-start gap-2"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" /> {note}</li>
+          <Card>
+            <CardHeader title={t("setup.entry.import.summaryTitle")} />
+            <CardBody>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-[13px] sm:grid-cols-3">
+                {COUNT_LABELS.map(([key, label]) => (
+                  <div key={key} className="flex justify-between gap-2 border-b border-border py-1">
+                    <dt className="text-fg-muted">{t(label)}</dt>
+                    <dd className="font-mono font-semibold text-fg">{formatNumber(preview.counts[key])}</dd>
+                  </div>
                 ))}
-              </ul>
-            )}
-          </div>
+              </dl>
+              {preview.notes.length > 0 && (
+                <ul className="mt-4 space-y-1 text-xs text-fg-muted">
+                  {preview.notes.map((note) => (
+                    <li key={note} className="flex items-start gap-2">
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" aria-hidden="true" /> {note}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardBody>
+          </Card>
 
           {errors.length === 0 && (
-            <form onSubmit={handleCreate} className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-              <h2 className="text-sm font-bold text-gray-900">New tournament</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label htmlFor={ids.name} className="mb-1 block text-xs font-semibold text-gray-700">Name</label>
-                  <input id={ids.name} value={name} onChange={(event) => setName(event.target.value)} className={inputClass} required maxLength={120} />
-                </div>
-                <div>
-                  <label htmlFor={ids.shortName} className="mb-1 block text-xs font-semibold text-gray-700">Short name</label>
-                  <input id={ids.shortName} value={shortName} onChange={(event) => setShortName(event.target.value)} className={inputClass} maxLength={15} />
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor={ids.slug} className="mb-1 block text-xs font-semibold text-gray-700">URL slug</label>
-                  <input
-                    id={ids.slug}
-                    value={slug}
-                    onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40))}
-                    className={`${inputClass} font-mono`}
-                    required
-                    aria-describedby={`${ids.slug}-hint`}
-                  />
-                  <p id={`${ids.slug}-hint`} className="mt-1 text-xs text-gray-500">The tournament will open at /{slug || "…"}.</p>
-                </div>
-              </div>
-              <button
-                type="submit"
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
-              >
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                Create tournament from this file
-              </button>
-            </form>
+            <Card>
+              <CardHeader title={t("setup.entry.import.newTournamentTitle")} />
+              <CardBody>
+                <form onSubmit={handleCreate} className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input
+                      label={t("setup.common.name")}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      required
+                      maxLength={120}
+                    />
+                    <Input
+                      label={t("setup.entry.import.shortName")}
+                      value={shortName}
+                      onChange={(event) => setShortName(event.target.value)}
+                      maxLength={15}
+                    />
+                    <Input
+                      wrapperClassName="sm:col-span-2"
+                      label={t("setup.entry.slugLabel")}
+                      help={t("setup.entry.import.slugHelp", { slug: slug || "…" })}
+                      value={slug}
+                      onChange={(event) => setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40))}
+                      className="font-mono"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" variant="primary" loading={busy}>
+                    {t("setup.entry.import.submit")}
+                  </Button>
+                </form>
+              </CardBody>
+            </Card>
           )}
         </div>
       )}

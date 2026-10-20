@@ -6,7 +6,9 @@ import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input, Select, Switch, Textarea } from "@/components/ui/Field";
-import { Alert } from "@/components/ui/Feedback";
+import { Alert, Skeleton } from "@/components/ui/Feedback";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import {
   TEMPLATE_EVENT_INFO,
   TEMPLATE_EVENTS,
@@ -16,6 +18,27 @@ import {
 } from "@/lib/email/settings";
 
 const COMMON_VARIABLES = ["name", "email", "tournament", "round", "institution"];
+
+/** Translated labels for TEMPLATE_EVENT_INFO; the English originals there are used by the server. */
+const EVENT_LABELS: Record<TemplateEvent, { label: MessageKey; when: MessageKey }> = {
+  draw_teams: { label: "setup.email.eventDrawTeams", when: "setup.email.eventDrawTeamsWhen" },
+  draw_adjudicators: { label: "setup.email.eventDrawAdjudicators", when: "setup.email.eventDrawAdjudicatorsWhen" },
+  team_points: { label: "setup.email.eventTeamPoints", when: "setup.email.eventTeamPointsWhen" },
+  ballot_receipt: { label: "setup.email.eventBallotReceipt", when: "setup.email.eventBallotReceiptWhen" },
+  ballot_confirmed: { label: "setup.email.eventBallotConfirmed", when: "setup.email.eventBallotConfirmedWhen" },
+  motions_released: { label: "setup.email.eventMotionsReleased", when: "setup.email.eventMotionsReleasedWhen" },
+  private_url: { label: "setup.email.eventPrivateUrl", when: "setup.email.eventPrivateUrlWhen" },
+  feedback_url: { label: "setup.email.eventFeedbackUrl", when: "setup.email.eventFeedbackUrlWhen" },
+  registration_received: {
+    label: "setup.email.eventRegistrationReceived",
+    when: "setup.email.eventRegistrationReceivedWhen",
+  },
+  registration_approved: {
+    label: "setup.email.eventRegistrationApproved",
+    when: "setup.email.eventRegistrationApprovedWhen",
+  },
+  slots_allocated: { label: "setup.email.eventSlotsAllocated", when: "setup.email.eventSlotsAllocatedWhen" },
+};
 
 /**
  * Reply-To and the saved template of every automatic email (docs/email-notifications.md). Saved on
@@ -36,7 +59,9 @@ export function EmailSettingsPanel({
   const [webhookConfigured, setWebhookConfigured] = useState(false);
   const [event, setEvent] = useState<TemplateEvent>("draw_teams");
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  // `text` is a server message shown as written; without one the translated `fallback` is shown.
+  const [status, setStatus] = useState<{ tone: "success" | "danger"; text: string; fallback: MessageKey } | null>(null);
+  const { t } = useI18n();
 
   const load = useCallback(async () => {
     setStatus(null);
@@ -51,12 +76,16 @@ export function EmailSettingsPanel({
         defaults?: Record<TemplateEvent, EmailTemplate>;
         webhookConfigured?: boolean;
       };
-      if (!response.ok || !result.settings || !result.defaults) throw new Error(result.error || "Could not load email settings.");
+      if (!response.ok || !result.settings || !result.defaults) throw new Error(result.error || "");
       setSettings(result.settings);
       setDefaults(result.defaults);
       setWebhookConfigured(result.webhookConfigured === true);
     } catch (error) {
-      setStatus({ tone: "danger", text: error instanceof Error ? error.message : "Could not load email settings." });
+      setStatus({
+        tone: "danger",
+        text: error instanceof Error ? error.message : "",
+        fallback: "setup.email.settingsLoadFailed",
+      });
     }
   }, [tournamentId, user]);
 
@@ -67,9 +96,17 @@ export function EmailSettingsPanel({
   if (!settings || !defaults) {
     return (
       <Card>
-        <CardHeader icon={<FileText aria-hidden="true" />} title="Email settings and templates" />
+        <CardHeader icon={<FileText aria-hidden="true" />} title={t("setup.email.settingsTitle")} />
         <CardBody>
-          {status ? <Alert role="alert" tone="danger">{status.text}</Alert> : <p role="status" className="text-xs text-fg-muted">Loading email settings…</p>}
+          {status ? (
+            <Alert role="alert" tone="danger">{status.text || t(status.fallback)}</Alert>
+          ) : (
+            <div className="space-y-2">
+              <p role="status" className="text-xs text-fg-muted">{t("setup.email.settingsLoading")}</p>
+              <Skeleton className="h-8 max-w-md" />
+              <Skeleton className="h-24" />
+            </div>
+          )}
         </CardBody>
       </Card>
     );
@@ -101,91 +138,100 @@ export function EmailSettingsPanel({
         }),
       });
       const result = await response.json() as { error?: string; settings?: TournamentEmailSettings };
-      if (!response.ok || !result.settings) throw new Error(result.error || "Could not save email settings.");
+      if (!response.ok || !result.settings) throw new Error(result.error || "");
       setSettings({ ...result.settings, templates: result.settings.templates ?? {} });
-      setStatus({ tone: "success", text: "Email settings saved. They apply to the next email sent." });
+      setStatus({ tone: "success", text: "", fallback: "setup.email.settingsSaved" });
     } catch (error) {
-      setStatus({ tone: "danger", text: error instanceof Error ? error.message : "Could not save email settings." });
+      setStatus({
+        tone: "danger",
+        text: error instanceof Error ? error.message : "",
+        fallback: "setup.email.settingsSaveFailed",
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const info = TEMPLATE_EVENT_INFO[event];
+  const variables = [...COMMON_VARIABLES, ...info.variables].map((name) => `{{${name}}}`).join(" ");
   return (
     <Card>
       <CardHeader
         icon={<FileText aria-hidden="true" />}
-        title="Email settings and templates"
-        description="Reply-To for every email from this tournament, and the wording of each automatic email."
+        title={t("setup.email.settingsTitle")}
+        description={t("setup.email.settingsDescription")}
       />
       <CardBody className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Input
-            label="Reply-To name"
+            label={t("setup.email.replyToName")}
             value={settings.replyToName}
             maxLength={100}
-            placeholder="Tabulation Team"
+            placeholder={t("setup.email.replyToNamePlaceholder")}
             onChange={(eventObject) => setSettings({ ...settings, replyToName: eventObject.target.value })}
           />
           <Input
-            label="Reply-To address"
+            label={t("setup.email.replyToAddress")}
             type="email"
             value={settings.replyToAddress}
             placeholder="tab@example.org"
-            help="Replies from participants go here instead of the sending address. Leave empty to use the sender."
+            help={t("setup.email.replyToAddressHelp")}
             onChange={(eventObject) => setSettings({ ...settings, replyToAddress: eventObject.target.value })}
           />
         </div>
         <Switch
           checked={settings.registrationEmails}
           onCheckedChange={(checked) => setSettings({ ...settings, registrationEmails: checked })}
-          label="Email registrants"
-          description="Send “Registration received” when someone registers and “Registration approved” when the tab room approves it."
+          label={t("setup.email.registrationEmails")}
+          description={t("setup.email.registrationEmailsHelp")}
         />
         <Select
-          label="Template"
+          label={t("setup.email.templateLabel")}
           value={event}
           onChange={(eventObject) => setEvent(eventObject.target.value as TemplateEvent)}
           wrapperClassName="max-w-md"
-          help={info.when}
+          help={t(EVENT_LABELS[event].when)}
         >
           {TEMPLATE_EVENTS.map((item) => (
             <option key={item} value={item}>
-              {TEMPLATE_EVENT_INFO[item].label}{settings.templates[item] ? " (customised)" : ""}
+              {settings.templates[item]
+                ? t("setup.email.templateCustomised", { label: t(EVENT_LABELS[item].label) })
+                : t(EVENT_LABELS[item].label)}
             </option>
           ))}
         </Select>
         <Input
-          label="Subject"
+          label={t("setup.email.subjectLabel")}
           value={template.subject}
           maxLength={200}
           onChange={(eventObject) => setTemplate({ ...template, subject: eventObject.target.value })}
         />
         <Textarea
-          label="Message"
+          label={t("setup.email.messageLabel")}
           rows={9}
           value={template.body}
           onChange={(eventObject) => setTemplate({ ...template, body: eventObject.target.value })}
-          help={`Variables: ${[...COMMON_VARIABLES, ...info.variables].map((name) => `{{${name}}}`).join(" ")}`}
+          help={t("setup.email.variablesList", { variables })}
         />
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" size="sm" loading={saving} onClick={() => void save()}>Save email settings</Button>
+          <Button variant="primary" size="sm" loading={saving} onClick={() => void save()}>{t("setup.email.saveSettings")}</Button>
           {onUseTemplate && (event === "private_url" || event === "feedback_url") && (
             <Button variant="secondary" size="sm" onClick={() => onUseTemplate(template)}>
-              Use in the compose form
+              {t("setup.email.useInCompose")}
             </Button>
           )}
           <Button variant="ghost" size="sm" disabled={!customised || saving} onClick={() => setTemplate(undefined)}>
-            Reset this template to the default
+            {t("setup.email.resetTemplate")}
           </Button>
         </div>
         <p className="text-xs text-fg-muted">
-          Delivery status from the email provider: {webhookConfigured
-            ? "the signed webhook is configured; campaign history shows each address's latest status."
-            : "not configured (set EMAIL_WEBHOOK_SECRET on the server and point the provider at /api/email/webhook)."}
+          {webhookConfigured ? t("setup.email.webhookConfigured") : t("setup.email.webhookMissing")}
         </p>
-        {status && <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>{status.text}</Alert>}
+        {status && (
+          <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>
+            {status.text || t(status.fallback)}
+          </Alert>
+        )}
       </CardBody>
     </Card>
   );
