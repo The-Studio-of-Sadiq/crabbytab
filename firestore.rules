@@ -70,7 +70,8 @@ service cloud.firestore {
       function assistantLiveBallotFields() {
         return ["id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText",
           "speakerScores", "teamScores", "timestamp", "confirmed", "discarded", "submitterType",
-          "submitterId", "submitterName", "chairId", "syncVersion"];
+          "submitterId", "submitterName", "chairId", "syncVersion", "sheets", "vetoes", "forfeitSide",
+          "noSpeakerScores"];
       }
 
       function assistantLiveCheckInFields() {

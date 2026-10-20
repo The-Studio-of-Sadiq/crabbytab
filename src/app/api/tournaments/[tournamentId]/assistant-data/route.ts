@@ -72,6 +72,7 @@ export async function GET(
         "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
         "adjudicatorsRevealed", "feedbackWeight", "silent", "motionsReleased", "resultsReleased",
         "teamSpeaksReleased", "breakCategoryIds", "eliminationAdvanced", "cancelled", "completed", "createdAt",
+        "weight",
       ])),
       teams: records.teams.map((team) => ({
         ...pickFields(team, [
@@ -107,7 +108,7 @@ export async function GET(
       ballots: records.ballots.map((ballot) => pickFields(ballot, [
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
-        "confirmedBy", "confirmedTimestamp",
+        "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores",
       ])),
       feedback: records.feedback.map((submission) => pickFields(submission, [
         "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",

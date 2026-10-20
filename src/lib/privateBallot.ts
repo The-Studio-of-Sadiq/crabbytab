@@ -3,15 +3,40 @@ import {
   BallotSubmission,
   Debate,
   DebateSide,
+  Round,
+  SpeakerScoreEntry,
   Team,
   Tournament,
 } from "@/types";
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
-import { consensusTeamScores } from "@/lib/ballots/result";
+import {
+  buildBallotResult,
+  substantiveSpeakerCount,
+  usesSpeakerScores,
+  validateBallotEntry,
+  type BallotRules,
+} from "@/lib/ballots/result";
+import { scoreCriteriaFor } from "@/lib/ballots/ballotRules";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
 
 const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
+
+/**
+ * Rules for a ballot submitted through an adjudicator's private URL. It is that adjudicator's
+ * own scoresheet, so it is entered and checked like a consensus ballot whatever the round's
+ * ballot mode; voting rounds merge the sheets in the tab room.
+ */
+export function privateBallotRules(
+  tournament: Pick<Tournament, "format" | "preferences">,
+  round: Pick<Round, "stage"> | undefined
+): BallotRules {
+  return {
+    format: tournament.format,
+    preferences: { ...tournament.preferences, ballotMode: "consensus", eliminationBallotMode: "consensus" },
+    ...(round?.stage ? { stage: round.stage } : {}),
+  };
+}
 
 export function buildPrivateBallot(
   input: Record<string, unknown>,
@@ -21,12 +46,15 @@ export function buildPrivateBallot(
     debate: drawnDebate,
     teams,
     tournamentId,
+    round,
   }: {
     tournament: Tournament;
     adjudicator: Adjudicator;
     debate: Debate;
     teams: Map<string, Team>;
     tournamentId: string;
+    /** The debate's round, for its stage (ballots may drop speaker scores in elimination rounds). */
+    round?: Pick<Round, "stage">;
   }
 ): BallotSubmission {
   const adjudicatorId = adjudicator.id;
@@ -99,7 +127,13 @@ export function buildPrivateBallot(
     ranks.set(side, score.rank);
   }
 
+  const rules = privateBallotRules(tournament, round);
+  const scored = usesSpeakerScores(rules);
+  const substantive = substantiveSpeakerCount(rules);
+  const replyEnabled = Boolean(tournament.preferences?.replyScoresEnabled && tournament.format !== "bp");
+  const criteriaIds = new Set(scoreCriteriaFor(tournament.preferences).map((criterion) => criterion.id));
   const speakerScores = {} as BallotSubmission["speakerScores"];
+  const rosters: Partial<Record<DebateSide, Team["speakers"]>> = {};
   for (const side of sides) {
     const slot = debate.teams?.[side];
     const team = slot && teams.get(slot.teamId);
@@ -107,62 +141,64 @@ export function buildPrivateBallot(
     if (!slot || !team || !Array.isArray(team.speakers) || !Array.isArray(submitted)) {
       throw new Error("The ballot does not match the debate roster.");
     }
-
-    const replyEnabled = Boolean(tournament.preferences?.replyScoresEnabled && tournament.format !== "bp");
-    const expectedCount = team.speakers.length + (replyEnabled ? 1 : 0);
-    if (submitted.length !== expectedCount) {
-      throw new Error("The ballot must score every speaker in the debate roster.");
+    rosters[side] = team.speakers;
+    if (!scored) {
+      // A results-only ballot: whatever scores were sent are dropped.
+      speakerScores[side] = [];
+      continue;
     }
 
-    const scores = team.speakers.map((speaker, index) => {
-      const entry = submitted[index];
+    const expectedCount = substantive + (replyEnabled ? 1 : 0);
+    if (submitted.length !== expectedCount) {
+      throw new Error("The ballot must score every speech in the debate.");
+    }
+
+    // Names come from the roster, never from the submission; scores, ranks and criteria are
+    // checked by the shared ballot validation below.
+    speakerScores[side] = submitted.map((entry, index) => {
+      const speaker = isRecord(entry) ? team.speakers.find((candidate) => candidate.id === entry.speakerId) : undefined;
+      const isReply = replyEnabled && index === substantive;
       if (
         !isRecord(entry) ||
-        entry.speakerId !== speaker.id ||
+        !speaker ||
         entry.position !== index + 1 ||
         typeof entry.score !== "number" ||
-        !validateSpeakerScore(entry.score, tournament.preferences).valid
+        (scoreCriteriaFor(tournament.preferences).length === 0 &&
+          !(isReply ? validateReplyScore : validateSpeakerScore)(entry.score, tournament.preferences).valid)
       ) {
-        throw new Error("A speaker score is invalid or does not match the debate roster.");
+        throw new Error(isReply ? "The reply score is invalid." : "A speaker score is invalid or does not match the debate roster.");
       }
-      return {
+      const criteria = isRecord(entry.criteria)
+        ? Object.fromEntries(
+            Object.entries(entry.criteria).filter(([id, value]) => criteriaIds.has(id) && typeof value === "number" && Number.isFinite(value))
+          ) as Record<string, number>
+        : undefined;
+      const speech: SpeakerScoreEntry = {
         speakerId: speaker.id,
         speakerName: speaker.name,
         position: index + 1,
         score: entry.score,
+        ...(entry.ghost === true ? { ghost: true } : {}),
+        ...(typeof entry.rank === "number" ? { rank: entry.rank } : {}),
+        ...(criteria && Object.keys(criteria).length > 0 ? { criteria } : {}),
       };
+      return speech;
     });
-
-    if (replyEnabled) {
-      const entry = submitted[team.speakers.length];
-      // The reply is given by one of the first (n - 1) substantive speakers.
-      const replySpeaker = team.speakers
-        .slice(0, Math.max(1, team.speakers.length - 1))
-        .find((speaker) => isRecord(entry) && speaker.id === entry.speakerId);
-      if (
-        !isRecord(entry) ||
-        !replySpeaker ||
-        entry.position !== 4 ||
-        typeof entry.score !== "number" ||
-        !validateReplyScore(entry.score, tournament.preferences).valid
-      ) {
-        throw new Error("The reply score is invalid.");
-      }
-      scores.push({
-        speakerId: replySpeaker.id,
-        speakerName: replySpeaker.name,
-        position: 4,
-        score: entry.score,
-      });
-    }
-    speakerScores[side] = scores;
   }
-  const teamScores = consensusTeamScores(
-    speakerScores,
-    Object.fromEntries(ranks),
+
+  const entry = { speakerScores, ranks: Object.fromEntries(ranks) };
+  const errors = validateBallotEntry(entry, { ...rules, rosters });
+  if (errors.length > 0) {
+    // The reply-speaker rule keeps its long-standing message for API clients.
+    throw new Error(errors.some((error) => /reply/i.test(error)) ? `The reply score is invalid. ${errors.join(" ")}` : errors.join(" "));
+  }
+  const result = buildBallotResult(
+    entry,
     Object.fromEntries(sides.map((side) => [side, debate.teams?.[side]?.teamId || ""])),
-    { format: tournament.format, preferences: tournament.preferences }
+    debate.adjudicators?.chairId,
+    rules
   );
+  const teamScores = result.teamScores;
 
   const timestamp = new Date().toISOString();
   const isChair = debate.adjudicators?.chairId === adjudicatorId;
@@ -179,8 +215,9 @@ export function buildPrivateBallot(
     submitterName: adjudicator.name,
     ...(debate.motionId !== undefined ? { motionId: debate.motionId } : {}),
     ...(debate.motionText !== undefined ? { motionText: debate.motionText } : {}),
-    speakerScores,
+    speakerScores: result.speakerScores,
     teamScores,
+    ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
     ...(debate.adjudicators?.chairId !== undefined
       ? { chairId: debate.adjudicators.chairId }
       : {}),

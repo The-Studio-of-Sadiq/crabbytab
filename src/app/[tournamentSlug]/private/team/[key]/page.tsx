@@ -1,5 +1,6 @@
 "use client";
 
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -733,7 +734,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>AFF &bull; {t("side.AFF")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>{sideLabel("AFF", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "AFF", tournament?.preferences)}</>}</span>
                               <span className="text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                               {mySide === "AFF" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
@@ -744,7 +745,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>NEG &bull; {t("side.NEG")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>{sideLabel("NEG", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "NEG", tournament?.preferences)}</>}</span>
                               <span className="text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                               {mySide === "NEG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>

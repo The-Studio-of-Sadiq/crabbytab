@@ -1,5 +1,6 @@
 "use client";
 
+import { sideLabel } from "@/lib/sideNames";
 import React, { useMemo } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SideBadge } from "@/components/ui/SideBadge";
@@ -224,7 +225,7 @@ export default function AnalyticsPage() {
                 className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col justify-between"
               >
                 <div>
-                  <SideBadge side={sideKey as DebateSide} />
+                  <SideBadge side={sideKey as DebateSide} preferences={tournament?.preferences} />
                   <div className="mt-3">
                     <div className="text-2xl font-bold font-mono text-gray-900">{avgPts}</div>
                     <span className="text-[11px] text-gray-500 font-semibold">Average Points / Debate</span>
@@ -270,8 +271,8 @@ export default function AnalyticsPage() {
                   </>
                 ) : (
                   <>
-                    <th className="w-24 text-center text-emerald-700 font-bold">AFF Wins</th>
-                    <th className="w-24 text-center text-slate-700 font-bold">NEG Wins</th>
+                    <th className="w-24 text-center text-emerald-700 font-bold">{sideLabel("AFF", tournament?.preferences)} Wins</th>
+                    <th className="w-24 text-center text-slate-700 font-bold">{sideLabel("NEG", tournament?.preferences)} Wins</th>
                   </>
                 )}
                 {showVetoes && <th className="w-20 text-center">Vetoes</th>}

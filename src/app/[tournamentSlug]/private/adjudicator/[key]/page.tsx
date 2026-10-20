@@ -25,9 +25,23 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
-import { consensusTeamScores } from "@/lib/ballots/result";
+import {
+  applyScoreCriteria,
+  ballotSides,
+  buildBallotResult,
+  effectiveRanks,
+  substantiveSpeakerCount,
+  usesSpeakerScores,
+  validateBallotEntry,
+  type BallotEntry,
+} from "@/lib/ballots/result";
+import { speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
+import { privateBallotRules } from "@/lib/privateBallot";
+import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
+import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
-import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
+import { validateFeedbackScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
   isFeedbackEnabledForRound,
@@ -75,7 +89,6 @@ export default function AdjudicatorPrivatePortalPage() {
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
   const feedbackQuestions = questionsForFeedbackSource("adjudicator", tournament?.preferences);
   const isBP = tournament?.format === "bp";
-  const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
 
   // Filter state
   const [selectedRoundTab, setSelectedRoundTab] = useState<string>("active");
@@ -176,9 +189,7 @@ export default function AdjudicatorPrivatePortalPage() {
   /** Sides chosen on the ballot: the debate as drawn, and whether the chair has recorded the sides. */
   const [ballotDrawnDebate, setBallotDrawnDebate] = useState<Debate | null>(null);
   const [ballotSidesChosen, setBallotSidesChosen] = useState(true);
-  const [ballotScores, setBallotScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }[]>>({});
-  const [ballotReplyScores, setBallotReplyScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }>>({});
-  const [ballotRanks, setBallotRanks] = useState<Record<string, number>>({});
+  const [ballotEntry, setBallotEntry] = useState<BallotEntry | null>(null);
   const [ballotMotionId, setBallotMotionId] = useState<string>("");
   const [ballotSubmitting, setBallotSubmitting] = useState(false);
   const [ballotError, setBallotError] = useState("");
@@ -378,48 +389,19 @@ export default function AdjudicatorPrivatePortalPage() {
     if (!chosenAffTeamId) setBallotMotionId(debate.motionId || "");
     setBallotError("");
 
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
-
-    const initScores: Record<string, { speakerId: string; speakerName: string; score: number }[]> = {};
-    const initReplyScores: Record<string, { speakerId: string; speakerName: string; score: number }> = {};
-    const initRanks: Record<string, number> = {};
-
-    sides.forEach((side, sideIdx) => {
-      const teamSlot = debate.teams[side];
-      const team = teamSlot ? teamsMap.get(teamSlot.teamId) : null;
-      initRanks[side] = existing?.teamScores?.[side]?.rank || sideIdx + 1;
-
-      if (existing?.speakerScores?.[side]) {
-        initScores[side] = existing.speakerScores[side].filter((s) => s.position !== 4);
-        const replyItem = existing.speakerScores[side].find((s) => s.position === 4);
-        if (replyItem) initReplyScores[side] = replyItem;
-      } else {
-        const substantiveCount = tournament?.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
-        const spks = [];
-        for (let i = 0; i < substantiveCount; i++) {
-          const spk = team?.speakers?.[i];
-          spks.push({
-            speakerId: spk?.id || `spk-${side}-${i}`,
-            speakerName: spk?.name || `Speaker ${i + 1}`,
-            score: Math.round(((tournament?.preferences?.minSpeakerScore || 68) + (tournament?.preferences?.maxSpeakerScore || 84)) / 2),
-          });
-        }
-        initScores[side] = spks;
-
-        if (replyEnabled) {
-          const replySpeaker = team?.speakers?.[0];
-          initReplyScores[side] = {
-            speakerId: replySpeaker?.id || "",
-            speakerName: replySpeaker?.name || `${team?.name || side} Reply`,
-            score: Math.round(((tournament?.preferences?.minReplyScore || 34) + (tournament?.preferences?.maxReplyScore || 42)) / 2),
-          };
-        }
-      }
+    // The portal ballot is one adjudicator's own sheet, entered like a consensus ballot.
+    const rules = privateBallotRules(tournament!, roundsMap.get(debate.roundId));
+    const sides = ballotSides(rules.format);
+    const speakerScores = Object.fromEntries(sides.map((side) => {
+      const team = debate.teams[side] ? teamsMap.get(debate.teams[side]!.teamId) : undefined;
+      const saved = existing?.speakerScores?.[side];
+      return [side, saved && saved.length > 0 ? saved : blankSpeeches(team?.speakers || [], rules)];
+    })) as Record<DebateSide, SpeakerScoreEntry[]>;
+    setBallotEntry({
+      speakerScores,
+      ranks: Object.fromEntries(sides.map((side, index) => [side, existing?.teamScores?.[side]?.rank || index + 1])),
+      motionId: debate.motionId || "",
     });
-
-    setBallotScores(initScores);
-    setBallotReplyScores(initReplyScores);
-    setBallotRanks(initRanks);
     setShowBallotModal(true);
   };
 
@@ -432,58 +414,27 @@ export default function AdjudicatorPrivatePortalPage() {
       return;
     }
 
-    // Validate scores
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
-    for (const side of sides) {
-      for (const spk of ballotScores[side] || []) {
-        const check = validateSpeakerScore(spk.score, tournament?.preferences);
-        if (!check.valid && check.error) {
-          setBallotError(t("adjPortal.ballot.speakerError", { side, speaker: spk.speakerName, error: check.error }));
-          return;
-        }
-      }
-      if (replyEnabled && ballotReplyScores[side]) {
-        const check = validateReplyScore(ballotReplyScores[side].score, tournament?.preferences);
-        if (!check.valid && check.error) {
-          setBallotError(t("adjPortal.ballot.replyError", { side, error: check.error }));
-          return;
-        }
-      }
+    if (!ballotEntry || !tournament) return;
+    const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId));
+    const sides = ballotSides(rules.format);
+    const rosters = Object.fromEntries(sides.map((side) => [
+      side,
+      teamsMap.get(ballotDebate.teams[side]?.teamId || "")?.speakers || [],
+    ]));
+    const errors = validateBallotEntry({ ...ballotEntry, motionId: undefined }, { ...rules, rosters });
+    if (errors.length > 0) {
+      setBallotError(errors.join(" "));
+      return;
     }
 
     setBallotSubmitting(true);
     try {
-      const speakerScoresRecord = {} as Record<DebateSide, SpeakerScoreEntry[]>;
-
-      sides.forEach((side) => {
-        const teamSlot = ballotDebate.teams[side];
-        if (!teamSlot) return;
-
-        const allSpkList = [...(ballotScores[side] || [])].map((s, idx) => ({
-          speakerId: s.speakerId,
-          speakerName: s.speakerName,
-          score: s.score,
-          position: idx + 1,
-        }));
-
-        if (replyEnabled && ballotReplyScores[side]) {
-          allSpkList.push({
-            speakerId: ballotReplyScores[side].speakerId,
-            speakerName: ballotReplyScores[side].speakerName,
-            score: ballotReplyScores[side].score,
-            position: 4,
-          });
-        }
-
-        speakerScoresRecord[side] = allSpkList;
-      });
-      const teamScoresRecord = consensusTeamScores(
-        speakerScoresRecord,
-        ballotRanks,
+      const result = buildBallotResult(
+        ballotEntry,
         Object.fromEntries(sides.map((side) => [side, ballotDebate.teams[side]?.teamId || ""])),
-        { format: tournament?.format || "bp", preferences: tournament?.preferences }
+        ballotDebate.adjudicators?.chairId,
+        rules
       );
-
       const candidateBallot: BallotSubmission = {
         id: `ballot-${ballotDebate.id}-adj-${adjudicator.id}-${crypto.randomUUID()}`,
         tournamentId: tournament?.id || tournamentSlug,
@@ -497,8 +448,9 @@ export default function AdjudicatorPrivatePortalPage() {
         submitterName: adjudicator.name,
         motionId: ballotMotionId,
         motionText: ballotDebate.motionText,
-        speakerScores: speakerScoresRecord,
-        teamScores: teamScoresRecord,
+        speakerScores: result.speakerScores,
+        teamScores: result.teamScores,
+        ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
         chairId: ballotDebate.adjudicators?.chairId,
         timestamp: new Date().toISOString(),
         confirmedBy: adjudicator.name,
@@ -924,11 +876,11 @@ export default function AdjudicatorPrivatePortalPage() {
                         ) : (
                           <>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>AFF &bull; {t("side.AFF")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>{sideLabel("AFF", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "AFF", tournament?.preferences)}</>}</span>
                               <span className="font-bold text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>NEG &bull; {t("side.NEG")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>{sideLabel("NEG", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "NEG", tournament?.preferences)}</>}</span>
                               <span className="font-bold text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                             </div>
                           </>
@@ -1255,116 +1207,85 @@ export default function AdjudicatorPrivatePortalPage() {
                   ))}
                 </fieldset>
               )}
-              {ballotSidesChosen && (isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side) => {
-                const teamSlot = ballotDebate.teams[side];
-                const spks = ballotScores[side] || [];
-                const reply = ballotReplyScores[side];
-                const rank = ballotRanks[side] || 1;
-
-                return (
-                  <div key={side} className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
-                    <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs bg-white px-2 py-0.5 rounded border border-gray-300">
-                          {side}
-                        </span>
-                        <span className="font-bold text-gray-900 text-sm">
-                          {teamSlot?.teamName || t("adjPortal.ballot.unassigned")}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <label htmlFor={`ballot-rank-${side}`} className="text-[11px] font-semibold text-gray-600">{t("adjPortal.ballot.rank")}</label>
-                        <select
-                          id={`ballot-rank-${side}`}
-                          value={rank}
-                          onChange={(e) =>
-                            setBallotRanks((prev) => ({
-                              ...prev,
-                              [side]: parseInt(e.target.value, 10),
-                            }))
-                          }
-                          className="bg-white border border-gray-300 rounded px-2 py-1 font-bold text-xs"
-                        >
-                          {isBP ? (
-                            <>
-                              <option value={1}>{t("adjPortal.ballot.bpFirst")}</option>
-                              <option value={2}>{t("adjPortal.ballot.bpSecond")}</option>
-                              <option value={3}>{t("adjPortal.ballot.bpThird")}</option>
-                              <option value={4}>{t("adjPortal.ballot.bpFourth")}</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value={1}>{t("adjPortal.ballot.win")}</option>
-                              <option value={2}>{t("adjPortal.ballot.loss")}</option>
-                            </>
-                          )}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Speaker scores inputs */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {spks.map((spk, idx) => (
-                        <div key={idx} className="bg-white p-2 rounded border border-gray-200 flex items-center justify-between gap-2">
-                          <span className="font-semibold text-gray-800 truncate text-[11px]">
-                            {t("adjPortal.ballot.speakerSlot", { name: spk.speakerName, position: idx + 1 })}
+              {ballotSidesChosen && ballotEntry && tournament && (() => {
+                const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId));
+                const sides = ballotSides(rules.format);
+                const scored = usesSpeakerScores(rules);
+                const fromScores = scored && winnerDeclarationFor(rules.preferences) === "none";
+                const rankCount = scored && speakerRanksFor(rules.preferences) !== "none"
+                  ? sides.length * substantiveSpeakerCount(rules)
+                  : undefined;
+                const derived = effectiveRanks(
+                  Object.fromEntries(sides.map((side) => [side, applyScoreCriteria(ballotEntry.speakerScores[side] || [], rules)])),
+                  ballotEntry.ranks,
+                  rules
+                );
+                const setRank = (side: DebateSide, rank: number) => setBallotEntry((current) => {
+                  if (!current) return current;
+                  if (isBP) return { ...current, ranks: { ...current.ranks, [side]: rank } };
+                  // Two teams: choosing one team's result sets the other's.
+                  return { ...current, ranks: Object.fromEntries(sides.map((other) => [other, other === side ? rank : rank === 1 ? 2 : 1])) };
+                });
+                return sides.map((side) => {
+                  const teamSlot = ballotDebate.teams[side];
+                  const rank = ballotEntry.ranks?.[side] || 1;
+                  return (
+                    <div key={side} className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+                      <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs bg-white px-2 py-0.5 rounded border border-gray-300" title={sideLabel(side, rules.preferences, "full")}>
+                            {sideLabel(side, rules.preferences)}
                           </span>
-                          <input
-                            type="number"
-                            step={tournament?.preferences?.stepSpeakerScore || 1}
-                            value={spk.score}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setBallotScores((prev) => ({
-                                ...prev,
-                                [side]: prev[side].map((s, i) => (i === idx ? { ...s, score: val } : s)),
-                              }));
-                            }}
-                            className="w-16 border border-gray-300 rounded px-2 py-1 text-xs font-mono font-bold text-center"
-                          />
+                          <span className="font-bold text-gray-900 text-sm">
+                            {teamSlot?.teamName || t("adjPortal.ballot.unassigned")}
+                          </span>
                         </div>
-                      ))}
-
-                      {replyEnabled && reply && (
-                        <div className="bg-amber-50 p-2 rounded border border-amber-200 flex items-center justify-between gap-2">
-                          <label className="flex items-center gap-1.5 font-semibold text-amber-900 text-[11px]">
-                            <span>{t("adjPortal.ballot.reply")}</span>
+                        {fromScores ? (
+                          <span className="text-[11px] font-semibold text-gray-600">
+                            {isBP ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <label htmlFor={`ballot-rank-${side}`} className="text-[11px] font-semibold text-gray-600">{t("adjPortal.ballot.rank")}</label>
                             <select
-                              value={reply.speakerId}
-                              onChange={(e) => {
-                                const speaker = spks.find((candidate) => candidate.speakerId === e.target.value);
-                                setBallotReplyScores((prev) => ({
-                                  ...prev,
-                                  [side]: { ...prev[side], speakerId: e.target.value, speakerName: speaker?.speakerName || prev[side].speakerName },
-                                }));
-                              }}
-                              className="rounded border border-amber-300 bg-white px-1.5 py-0.5 text-[11px]"
+                              id={`ballot-rank-${side}`}
+                              value={rank}
+                              onChange={(e) => setRank(side, parseInt(e.target.value, 10))}
+                              className="bg-white border border-gray-300 rounded px-2 py-1 font-bold text-xs"
                             >
-                              {spks.slice(0, Math.max(1, spks.length - 1)).map((candidate) => (
-                                <option key={candidate.speakerId} value={candidate.speakerId}>{candidate.speakerName}</option>
-                              ))}
+                              {isBP ? (
+                                <>
+                                  <option value={1}>{t("adjPortal.ballot.bpFirst")}</option>
+                                  <option value={2}>{t("adjPortal.ballot.bpSecond")}</option>
+                                  <option value={3}>{t("adjPortal.ballot.bpThird")}</option>
+                                  <option value={4}>{t("adjPortal.ballot.bpFourth")}</option>
+                                </>
+                              ) : (
+                                <>
+                                  <option value={1}>{t("adjPortal.ballot.win")}</option>
+                                  <option value={2}>{t("adjPortal.ballot.loss")}</option>
+                                </>
+                              )}
                             </select>
-                          </label>
-                          <input
-                            type="number"
-                            step={0.5}
-                            value={reply.score}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setBallotReplyScores((prev) => ({
-                                ...prev,
-                                [side]: { ...prev[side], score: val },
-                              }));
-                            }}
-                            className="w-16 border border-amber-300 rounded px-2 py-1 text-xs font-mono font-bold text-center bg-white"
-                          />
-                        </div>
+                          </div>
+                        )}
+                      </div>
+                      {scored && (
+                        <SpeechRows
+                          idPrefix={`portal-${side}`}
+                          roster={teamsMap.get(teamSlot?.teamId || "")?.speakers || []}
+                          entries={ballotEntry.speakerScores[side] || []}
+                          rules={rules}
+                          rankCount={rankCount}
+                          onChange={(speeches) => setBallotEntry((current) =>
+                            current ? { ...current, speakerScores: { ...current.speakerScores, [side]: speeches } } : current
+                          )}
+                        />
                       )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
 
               <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                 <span className="text-[11px] text-gray-500">

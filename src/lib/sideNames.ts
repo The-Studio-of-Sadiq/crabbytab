@@ -50,3 +50,16 @@ export function sideLabel(
   if (side !== "AFF" && side !== "NEG") return String(side);
   return SIDE_NAME_SETS[sideNamesFor(preferences)][kind][side === "AFF" ? 0 : 1];
 }
+
+/**
+ * Full side name for translated pages: the default Affirmative/Negative (and BP positions) use the
+ * page's `side.*` messages; other side names are not translated yet and use the English names.
+ */
+export function translatedSideName(
+  t: (key: `side.${DebateSide}`) => string,
+  side: DebateSide,
+  preferences?: Partial<Pick<TournamentPreferences, "sideNames">>
+): string {
+  if (side in BP_NAMES || sideNamesFor(preferences) === "aff-neg") return t(`side.${side}`);
+  return sideLabel(side, preferences, "full");
+}

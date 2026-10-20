@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
             debate,
             teams,
             tournamentId,
+            round: roundById.get(debate.roundId),
           });
         } catch (error) {
           return NextResponse.json(

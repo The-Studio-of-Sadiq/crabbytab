@@ -7,8 +7,17 @@ import {
   expectedBallotSheets,
   usesPerAdjudicatorSheets,
 } from "@/features/tournament/application/ballotIntake";
-import type { DebateSide } from "@/types";
+import type { DebateSide, ScoreCriterion } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
+import { usesSpeakerScores } from "@/lib/ballots/result";
+import {
+  criteriaForSpeech,
+  motionsEnabled,
+  scoreCriteriaFor,
+  speakerRanksFor,
+  winnerDeclarationFor,
+} from "@/lib/ballots/ballotRules";
+import { sideLabel } from "@/lib/sideNames";
 
 export default function PrintableBallotsPage() {
   const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
@@ -28,6 +37,15 @@ export default function PrintableBallotsPage() {
     format: tournament?.format || "bp",
     preferences: tournament?.preferences,
   });
+  const preferences = tournament?.preferences;
+  const ballotRules = { format: tournament?.format || "bp" as const, preferences, stage: activeRound?.stage };
+  // Results-only rounds print no score columns; criteria get a column each; speech ranks a column
+  // on consensus sheets; declared winners a tick box (two-team formats).
+  const scored = usesSpeakerScores(ballotRules);
+  const criteria = scored ? scoreCriteriaFor(preferences) : [];
+  const ranked = scored && !perAdjudicator && speakerRanksFor(preferences) !== "none";
+  const declaresWinner = !isBP && (!scored || winnerDeclarationFor(preferences) !== "none");
+  const label = (side: DebateSide) => sideLabel(side, preferences);
   const sheets = roundDebates.flatMap((debate) =>
     expectedBallotSheets(debate, adjudicators, perAdjudicator).map((sheet, index, all) => ({
       debate,
@@ -95,7 +113,9 @@ export default function PrintableBallotsPage() {
                 </div>
                 <div className="ballot-room">
                   <strong>{room}</strong>
-                  <span>Motion: {debate.motionText || "________________________________"}</span>
+                  {motionsEnabled(preferences) && (
+                    <span>Motion: {debate.motionText || "________________________________"}</span>
+                  )}
                 </div>
               </header>
               <div className="ballot-sheet-id">
@@ -108,7 +128,7 @@ export default function PrintableBallotsPage() {
               </div>
               {sideChoice && (
                 <p className="ballot-intro">
-                  <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.join(" or ")}).
+                  <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.map(label).join(" or ")}).
                 </p>
               )}
               {tournament?.preferences?.ballotIntroExplanation && (
@@ -119,8 +139,10 @@ export default function PrintableBallotsPage() {
                   <tr>
                     <th>Side</th>
                     <th>Team / speaker</th>
-                    <th>Speaker score</th>
-                    <th>Team points / rank</th>
+                    {criteria.map((criterion) => <th key={criterion.id}>{criterion.name} ({criterion.minScore}–{criterion.maxScore})</th>)}
+                    {scored && <th>Speaker score</th>}
+                    {ranked && <th>Speech rank</th>}
+                    <th>{isBP ? "Rank" : declaresWinner ? "Winner" : "Team total"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -132,11 +154,19 @@ export default function PrintableBallotsPage() {
                       <FragmentRows
                         key={side}
                         side={side}
+                        label={label}
+                        criteria={criteria}
+                        scored={scored}
+                        ranked={ranked}
+                        winnerBox={declaresWinner}
+                        replyIndex={replyEnabled && scored ? speakerCount : -1}
                         sideChoice={sideChoice}
                         teamName={slot?.teamName ?? team?.name ?? "Unassigned"}
-                        speakerNames={Array.from({ length: speakerCount }, (_, index) =>
-                          speakers[index]?.name || `Speaker ${index + 1}`
-                        ).concat(replyEnabled ? [speakers[0]?.name || "Reply speaker"] : [])}
+                        speakerNames={scored
+                          ? Array.from({ length: speakerCount }, (_, index) =>
+                              speakers[index]?.name || `Speaker ${index + 1}`
+                            ).concat(replyEnabled ? ["Reply: ____________"] : [])
+                          : [""]}
                       />
                     );
                   })}
@@ -164,11 +194,24 @@ export default function PrintableBallotsPage() {
 
 function FragmentRows({
   side,
+  label,
+  criteria,
+  scored,
+  ranked,
+  winnerBox,
+  replyIndex,
   sideChoice,
   teamName,
   speakerNames,
 }: {
   side: DebateSide;
+  label: (side: DebateSide) => string;
+  criteria: ScoreCriterion[];
+  scored: boolean;
+  ranked: boolean;
+  winnerBox: boolean;
+  /** Row index of the reply speech, or -1. */
+  replyIndex: number;
   /** Sides to tick from, when sides are chosen at the debate. */
   sideChoice?: DebateSide[];
   teamName: string;
@@ -180,12 +223,18 @@ function FragmentRows({
         <tr key={`${side}-${index}`}>
           {index === 0 && (
             <th rowSpan={speakerNames.length}>
-              {sideChoice ? sideChoice.map((choice) => <span key={choice} style={{ display: "block" }}>☐ {choice}</span>) : side}
+              {sideChoice ? sideChoice.map((choice) => <span key={choice} style={{ display: "block" }}>☐ {label(choice)}</span>) : label(side)}
             </th>
           )}
           <td>{index === 0 ? <strong>{teamName}</strong> : null}<span>{speakerName}</span></td>
-          <td className="blank-score" />
-          {index === 0 && <td rowSpan={speakerNames.length} className="blank-score" />}
+          {criteria.map((criterion) => (
+            <td key={criterion.id} className="blank-score">
+              {criteriaForSpeech([criterion], index === replyIndex).length === 0 ? "—" : null}
+            </td>
+          ))}
+          {scored && <td className="blank-score" />}
+          {ranked && <td className="blank-score">{index === replyIndex ? "—" : null}</td>}
+          {index === 0 && <td rowSpan={speakerNames.length} className="blank-score">{winnerBox ? "☐" : null}</td>}
         </tr>
       ))}
     </>

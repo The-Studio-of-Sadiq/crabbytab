@@ -586,6 +586,24 @@ function validateBpRanks(
   return errors;
 }
 
+/**
+ * With `winnersInBallots` "none" a consensus ballot's result is read from the totals (Tabbycat's
+ * HighPointWinsRequiredScoresheet and PolyScoresheet): ranks follow the totals, highest first.
+ * Tied totals keep side order here; validation then rejects the tie. Otherwise the entered ranks
+ * stand. `speakerScores` must already have score criteria applied.
+ */
+export function effectiveRanks(
+  speakerScores: SideRecord<SpeakerScoreEntry[]>,
+  ranks: SideRecord<number> | undefined,
+  rules: BallotRules
+): SideRecord<number> {
+  if (winnerDeclarationFor(rules.preferences) !== "none" || !usesSpeakerScores(rules)) return ranks || {};
+  const sides = ballotSides(rules.format);
+  const totals = new Map(sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], rules)]));
+  const ordered = [...sides].sort((a, b) => (totals.get(b) as number) - (totals.get(a) as number));
+  return Object.fromEntries(ordered.map((side, index) => [side, index + 1]));
+}
+
 function speakerOrder(scores: SideRecord<SpeakerScoreEntry[]>): string {
   return TWO_TEAM_SIDES.map((side) =>
     (scores[side] || []).map((entry) => `${entry.position}:${entry.speakerId}`).join(",")
@@ -665,7 +683,7 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
 
   const speakerScores = scored ? scoredSpeeches(entry.speakerScores, context) : {};
   if (scored) errors.push(...validateSheetScores(speakerScores, context, ""));
-  const ranks = entry.ranks || {};
+  const ranks = effectiveRanks(speakerScores, entry.ranks, context);
   const rankValues = sides.map((side) => ranks[side]);
   if (rankValues.some((rank) => !Number.isInteger(rank)) || new Set(rankValues).size !== sides.length) {
     errors.push(context.format === "bp"
@@ -755,7 +773,7 @@ export function buildBallotResult(
   const speakerScores = Object.fromEntries(
     sides.map((side) => [side, storedSpeeches(entry.speakerScores[side] || [], rules, keepRanks)])
   ) as Record<DebateSide, SpeakerScoreEntry[]>;
-  return { speakerScores, teamScores: consensusTeamScores(speakerScores, entry.ranks || {}, teamIds, rules) };
+  return { speakerScores, teamScores: consensusTeamScores(speakerScores, effectiveRanks(speakerScores, entry.ranks, rules), teamIds, rules) };
 }
 
 export interface BallotDifference {

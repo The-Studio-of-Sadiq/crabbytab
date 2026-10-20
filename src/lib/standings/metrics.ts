@@ -137,7 +137,7 @@ export interface TeamRoundAccum {
   /** The team gave an iron-person (duplicate) speech in this debate. */
   ironed?: boolean;
   /** The round's weight (Round.weight); points count this many times. Absent = 1. */
-  weight?: number;
+  roundWeight?: number;
 }
 
 export interface TeamMetricContext {
@@ -152,7 +152,7 @@ export function computeTeamMetrics(
 ): Record<TeamMetricId, number> {
   const played = rounds.filter((r) => r.speaksSum !== null);
   // Tabbycat multiplies points by the round's weight (Round.weight); wins and who-beat-whom are unweighted.
-  const points = rounds.reduce((s, r) => s + r.points * (r.weight ?? 1), 0);
+  const points = rounds.reduce((s, r) => s + r.points * (r.roundWeight ?? 1), 0);
   const wins = rounds.filter((r) => r.win).length;
   const speaksValues = played.map((r) => r.speaksSum as number);
   const speaksSum = speaksValues.reduce((s, v) => s + v, 0);

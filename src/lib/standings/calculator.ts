@@ -164,7 +164,7 @@ export function calculateStandings(
         pulledUp: false,
         bye: true,
         rankInRoom: isBP ? 1 : undefined,
-        weight: weightOf(debate),
+        roundWeight: weightOf(debate),
       });
       teamRow.roundResults.push({
         roundSeq: debate.roundSeq,
@@ -244,7 +244,7 @@ export function calculateStandings(
         rankInRoom: isBP ? bpRankInRoom(pts) : undefined,
         ...(votesPossible ? { votesGiven: teamScore?.votes ?? 0, votesPossible } : {}),
         ironed: !isForfeit && substantiveEntries.length > countedSpeeches.length,
-        weight: weightOf(debate),
+        roundWeight: weightOf(debate),
       });
 
       teamRow.roundResults.push({

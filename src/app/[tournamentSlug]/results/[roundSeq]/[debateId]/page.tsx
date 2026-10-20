@@ -19,10 +19,14 @@ import {
   sheetsFromPortalBallots,
 } from "@/features/tournament/application/ballotEntry";
 import {
+  applyScoreCriteria,
   ballotSides,
   buildBallotResult,
   diffBallots,
+  effectiveRanks,
   sheetOutcome,
+  substantiveSpeakerCount,
+  usesSpeakerScores,
   usesVotingBallots,
   validateBallotEntry,
   type BallotDifference,
@@ -31,6 +35,8 @@ import {
 } from "@/lib/ballots/result";
 import type { AdjudicatorSheet, BallotSubmission, DebateSide, SpeakerScoreEntry } from "@/types";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
+import { motionsEnabled, speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
+import { sideLabel } from "@/lib/sideNames";
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -64,6 +70,15 @@ export default function BallotEntryPage() {
   const sides = ballotSides(rules.format);
   const voting = usesVotingBallots(rules);
   const isBP = rules.format === "bp";
+  // Results-only ballots (speakersInBallots), declared winners and speech ranks change the form.
+  const scored = usesSpeakerScores(rules);
+  const winnerMode = winnerDeclarationFor(preferences);
+  const winnerFromScores = scored && winnerMode === "none";
+  const rankCount = scored && !voting && speakerRanksFor(preferences) !== "none"
+    ? sides.length * substantiveSpeakerCount(rules)
+    : undefined;
+  const usingMotions = motionsEnabled(preferences);
+  const label = (side: DebateSide, kind: "abbr" | "full" = "abbr") => sideLabel(side, preferences, kind);
 
   const rosters = useMemo(() => {
     const byId = new Map(teams.map((team) => [team.id, team]));
@@ -191,7 +206,7 @@ export default function BallotEntryPage() {
   const sidePicker = choosesSides && drawnDebate ? (
     <fieldset className="space-y-2 rounded border border-blue-200 bg-blue-50/60 p-3">
       <legend className="px-1 text-xs font-bold text-gray-800">Sides (chosen at the debate)</legend>
-      <p className="text-[11px] text-gray-600">This round&apos;s sides were not fixed by the draw. Record which team was Affirmative.</p>
+      <p className="text-[11px] text-gray-600">This round&apos;s sides were not fixed by the draw. Record which team was {label("AFF", "full")}.</p>
       <div className="flex flex-col gap-1.5 sm:flex-row sm:gap-6">
         {[drawnDebate.teams.AFF, drawnDebate.teams.NEG].map((slot) => slot?.teamId && (
           <label key={slot.teamId} className="flex items-center gap-2 text-xs font-semibold text-gray-800">
@@ -206,7 +221,7 @@ export default function BallotEntryPage() {
                 setReloadBlank(true);
               }}
             />
-            {slot.teamName} was Affirmative
+            {slot.teamName} was {label("AFF", "full")}
           </label>
         ))}
       </div>
@@ -249,6 +264,12 @@ export default function BallotEntryPage() {
     updateEntry({ sheets });
   };
 
+  const derivedRanks = effectiveRanks(
+    Object.fromEntries(sides.map((side) => [side, applyScoreCriteria(entry.speakerScores[side] || [], rules)])),
+    entry.ranks,
+    rules
+  );
+
   const setWinner = (winner: DebateSide) =>
     updateEntry({ ranks: Object.fromEntries(sides.map((side) => [side, side === winner ? 1 : 2])) });
 
@@ -269,11 +290,12 @@ export default function BallotEntryPage() {
       submitterType: "tabroom",
       submitterId: user?.uid || "local",
       submitterName: userLabel,
-      ...(entry.motionId ? { motionId: entry.motionId, motionText: motion?.text || debate.motionText } : {}),
+      ...(usingMotions && entry.motionId ? { motionId: entry.motionId, motionText: motion?.text || debate.motionText } : {}),
       speakerScores: result.speakerScores,
       teamScores: result.teamScores,
       ...(result.sheets ? { sheets: result.sheets } : {}),
-      ...(Object.keys(vetoes).length > 0 ? { vetoes } : {}),
+      ...(usingMotions && Object.keys(vetoes).length > 0 ? { vetoes } : {}),
+      ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
       ...(entry.forfeitSide ? { forfeitSide: entry.forfeitSide } : {}),
       ...(chairId ? { chairId } : {}),
       timestamp: now,
@@ -377,6 +399,7 @@ export default function BallotEntryPage() {
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
+            {usingMotions && (
             <label className="block text-xs font-bold text-gray-700">
               <span className="mb-1 flex items-center gap-1.5"><Lightbulb className="h-3.5 w-3.5 text-amber-500" />Motion debated</span>
               <select value={entry.motionId || ""} onChange={(event) => updateEntry({ motionId: event.target.value })} className="w-full rounded border border-gray-300 px-3 py-2 text-xs font-medium">
@@ -386,6 +409,7 @@ export default function BallotEntryPage() {
                 ))}
               </select>
             </label>
+            )}
             {!isBP && preferences?.enableForfeits && (
               <label className="block text-xs font-bold text-gray-700">
                 <span className="mb-1 block">Forfeit</span>
@@ -396,19 +420,19 @@ export default function BallotEntryPage() {
                 >
                   <option value="">No forfeit — debate took place</option>
                   {sides.map((side) => (
-                    <option key={side} value={side}>{debate.teams[side]?.teamName || side} ({side}) forfeited</option>
+                    <option key={side} value={side}>{debate.teams[side]?.teamName || label(side)} ({label(side)}) forfeited</option>
                   ))}
                 </select>
               </label>
             )}
           </div>
 
-          {preferences?.enableMotionVetoes && availableMotions.length > 1 && (
+          {usingMotions && preferences?.enableMotionVetoes && availableMotions.length > 1 && (
             <fieldset className="grid gap-3 rounded border border-gray-200 p-3 sm:grid-cols-2">
               <legend className="px-1 text-xs font-bold text-gray-700">Motion vetoes</legend>
               {sides.map((side) => (
                 <label key={side} className="text-xs font-semibold text-gray-700">
-                  <span className="mb-1 block">{debate.teams[side]?.teamName || side} vetoed</span>
+                  <span className="mb-1 block">{debate.teams[side]?.teamName || label(side)} vetoed</span>
                   <select
                     value={entry.vetoes?.[side] || ""}
                     onChange={(event) => updateEntry({ vetoes: { ...entry.vetoes, [side]: event.target.value } })}
@@ -432,8 +456,13 @@ export default function BallotEntryPage() {
               rules={rules}
               sides={sides}
               rosters={rosters}
-              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))}
+              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || label(side)]))}
               onChangeSide={updateSheetSide}
+              scored={scored}
+              declaresWinner={!scored || winnerMode !== "none"}
+              onDeclareWinner={(sheetIndex, winner) =>
+                updateEntry({ sheets: (entry.sheets || []).map((sheet, index) => (index === sheetIndex ? { ...sheet, declaredWinner: winner } : sheet)) })
+              }
               portalBallotCount={portalBallotCount}
               onFillFromPortal={() => {
                 const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
@@ -443,16 +472,25 @@ export default function BallotEntryPage() {
             />
           )}
 
+          {!entry.forfeitSide && !voting && !scored && (
+            <p className="rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+              This round&apos;s ballots record the result only; no speaker scores are entered.
+            </p>
+          )}
           {!entry.forfeitSide && !voting && (
             <div className="space-y-5">
               {sides.map((side) => (
                 <div key={side} className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
                   <div className="flex flex-col justify-between gap-2 border-b border-gray-200 pb-2 sm:flex-row sm:items-center">
                     <div className="flex items-center space-x-2">
-                      <SideBadge side={side} />
+                      <SideBadge side={side} preferences={preferences} />
                       <span className="text-sm font-bold text-gray-900">{debate.teams[side]?.teamName || "Unassigned team"}</span>
                     </div>
-                    {isBP ? (
+                    {winnerFromScores ? (
+                      <span className="text-xs font-semibold text-gray-600">
+                        {isBP ? `Rank ${derivedRanks[side] ?? "—"} (from totals)` : derivedRanks[side] === 1 ? "Winner (higher total)" : ""}
+                      </span>
+                    ) : isBP ? (
                       <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
                         Rank
                         <select
@@ -473,19 +511,22 @@ export default function BallotEntryPage() {
                       </label>
                     )}
                   </div>
-                  <SpeechRows
-                    idPrefix={`consensus-${side}`}
-                    roster={rosters[side] || []}
-                    entries={entry.speakerScores[side] || []}
-                    rules={rules}
-                    onChange={(speeches) => updateConsensusSide(side, speeches)}
-                  />
+                  {scored && (
+                    <SpeechRows
+                      idPrefix={`consensus-${side}`}
+                      roster={rosters[side] || []}
+                      entries={entry.speakerScores[side] || []}
+                      rules={rules}
+                      rankCount={rankCount}
+                      onChange={(speeches) => updateConsensusSide(side, speeches)}
+                    />
+                  )}
                 </div>
               ))}
             </div>
           )}
 
-          {preview && <ResultPreview teamScores={preview.teamScores} sides={sides} teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))} forfeit={entry.forfeitSide} />}
+          {preview && <ResultPreview teamScores={preview.teamScores} sides={sides} teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || label(side)]))} sideNames={Object.fromEntries(sides.map((side) => [side, label(side)]))} forfeit={entry.forfeitSide} scored={!preview.noSpeakerScores} />}
 
           {visibleErrors.length > 0 && (
             <ul role="alert" className="space-y-1 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
@@ -545,6 +586,7 @@ export default function BallotEntryPage() {
       <BallotHistory
         ballots={debateBallots}
         hideScores={checkState.kind === "blind-check"}
+        preferences={preferences}
         busy={busy}
         canConfirm={(ballot) =>
           checkState.kind === "single" || !user?.uid || ballot.submitterId !== user.uid
@@ -606,8 +648,12 @@ function VotingSheets(props: {
   onChangeSide: (sheetIndex: number, side: DebateSide, speeches: SpeakerScoreEntry[]) => void;
   portalBallotCount: number;
   onFillFromPortal: () => void;
+  scored: boolean;
+  declaresWinner: boolean;
+  onDeclareWinner: (sheetIndex: number, winner: DebateSide) => void;
 }) {
-  const { sheets, activeSheet, onSelectSheet, rules, sides, rosters, teamNames, onChangeSide } = props;
+  const { sheets, activeSheet, onSelectSheet, rules, sides, rosters, teamNames, onChangeSide, scored, declaresWinner } = props;
+  const label = (side: DebateSide) => sideLabel(side, rules.preferences);
   if (sheets.length === 0) {
     return <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Allocate a chair before entering voting ballots.</p>;
   }
@@ -632,7 +678,7 @@ function VotingSheets(props: {
                 {item.adjudicatorName}
                 {index === 0 && <span className="text-[10px] font-bold uppercase text-gray-500">chair</span>}
                 {outcome.winner && Number.isFinite(outcome.totals[outcome.winner]) && (
-                  <span className="text-[10px] font-bold text-emerald-700">→ {outcome.winner}</span>
+                  <span className="text-[10px] font-bold text-emerald-700">→ {label(outcome.winner)}</span>
                 )}
               </button>
             );
@@ -644,13 +690,29 @@ function VotingSheets(props: {
           </button>
         )}
       </div>
-      {sheetIndex > 0 && (
+      {sheetIndex > 0 && scored && (
         <p className="text-[11px] text-gray-500">Speaker order is set on the chair&apos;s sheet and shared by every scoresheet.</p>
       )}
-      {sides.map((side) => (
+      {declaresWinner && (
+        <fieldset className="flex flex-wrap items-center gap-4 rounded border border-gray-200 bg-white p-3">
+          <legend className="px-1 text-xs font-bold text-gray-700">{sheet.adjudicatorName || "This adjudicator"} voted for</legend>
+          {sides.map((side) => (
+            <label key={side} className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+              <input
+                type="radio"
+                name={`declared-winner-${sheet.adjudicatorId}`}
+                checked={sheet.declaredWinner === side}
+                onChange={() => props.onDeclareWinner(sheetIndex, side)}
+              />
+              {teamNames[side]} ({label(side)})
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {scored && sides.map((side) => (
         <div key={side} className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
           <div className="flex items-center space-x-2 border-b border-gray-200 pb-2">
-            <SideBadge side={side} />
+            <SideBadge side={side} preferences={rules.preferences} />
             <span className="text-sm font-bold text-gray-900">{teamNames[side]}</span>
           </div>
           <SpeechRows
@@ -671,7 +733,9 @@ function ResultPreview(props: {
   teamScores: BallotSubmission["teamScores"];
   sides: DebateSide[];
   teamNames: Record<string, string>;
+  sideNames: Record<string, string>;
   forfeit?: DebateSide;
+  scored: boolean;
 }) {
   const ordered = [...props.sides].sort((left, right) => (props.teamScores[left]?.rank ?? 9) - (props.teamScores[right]?.rank ?? 9));
   return (
@@ -685,7 +749,8 @@ function ResultPreview(props: {
             const score = props.teamScores[side];
             return (
               <li key={side}>
-                <span className="font-semibold">{props.teamNames[side]}</span> ({side}) — {score.points} pt{score.points === 1 ? "" : "s"}, total {formatScore(score.totalSpeakerScore)}
+                <span className="font-semibold">{props.teamNames[side]}</span> ({props.sideNames[side]}) — {score.points} pt{score.points === 1 ? "" : "s"}
+                {props.scored && `, total ${formatScore(score.totalSpeakerScore)}`}
                 {score.margin !== undefined && `, margin ${score.margin > 0 ? "+" : ""}${formatScore(score.margin)}`}
                 {score.votes !== undefined && `, ${score.votes} vote${score.votes === 1 ? "" : "s"}`}
               </li>

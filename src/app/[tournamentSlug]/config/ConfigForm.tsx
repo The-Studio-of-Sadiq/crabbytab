@@ -49,6 +49,9 @@ import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedba
 import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
 import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
 import { LOCALES } from "@/lib/i18n/config";
+import { RoundWeightsEditor } from "@/features/tournament/components/RoundWeightsEditor";
+import { ResultsRulesSettings } from "@/features/tournament/components/ballot/ResultsRulesSettings";
+import { validateScoreCriteria } from "@/lib/ballots/ballotRules";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -225,6 +228,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     }
     setFeedbackQuestionError("");
     setSaveError("");
+    const criteriaErrors = validateScoreCriteria(prefs.scoreCriteria ?? []);
+    if (criteriaErrors.length > 0) {
+      setSaveError(`Score criteria: ${criteriaErrors.join(" ")}`);
+      return;
+    }
 
     try {
       await saveTournament({
@@ -1009,6 +1017,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   </div>
                   {roundFeedbackError && <p role="alert" className="mt-2 text-xs text-red-600">{roundFeedbackError}</p>}
                 </div>
+                <RoundWeightsEditor rounds={rounds} updateRound={updateRound} />
               </div>
 
               <div className="border-t border-gray-100 pt-4 space-y-2">
@@ -1373,12 +1382,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
                 {(
                   [
-                    ["allowLowPointWins", "Allow low-point wins", "A team with the lower total speaker score may be given the win (consensus ballots only)."],
                     ["enableMotionVetoes", "Record motion vetoes", "Ballots record which motion each team vetoed; vetoes appear in motion statistics."],
                     ...(tournament?.format !== "bp"
                       ? [["enableForfeits", "Allow forfeits", "A debate can be recorded as a forfeit: the other team wins and no speaker scores are recorded."]]
                       : []),
-                  ] as Array<["allowLowPointWins" | "enableMotionVetoes" | "enableForfeits", string, string]>
+                  ] as Array<["enableMotionVetoes" | "enableForfeits", string, string]>
                 ).map(([key, label, help]) => (
                   <label key={key} className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                     <input
@@ -1393,6 +1401,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     </div>
                   </label>
                 ))}
+
+                <ResultsRulesSettings
+                  prefs={prefs}
+                  onChange={(patch) => setPrefs((p) => ({ ...p, ...patch }))}
+                  format={format}
+                  shapeLocked={ballotShapeLocked}
+                />
               </div>
             </div>
 
