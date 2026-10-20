@@ -1875,6 +1875,25 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
             </label>
 
             <label className="block max-w-xs text-xs font-semibold text-gray-700">
+              Room check-in expiry (hours; 0 means never)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={prefs.venueCheckInExpiresAfterHours ?? 0}
+                onChange={(event) => setPrefs((current) => ({
+                  ...current,
+                  venueCheckInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                }))}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                A room checked in longer ago than this shows as expired on the check-ins page (Tabbycat&apos;s room
+                check-in window).
+              </span>
+            </label>
+
+            <label className="block max-w-xs text-xs font-semibold text-gray-700">
               Public pages and portals language
               <select
                 value={prefs.publicLanguage ?? ""}

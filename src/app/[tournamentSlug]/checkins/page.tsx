@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Code39Barcode } from "@/components/ui/Code39Barcode";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { isVenueCheckedIn } from "@/lib/venues/venues";
+import type { Venue } from "@/types";
 
 interface BarcodeDetectorResult {
   rawValue: string;
@@ -54,6 +56,10 @@ export default function CheckinsPage() {
   const checkedInTeams = teams.filter((t) => t.checkedIn !== false).length;
   const checkedInAdjs = adjudicators.filter((a) => a.checkedIn !== false).length;
   const checkInExpiry = tournament?.preferences?.checkInExpiresAfterHours;
+  const venueCheckInExpiry = tournament?.preferences?.venueCheckInExpiresAfterHours;
+  const venuePresent = (venue: Venue) => isVenueCheckedIn(venue, venueCheckInExpiry);
+  const checkInVenue = (venue: Venue, present: boolean) =>
+    updateVenue({ ...venue, checkedIn: present, checkedInAt: present ? new Date().toISOString() : venue.checkedInAt });
   const roundTeamsPresent = activeRound
     ? teams.filter((team) => isAvailableForRound(team, activeRound, checkInExpiry)).length
     : checkedInTeams;
@@ -186,7 +192,7 @@ export default function CheckinsPage() {
       }
     } else {
       for (const venue of venues) {
-        if (venue.checkedIn === false) await updateVenue({ ...venue, checkedIn: true });
+        if (!venuePresent(venue)) await checkInVenue(venue, true);
       }
     }
   };
@@ -374,7 +380,7 @@ export default function CheckinsPage() {
           }`}
         >
           <MapPin className="w-3.5 h-3.5" />
-          <span>Venues ({venues.filter((venue) => venue.checkedIn !== false).length}/{venues.length})</span>
+          <span>Venues ({venues.filter(venuePresent).length}/{venues.length})</span>
         </button>
       </div>
 
@@ -466,14 +472,21 @@ export default function CheckinsPage() {
                       <td className="text-xs text-gray-600">{venue.category || "—"}</td>
                       <td className="text-center">
                         <button
-                          onClick={() => updateVenue({ ...venue, checkedIn: venue.checkedIn === false })}
+                          onClick={() => checkInVenue(venue, !venuePresent(venue))}
+                          title={
+                            venue.checkedIn !== false && !venuePresent(venue)
+                              ? "The check-in has expired"
+                              : venue.checkedInAt
+                                ? `Checked in ${new Date(venue.checkedInAt).toLocaleString()}`
+                                : undefined
+                          }
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            venue.checkedIn !== false
+                            venuePresent(venue)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {venue.checkedIn !== false ? "Present" : "Absent"}
+                          {venuePresent(venue) ? "Present" : venue.checkedIn !== false ? "Expired" : "Absent"}
                         </button>
                       </td>
                     </tr>
