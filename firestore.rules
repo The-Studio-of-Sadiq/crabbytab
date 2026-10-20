@@ -49,13 +49,13 @@ service cloud.firestore {
       match /{collection}/{document} {
         allow read: if collection != "staff" && collection != "syncConflicts" &&
           collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
-          isTournamentAdmin();
+          collection != "serverOnly" && isTournamentAdmin();
         allow create, delete: if collection != "staff" && collection != "syncConflicts" &&
           collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
-          isTournamentAdmin();
+          collection != "serverOnly" && isTournamentAdmin();
         allow update: if collection != "staff" && collection != "syncConflicts" &&
           collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
-          isTournamentAdmin();
+          collection != "serverOnly" && isTournamentAdmin();
       }
 
       match /staff/{staffId} {
@@ -144,6 +144,13 @@ service cloud.firestore {
 
       // Released audit snapshots are written only by the authorized server route.
       match /auditReleases/{releaseId} {
+        allow read, write: if false;
+      }
+
+      // Server-only records (staff invitations) are read and written only by server routes with
+      // the Admin SDK; their nested collections fall outside every client rule here
+      // (docs/staff-invitations.md).
+      match /serverOnly/{document=**} {
         allow read, write: if false;
       }
 

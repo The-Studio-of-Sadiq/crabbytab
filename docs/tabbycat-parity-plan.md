@@ -165,7 +165,8 @@ the last place as reserves despite its code saying they all break (`breakqual/ba
 `graph.py` checks `t1_negs` twice instead of `t2_negs`; random-draw byes always go to the last teams
 in database order.
 
-**Wave 3 — P2/P3.** #11 staff invitations; #12 import preview, duplicate detection,
+**Wave 3 — P2/P3.** #11 staff invitations (*done: invite by email with single-use, expiring
+links; accounts are created only through an invitation; see [staff-invitations.md](staff-invitations.md)*); #12 import preview, duplicate detection,
 institution auto-create, conflicts CSV; #13 speaker categories as entities driving eligibility;
 #14 self-registration (after #6); #15 draw-editor history / side-balance / pull-up flags, draw
 details, keyboard placement; #16 manual-ballot sides, swing teams; #17 feedback number/checkbox
