@@ -1,4 +1,4 @@
-import { getPublicRelease, type BooleanReleaseKind } from "@/lib/publicRelease";
+import { getPublicRelease, type PublicListReleaseKind } from "@/lib/publicRelease";
 import type { Debate, Round, Team } from "@/types";
 import { ApiError, notFound } from "../errors";
 import type { RouteContext } from "../router";
@@ -34,7 +34,7 @@ export async function debateInRound(context: AnyContext, round: Round, debateId:
  * Public-view requests for a list the public site only shows once released (participants,
  * institutions, a tab) are refused until the tab director releases it.
  */
-export function requirePublicRelease(context: AnyContext, kind: BooleanReleaseKind, what: string): void {
+export function requirePublicRelease(context: AnyContext, kind: PublicListReleaseKind, what: string): void {
   if (context.data.view !== "public") return;
   if (!getPublicRelease(context.tournament.preferences)[kind]) {
     throw new ApiError(403, "forbidden", `${what} ${what.endsWith("s") ? "have" : "has"} not been released to the public.`);

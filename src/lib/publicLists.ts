@@ -15,12 +15,17 @@ export interface PublicParticipantTeam {
   name: string;
   institutionName?: string;
   speakers: string[];
+  /** Speakers whose names are redacted (Tabbycat anonymous speakers). */
+  anonymousSpeakers?: number;
+  /** Break category names, when break categories are shown on the participants page. */
+  breakCategories?: string[];
 }
 
 export interface PublicParticipantAdjudicator {
   id: string;
   name: string;
   institutionName?: string;
+  anonymous?: boolean;
 }
 
 export interface PublicParticipants {
@@ -31,23 +36,34 @@ export interface PublicParticipants {
 export function buildPublicParticipants(
   teams: Team[],
   adjudicators: Adjudicator[],
-  release: Pick<PublicRelease, "participants">
+  release: Pick<PublicRelease, "participants">,
+  /** Break category names by id; pass only when break categories are public on this page. */
+  breakCategoryNames?: Map<string, string>
 ): PublicParticipants {
   if (!release.participants) return { teams: [], adjudicators: [] };
   return {
     teams: teams
-      .map((team) => ({
-        id: team.id,
-        name: team.name,
-        institutionName: team.institutionName || undefined,
-        speakers: (team.speakers || []).map((speaker) => speaker.name).filter(Boolean),
-      }))
+      .map((team) => {
+        const anonymousSpeakers = (team.speakers || []).filter((speaker) => speaker.anonymous).length;
+        const categories = breakCategoryNames
+          ? (team.breakCategories || []).map((id) => breakCategoryNames.get(id)).filter((name): name is string => Boolean(name))
+          : [];
+        return {
+          id: team.id,
+          name: team.name,
+          institutionName: team.institutionName || undefined,
+          speakers: (team.speakers || []).filter((speaker) => !speaker.anonymous).map((speaker) => speaker.name).filter(Boolean),
+          ...(anonymousSpeakers > 0 ? { anonymousSpeakers } : {}),
+          ...(categories.length > 0 ? { breakCategories: categories } : {}),
+        };
+      })
       .sort(byName),
     adjudicators: adjudicators
       .map((adjudicator) => ({
         id: adjudicator.id,
         name: adjudicator.name,
         institutionName: adjudicator.institutionName || undefined,
+        ...(adjudicator.anonymous ? { anonymous: true } : {}),
       }))
       .sort(byName),
   };
@@ -108,6 +124,7 @@ export function buildPublicAdjudicatorLists(
     id: adjudicator.id,
     name: adjudicator.name,
     institutionName: adjudicator.institutionName || undefined,
+    ...(adjudicator.anonymous ? { anonymous: true } : {}),
   });
   return {
     core: release.adjudicatorCore ? adjudicators.filter((item) => item.adjCore === true).map(row).sort(byName) : [],
