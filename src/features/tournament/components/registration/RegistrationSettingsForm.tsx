@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import type { FeedbackQuestion, FeedbackQuestionType } from "@/types";
-import type { RegistrationSettings } from "@/lib/registration/types";
+import type { PersonField, RegistrationConfirmation, RegistrationSettings } from "@/lib/registration/types";
+import type { CodeNameGenerator, TeamNameGenerator } from "@/lib/registration/names";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
@@ -17,6 +18,47 @@ const QUESTION_TYPES: Array<{ value: FeedbackQuestionType; label: string }> = [
   { value: "select_many", label: "Choose several" },
   { value: "scale", label: "Number scale" },
 ];
+
+const CONFIRMATION_OPTIONS: Array<{ value: RegistrationConfirmation; label: string }> = [
+  { value: "always", label: "Always: every registration waits in the queue" },
+  { value: "open", label: "Only open registrations: representative-link registrations are accepted at once" },
+  { value: "never", label: "Never: every team and adjudicator registration is accepted at once" },
+];
+
+const TEAM_NAME_OPTIONS: Array<{ value: TeamNameGenerator; label: string }> = [
+  { value: "user", label: "As registered" },
+  { value: "alphabetical", label: "Institution + letter (Oxford A, Oxford B, …)" },
+  { value: "numerical", label: "Institution + number (Oxford 1, Oxford 2, …)" },
+  { value: "initials", label: "Institution + speaker initials (Oxford SJ, …)" },
+];
+
+const CODE_NAME_OPTIONS: Array<{ value: CodeNameGenerator; label: string }> = [
+  { value: "user", label: "None (set by hand)" },
+  { value: "emoji", label: "Emoji" },
+  { value: "last_names", label: "Speakers' last names (Jones & Smith)" },
+];
+
+function PersonFieldsEditor({
+  legend,
+  fields,
+  onChange,
+}: {
+  legend: string;
+  fields: PersonField[];
+  onChange: (fields: PersonField[]) => void;
+}) {
+  const toggle = (field: PersonField, checked: boolean) =>
+    onChange(checked ? [...fields.filter((item) => item !== field), field] : fields.filter((item) => item !== field));
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-semibold text-fg">{legend}</legend>
+      <div className="flex flex-wrap gap-6">
+        <Checkbox label="Phone number" checked={fields.includes("phone")} onChange={(event) => toggle("phone", event.target.checked)} />
+        <Checkbox label="Gender (self-described)" checked={fields.includes("gender")} onChange={(event) => toggle("gender", event.target.checked)} />
+      </div>
+    </fieldset>
+  );
+}
 
 /** ISO time → value for <input type="datetime-local"> in the browser's time zone. */
 function toLocalInput(value: string | undefined): string {
@@ -136,6 +178,8 @@ export function RegistrationSettingsForm({
         speakerCategories: categories.split(",").map((item) => item.trim()).filter(Boolean),
         teamQuestions: clean(settings.teamQuestions),
         adjudicatorQuestions: clean(settings.adjudicatorQuestions),
+        institutionQuestions: clean(settings.institutionQuestions ?? []),
+        speakerQuestions: clean(settings.speakerQuestions ?? []),
       });
       setMessage("Registration settings saved.");
     } catch (saveError) {
@@ -189,6 +233,12 @@ export function RegistrationSettingsForm({
               onChange={(event) => set({ adjudicatorRegistration: event.target.checked })}
             />
             <Checkbox
+              label="Institutions can register"
+              description="An institution (or its coach) asks for places; approving gives the places and sends the coach a representative link."
+              checked={settings.institutionRegistration === true}
+              onChange={(event) => set({ institutionRegistration: event.target.checked })}
+            />
+            <Checkbox
               label="Institution representatives only"
               description="Only people with a representative link can register."
               checked={settings.representativesOnly}
@@ -231,6 +281,74 @@ export function RegistrationSettingsForm({
       </Card>
 
       <Card>
+        <CardHeader title="Acceptance, places and names" description="How registrations are confirmed, how institution places work, and how teams are named." />
+        <CardBody className="space-y-4">
+          <Select
+            label="Registration confirmation"
+            help="Accepted registrations are added to the tournament by the server straight away (cloud tournaments with live updates)."
+            value={settings.confirmation ?? "always"}
+            onChange={(event) => set({ confirmation: event.target.value as RegistrationConfirmation })}
+          >
+            {CONFIRMATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </Select>
+          <Checkbox
+            label="Refuse registrations above an institution's places"
+            description="Off: registrations above the places are accepted into the queue and flagged, and the tournament-wide limits still apply."
+            checked={settings.blockOverAllocation !== false}
+            onChange={(event) => set({ blockOverAllocation: event.target.checked })}
+          />
+          <Checkbox
+            label="Representatives can transfer places"
+            description="A representative can ask to give team or adjudicator places to another institution; you approve each transfer."
+            checked={settings.slotTransfers === true}
+            onChange={(event) => set({ slotTransfers: event.target.checked })}
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Select label="Team names" value={settings.teamNameGenerator ?? "user"} onChange={(event) => set({ teamNameGenerator: event.target.value as TeamNameGenerator })}>
+              {TEAM_NAME_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+            <Select label="Code names" value={settings.codeNameGenerator ?? "user"} onChange={(event) => set({ codeNameGenerator: event.target.value as CodeNameGenerator })}>
+              {CODE_NAME_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Form fields and messages" description="Extra person fields are copied to the speaker or adjudicator on approval (phone for contact; gender for the diversity page)." />
+        <CardBody className="space-y-4">
+          <PersonFieldsEditor legend="Speakers" fields={settings.speakerFields ?? []} onChange={(speakerFields) => set({ speakerFields })} />
+          <PersonFieldsEditor legend="Adjudicators" fields={settings.adjudicatorFields ?? []} onChange={(adjudicatorFields) => set({ adjudicatorFields })} />
+          <Checkbox
+            label="Ask institutions for their region"
+            checked={settings.institutionRegion === true}
+            onChange={(event) => set({ institutionRegion: event.target.checked })}
+          />
+          <Textarea label="Message on the team form" rows={2} maxLength={4000} value={settings.teamMessage ?? ""} onChange={(event) => set({ teamMessage: event.target.value })} />
+          <Textarea
+            label="Message on the adjudicator form"
+            rows={2}
+            maxLength={4000}
+            value={settings.adjudicatorMessage ?? ""}
+            onChange={(event) => set({ adjudicatorMessage: event.target.value })}
+          />
+          <Textarea
+            label="Message on the institution form"
+            rows={2}
+            maxLength={4000}
+            value={settings.institutionMessage ?? ""}
+            onChange={(event) => set({ institutionMessage: event.target.value })}
+          />
+        </CardBody>
+      </Card>
+
+      <Card>
         <CardHeader title="Custom questions" description="Asked on the public form in addition to names, emails and conflicts." />
         <CardBody className="space-y-5">
           <QuestionsEditor title="Team registration" questions={settings.teamQuestions} onChange={(teamQuestions) => set({ teamQuestions })} />
@@ -238,6 +356,16 @@ export function RegistrationSettingsForm({
             title="Adjudicator registration"
             questions={settings.adjudicatorQuestions}
             onChange={(adjudicatorQuestions) => set({ adjudicatorQuestions })}
+          />
+          <QuestionsEditor
+            title="Each speaker (asked once per speaker on the team form)"
+            questions={settings.speakerQuestions ?? []}
+            onChange={(speakerQuestions) => set({ speakerQuestions })}
+          />
+          <QuestionsEditor
+            title="Institution registration"
+            questions={settings.institutionQuestions ?? []}
+            onChange={(institutionQuestions) => set({ institutionQuestions })}
           />
         </CardBody>
       </Card>

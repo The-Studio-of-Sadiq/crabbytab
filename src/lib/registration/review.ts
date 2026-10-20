@@ -128,6 +128,9 @@ export function buildTeamFromSubmission(
   const speakers: Speaker[] = submission.team.speakers.map((speaker) => {
     const record: Speaker = { id: createId("spk"), name: speaker.name };
     if (speaker.email) record.email = speaker.email;
+    // Registration fields map onto the real person fields (diversity, contact).
+    if (speaker.phone) record.phone = speaker.phone;
+    if (speaker.gender) record.gender = speaker.gender;
     if (speaker.categories.length > 0) record.categories = [...speaker.categories];
     return record;
   });
@@ -192,5 +195,7 @@ export function buildAdjudicatorFromSubmission(
     adjudicator.institutionId = context.institution.id;
     adjudicator.institutionName = context.institution.name;
   }
+  if (submission.adjudicator.phone) adjudicator.phone = submission.adjudicator.phone;
+  if (submission.adjudicator.gender) adjudicator.gender = submission.adjudicator.gender;
   return { adjudicator, unmatchedConflicts: unmatched };
 }

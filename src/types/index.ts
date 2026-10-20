@@ -423,6 +423,8 @@ export interface Speaker {
    * every entry with resolveSpeakerCategoryRef, so both keep working.
    */
   categories?: string[];
+  /** Contact phone (international format), from registration. Organiser-only. */
+  phone?: string;
   /** Swing teams: the registered speaker this swing speaker stands in for, if any. */
   swingSourceSpeakerId?: string;
 }
@@ -491,6 +493,8 @@ export interface Adjudicator {
   gender?: string;
   /** Overrides the institution region for diversity displays. */
   region?: string;
+  /** Contact phone (international format), from registration. Organiser-only. */
+  phone?: string;
   preformedPanelId?: string;
   /** Member of the adjudication core (shown on the public adjudication core list when released). */
   adjCore?: boolean;

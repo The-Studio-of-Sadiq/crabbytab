@@ -44,8 +44,46 @@ email delivery fails or SMTP is not configured, the link is shown once to copy.
 - The queue does not update by itself: use **Refresh**. No public listener or scan exists, so a
   busy form does not cost Firestore reads on administrator devices.
 
-Registrants are not emailed by CrabbyTab when they submit, or when their entry is approved or
-rejected.
+With **Email registrants** on (Email page, "Email settings and templates"), the contact address
+gets "Registration received" on submission and "Registration approved" on approval, using the
+tournament's saved templates (see [email-notifications.md](email-notifications.md)). Rejections
+are not emailed.
+
+## Registration breadth (Tabbycat parity)
+
+Settings added for the source-level audit's registration items:
+
+- **Institutions can register** (`institution_registration`): an institution, or its coach, asks
+  for team and adjudicator places (with optional code and, if asked, region). In the queue,
+  **Allocate places and send link** approves it with the places given (prefilled with the request):
+  the coach becomes the institution's representative with those limits and receives the "Places
+  allocated" email with their link. Institution registrations never count against any limit and
+  are always reviewed. A representative link cannot register another institution.
+- **Registration confirmation** (`registration_confirmation`): *Always* (default, as before),
+  *Only open registrations* (registrations through a representative link are accepted at once), or
+  *Never*. An accepted registration is created by the server directly in the live `teams` /
+  `adjudicators` collections with private URL keys (as the data-entry route does) and marked
+  approved ("Accepted automatically"). Institutions are matched by name or code against the cloud
+  copy; an institution not there yet is not created (institutions are not live) and the record
+  keeps its name. If creation fails, the registration stays in the queue.
+- **Refuse registrations above an institution's places** (`reg_block_over_allocated`): on by
+  default. Off: such registrations are accepted and flagged "Above the institution's places"; the
+  tournament-wide maximums always hold.
+- **Representatives can transfer places** (`reg_institution_slot_transfers`): a representative
+  asks, on their link's page, to give team or adjudicator places to another registered
+  institution; **Place transfers** (Representatives tab) approves or rejects. Approval moves the
+  places between the two representatives' limits in one transaction; places already used, and
+  unlimited places, cannot be given away.
+- **Team names** (`team_name_generator`): as registered, institution + letter, institution +
+  number, or institution + speaker initials, always unused in the tournament. **Code names**
+  (`code_name_generator`): none, emoji, or speakers' last names. Applied when a registration is
+  approved or accepted (`src/lib/registration/names.ts`).
+- **Form fields**: phone and gender for speakers and adjudicators, region for institutions. Phones
+  must be international (`+country code`). On approval they are copied to the real fields
+  (`Speaker.phone/gender`, `Adjudicator.phone/gender`), so gender appears on the diversity page.
+  Phones are organiser-only: assistant data and public pages leave them out.
+- **Per-form messages** shown above the team, adjudicator and institution forms, and extra
+  **question sets** for institutions and for each speaker (asked once per speaker).
 
 ## Approval and live collaboration
 
@@ -101,6 +139,7 @@ Everything lives under the server-only namespace `tournaments/{id}/serverOnly`, 
 | `serverOnly/registrationCounters` | non-rejected submissions per kind, total and per institution |
 | `serverOnly/registration/submissions/{id}` | submissions, with a `revision` number |
 | `serverOnly/registration/representatives/{id}` | representatives (only a hash of each link secret) |
+| `serverOnly/registration/transfers/{id}` | place transfer requests |
 
 Costs:
 - **Public form:** 2 reads (slug registry and settings), cached at the edge for 30 seconds.
@@ -116,10 +155,12 @@ example by another administrator, is refused with a reload message instead of be
 |---|---|---|
 | `GET /api/public/tournaments/{slug}/registration` | public | form definition (no quotas or review data) |
 | `POST …/registration` `{action: "representative", token}` | link holder | institution and places left |
-| `POST …/registration` `{action: "submit", registration, representativeToken?, website, startedAt}` | public | store a submission |
+| `POST …/registration` `{action: "submit", registration, representativeToken?, website, startedAt}` | public | store a submission (accepted at once when no confirmation is needed) |
+| `POST …/registration` `{action: "transfer", token, transfer: {toRepresentativeId, teams, adjudicators}}` | link holder | ask to give places away |
 | `GET /api/tournaments/{id}/registration` | administrators | settings, submissions, representatives, counters |
 | `PUT …/registration` `{settings}` | administrators | save settings |
-| `POST …/registration/submissions` `{action, submissionId, revision, …}` | administrators | `edit`, `reject`, `reopen`, `claim`, `release`, `approve` |
+| `POST …/registration/submissions` `{action, submissionId, revision, …}` | administrators | `edit`, `reject`, `reopen`, `claim`, `release`, `approve`, `allocate` (institutions: `teamsAllocated`, `adjudicatorsAllocated`) |
+| `POST …/registration/transfers` `{transferId, decision}` | administrators | approve or reject a place transfer |
 | `POST / PATCH / DELETE …/registration/representatives` | administrators | add (and email), new link, revoke |
 
 ## Limitations

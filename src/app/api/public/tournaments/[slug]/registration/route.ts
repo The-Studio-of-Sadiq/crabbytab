@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
+import { createRegisteredEntity, needsConfirmation, REGISTERED_ADJUDICATOR_BASE_SCORE } from "@/lib/registration/autoApprove";
+import { parseTransferRequest } from "@/lib/registration/transfers";
 import type { Firestore } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
@@ -17,6 +19,8 @@ import {
   registrationRefs,
   RegistrationError,
   resolveTournamentBySlug,
+  markAutoApproved,
+  requestSlotTransfer,
   submitRegistration,
 } from "@/lib/registration/service";
 import {
@@ -98,7 +102,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } catch {
     return json({ error: "Invalid request body." }, 400);
   }
-  if (body.action !== "representative" && body.action !== "submit") return json({ error: "Invalid request body." }, 400);
+  if (body.action !== "representative" && body.action !== "submit" && body.action !== "transfer") {
+    return json({ error: "Invalid request body." }, 400);
+  }
 
   const now = Date.now();
   if (body.action === "submit") {
@@ -125,6 +131,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           { status: 429, headers: { ...NO_STORE, "Retry-After": String(limit.retryAfterSeconds) } }
         );
       }
+    }
+
+    if (body.action === "transfer") {
+      // Slot transfers (docs/registration.md): a representative asks to give places away.
+      const representative = await loadRepresentativeByToken(tournamentRef, body.token);
+      const request = parseTransferRequest(body.transfer);
+      const transfer = await requestSlotTransfer({ tournamentRef, representative, ...request, now });
+      return json({ transfer: { id: transfer.id, status: transfer.status } });
     }
 
     if (body.action === "representative") {
@@ -156,11 +170,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       sourceHash: createHash("sha256").update(`${tournamentRef.id}:${address}`).digest("hex").slice(0, 16),
       now,
     });
-    // Registration received (docs/email-notifications.md): only when switched on in the email settings.
+    // Automatic acceptance (docs/registration.md): the server creates the record itself when the
+    // settings say this submission needs no confirmation. A failure leaves it in the queue.
+    let accepted = false;
+    if (!needsConfirmation(result.settings, result.submission)) {
+      try {
+        const entity = await createRegisteredEntity({
+          firestore,
+          tournamentRef,
+          submission: result.submission,
+          settings: result.settings,
+          adjudicatorBaseScore: REGISTERED_ADJUDICATOR_BASE_SCORE,
+        });
+        accepted = Boolean(await markAutoApproved({ firestore, tournamentRef, submission: result.submission, entity, now }));
+      } catch (error) {
+        console.error("Automatic registration acceptance failed:", error instanceof Error ? error.message : error);
+      }
+    }
+    // Registration received / approved (docs/email-notifications.md): only when switched on.
     await sendTemplatedEmail({
       tournamentRef,
       tournamentName: result.tournamentName,
-      event: "registration_received",
+      event: accepted ? "registration_approved" : "registration_received",
       recipient: {
         email: result.entry.contactEmail,
         name: result.entry.contactName,
@@ -169,7 +200,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
       when: (settings) => settings.registrationEmails,
     });
-    return json({ received: true, kind: result.kind });
+    return json({ received: true, kind: result.kind, accepted });
   } catch (error) {
     if (error instanceof RegistrationError) {
       if (error.badToken) {

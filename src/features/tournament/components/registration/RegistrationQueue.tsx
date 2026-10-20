@@ -37,11 +37,52 @@ function formatAnswer(value: unknown): string {
 }
 
 function entryName(submission: RegistrationSubmission): string {
+  if (submission.kind === "institution") return submission.institution?.name ?? "(unnamed)";
   return (submission.kind === "team" ? submission.team?.name : submission.adjudicator?.name) ?? "(unnamed)";
+}
+
+const KIND_LABEL: Record<RegistrationSubmission["kind"], { label: string; tone: Tone }> = {
+  team: { label: "Team", tone: "accent" },
+  adjudicator: { label: "Adjudicator", tone: "neutral" },
+  institution: { label: "Institution", tone: "info" },
+};
+
+/** Institution registrations: the places to allocate, prefilled with what was asked for. */
+function AllocateForm({
+  submission,
+  busy,
+  onAllocate,
+}: {
+  submission: RegistrationSubmission;
+  busy: boolean;
+  onAllocate: (teams: number, adjudicators: number) => void;
+}) {
+  const [teams, setTeams] = useState(String(submission.institutionRequest?.teamsRequested ?? 0));
+  const [adjudicators, setAdjudicators] = useState(String(submission.institutionRequest?.adjudicatorsRequested ?? 0));
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <Input label="Team places" type="number" min={0} max={1000} value={teams} onChange={(event) => setTeams(event.target.value)} wrapperClassName="w-28" />
+      <Input
+        label="Adjudicator places"
+        type="number"
+        min={0}
+        max={1000}
+        value={adjudicators}
+        onChange={(event) => setAdjudicators(event.target.value)}
+        wrapperClassName="w-32"
+      />
+      <Button size="sm" variant="primary" loading={busy} onClick={() => onAllocate(Number(teams) || 0, Number(adjudicators) || 0)}>
+        <CheckCircle2 aria-hidden="true" />
+        Allocate places and send link
+      </Button>
+    </div>
+  );
 }
 
 export interface QueueActions {
   approve(submission: RegistrationSubmission): Promise<void>;
+  /** Institution registrations: give places; the coach becomes the institution's representative. */
+  allocate(submission: RegistrationSubmission, teams: number, adjudicators: number): Promise<void>;
   review(action: "reject" | "reopen" | "release" | "edit", submission: RegistrationSubmission, extra?: Record<string, unknown>): Promise<void>;
   markApproved(submission: RegistrationSubmission, entity: { id: string; name: string }): Promise<void>;
 }
@@ -209,8 +250,12 @@ function SubmissionCard({
           <div className="min-w-0">
             <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
               {entryName(submission)}
-              <Badge tone={submission.kind === "team" ? "accent" : "neutral"}>{submission.kind === "team" ? "Team" : "Adjudicator"}</Badge>
+              <Badge tone={KIND_LABEL[submission.kind].tone}>{KIND_LABEL[submission.kind].label}</Badge>
               <StatusPill tone={status.tone}>{status.label}</StatusPill>
+              {submission.overAllocated && submission.status !== "rejected" && (
+                <StatusPill tone="warning">Above the institution&apos;s places</StatusPill>
+              )}
+              {submission.autoApproved && <Badge tone="success">Accepted automatically</Badge>}
               {duplicates.length > 0 && submission.status !== "approved" && <StatusPill tone="warning">Possible duplicate</StatusPill>}
             </h3>
             <p className="text-xs text-fg-muted">
@@ -220,7 +265,7 @@ function SubmissionCard({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {submission.status === "pending" && (
+            {submission.status === "pending" && submission.kind !== "institution" && (
               <>
                 <Button
                   size="sm"
@@ -264,12 +309,37 @@ function SubmissionCard({
           </div>
         </div>
 
+        {submission.kind === "institution" && submission.institutionRequest && (
+          <div className="space-y-2 text-xs text-fg">
+            <p>
+              Asks for {submission.institutionRequest.teamsRequested} team place(s) and{" "}
+              {submission.institutionRequest.adjudicatorsRequested} adjudicator place(s)
+              {submission.institutionRequest.code ? ` · code ${submission.institutionRequest.code}` : ""}
+              {submission.institutionRequest.region ? ` · ${submission.institutionRequest.region}` : ""}.
+            </p>
+            {submission.status === "pending" && (
+              <AllocateForm
+                submission={submission}
+                busy={busy === "allocate"}
+                onAllocate={(teams, adjudicators) => void run("allocate", () => actions.allocate(submission, teams, adjudicators))}
+              />
+            )}
+            {submission.status === "approved" && (
+              <p className="text-success">
+                Allocated {submission.teamsAllocated ?? 0} team and {submission.adjudicatorsAllocated ?? 0} adjudicator place(s); the
+                coach is the institution&apos;s representative.
+              </p>
+            )}
+          </div>
+        )}
         {submission.kind === "team" && submission.team && (
           <ul className="grid gap-1 text-xs text-fg sm:grid-cols-2">
             {submission.team.speakers.map((speaker, index) => (
               <li key={index}>
                 <span className="font-medium">{speaker.name}</span>
                 {speaker.email ? <span className="text-fg-muted"> · {speaker.email}</span> : null}
+                {speaker.phone ? <span className="text-fg-muted"> · {speaker.phone}</span> : null}
+                {speaker.gender ? <span className="text-fg-muted"> · {speaker.gender}</span> : null}
                 {speaker.categories.length > 0 ? <span className="text-fg-muted"> · {speaker.categories.join(", ")}</span> : null}
               </li>
             ))}
@@ -277,7 +347,11 @@ function SubmissionCard({
         )}
         {submission.kind === "adjudicator" && submission.adjudicator && (
           <div className="space-y-0.5 text-xs text-fg">
-            <p>{submission.adjudicator.email}</p>
+            <p>
+              {submission.adjudicator.email}
+              {submission.adjudicator.phone ? ` · ${submission.adjudicator.phone}` : ""}
+              {submission.adjudicator.gender ? ` · ${submission.adjudicator.gender}` : ""}
+            </p>
             {submission.adjudicator.institutionConflicts.length > 0 && (
               <p><span className="text-fg-muted">Institution conflicts:</span> {submission.adjudicator.institutionConflicts.join(", ")}</p>
             )}
@@ -399,7 +473,11 @@ export function RegistrationQueue({
             <SubmissionCard
               key={submission.id}
               submission={submission}
-              questions={submission.kind === "team" ? settings.teamQuestions : settings.adjudicatorQuestions}
+              questions={
+                submission.kind === "team"
+                  ? settings.teamQuestions
+                  : submission.kind === "adjudicator" ? settings.adjudicatorQuestions : settings.institutionQuestions ?? []
+              }
               duplicates={duplicates.get(submission.id) ?? []}
               likelyEntities={submission.status === "approving" ? likelyCreatedEntities(submission, teams, adjudicators) : []}
               currentUid={currentUid}

@@ -8,6 +8,7 @@ import { ApprovalIncompleteError, approveRegistration } from "@/features/tournam
 import { RegistrationQueue, type QueueActions } from "@/features/tournament/components/registration/RegistrationQueue";
 import { RegistrationSettingsForm } from "@/features/tournament/components/registration/RegistrationSettingsForm";
 import { RepresentativesPanel } from "@/features/tournament/components/registration/RepresentativesPanel";
+import { SlotTransfersPanel } from "@/features/tournament/components/registration/SlotTransfersPanel";
 import {
   createRegistrationClient,
   type RegistrationOverview,
@@ -100,6 +101,7 @@ export default function RegistrationAdminPage() {
               addAdjudicators,
               createId: createEntityId,
               adjudicatorBaseScore: REGISTERED_ADJUDICATOR_BASE_SCORE,
+              settings: overview?.settings,
             });
             replaceSubmission(result.submission);
             const notes = [`${result.entity.name} added as ${result.entity.kind === "team" ? "a team" : "an adjudicator"}.`];
@@ -115,6 +117,17 @@ export default function RegistrationAdminPage() {
             else await reload();
             throw error;
           }
+        },
+        allocate: async (submission, teams, adjudicators) => {
+          setNotice("");
+          const result = await client.allocate(submission, teams, adjudicators);
+          replaceSubmission(result.submission);
+          setNotice(
+            result.link?.delivered
+              ? `${submission.institution?.name ?? "The institution"} has its places; ${result.link.email} received their representative link.`
+              : `${submission.institution?.name ?? "The institution"} has its places, but the link email failed (${result.link?.error ?? "unknown error"}). Share it by hand: ${result.link?.link ?? ""}`
+          );
+          await reload();
         },
         review: async (action, submission, extra) => replaceSubmission(await client.review(action, submission, extra)),
         markApproved: async (submission, entity) =>
@@ -199,6 +212,11 @@ export default function RegistrationAdminPage() {
                     counters={overview.counters}
                     onChange={(representatives) => setOverview((current) => (current ? { ...current, representatives } : current))}
                   />
+                )}
+                {view === "representatives" && overview.settings.slotTransfers && (
+                  <div className="mt-4">
+                    <SlotTransfersPanel client={client} transfers={overview.transfers ?? []} onReviewed={reload} />
+                  </div>
                 )}
               </TabPanel>
             </>

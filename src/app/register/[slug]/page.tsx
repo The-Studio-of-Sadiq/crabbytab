@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Gavel, Plus, Trash2, Users } from "lucide-react";
+import { Building2, Gavel, Plus, Trash2, Users } from "lucide-react";
 import type { FeedbackAnswer } from "@/types";
 import type { PublicRegistrationForm } from "@/lib/registration/types";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -12,23 +12,90 @@ import { Badge } from "@/components/ui/Badge";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
-import { Checkbox, Input, Textarea } from "@/components/ui/Field";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
 
 interface RepresentativeView {
   institutionName: string;
   name: string;
   remaining: { team: number | null; adjudicator: number | null };
+  transferTargets?: Array<{ id: string; institutionName: string }>;
 }
 
 interface SpeakerDraft {
   name: string;
   email: string;
   categories: string[];
+  phone: string;
+  gender: string;
+  answers: Record<string, FeedbackAnswer>;
 }
 
-type Kind = "team" | "adjudicator";
+type Kind = "team" | "adjudicator" | "institution";
 
-const emptySpeaker = (): SpeakerDraft => ({ name: "", email: "", categories: [] });
+const emptySpeaker = (): SpeakerDraft => ({ name: "", email: "", categories: [], phone: "", gender: "", answers: {} });
+
+/** Places a representative asks to give to another institution (slot transfers). */
+function TransferForm({
+  slug,
+  token,
+  targets,
+}: {
+  slug: string;
+  token: string;
+  targets: Array<{ id: string; institutionName: string }>;
+}) {
+  const { t } = useI18n();
+  const [target, setTarget] = useState(targets[0]?.id ?? "");
+  const [teams, setTeams] = useState("0");
+  const [adjudicators, setAdjudicators] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  const submit = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const response = await fetch(`/api/public/tournaments/${encodeURIComponent(slug)}/registration`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "transfer", token, transfer: { toRepresentativeId: target, teams, adjudicators } }),
+        cache: "no-store",
+      });
+      const result = await readJson<{ transfer?: unknown }>(response);
+      if (!response.ok) throw new Error(result.error || t("register.transferFailed"));
+      setStatus({ tone: "success", text: t("register.transferSent") });
+    } catch (transferError) {
+      setStatus({ tone: "danger", text: transferError instanceof Error ? transferError.message : t("register.transferFailed") });
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (targets.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader title={t("register.transferTitle")} description={t("register.transferHelp")} />
+      <CardBody className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Select label={t("register.transferTo")} value={target} onChange={(event) => setTarget(event.target.value)}>
+            {targets.map((item) => (
+              <option key={item.id} value={item.id}>{item.institutionName}</option>
+            ))}
+          </Select>
+          <Input label={t("register.transferTeams")} type="number" min={0} max={100} value={teams} onChange={(event) => setTeams(event.target.value)} />
+          <Input
+            label={t("register.transferAdjudicators")}
+            type="number"
+            min={0}
+            max={100}
+            value={adjudicators}
+            onChange={(event) => setAdjudicators(event.target.value)}
+          />
+        </div>
+        {status && <Alert tone={status.tone} role={status.tone === "danger" ? "alert" : "status"}>{status.text}</Alert>}
+        <Button loading={busy} onClick={() => void submit()}>{t("register.transferSubmit")}</Button>
+      </CardBody>
+    </Card>
+  );
+}
 
 async function readJson<T>(response: Response): Promise<T & { error?: string }> {
   return (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -52,6 +119,12 @@ export default function RegistrationPage() {
   const [adjudicatorEmail, setAdjudicatorEmail] = useState("");
   const [institutionConflicts, setInstitutionConflicts] = useState("");
   const [teamConflicts, setTeamConflicts] = useState("");
+  const [adjudicatorPhone, setAdjudicatorPhone] = useState("");
+  const [adjudicatorGender, setAdjudicatorGender] = useState("");
+  const [institutionCode, setInstitutionCode] = useState("");
+  const [institutionRegion, setInstitutionRegion] = useState("");
+  const [teamsRequested, setTeamsRequested] = useState("0");
+  const [adjudicatorsRequested, setAdjudicatorsRequested] = useState("0");
   const [answers, setAnswers] = useState<Record<string, FeedbackAnswer>>({});
   const [honeypot, setHoneypot] = useState("");
   const startedAt = useRef(0);
@@ -86,7 +159,7 @@ export default function RegistrationPage() {
         if (!response.ok || !result.form) throw new Error(result.error || t("register.loadFailed"));
         if (!active) return;
         setForm(result.form);
-        setKind(result.form.teamRegistration ? "team" : "adjudicator");
+        setKind(result.form.teamRegistration ? "team" : result.form.adjudicatorRegistration ? "adjudicator" : "institution");
         setSpeakers(Array.from({ length: result.form.minSpeakers }, emptySpeaker));
         if (token) await loadRepresentative(token);
       } catch (loadFailure) {
@@ -105,6 +178,12 @@ export default function RegistrationPage() {
     setAdjudicatorEmail("");
     setInstitutionConflicts("");
     setTeamConflicts("");
+    setAdjudicatorPhone("");
+    setAdjudicatorGender("");
+    setInstitutionCode("");
+    setInstitutionRegion("");
+    setTeamsRequested("0");
+    setAdjudicatorsRequested("0");
     setAnswers({});
     setError("");
     setSubmittedKind(null);
@@ -127,15 +206,38 @@ export default function RegistrationPage() {
       contactEmail,
       answers,
       ...(kind === "team"
-        ? { team: { name: teamName, speakers: speakers.map((speaker) => ({ ...speaker, email: speaker.email.trim() || undefined })) } }
-        : {
-            adjudicator: {
-              name: adjudicatorName,
-              email: adjudicatorEmail,
-              institutionConflicts: lines(institutionConflicts),
-              teamConflicts: lines(teamConflicts),
+        ? {
+            team: {
+              name: teamName,
+              speakers: speakers.map((speaker) => ({
+                name: speaker.name,
+                categories: speaker.categories,
+                email: speaker.email.trim() || undefined,
+                phone: speaker.phone.trim() || undefined,
+                gender: speaker.gender.trim() || undefined,
+                answers: speaker.answers,
+              })),
             },
-          }),
+          }
+        : kind === "institution"
+          ? {
+              institutionRequest: {
+                code: institutionCode,
+                region: institutionRegion,
+                teamsRequested,
+                adjudicatorsRequested,
+              },
+            }
+          : {
+              adjudicator: {
+                name: adjudicatorName,
+                email: adjudicatorEmail,
+                institutionConflicts: lines(institutionConflicts),
+                teamConflicts: lines(teamConflicts),
+                phone: adjudicatorPhone.trim() || undefined,
+                gender: adjudicatorGender.trim() || undefined,
+              },
+            }),
     };
     try {
       const response = await fetch(`/api/public/tournaments/${encodeURIComponent(slug)}/registration`, {
@@ -162,8 +264,18 @@ export default function RegistrationPage() {
   };
 
   const formatTime = (value: string) => formatDateTime(value, { dateStyle: "medium", timeStyle: "short" });
-  const questions = form ? (kind === "team" ? form.teamQuestions : form.adjudicatorQuestions) : [];
-  const remaining = representative ? representative.remaining[kind] : null;
+  const questions = form
+    ? kind === "team" ? form.teamQuestions : kind === "adjudicator" ? form.adjudicatorQuestions : form.institutionQuestions
+    : [];
+  const remaining = representative && kind !== "institution" ? representative.remaining[kind] : null;
+  const kindMessage = form ? (kind === "team" ? form.teamMessage : kind === "adjudicator" ? form.adjudicatorMessage : form.institutionMessage) : "";
+  const kinds: Kind[] = form
+    ? ([
+        form.teamRegistration ? "team" : null,
+        form.adjudicatorRegistration ? "adjudicator" : null,
+        form.institutionRegistration && !representative ? "institution" : null,
+      ].filter(Boolean) as Kind[])
+    : [];
   const needsRepresentative = Boolean(form?.representativesOnly && !representative);
 
   let body: React.ReactNode;
@@ -184,7 +296,11 @@ export default function RegistrationPage() {
   } else if (submittedKind) {
     body = (
       <Alert tone="success" role="status" title={t("register.receivedTitle")}>
-        <p>{submittedKind === "team" ? t("register.receivedTeam") : t("register.receivedAdjudicator")}</p>
+        <p>
+          {submittedKind === "team"
+            ? t("register.receivedTeam")
+            : submittedKind === "adjudicator" ? t("register.receivedAdjudicator") : t("register.receivedInstitution")}
+        </p>
         <Button className="mt-3" onClick={resetEntry}>{t("register.another")}</Button>
       </Alert>
     );
@@ -205,10 +321,14 @@ export default function RegistrationPage() {
           </Alert>
         )}
 
-        {form.teamRegistration && form.adjudicatorRegistration && (
+        {representative?.transferTargets && representativeToken && (
+          <TransferForm slug={slug} token={representativeToken} targets={representative.transferTargets} />
+        )}
+
+        {kinds.length > 1 && (
           <fieldset className="flex flex-wrap gap-2">
             <legend className="mb-2 text-xs font-medium text-fg">{t("register.kindLegend")}</legend>
-            {(["team", "adjudicator"] as const).map((option) => (
+            {kinds.map((option) => (
               <Button
                 key={option}
                 variant={kind === option ? "primary" : "secondary"}
@@ -218,12 +338,14 @@ export default function RegistrationPage() {
                   setAnswers({});
                 }}
               >
-                {option === "team" ? <Users aria-hidden="true" /> : <Gavel aria-hidden="true" />}
-                {option === "team" ? t("register.kindTeam") : t("register.kindAdjudicator")}
+                {option === "team" ? <Users aria-hidden="true" /> : option === "adjudicator" ? <Gavel aria-hidden="true" /> : <Building2 aria-hidden="true" />}
+                {option === "team" ? t("register.kindTeam") : option === "adjudicator" ? t("register.kindAdjudicator") : t("register.kindInstitution")}
               </Button>
             ))}
           </fieldset>
         )}
+
+        {kindMessage && <p className="whitespace-pre-line text-[13px] text-fg-muted">{kindMessage}</p>}
 
         <Card>
           <CardHeader title={t("register.aboutYou")} />
@@ -234,8 +356,9 @@ export default function RegistrationPage() {
               <p className="text-[13px] text-fg-muted sm:col-span-2">{t("register.institutionFixed", { institution: representative.institutionName })}</p>
             ) : (
               <Input
-                label={t("register.institution")}
-                help={t("register.institutionHelp")}
+                label={kind === "institution" ? t("register.institutionName") : t("register.institution")}
+                help={kind === "institution" ? undefined : t("register.institutionHelp")}
+                required={kind === "institution"}
                 wrapperClassName="sm:col-span-2"
                 maxLength={120}
                 autoComplete="organization"
@@ -262,6 +385,23 @@ export default function RegistrationPage() {
                     <Input label={t("register.speakerName")} required maxLength={120} value={speaker.name} onChange={(event) => updateSpeaker(index, { name: event.target.value })} />
                     <Input label={t("register.speakerEmail")} type="email" maxLength={254} value={speaker.email} onChange={(event) => updateSpeaker(index, { email: event.target.value })} />
                   </div>
+                  {(form.speakerFields.includes("phone") || form.speakerFields.includes("gender")) && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {form.speakerFields.includes("phone") && (
+                        <Input label={t("register.phone")} type="tel" maxLength={30} autoComplete="tel" value={speaker.phone} onChange={(event) => updateSpeaker(index, { phone: event.target.value })} />
+                      )}
+                      {form.speakerFields.includes("gender") && (
+                        <Input label={t("register.gender")} maxLength={40} value={speaker.gender} onChange={(event) => updateSpeaker(index, { gender: event.target.value })} />
+                      )}
+                    </div>
+                  )}
+                  {form.speakerQuestions.length > 0 && (
+                    <FeedbackQuestionFields
+                      questions={form.speakerQuestions}
+                      answers={speaker.answers}
+                      onChange={(id, value) => updateSpeaker(index, { answers: { ...speaker.answers, [id]: value } })}
+                    />
+                  )}
                   {form.speakerCategories.length > 0 && (
                     <div className="flex flex-wrap gap-4" role="group" aria-label={t("register.speakerCategories")}>
                       {form.speakerCategories.map((category) => (
@@ -297,6 +437,34 @@ export default function RegistrationPage() {
               )}
             </CardBody>
           </Card>
+        ) : kind === "institution" ? (
+          <Card>
+            <CardHeader title={t("register.institutionSection")} />
+            <CardBody className="grid gap-3 sm:grid-cols-2">
+              <Input label={t("register.institutionCode")} maxLength={12} value={institutionCode} onChange={(event) => setInstitutionCode(event.target.value)} />
+              {form.institutionRegion && (
+                <Input label={t("register.region")} maxLength={60} value={institutionRegion} onChange={(event) => setInstitutionRegion(event.target.value)} />
+              )}
+              <Input
+                label={t("register.teamsRequested")}
+                type="number"
+                min={0}
+                max={100}
+                required
+                value={teamsRequested}
+                onChange={(event) => setTeamsRequested(event.target.value)}
+              />
+              <Input
+                label={t("register.adjudicatorsRequested")}
+                type="number"
+                min={0}
+                max={100}
+                required
+                value={adjudicatorsRequested}
+                onChange={(event) => setAdjudicatorsRequested(event.target.value)}
+              />
+            </CardBody>
+          </Card>
         ) : (
           <Card>
             <CardHeader title={t("register.adjudicatorSection")} />
@@ -304,6 +472,12 @@ export default function RegistrationPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input label={t("register.adjudicatorName")} required maxLength={120} value={adjudicatorName} onChange={(event) => setAdjudicatorName(event.target.value)} />
                 <Input label={t("register.adjudicatorEmail")} type="email" required maxLength={254} value={adjudicatorEmail} onChange={(event) => setAdjudicatorEmail(event.target.value)} />
+                {form.adjudicatorFields.includes("phone") && (
+                  <Input label={t("register.phone")} type="tel" maxLength={30} autoComplete="tel" value={adjudicatorPhone} onChange={(event) => setAdjudicatorPhone(event.target.value)} />
+                )}
+                {form.adjudicatorFields.includes("gender") && (
+                  <Input label={t("register.gender")} maxLength={40} value={adjudicatorGender} onChange={(event) => setAdjudicatorGender(event.target.value)} />
+                )}
               </div>
               <Textarea
                 label={t("register.institutionConflicts")}

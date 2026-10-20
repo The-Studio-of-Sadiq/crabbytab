@@ -34,18 +34,18 @@ export function isDataEntryRole(role: unknown): role is "dataEntry" {
 }
 
 export type AssistantTeam = Omit<Team, "privateUrlKey" | "privatePasscode" | "speakers"> & {
-  speakers: Array<Omit<Speaker, "email">>;
+  speakers: Array<Omit<Speaker, "email" | "phone">>;
 };
 
 export function sanitizeAssistantTeam(team: Team): AssistantTeam {
   const { privateUrlKey: _privateUrlKey, privatePasscode: _privatePasscode, speakers, ...safe } = team;
   return {
     ...safe,
-    speakers: speakers.map(({ email: _email, ...speaker }) => speaker),
+    speakers: speakers.map(({ email: _email, phone: _phone, ...speaker }) => speaker),
   };
 }
 
-export type AssistantAdjudicator = Omit<Adjudicator, "privateUrlKey" | "privatePasscode" | "conflicts"> & {
+export type AssistantAdjudicator = Omit<Adjudicator, "privateUrlKey" | "privatePasscode" | "conflicts" | "phone"> & {
   conflicts: [];
 };
 
@@ -54,6 +54,7 @@ export function sanitizeAssistantAdjudicator(adjudicator: Adjudicator): Assistan
     privateUrlKey: _privateUrlKey,
     privatePasscode: _privatePasscode,
     conflicts: _conflicts,
+    phone: _phone,
     ...safe
   } = adjudicator;
   return { ...safe, conflicts: [] };

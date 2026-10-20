@@ -1,9 +1,14 @@
 import type { FeedbackAnswer, FeedbackQuestion, FeedbackQuestionType } from "@/types";
 import { isFeedbackAnswerRecord, validateFeedbackAnswers, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { normalizeEmail } from "@/lib/emailAddress";
+import { normalizePhoneNumber } from "@/lib/sms/provider";
+import { CODE_NAME_GENERATORS, TEAM_NAME_GENERATORS, type CodeNameGenerator, type TeamNameGenerator } from "@/lib/registration/names";
 import type {
   AdjudicatorRegistrationData,
+  InstitutionRegistrationData,
+  PersonField,
   PublicRegistrationForm,
+  RegistrationConfirmation,
   RegisteredSpeaker,
   RegistrationEntry,
   RegistrationInstitution,
@@ -130,7 +135,36 @@ export function defaultRegistrationSettings(tournamentName: string, substantiveS
     adjudicatorQuestions: [],
     instructions: "",
     tournamentName,
+    institutionRegistration: false,
+    confirmation: "always",
+    blockOverAllocation: true,
+    slotTransfers: false,
+    teamNameGenerator: "user",
+    codeNameGenerator: "user",
+    speakerFields: [],
+    adjudicatorFields: [],
+    institutionRegion: false,
+    teamMessage: "",
+    adjudicatorMessage: "",
+    institutionMessage: "",
+    institutionQuestions: [],
+    speakerQuestions: [],
   };
+}
+
+const PERSON_FIELDS: readonly PersonField[] = ["phone", "gender"];
+const CONFIRMATIONS: readonly RegistrationConfirmation[] = ["always", "open", "never"];
+/** Most places one institution may ask for. */
+export const MAX_REQUESTED_PLACES = 100;
+
+function parsePersonFields(value: unknown): PersonField[] {
+  return Array.isArray(value) ? [...new Set(value.filter((item): item is PersonField => PERSON_FIELDS.includes(item as PersonField)))] : [];
+}
+
+function formMessage(value: unknown, label: string): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (text.length > 4_000) throw new RegistrationValidationError(`${label} must be at most 4,000 characters.`);
+  return text;
 }
 
 /** Validates settings an administrator saves. Throws RegistrationValidationError. */
@@ -169,11 +203,31 @@ export function parseRegistrationSettings(input: unknown, tournamentName: string
     adjudicatorQuestions: parseQuestions(record.adjudicatorQuestions, "Adjudicator questions"),
     instructions,
     tournamentName,
+    institutionRegistration: record.institutionRegistration === true,
+    confirmation: CONFIRMATIONS.includes(record.confirmation as RegistrationConfirmation)
+      ? (record.confirmation as RegistrationConfirmation)
+      : "always",
+    blockOverAllocation: record.blockOverAllocation !== false,
+    slotTransfers: record.slotTransfers === true,
+    teamNameGenerator: TEAM_NAME_GENERATORS.includes(record.teamNameGenerator as TeamNameGenerator)
+      ? (record.teamNameGenerator as TeamNameGenerator)
+      : "user",
+    codeNameGenerator: CODE_NAME_GENERATORS.includes(record.codeNameGenerator as CodeNameGenerator)
+      ? (record.codeNameGenerator as CodeNameGenerator)
+      : "user",
+    speakerFields: parsePersonFields(record.speakerFields),
+    adjudicatorFields: parsePersonFields(record.adjudicatorFields),
+    institutionRegion: record.institutionRegion === true,
+    teamMessage: formMessage(record.teamMessage, "The team form message"),
+    adjudicatorMessage: formMessage(record.adjudicatorMessage, "The adjudicator form message"),
+    institutionMessage: formMessage(record.institutionMessage, "The institution form message"),
+    institutionQuestions: parseQuestions(record.institutionQuestions, "Institution questions"),
+    speakerQuestions: parseQuestions(record.speakerQuestions, "Speaker questions"),
   };
   if (opensAt) settings.opensAt = opensAt;
   if (closesAt) settings.closesAt = closesAt;
-  if (!settings.teamRegistration && !settings.adjudicatorRegistration && settings.enabled) {
-    throw new RegistrationValidationError("Allow team or adjudicator registration (or both) before opening registration.");
+  if (!settings.teamRegistration && !settings.adjudicatorRegistration && !settings.institutionRegistration && settings.enabled) {
+    throw new RegistrationValidationError("Allow team, adjudicator or institution registration before opening registration.");
   }
   return settings;
 }
@@ -201,6 +255,16 @@ export function toPublicForm(settings: RegistrationSettings, now: number): Publi
     teamQuestions: settings.teamQuestions,
     adjudicatorQuestions: settings.adjudicatorQuestions,
     instructions: settings.instructions,
+    institutionRegistration: settings.institutionRegistration === true,
+    slotTransfers: settings.slotTransfers === true,
+    speakerFields: settings.speakerFields ?? [],
+    adjudicatorFields: settings.adjudicatorFields ?? [],
+    institutionRegion: settings.institutionRegion === true,
+    teamMessage: settings.teamMessage ?? "",
+    adjudicatorMessage: settings.adjudicatorMessage ?? "",
+    institutionMessage: settings.institutionMessage ?? "",
+    institutionQuestions: settings.institutionQuestions ?? [],
+    speakerQuestions: settings.speakerQuestions ?? [],
   };
   if (settings.opensAt) form.opensAt = settings.opensAt;
   if (settings.closesAt) form.closesAt = settings.closesAt;
@@ -261,6 +325,26 @@ function parseAnswers(value: unknown, questions: FeedbackQuestion[]): Record<str
   return cleaned;
 }
 
+/** Phone and gender, when the form asks for them; empty values are left out. */
+function parsePersonDetails(
+  record: Record<string, unknown>,
+  fields: PersonField[] | undefined,
+  name: string
+): { phone?: string; gender?: string } {
+  const details: { phone?: string; gender?: string } = {};
+  if (fields?.includes("phone") && typeof record.phone === "string" && record.phone.trim()) {
+    const phone = normalizePhoneNumber(record.phone);
+    if (!phone) throw new RegistrationValidationError(`Enter the phone number of ${name} with the country code, e.g. +44 7700 900123.`);
+    details.phone = phone;
+  }
+  if (fields?.includes("gender") && record.gender !== undefined && record.gender !== "") {
+    const gender = cleanText(record.gender, 40);
+    if (gender === null) throw new RegistrationValidationError("Gender can be at most 40 characters.");
+    if (gender) details.gender = gender;
+  }
+  return details;
+}
+
 function parseSpeakers(value: unknown, settings: RegistrationSettings): RegisteredSpeaker[] {
   if (!Array.isArray(value)) throw new RegistrationValidationError("Add the team's speakers.");
   const speakers = value.map((item, index): RegisteredSpeaker => {
@@ -270,9 +354,15 @@ function parseSpeakers(value: unknown, settings: RegistrationSettings): Register
     if (categories.some((category) => typeof category !== "string" || !settings.speakerCategories.includes(category))) {
       throw new RegistrationValidationError(`Choose valid categories for ${name}.`);
     }
-    const speaker: RegisteredSpeaker = { name, categories: [...new Set(categories as string[])] };
+    const speaker: RegisteredSpeaker = {
+      name,
+      categories: [...new Set(categories as string[])],
+      ...parsePersonDetails(record, settings.speakerFields, name),
+    };
     const email = parseEmail(record.email, name, false);
     if (email) speaker.email = email;
+    const speakerQuestions = settings.speakerQuestions ?? [];
+    if (speakerQuestions.length > 0) speaker.answers = parseAnswers(record.answers, speakerQuestions);
     return speaker;
   });
   if (speakers.length < settings.minSpeakers || speakers.length > settings.maxSpeakers) {
@@ -299,7 +389,15 @@ export function parseRegistrationEntry(
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new RegistrationValidationError("Invalid registration.");
   const record = input as Record<string, unknown>;
   const kind = record.kind;
-  if (kind !== "team" && kind !== "adjudicator") throw new RegistrationValidationError("Choose team or adjudicator registration.");
+  if (kind !== "team" && kind !== "adjudicator" && kind !== "institution") {
+    throw new RegistrationValidationError("Choose team, adjudicator or institution registration.");
+  }
+  if (kind === "institution" && !settings.institutionRegistration) {
+    throw new RegistrationValidationError("This tournament is not taking institution registrations.", 403);
+  }
+  if (kind === "institution" && options.institution) {
+    throw new RegistrationValidationError("Your institution is already registered; register its teams and adjudicators instead.");
+  }
   if (kind === "team" && !settings.teamRegistration) throw new RegistrationValidationError("This tournament is not taking team registrations.", 403);
   if (kind === "adjudicator" && !settings.adjudicatorRegistration) {
     throw new RegistrationValidationError("This tournament is not taking adjudicator registrations.", 403);
@@ -307,7 +405,10 @@ export function parseRegistrationEntry(
   const institution = options.institution ?? makeInstitution(record.institution);
   const contactName = requiredText(record.contactName, MAX_NAME_LENGTH, "Your name");
   const contactEmail = parseEmail(record.contactEmail, "yourself", true)!;
-  const questions = kind === "team" ? settings.teamQuestions : settings.adjudicatorQuestions;
+  if (kind === "institution" && !institution) throw new RegistrationValidationError("Enter the institution's name.");
+  const questions = kind === "team"
+    ? settings.teamQuestions
+    : kind === "adjudicator" ? settings.adjudicatorQuestions : settings.institutionQuestions ?? [];
   const entry: RegistrationEntry = {
     kind,
     institution,
@@ -322,6 +423,21 @@ export function parseRegistrationEntry(
       speakers: parseSpeakers(team.speakers, settings),
     };
     entry.team = data;
+  } else if (kind === "institution") {
+    const request = (record.institutionRequest ?? {}) as Record<string, unknown>;
+    const code = cleanText(request.code ?? "", 12);
+    if (code === null) throw new RegistrationValidationError("The institution code can be at most 12 characters.");
+    const data: InstitutionRegistrationData = {
+      teamsRequested: nonNegativeInteger(request.teamsRequested, "Team places", MAX_REQUESTED_PLACES),
+      adjudicatorsRequested: nonNegativeInteger(request.adjudicatorsRequested, "Adjudicator places", MAX_REQUESTED_PLACES),
+    };
+    if (code) data.code = code;
+    if (settings.institutionRegion) {
+      const region = cleanText(request.region ?? "", 60);
+      if (region === null) throw new RegistrationValidationError("The region can be at most 60 characters.");
+      if (region) data.region = region;
+    }
+    entry.institutionRequest = data;
   } else {
     const adjudicator = (record.adjudicator ?? {}) as Record<string, unknown>;
     const data: AdjudicatorRegistrationData = {
@@ -329,6 +445,7 @@ export function parseRegistrationEntry(
       email: parseEmail(adjudicator.email, "the adjudicator", true)!,
       institutionConflicts: parseNameList(adjudicator.institutionConflicts, "Institution conflicts"),
       teamConflicts: parseNameList(adjudicator.teamConflicts, "Team conflicts"),
+      ...parsePersonDetails(adjudicator, settings.adjudicatorFields, "the adjudicator"),
     };
     entry.adjudicator = data;
   }
@@ -336,6 +453,7 @@ export function parseRegistrationEntry(
 }
 
 /** The display name of an entry (team or adjudicator name). */
-export function entryName(entry: Pick<RegistrationEntry, "kind" | "team" | "adjudicator">): string {
+export function entryName(entry: Pick<RegistrationEntry, "kind" | "team" | "adjudicator" | "institution">): string {
+  if (entry.kind === "institution") return entry.institution?.name ?? "";
   return (entry.kind === "team" ? entry.team?.name : entry.adjudicator?.name) ?? "";
 }
