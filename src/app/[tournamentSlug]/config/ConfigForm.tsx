@@ -599,9 +599,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <option value="balanced">Balanced (prefer equalizing sides across rounds)</option>
                     <option value="random">Random</option>
                     <option value="preallocated">Preallocated (two-team; set per round on the Draw page)</option>
+                    <option value="manual_ballot" disabled={format === "bp"}>Chosen on the ballot (two-team; e.g. a coin toss)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Balanced: in two-team draws, the team that has been affirmative more often goes negative (ties at random); in BP, positions minimise the position cost below. Preallocated sides fix each team&apos;s side before the draw is made.
+                    Balanced: in two-team draws, the team that has been affirmative more often goes negative (ties at random); in BP, positions minimise the position cost below. Preallocated sides fix each team&apos;s side before the draw is made. Chosen on the ballot: the draw pairs teams without sides, and each ballot records which team took which side.
                   </p>
                 </div>
 

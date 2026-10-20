@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
 import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
-import { SideBadge } from "@/components/ui/SideBadge";
 import {
   Shuffle,
   Printer,
@@ -16,11 +15,8 @@ import {
   Search,
   Plus,
   Trash2,
-  GripVertical,
-  ArrowRightLeft,
-  X,
-  UserX,
   RefreshCw,
+  Table2,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
 import { csvFileStem, drawCsv } from "@/lib/csv/exporters";
@@ -32,7 +28,13 @@ import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseAct
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
 import { DrawCheckPanel } from "@/features/tournament/components/DrawCheckPanel";
+import { DrawTeamSlot } from "@/features/tournament/components/DrawTeamSlot";
+import { DrawDetailsPanel } from "@/features/tournament/components/DrawDetailsPanel";
+import { SwingTeamPanel } from "@/features/tournament/components/SwingTeamPanel";
 import { roundResults } from "@/features/tournament/application/draws";
+import { buildDrawDetails, computeDrawFlags, type DebateFlags } from "@/lib/draw/drawFlags";
+import { moveTeam, type PickedTeam, type TeamLocation } from "@/lib/draw/drawEditing";
+import { MANUAL_SIDES_FLAG, sidesPending } from "@/lib/draw/manualSides";
 
 export default function DrawPage() {
   const {
@@ -50,6 +52,8 @@ export default function DrawPage() {
     updateTeam,
     updateDebate,
     updateDebates,
+    addTeam,
+    teamStandings,
   } = useTournament();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -58,8 +62,11 @@ export default function DrawPage() {
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
 
-  // Drag & Drop state
-  const [draggingItem, setDraggingItem] = useState<TeamDragPayload | null>(null);
+  // Drag & drop, and keyboard/touch "pick, then place" editing
+  const [, setDraggingItem] = useState<TeamDragPayload | null>(null);
+  const [picked, setPicked] = useState<PickedTeam | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const [showDetails, setShowDetails] = useState(false);
   const [drawEditError, setDrawEditError] = useState("");
 
   /** Shows why a manual draw edit was refused (e.g. a debate that already has a ballot). */
@@ -70,6 +77,7 @@ export default function DrawPage() {
         await handler(...args);
       } catch (error) {
         setDraggingItem(null);
+        setPicked(null);
         setDrawEditError(error instanceof Error ? error.message : "Could not change the draw.");
       }
     };
@@ -113,33 +121,33 @@ export default function DrawPage() {
     return venueMatch || teamMatch;
   });
 
-  // Calculate Clashes for a debate
-  const getDebateClashes = (debate: Debate) => {
-    const debateTeams: Team[] = Object.values(debate.teams || {})
-      .map((slot) => (slot?.teamId ? teamsMap.get(slot.teamId) : undefined))
-      .filter((t): t is Team => t !== undefined);
+  const drawInput = useMemo(
+    () => tournament && activeRound
+      ? { tournament, round: activeRound, rounds, debates, ballots, teams, adjudicators, venues, standings: teamStandings }
+      : null,
+    [tournament, activeRound, rounds, debates, ballots, teams, adjudicators, venues, teamStandings]
+  );
+  const drawFlags = useMemo(
+    () => (drawInput && roundDebates.length > 0 ? computeDrawFlags(drawInput) : new Map<string, DebateFlags>()),
+    [drawInput, roundDebates.length]
+  );
+  const drawDetails = useMemo(() => (drawInput && showDetails ? buildDrawDetails(drawInput) : []), [drawInput, showDetails]);
+  const pointsByTeam = useMemo(() => new Map(teamStandings.map((row) => [row.teamId, row.points])), [teamStandings]);
+  const sidesOnBallot = !isBP && tournament?.preferences?.sideAllocationRule === "manual_ballot";
 
-    const teamClashes: string[] = [];
-
-    // 1. Team-Team Institutional Clashes
-    const instCounts = new Map<string, string[]>();
-    debateTeams.forEach((t) => {
-      const key = t.institutionId || (t.institutionName ? t.institutionName.toLowerCase() : null);
-      if (key) {
-        const existing = instCounts.get(key) || [];
-        existing.push(t.name);
-        instCounts.set(key, existing);
+  // Escape cancels a pick; switching rounds drops it.
+  useEffect(() => {
+    if (!picked) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPicked(null);
+        setAnnouncement("Move cancelled.");
       }
-    });
-
-    instCounts.forEach((teamNames) => {
-      if (teamNames.length > 1) {
-        teamClashes.push(`Same Institution: ${teamNames.join(" & ")}`);
-      }
-    });
-
-    return { teamClashes };
-  };
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [picked]);
+  useEffect(() => setPicked(null), [activeRound?.id]);
 
   // Generate draw
   const handleGenerate = async () => {
@@ -208,7 +216,8 @@ export default function DrawPage() {
       importance: 0,
       resultStatus: "none",
       sidesConfirmed: false,
-      flags: [],
+      // Sides chosen on the ballot apply to hand-built rooms too.
+      flags: sidesOnBallot ? [MANUAL_SIDES_FLAG] : [],
       teams: emptyTeams as any,
       adjudicators: {
         chairId: undefined,
@@ -306,20 +315,50 @@ export default function DrawPage() {
     }
   };
 
-  // Remove team from debate slot
-  const handleRemoveTeamFromSlot = reportingErrors(async (debateId: string, side: DebateSide) => {
-    const debate = roundDebates.find((d) => d.id === debateId);
-    if (!debate) return;
-
-    const updatedTeams = { ...debate.teams };
-    updatedTeams[side] = {
-      teamId: "",
-      teamName: "",
-      side,
-    };
-
-    await updateDebate({ ...debate, teams: updatedTeams });
+  /** Applies a move through the draw commands (state rules, live sync) and announces it. */
+  const applyMove = reportingErrors(async (pick: PickedTeam, target: TeamLocation) => {
+    if (
+      pick.from.kind === "slot" &&
+      target.kind === "slot" &&
+      pick.from.debateId !== target.debateId &&
+      activeRound?.stage === "elimination" &&
+      !getEligibleTeamsForRound(teams, activeRound).some((team) => team.id === pick.teamId)
+    ) {
+      setPicked(null);
+      setDrawEditError(`${pick.teamName} did not qualify for ${activeRound.name}.`);
+      return;
+    }
+    const move = moveTeam(debates, pick, target);
+    setPicked(null);
+    setDraggingItem(null);
+    if (!move.announcement) {
+      setAnnouncement("Nothing changed.");
+      return;
+    }
+    await updateDebates(move.debates);
+    setAnnouncement(move.announcement);
   });
+
+  const roomLabelFor = (debateId: string) => {
+    const debate = roundDebates.find((item) => item.id === debateId);
+    return debate?.venueName || `Room ${debate?.roomRank ?? ""}`;
+  };
+
+  const pickTeam = (pick: PickedTeam) => {
+    setDrawEditError("");
+    setPicked(pick);
+    setAnnouncement(
+      `${pick.teamName} picked${pick.from.kind === "slot" ? ` from ${roomLabelFor(pick.from.debateId)}` : " from the unassigned pool"}. ` +
+      "Choose Place here or Swap here on a slot" + (pick.from.kind === "slot" ? ", or return it to the pool" : "") +
+      ". Press Escape to cancel."
+    );
+  };
+
+  const handleRemoveTeamFromSlot = (debateId: string, side: DebateSide) => {
+    const slot = roundDebates.find((debate) => debate.id === debateId)?.teams[side];
+    if (!slot?.teamId) return;
+    void applyMove({ teamId: slot.teamId, teamName: slot.teamName, from: { kind: "slot", debateId, side } }, { kind: "pool" });
+  };
 
   // --- Drag and Drop Handlers ---
   const handleDragStartTeam = (
@@ -345,123 +384,30 @@ export default function DrawPage() {
     }
   };
 
-  const handleDropOnSlot = reportingErrors(async (
-    e: React.DragEvent,
-    targetDebateId: string,
-    targetSide: DebateSide
-  ) => {
+  const pickFromPayload = (e: React.DragEvent): PickedTeam | null => {
     e.preventDefault();
     setDragOverTarget(null);
-
     const raw = e.dataTransfer.getData("application/json");
-    if (!raw) return;
-    const payload = safeJsonParse<TeamDragPayload | null>(raw, null);
-    if (!payload) return;
+    const payload = raw ? safeJsonParse<TeamDragPayload | null>(raw, null) : null;
+    if (!payload) return null;
+    return {
+      teamId: payload.teamId,
+      teamName: payload.teamName,
+      from: payload.sourceType === "debate" && payload.debateId && payload.side
+        ? { kind: "slot", debateId: payload.debateId, side: payload.side }
+        : { kind: "pool" },
+    };
+  };
 
-    const targetDebate = roundDebates.find((d) => d.id === targetDebateId);
-    if (!targetDebate) return;
+  const handleDropOnSlot = (e: React.DragEvent, targetDebateId: string, targetSide: DebateSide) => {
+    const pick = pickFromPayload(e);
+    if (pick) void applyMove(pick, { kind: "slot", debateId: targetDebateId, side: targetSide });
+  };
 
-    const currentTargetSlot = targetDebate.teams[targetSide];
-    const targetHasTeam = Boolean(currentTargetSlot?.teamId);
-
-    // Case 1: Dragged from Unassigned Pool into a Slot
-    if (payload.sourceType === "unassigned") {
-      const updatedTargetTeams = { ...targetDebate.teams };
-      updatedTargetTeams[targetSide] = {
-        teamId: payload.teamId,
-        teamName: payload.teamName,
-        side: targetSide,
-      };
-
-      const updatedDebatesList = debates.map((d) =>
-        d.id === targetDebateId ? { ...d, teams: updatedTargetTeams } : d
-      );
-      await updateDebates(updatedDebatesList);
-      setDraggingItem(null);
-      return;
-    }
-
-    // Case 2: Dragged from another Debate Slot (or same debate, different slot)
-    if (payload.sourceType === "debate" && payload.debateId && payload.side) {
-      if (
-        activeRound?.stage === "elimination" &&
-        !getEligibleTeamsForRound(teams, activeRound).some((team) => team.id === payload.teamId)
-      ) {
-        setDraggingItem(null);
-        return;
-      }
-      const sourceDebateId = payload.debateId;
-      const sourceSide = payload.side;
-
-      // Same slot: do nothing
-      if (sourceDebateId === targetDebateId && sourceSide === targetSide) {
-        setDraggingItem(null);
-        return;
-      }
-
-      const sourceDebate = roundDebates.find((d) => d.id === sourceDebateId);
-      if (!sourceDebate) return;
-
-      // Swap logic:
-      const updatedDebatesList = debates.map((d) => {
-        if (d.id === sourceDebateId && d.id === targetDebateId) {
-          // Same debate, different sides (e.g. OG <-> OO)
-          const newTeams = { ...d.teams };
-          const srcTeam = newTeams[sourceSide];
-          const tgtTeam = newTeams[targetSide];
-
-          newTeams[sourceSide] = {
-            teamId: tgtTeam?.teamId || "",
-            teamName: tgtTeam?.teamName || "",
-            side: sourceSide,
-          };
-          newTeams[targetSide] = {
-            teamId: srcTeam?.teamId || "",
-            teamName: srcTeam?.teamName || "",
-            side: targetSide,
-          };
-          return { ...d, teams: newTeams };
-        } else if (d.id === sourceDebateId) {
-          // Source debate: place target's previous team here (or blank)
-          const newTeams = { ...d.teams };
-          newTeams[sourceSide] = {
-            teamId: currentTargetSlot?.teamId || "",
-            teamName: currentTargetSlot?.teamName || "",
-            side: sourceSide,
-          };
-          return { ...d, teams: newTeams };
-        } else if (d.id === targetDebateId) {
-          // Target debate: place dragged team here
-          const newTeams = { ...d.teams };
-          newTeams[targetSide] = {
-            teamId: payload.teamId,
-            teamName: payload.teamName,
-            side: targetSide,
-          };
-          return { ...d, teams: newTeams };
-        }
-        return d;
-      });
-
-      await updateDebates(updatedDebatesList);
-      setDraggingItem(null);
-    }
-  });
-
-  const handleDropOnUnassigned = reportingErrors(async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverTarget(null);
-
-    const raw = e.dataTransfer.getData("application/json");
-    if (!raw) return;
-    const payload = safeJsonParse<TeamDragPayload | null>(raw, null);
-    if (!payload) return;
-
-    if (payload.sourceType === "debate" && payload.debateId && payload.side) {
-      await handleRemoveTeamFromSlot(payload.debateId, payload.side);
-    }
-    setDraggingItem(null);
-  });
+  const handleDropOnUnassigned = (e: React.DragEvent) => {
+    const pick = pickFromPayload(e);
+    if (pick) void applyMove(pick, { kind: "pool" });
+  };
 
   const handleExportDrawCsv = () => {
     if (!tournament || !activeRound) return;
@@ -539,6 +485,18 @@ export default function DrawPage() {
           </button>
 
           <button
+            type="button"
+            onClick={() => setShowDetails((value) => !value)}
+            disabled={roundDebates.length === 0}
+            aria-pressed={showDetails}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
+            title="Per team: points, sides by round, previous opponents and pull-ups"
+          >
+            <Table2 className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{showDetails ? "Hide draw details" : "Draw details"}</span>
+          </button>
+
+          <button
             onClick={handleExportDrawCsv}
             disabled={roundDebates.length === 0}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
@@ -568,6 +526,16 @@ export default function DrawPage() {
         />
       )}
 
+      {tournament && activeRound && activeRound.stage === "preliminary" && (
+        <SwingTeamPanel
+          tournament={tournament}
+          round={activeRound}
+          teams={teams}
+          addTeam={addTeam}
+          updateTeam={(team) => updateTeam(team)}
+        />
+      )}
+
       {tournament && activeRound && (
         <DrawCheckPanel
           tournament={tournament}
@@ -577,7 +545,12 @@ export default function DrawPage() {
           teams={teams}
           adjudicators={adjudicators}
           venues={venues}
+          ballots={ballots}
         />
+      )}
+
+      {showDetails && drawDetails.length > 0 && (
+        <DrawDetailsPanel rows={drawDetails} sides={isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]} />
       )}
 
       {venueAssignmentError && (
@@ -589,6 +562,25 @@ export default function DrawPage() {
         <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {drawEditError}
         </p>
+      )}
+      <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
+      {picked && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900 shadow-sm">
+          <span>
+            <span className="font-bold">{picked.teamName}</span> picked. Choose <span className="font-semibold">Place here</span> or{" "}
+            <span className="font-semibold">Swap here</span> on a slot{picked.from.kind === "slot" ? ", or return it to the pool" : ""}.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setPicked(null);
+              setAnnouncement("Move cancelled.");
+            }}
+            className="rounded border border-blue-300 bg-white px-2 py-1 font-semibold text-blue-800 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
+            Cancel (Esc)
+          </button>
+        </div>
       )}
 
       {/* Round Selector Bar */}
@@ -647,6 +639,10 @@ export default function DrawPage() {
           onDragLeave={handleDragLeaveSlot}
           onDrop={handleDropOnUnassigned}
           onDragStart={handleDragStartTeam}
+          pickedTeamId={picked?.teamId}
+          pickedFromDebate={picked?.from.kind === "slot"}
+          onPick={(team) => pickTeam({ teamId: team.id, teamName: team.name, from: { kind: "pool" } })}
+          onReturnToPool={() => picked && void applyMove(picked, { kind: "pool" })}
         />
 
         {/* Search & Counter Filter */}
@@ -698,7 +694,10 @@ export default function DrawPage() {
       ) : (
         <div className="space-y-4">
           {filteredDebates.map((debate, dIdx) => {
-            const clashes = getDebateClashes(debate);
+            const flags = drawFlags.get(debate.id);
+            const pending = sidesPending(debate);
+            const errorCount = flags?.issues.filter((issue) => issue.severity === "error").length ?? 0;
+            const warningCount = (flags?.issues.length ?? 0) - errorCount;
             const assignedVenue = venues.find((venue) => venue.id === debate.venueId);
             const assignedVenueIssues = assignedVenue
               ? getVenueIncompatibilities(debate, assignedVenue)
@@ -754,22 +753,31 @@ export default function DrawPage() {
                       </select>
                     </div>
 
-                    {debate.bracket !== undefined && debate.bracket > 0 && (
-                      <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.2 rounded">
-                        Bracket: {debate.bracket} pts
+                    {activeRound?.stage !== "elimination" && (
+                      <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded" title="Points bracket of this debate">
+                        Bracket {debate.bracket ?? 0}
                       </span>
                     )}
-
-                    {/* Clash Badges */}
-                    {clashes.teamClashes.map((c, cIdx) => (
-                      <span
-                        key={cIdx}
-                        className="inline-flex items-center space-x-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded"
-                      >
-                        <AlertTriangle className="w-3 h-3 text-amber-600" />
-                        <span>{c}</span>
+                    <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded" title="Room rank (1 is the top room)">
+                      Room rank {debate.roomRank}
+                    </span>
+                    {pending && (
+                      <span className="text-[10px] font-semibold border border-dashed border-gray-400 text-gray-700 px-2 py-0.5 rounded" title="Sides are chosen on the ballot">
+                        Sides on ballot
                       </span>
-                    ))}
+                    )}
+                    {errorCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-800 bg-red-50 border border-red-300 px-2 py-0.5 rounded">
+                        <AlertTriangle className="w-3 h-3 text-red-600" aria-hidden="true" />
+                        {errorCount} problem{errorCount === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {warningCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded">
+                        <AlertTriangle className="w-3 h-3 text-amber-600" aria-hidden="true" />
+                        {warningCount} warning{warningCount === 1 ? "" : "s"}
+                      </span>
+                    )}
 
                   </div>
 
@@ -892,153 +900,49 @@ export default function DrawPage() {
                   </div>
                 </div>
 
-                {/* Matchup Grid (Interactive Drag & Drop Zones) */}
+                {/* Matchup grid: drag and drop, or Move then Place / Swap */}
+                {flags && flags.issues.length > 0 && (
+                  <ul className="mx-4 mt-3 space-y-0.5 text-[11px] text-gray-700" aria-label={`Draw check for ${debate.venueName || `Room ${dIdx + 1}`}`}>
+                    {flags.issues.map((issue: DebateFlags["issues"][number], index: number) => (
+                      <li key={`${issue.code}-${index}`}>
+                        <span className={`font-semibold ${issue.severity === "error" ? "text-red-700" : "text-amber-800"}`}>
+                          {issue.severity === "error" ? "Problem:" : "Warning:"}
+                        </span>{" "}
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {isBP ? (
-                    <>
-                      {(["OG", "OO", "CG", "CO"] as DebateSide[]).map((side) => {
-                        const slot = debate.teams?.[side];
-                        const hasTeam = Boolean(slot?.teamId);
-                        const teamData = slot?.teamId ? teamsMap.get(slot.teamId) : null;
-                        const dropKey = `${debate.id}-${side}`;
-                        const isHovered = dragOverTarget === dropKey;
-
-                        return (
-                          <div
-                            key={side}
-                            onDragOver={(e) => handleDragOverSlot(e, dropKey)}
-                            onDragLeave={(e) => handleDragLeaveSlot(e, dropKey)}
-                            onDrop={(e) => handleDropOnSlot(e, debate.id, side)}
-                            className={`p-2.5 rounded-lg border transition relative ${
-                              isHovered
-                                ? "bg-blue-50 border-blue-500 border-dashed ring-2 ring-blue-300"
-                                : side === "OG"
-                                ? "bg-rose-50/50 border-rose-200"
-                                : side === "OO"
-                                ? "bg-sky-50/50 border-sky-200"
-                                : side === "CG"
-                                ? "bg-amber-50/50 border-amber-200"
-                                : "bg-purple-50/50 border-purple-200"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <SideBadge side={side} />
-                              {hasTeam && (
-                                <button
-                                  onClick={() => handleRemoveTeamFromSlot(debate.id, side)}
-                                  className="text-gray-400 hover:text-red-600 p-0.5"
-                                  title="Remove team from slot"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-
-                            {hasTeam ? (
-                              <div
-                                draggable
-                                onDragStart={(e) =>
-                                  handleDragStartTeam(e, {
-                                    type: "team",
-                                    sourceType: "debate",
-                                    debateId: debate.id,
-                                    side,
-                                    teamId: slot.teamId,
-                                    teamName: slot.teamName,
-                                    institutionId: teamData?.institutionId,
-                                    institutionName: teamData?.institutionName,
-                                  })
-                                }
-                                className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/60 transition flex items-center justify-between"
-                              >
-                                <div>
-                                  <div className="font-bold text-gray-900 text-sm">{slot.teamName}</div>
-                                  <div className="text-[11px] text-gray-500">
-                                    {teamData?.institutionName || "Independent"}
-                                  </div>
-                                </div>
-                                <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              </div>
-                            ) : (
-                              <div className="h-10 flex items-center justify-center border border-dashed border-gray-300 rounded text-[11px] text-gray-400 italic">
-                                Drop Team Here
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  ) : (
-                    <>
-                      {(["AFF", "NEG"] as DebateSide[]).map((side) => {
-                        const slot = debate.teams?.[side];
-                        const hasTeam = Boolean(slot?.teamId);
-                        const teamData = slot?.teamId ? teamsMap.get(slot.teamId) : null;
-                        const dropKey = `${debate.id}-${side}`;
-                        const isHovered = dragOverTarget === dropKey;
-
-                        return (
-                          <div
-                            key={side}
-                            onDragOver={(e) => handleDragOverSlot(e, dropKey)}
-                            onDragLeave={(e) => handleDragLeaveSlot(e, dropKey)}
-                            onDrop={(e) => handleDropOnSlot(e, debate.id, side)}
-                            className={`p-3 rounded-lg border md:col-span-2 transition relative ${
-                              isHovered
-                                ? "bg-blue-50 border-blue-500 border-dashed ring-2 ring-blue-300"
-                                : side === "AFF"
-                                ? "bg-emerald-50/50 border-emerald-200"
-                                : "bg-slate-50 border-slate-200"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <SideBadge side={side} />
-                              {hasTeam && (
-                                <button
-                                  onClick={() => handleRemoveTeamFromSlot(debate.id, side)}
-                                  className="text-gray-400 hover:text-red-600 p-0.5"
-                                  title="Remove team from slot"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-
-                            {hasTeam ? (
-                              <div
-                                draggable
-                                onDragStart={(e) =>
-                                  handleDragStartTeam(e, {
-                                    type: "team",
-                                    sourceType: "debate",
-                                    debateId: debate.id,
-                                    side,
-                                    teamId: slot.teamId,
-                                    teamName: slot.teamName,
-                                    institutionId: teamData?.institutionId,
-                                    institutionName: teamData?.institutionName,
-                                  })
-                                }
-                                className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-white/60 transition flex items-center justify-between"
-                              >
-                                <div>
-                                  <div className="font-bold text-gray-900 text-base">{slot.teamName}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {teamData?.institutionName || "Independent"}
-                                  </div>
-                                </div>
-                                <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
-                              </div>
-                            ) : (
-                              <div className="h-12 flex items-center justify-center border border-dashed border-gray-300 rounded text-xs text-gray-400 italic">
-                                Drop Team Here
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
+                  {(isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side, sideIndex) => {
+                    const slot = debate.teams?.[side];
+                    const dropKey = `${debate.id}-${side}`;
+                    const location: TeamLocation = { kind: "slot", debateId: debate.id, side };
+                    return (
+                      <DrawTeamSlot
+                        key={side}
+                        debateId={debate.id}
+                        side={side}
+                        pendingLabel={pending ? `Team ${sideIndex + 1}` : undefined}
+                        roomLabel={debate.venueName || `Room ${dIdx + 1}`}
+                        slot={slot}
+                        team={slot?.teamId ? teamsMap.get(slot.teamId) : undefined}
+                        points={slot?.teamId ? pointsByTeam.get(slot.teamId) : undefined}
+                        flags={(slot?.teamId && flags?.teams[slot.teamId]) || []}
+                        compact={isBP}
+                        isDragTarget={dragOverTarget === dropKey}
+                        isPicked={Boolean(picked && picked.from.kind === "slot" && picked.from.debateId === debate.id && picked.from.side === side)}
+                        pickActive={Boolean(picked)}
+                        onPick={() => slot?.teamId && pickTeam({ teamId: slot.teamId, teamName: slot.teamName, from: location })}
+                        onPlace={() => picked && void applyMove(picked, location)}
+                        onRemove={() => handleRemoveTeamFromSlot(debate.id, side)}
+                        onDragStart={handleDragStartTeam}
+                        onDragOver={(e) => handleDragOverSlot(e, dropKey)}
+                        onDragLeave={(e) => handleDragLeaveSlot(e, dropKey)}
+                        onDrop={(e) => handleDropOnSlot(e, debate.id, side)}
+                      />
+                    );
+                  })}
                 </div>
 
               </div>

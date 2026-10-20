@@ -1,4 +1,5 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { applyBallotSides } from "@/lib/draw/manualSides";
 import {
   Tournament,
   Team,
@@ -86,6 +87,16 @@ export function calculateStandings(
   });
   const ballotMap = new Map<string, BallotSubmission>();
   validBallots.forEach((b) => ballotMap.set(b.debateId, b));
+  // Sides chosen on the ballot (manual-ballot side allocation) are read from the confirmed ballot.
+  debates = debates.map((debate) => {
+    const ballot = ballotMap.get(debate.id);
+    return ballot ? applyBallotSides(debate, ballot) : debate;
+  });
+  // Swing teams' results count for their opponents, but the teams and their speakers are not ranked.
+  const swingTeamIds = new Set(teams.filter((team) => team.isSwing).map((team) => team.id));
+  const swingSpeakerIds = new Set(
+    teams.filter((team) => team.isSwing).flatMap((team) => (team.speakers || []).map((speaker) => speaker.id))
+  );
 
   const isReplyPosition = tournament.preferences?.replyScoresEnabled && !isBP;
   const substantiveSpeakersPerTeam = tournament.preferences?.substantiveSpeakers ?? (isBP ? 2 : 3);
@@ -268,7 +279,7 @@ export function calculateStandings(
   const teamPrecedence = resolveTeamPrecedence(tournament.format, tournament.preferences);
   const ctx = { opponentWins, opponentSpeaksSum };
 
-  const teamList = Array.from(teamRowsMap.values());
+  const teamList = Array.from(teamRowsMap.values()).filter((row) => !swingTeamIds.has(row.teamId));
   for (const row of teamList) {
     row.metrics = computeTeamMetrics(teamRoundAccum.get(row.teamId)!, ctx);
   }
@@ -299,6 +310,7 @@ export function calculateStandings(
   const speakerScoresByRound = new Map<string, { substantive: number[]; reply: number[] }>();
 
   for (const team of teams) {
+    if (team.isSwing) continue;
     for (const spk of team.speakers || []) {
       speakerRowsMap.set(spk.id, {
         rank: 0,
@@ -327,6 +339,7 @@ export function calculateStandings(
       const counted = new Set(countedSubstantiveSpeeches(scoresList, Boolean(isReplyPosition)));
       for (const entry of scoresList) {
         if (!entry.speakerId || !entry.score) continue;
+        if (swingSpeakerIds.has(entry.speakerId)) continue;
         const isReply = Boolean(isReplyPosition && entry.position === 4);
         // Ghost (iron-person) speeches never count in the speaker tab.
         if (!isReply && !counted.has(entry)) continue;

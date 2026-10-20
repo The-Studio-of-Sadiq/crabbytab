@@ -12,6 +12,7 @@ import type {
 } from "@/types";
 import type { GenerateDrawParams } from "@/lib/draw/generator";
 import { randomSeed } from "@/lib/draw/rng";
+import { resolveRecordedSides } from "@/lib/draw/manualSides";
 import { applyGuards, checkDrawGeneration, type RuleOverride } from "./stateGuards";
 
 export interface DrawAuditEvent {
@@ -160,7 +161,8 @@ export async function generateDrawCommand(
       .filter((item) => !item.cancelled && item.seq < round.seq)
       .map((item) => item.id)
   );
-  const pastDebates = debates.filter((debate) => previousRoundIds.has(debate.roundId));
+  // Sides recorded on confirmed ballots (manual-ballot sides) count in the side history.
+  const pastDebates = resolveRecordedSides(debates.filter((debate) => previousRoundIds.has(debate.roundId)), ballots);
   // Recorded on the round so this exact draw can be reproduced from the same inputs.
   const seed = randomSeed();
   const generated = withGenerationIds(await dependencies.generateRoundDraw({

@@ -19,6 +19,7 @@ import { eliminationRoomCount, planEliminationRound, resolveBracketPositions } f
 import { createSeededRng, randomInt, randomSeed, Rng, shuffle } from "./rng";
 import { sameInstitution } from "./history";
 import { allocateVenuesToDebates } from "./venueAllocator";
+import { MANUAL_SIDES_FLAG, sidesPending } from "./manualSides";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 
 export interface GenerateDrawParams {
@@ -36,18 +37,19 @@ export interface GenerateDrawParams {
 export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Team[] {
   if (!round) return teams;
 
-  let eligibleTeams = teams;
-  if (round.stage === "elimination") {
-    const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
-    if (!breakHasBeenGenerated) {
-      eligibleTeams = teams;
-    } else if (round.breakCategoryIds) {
+  // A swing team is drawn only in the preliminary rounds it was formed for.
+  let eligibleTeams = teams.filter(
+    (team) => !team.isSwing || (round.stage === "preliminary" && Boolean(team.swingRoundIds?.includes(round.id)))
+  );
+  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
+  if (round.stage === "elimination" && breakHasBeenGenerated) {
+    if (round.breakCategoryIds) {
       const categoryIds = new Set(round.breakCategoryIds);
-      eligibleTeams = teams.filter(
+      eligibleTeams = eligibleTeams.filter(
         (team) => team.breakStatus === "breaking" && team.breakCategoryIds?.some((id) => categoryIds.has(id))
       );
     } else {
-      eligibleTeams = teams.filter((team) => team.breakStatus === "breaking");
+      eligibleTeams = eligibleTeams.filter((team) => team.breakStatus === "breaking");
     }
   }
 
@@ -141,7 +143,9 @@ function groupRandomTeams(
 
 /**
  * Builds the matchup graph, side histories (oldest first) and pull-up counts
- * from past debates. Byes and postponed debates are not meetings.
+ * from past debates. Byes and postponed debates are not meetings. A debate whose sides are still to
+ * be recorded on its ballot (manual-ballot sides) is a meeting but adds no side to the history:
+ * pass debates through `resolveRecordedSides` first so confirmed ballots supply their sides.
  */
 export function buildMatchupHistory(debates: Debate[]): MatchupHistory {
   const opponents = new Map<string, Set<string>>();
@@ -157,11 +161,12 @@ export function buildMatchupHistory(debates: Debate[]): MatchupHistory {
     if (d.byeTeamId) continue;
     const teamSlots = Object.values(d.teams).filter((t) => t && t.teamId);
     const hasPullup = teamSlots.some((slot) => slot.pulledUp);
+    const sidesKnown = !sidesPending(d);
     for (const t1 of teamSlots) {
       if (!opponents.has(t1.teamId)) opponents.set(t1.teamId, new Set());
       if (!sides.has(t1.teamId)) sides.set(t1.teamId, []);
       if (!meetings.has(t1.teamId)) meetings.set(t1.teamId, new Map());
-      sides.get(t1.teamId)!.push(t1.side);
+      if (sidesKnown) sides.get(t1.teamId)!.push(t1.side);
       if (t1.pulledUp) increment(pullups, t1.teamId);
       if (hasPullup) increment(pullupDebates, t1.teamId);
 
@@ -232,12 +237,14 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     byeMethod !== "none"
   ) {
     const excess = activeTeams.length % teamsPerDebate;
+    // A swing team was formed to debate, so it never takes the bye.
+    const byeCandidates = activeTeams.filter((team) => !team.isSwing);
     if (byeMethod === "random") {
-      const shuffled = shuffle(activeTeams, rng);
+      const shuffled = shuffle(byeCandidates, rng);
       byeTeams = shuffled.slice(0, excess);
     } else if (byeMethod === "lowest_ranked") {
       const standingMap = new Map(standings.map((s) => [s.teamId, s.rank ?? 9999]));
-      const sorted = [...activeTeams].sort((a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999));
+      const sorted = [...byeCandidates].sort((a, b) => (standingMap.get(b.id) ?? 9999) - (standingMap.get(a.id) ?? 9999));
       byeTeams = sorted.slice(0, excess);
     }
     const byeIds = new Set(byeTeams.map((team) => team.id));
@@ -262,22 +269,30 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   if (sideRule === "preallocated" && isBP && round.stage !== "elimination" && round.drawType !== "manual") {
     throw new Error("Preallocated sides are only supported for two-team formats. Choose balanced or random sides for BP.");
   }
+  // Manual-ballot sides: teams are paired without sides (the ballot records them), so no side
+  // rule or side limit shapes the pairing; the debate lists its teams in the pairing's order.
+  const sidesOnBallot = sideRule === "manual_ballot";
+  if (sidesOnBallot && isBP) {
+    throw new Error("Sides chosen on the ballot are only supported for two-team formats. Choose balanced or random sides for BP.");
+  }
   // Rounds that are not two-team power-paired/random/seeded draws treat preallocated as balanced.
-  const nonPreallocatedSideRule = sideRule === "preallocated" ? "balanced" : sideRule;
+  const nonPreallocatedSideRule = sideRule === "preallocated" || sidesOnBallot ? "balanced" : sideRule;
+  const sideLimits = sidesOnBallot
+    ? { maxTimesPerSide: Number.POSITIVE_INFINITY, maxAllowedSideImbalance: 0 }
+    : { maxTimesPerSide: preferences?.maxTimesPerSide, maxAllowedSideImbalance: preferences?.maxAllowedSideImbalance };
   const sideAllocationOptions: SideAllocationOptions = {
     bpPositionCost: preferences?.bpPositionCost,
     renyiOrder: preferences?.renyiOrder,
     bpPositionCostExponent: preferences?.bpPositionCostExponent,
     bpAssignmentMethod: preferences?.bpAssignmentMethod,
-    maxTimesPerSide: preferences?.maxTimesPerSide,
-    maxAllowedSideImbalance: preferences?.maxAllowedSideImbalance,
+    ...sideLimits,
   };
   const twoTeamConfig: Partial<TwoTeamDrawConfig> = {
     pairingMethod: preferences?.pairingMethod,
     oddBracketMethod: preferences?.oddBracketMethod,
     conflictAvoidance: preferences?.conflictAvoidance,
     pullupRestriction: preferences?.pullupRestriction,
-    sideRule,
+    sideRule: sidesOnBallot ? "balanced" : sideRule,
     preallocatedSides: round.preallocatedSides,
     penalties: {
       repeatMatchupPenalty: preferences?.avoidTeamHistory === false
@@ -287,12 +302,15 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         ? 0
         : (preferences?.teamInstitutionPenalty ?? preferences?.institutionClashPenalty ?? 200),
     },
-    sideBalancePenalty: preferences?.sideBalancePenalty,
+    sideBalancePenalty: sidesOnBallot ? 0 : preferences?.sideBalancePenalty,
     pairingDeviationPenalty: preferences?.pairingDeviationPenalty,
     previouslySawPullupPenalty: preferences?.previouslySawPullupPenalty,
-    maxTimesPerSide: preferences?.maxTimesPerSide,
-    maxAllowedSideImbalance: preferences?.maxAllowedSideImbalance,
+    ...sideLimits,
   };
+  const markSidesOnBallot = (debates: Debate[]): Debate[] =>
+    sidesOnBallot
+      ? debates.map((debate) => ({ ...debate, sidesConfirmed: false, flags: [...debate.flags, MANUAL_SIDES_FLAG] }))
+      : debates;
 
   // Handle Manual draw: create empty debates with room ranks and venues
   if (round.drawType === "manual") {
@@ -336,7 +354,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
 
     return [
-      ...assignVenues(debates, availableVenues),
+      ...markSidesOnBallot(assignVenues(debates, availableVenues)),
       ...createByeDebates(byeTeams, debates.length, tournament, round, isBP),
     ];
   }
@@ -503,7 +521,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     return debateObj;
   });
   return [
-    ...assignVenues(generatedDebates, availableVenues),
+    ...markSidesOnBallot(assignVenues(generatedDebates, availableVenues)),
     ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
     ...createEliminationByeDebates(eliminationByes, generatedDebates.length, tournament, round, isBP),
   ];

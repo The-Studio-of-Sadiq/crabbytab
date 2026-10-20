@@ -150,6 +150,7 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       enableMotionVetoes: true,
       teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
       standingsMissedDebates: 2,
+      sideAllocationRule: "manual_ballot",
     });
     const joynt = getRulesPreset("joynt")!;
     expect(rulesPresetPreferences(joynt)).toMatchObject({

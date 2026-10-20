@@ -98,8 +98,9 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     ...safe
   }: Adjudicator) => safe;
 
-  const addInstitutions = async (data: Omit<Institution, "id" | "tournamentId">[]) => {
-    if (data.length === 0) return;
+  /** Returns the created records (with their new ids). */
+  const addInstitutions = async (data: Omit<Institution, "id" | "tournamentId">[]): Promise<Institution[]> => {
+    if (data.length === 0) return [];
     const created = data.map((item) => ({ ...item, id: createId("inst"), tournamentId }));
     repositories.institutions.save([...institutions, ...created]);
     for (const institution of created) {
@@ -115,6 +116,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
         },
       });
     }
+    return created;
   };
 
   const updateInstitution = async (institution: Institution) => {
@@ -148,8 +150,9 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     });
   };
 
-  const addTeams = async (data: Omit<Team, "id" | "tournamentId">[]) => {
-    if (data.length === 0) return;
+  /** Returns the created records (with their new ids and private URL keys). */
+  const addTeams = async (data: Omit<Team, "id" | "tournamentId">[]): Promise<Team[]> => {
+    if (data.length === 0) return [];
     const created = data.map((item) => ({
       ...item,
       id: createId("team"),
@@ -172,6 +175,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
         },
       });
     }
+    return created;
   };
 
   const updateTeam = async (team: Team) => {
@@ -215,8 +219,9 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     });
   };
 
-  const addAdjudicators = async (data: Omit<Adjudicator, "id" | "tournamentId">[]) => {
-    if (data.length === 0) return;
+  /** Returns the created records (with their new ids and private URL keys). */
+  const addAdjudicators = async (data: Omit<Adjudicator, "id" | "tournamentId">[]): Promise<Adjudicator[]> => {
+    if (data.length === 0) return [];
     const created = data.map((item) => ({
       ...item,
       id: createId("adj"),
@@ -240,6 +245,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
         },
       });
     }
+    return created;
   };
 
   /**

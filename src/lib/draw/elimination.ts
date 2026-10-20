@@ -1,4 +1,5 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { applyBallotSides } from "./manualSides";
 import { Team, Debate, BallotSubmission, DebateSide, DebateTeamSlot, TournamentFormat } from "@/types";
 
 export interface EliminationRoomDraft {
@@ -39,7 +40,8 @@ export function getAdvancingTeamIds(
   );
   const advancingTeamIds = new Set<string>();
 
-  for (const debate of debates) {
+  for (const drawnDebate of debates) {
+    let debate = drawnDebate;
     // Partial-elimination byes advance without a ballot.
     if (debate.byeTeamId) {
       advancingTeamIds.add(debate.byeTeamId);
@@ -47,6 +49,7 @@ export function getAdvancingTeamIds(
     }
     const ballot = ballotByDebateId.get(debate.id);
     if (!ballot) throw new Error(`A confirmed ballot is required for ${debate.venueName || debate.id}.`);
+    debate = applyBallotSides(debate, ballot);
     if (!ballotMatchesDebate(ballot, debate)) {
       throw new Error(
         `The confirmed ballot for ${debate.venueName || debate.id} names different teams from the draw. ` +

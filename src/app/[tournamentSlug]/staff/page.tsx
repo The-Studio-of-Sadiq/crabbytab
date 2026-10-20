@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Shield, Trash2, UserPlus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
+import { StaffInvitationsPanel } from "@/features/tournament/components/StaffInvitationsPanel";
 
 interface StaffMember {
   uid: string;
@@ -117,7 +118,7 @@ export default function StaffPage() {
   };
 
   if (authLoading || loading) return <p className="p-6 text-sm text-gray-600">Loading staff…</p>;
-  if (!user || !isOwnerOrAdmin) {
+  if (!user || !tournament || !isOwnerOrAdmin) {
     return <p role="alert" className="p-6 text-sm text-red-700">Sign in as a tournament administrator to manage access.</p>;
   }
 
@@ -129,11 +130,14 @@ export default function StaffPage() {
           Tournament access
         </h1>
         <p className="mt-1 text-sm text-gray-600">
-          Assign existing Firebase Authentication accounts as administrators or data-entry staff for this tournament only.
+          Invite people by email, or assign existing accounts directly, as administrators or data-entry staff for this tournament only.
         </p>
       </header>
 
+      <StaffInvitationsPanel tournamentId={tournament.id} user={user} />
+
       <form onSubmit={addStaff} className="max-w-2xl space-y-3 border-b border-gray-200 pb-6">
+        <h2 className="text-sm font-bold text-gray-900">Assign existing accounts</h2>
         <label className="block text-sm font-medium text-gray-800">
           Existing account email addresses
           <textarea
@@ -147,7 +151,7 @@ export default function StaffPage() {
           />
         </label>
         <p id="staff-email-help" className="text-xs text-gray-600">
-          Enter one or more emails, separated by spaces, commas, semicolons, or new lines. Accounts must already exist.
+          Enter one or more emails, separated by spaces, commas, semicolons, or new lines. Accounts must already exist; invite anyone else above.
         </p>
         <label className="block max-w-xs text-sm font-medium text-gray-800">
           Tournament role

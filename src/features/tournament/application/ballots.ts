@@ -1,4 +1,5 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { applyBallotSides, MANUAL_SIDES_FLAG } from "@/lib/draw/manualSides";
 import type {
   AuditCategory,
   BallotSubmission,
@@ -213,7 +214,9 @@ async function confirmCheckedBallot(
   }
   dependencies.repository.saveBallots(updatedBallots);
 
-  const updatedTeams = { ...debate.teams };
+  // Sides chosen on the ballot (manual-ballot sides) become the debate's sides once confirmed.
+  const sidedDebate = applyBallotSides(debate, confirmedBallot);
+  const updatedTeams = { ...sidedDebate.teams };
   for (const [key, slot] of Object.entries(updatedTeams)) {
     const side = key as DebateSide;
     if (!slot?.teamId) continue;
@@ -229,7 +232,7 @@ async function confirmCheckedBallot(
   }
   dependencies.repository.saveDebates(
     dependencies.debates.map((item) =>
-      item.id === debateId ? { ...debate, resultStatus: "confirmed" as const, teams: updatedTeams } : item
+      item.id === debateId ? { ...sidedDebate, resultStatus: "confirmed" as const, teams: updatedTeams } : item
     )
   );
 
@@ -287,7 +290,13 @@ export async function discardBallotCommand(
     dependencies.repository.saveDebates(
       dependencies.debates.map((item) =>
         item.id === debate.id
-          ? { ...item, teams, resultStatus: remaining.length > 0 ? "draft" : "none" }
+          ? {
+              ...item,
+              teams,
+              resultStatus: remaining.length > 0 ? "draft" : "none",
+              // Sides chosen on the ballot are open again until another version is confirmed.
+              ...(item.flags?.includes(MANUAL_SIDES_FLAG) ? { sidesConfirmed: false } : {}),
+            }
           : item
       )
     );

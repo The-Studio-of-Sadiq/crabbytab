@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
 import { consensusTeamScores } from "@/lib/ballots/result";
+import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
@@ -172,6 +173,9 @@ export default function AdjudicatorPrivatePortalPage() {
   // In-portal Ballot Modal State
   const [showBallotModal, setShowBallotModal] = useState(false);
   const [ballotDebate, setBallotDebate] = useState<Debate | null>(null);
+  /** Sides chosen on the ballot: the debate as drawn, and whether the chair has recorded the sides. */
+  const [ballotDrawnDebate, setBallotDrawnDebate] = useState<Debate | null>(null);
+  const [ballotSidesChosen, setBallotSidesChosen] = useState(true);
   const [ballotScores, setBallotScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }[]>>({});
   const [ballotReplyScores, setBallotReplyScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }>>({});
   const [ballotRanks, setBallotRanks] = useState<Record<string, number>>({});
@@ -349,13 +353,31 @@ export default function AdjudicatorPrivatePortalPage() {
   };
 
   // Open in-portal ballot modal
-  const handleOpenBallotModal = (debate: Debate) => {
+  const handleOpenBallotModal = (drawnDebate: Debate, chosenAffTeamId?: string) => {
+    // Initialize from confirmed or draft ballot if exists
+    const existingBallot = ballots.find((b) => b.debateId === drawnDebate.id && !b.discarded);
+    // Sides chosen on the ballot: arrange the debate as the chair recorded it (or as an earlier
+    // ballot / a confirmed result did); until then the chair must pick the sides first.
+    let debate = drawnDebate;
+    let sidesChosen = true;
+    if (sidesChosenOnBallot(drawnDebate)) {
+      const affTeamId = chosenAffTeamId ?? existingBallot?.teamScores?.AFF?.teamId ??
+        (drawnDebate.sidesConfirmed ? drawnDebate.teams.AFF?.teamId : undefined);
+      const negTeamId = [drawnDebate.teams.AFF?.teamId, drawnDebate.teams.NEG?.teamId].find((id) => id && id !== affTeamId);
+      const assignment = { AFF: affTeamId, NEG: negTeamId };
+      sidesChosen = Boolean(affTeamId) && isSidePermutation(drawnDebate, assignment);
+      if (sidesChosen) debate = arrangeDebateSides(drawnDebate, assignment);
+    }
+    // A ballot recorded with other sides than the ones just chosen does not prefill the scores.
+    const existing = existingBallot && existingBallot.teamScores?.AFF?.teamId === debate.teams.AFF?.teamId
+      ? existingBallot
+      : undefined;
+    setBallotDrawnDebate(drawnDebate);
+    setBallotSidesChosen(sidesChosen);
     setBallotDebate(debate);
-    setBallotMotionId(debate.motionId || "");
+    if (!chosenAffTeamId) setBallotMotionId(debate.motionId || "");
     setBallotError("");
 
-    // Initialize from confirmed or draft ballot if exists
-    const existing = ballots.find((b) => b.debateId === debate.id && !b.discarded);
     const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
     const initScores: Record<string, { speakerId: string; speakerName: string; score: number }[]> = {};
@@ -405,6 +427,10 @@ export default function AdjudicatorPrivatePortalPage() {
     e.preventDefault();
     if (!ballotDebate || !adjudicator) return;
     setBallotError("");
+    if (!ballotSidesChosen) {
+      setBallotError(t("adjPortal.ballot.chooseSides"));
+      return;
+    }
 
     // Validate scores
     const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
@@ -898,11 +924,11 @@ export default function AdjudicatorPrivatePortalPage() {
                         ) : (
                           <>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; {t("side.AFF")}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>AFF &bull; {t("side.AFF")}</>}</span>
                               <span className="font-bold text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                             </div>
                             <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; {t("side.NEG")}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesPending(debate) ? t("common.sidesTbc") : <>NEG &bull; {t("side.NEG")}</>}</span>
                               <span className="font-bold text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                             </div>
                           </>
@@ -1212,7 +1238,24 @@ export default function AdjudicatorPrivatePortalPage() {
             )}
 
             <form onSubmit={handleSubmitBallotFromPortal} className="space-y-5 text-xs">
-              {(isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side) => {
+              {ballotDrawnDebate && sidesChosenOnBallot(ballotDrawnDebate) && (
+                <fieldset className="space-y-2 rounded border border-blue-200 bg-blue-50/60 p-3">
+                  <legend className="px-1 font-bold text-gray-800">{t("adjPortal.ballot.sidesLegend")}</legend>
+                  {!ballotSidesChosen && <p className="text-[11px] text-gray-700">{t("adjPortal.ballot.chooseSides")}</p>}
+                  {[ballotDrawnDebate.teams.AFF, ballotDrawnDebate.teams.NEG].map((slot) => slot?.teamId && (
+                    <label key={slot.teamId} className="flex items-center gap-2 font-semibold text-gray-800">
+                      <input
+                        type="radio"
+                        name="portal-affirmative-team"
+                        checked={ballotSidesChosen && ballotDebate.teams.AFF?.teamId === slot.teamId}
+                        onChange={() => handleOpenBallotModal(ballotDrawnDebate, slot.teamId)}
+                      />
+                      {t("adjPortal.ballot.affirmativeWas", { team: slot.teamName })}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              {ballotSidesChosen && (isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side) => {
                 const teamSlot = ballotDebate.teams[side];
                 const spks = ballotScores[side] || [];
                 const reply = ballotReplyScores[side];
