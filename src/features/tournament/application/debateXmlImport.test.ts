@@ -316,7 +316,9 @@ describe("DebateXML import", () => {
       debates: 3,
       byes: 1,
       ballots: 2,
-      votingBallots: 1,
+      // Both debates are voting ballots: the sole-adjudicator debate becomes a one-sheet voting
+      // ballot (one vote of one), as Tabbycat records it, because the archive's stage is voting.
+      votingBallots: 2,
       feedback: 2,
       feedbackQuestions: 7,
     });
@@ -355,12 +357,17 @@ describe("DebateXML import", () => {
     expect(votingBallot.teamScores).toEqual(originalVoting.teamScores);
     expect(votingBallot.speakerScores).toEqual(originalVoting.speakerScores);
 
+    // A sole adjudicator in a voting tournament: one scoresheet, one vote of one (as in Tabbycat).
     const consensus = collections.ballots.find((ballot) => ballot.debateId === debateTwo.id)!;
-    expect(consensus.sheets).toBeUndefined();
+    expect(consensus.sheets?.map((sheet) => sheet.adjudicatorId)).toEqual(["adj-4"]);
     expect(consensus.speakerScores.AFF[2]).toMatchObject({ speakerId: "team-c-s1", position: 3, ghost: true });
     expect(consensus.speakerScores.AFF[3]).toMatchObject({ speakerId: "team-c-s1", position: 4, score: 35 });
     expect(consensus.speakerScores.AFF[3].ghost).toBeUndefined();
-    expect(consensus.teamScores).toEqual(original.ballots[1].teamScores);
+    for (const side of ["AFF", "NEG"] as const) {
+      const { votes, ...result } = consensus.teamScores[side];
+      expect(result).toEqual(original.ballots[1].teamScores[side]);
+      expect(votes).toBe(consensus.teamScores[side].win ? 1 : 0);
+    }
     expect(debateTwo.teams.NEG).toMatchObject({ points: 1, speakerScoreTotal: 259 });
 
     const [roundOne, final] = collections.rounds;

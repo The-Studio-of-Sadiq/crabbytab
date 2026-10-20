@@ -183,13 +183,92 @@ questions, configurable paths, base-score history (*done: see
 ("Sides chosen on the ballot", "Swing teams", "Draw editor"). Tabbycat has no automatic swing
 exclusion; CrabbyTab leaves swing teams out of standings and breaks itself.*
 
-**Wave 4 — P3/P4.** #18 WADL and AIDA 2019 break rules; #19 1000-team two-team allocation speed
+**Wave 4 — P3/P4 (not implemented yet; see the corrections in "B. Wave 4 corrections" below).** #18 AIDA 2019 break rule (WADL dropped: not in Tabbycat); #19 1000-team two-team allocation speed
 (7–18 s/round) and sharding; #20 soft ranked venue constraints, per-round venue availability,
 team-declared institution conflicts; #21 editable notification templates, motion/standings
 release emails; #22 design rollout to every page, dark mode everywhere, keyboard drag-and-drop;
 #23 admin-UI translations and more languages; #24 broader API (teams, results, standings);
 #25 diversity statistics, public veto stats; #26 optional public (non-private-URL) ballot and
 feedback forms.
+
+## Source-level audit against Tabbycat v2.12.1 (2026-10-20, `beta` 4c5a70c)
+
+Tabbycat's feature set was extracted mechanically from its **source** (v2.12.1): 170 tournament
+preferences, 315 URL routes (66 REST endpoints), 76 models, every standings metric, break rule,
+allocator, draw generator and notification event, 34 management commands and 29 locales. Each
+item was checked against CrabbyTab's code; "missing" required search evidence. Coverage:
+tab-room preferences 45 HAVE / 17 PARTIAL / 16 MISSING / 3 different-design (of 81);
+operations/public preferences 17 / 21 / 38 / 11 (of 88); non-API routes ≈175 HAVE / ≈45 MISSING;
+REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4/5; team metrics
+13/18; speaker metrics 6/17; locales 2/28.
+
+### A. Defects — fixed in the source-audit PR
+- **Voting averages rounded to 0.01** (`src/lib/ballots/result.ts`): averaged speaker scores,
+  margins and team totals are now exact (only float noise is stripped); team totals are the mean
+  of the majority sheets' totals. The Tabbycat harness now matches the voting fixture's standings
+  2800/2800 (was 2602/2800); the 224/3 speaker tie is shared as in Tabbycat.
+- **DebateXML: sole-adjudicator ballots in voting stages carried no votes**: the importer now
+  decides each stage's ballot mode from the archive (per-adjudicator sheets → voting; a
+  panel-signed ballot → consensus; no evidence → Tabbycat's default, voting) and imports a sole
+  adjudicator's sheet as a one-sheet voting ballot. `twoteam-odd-ties` standings now 2644/2644.
+- **`preliminaryPanelsPerScheduleSlot` did nothing** but its help text claimed behaviour: removed
+  from the config UI; the stored field is kept (deprecated) so saved settings load. The real
+  feature is wave 5 "concurrent rounds and schedule".
+- **Verified NOT a defect: public toggles default on.** `publicDraw/Results/Standings/Motions`
+  default to on (Tabbycat: off), but every public item is double-gated by an explicit per-round or
+  per-item release (draw release, `resultsReleased`, team-speaks release, per-motion release), so
+  nothing is public until the tab room releases it. Left as a deliberate default.
+
+### B. Wave 4 corrections (wave 4 is not implemented yet)
+- **#18**: drop WADL — it is not in Tabbycat v2.12.1 (only in historical migrations). Keep
+  `aida-2019-australs-open` (cap 3, +1 per 8 teams beyond a 16-team break; `breakqual/aida.py`).
+- **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry.
+- **#21**: include Reply-To, the "ballot confirmed" event (CrabbyTab only notifies on submission),
+  and per-tournament saved templates for the 8 automatic emails.
+- **#24 is underscoped**: Tabbycat's API is full read/write (66 endpoints: tournaments, rounds,
+  motions, pairings + generate-draw, ballots, availabilities, check-ins, break eligibility +
+  generate-break, speaker categories, teams/adjudicators/speakers/venues CRUD and standings,
+  preformed panels, feedback, `/me`). Plan read **and** write endpoints with scoped tokens.
+- **#25**: diversity statistics for both admin and public views.
+
+### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
+**High (results or whole formats):**
+1. Round weights (points multiplied per round; Tabbycat `Round.weight`, `standings/teams.py:76`).
+2. Median score aggregation across adjudicators (`score_aggregation_function`).
+3. Ballots without speaker scores — prelim-only / never (`speakers_in_ballots`).
+4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`).
+5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`).
+6. Speaker-tab metrics: team points, team wins, 1sts/2nds/3rds, num_adjs, srank, replies count/stddev.
+7. Odd-bracket methods `pullup_lowest_ds_rank(_npulls)`; `graph_one` conflict avoidance; two-team pull-up penalty.
+8. Score criteria (weighted per-criterion speaker scores).
+9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins).
+10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
+
+**Medium (workflow):** maximum margin; independent reply-score step; BP position cost `simple`;
+deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics; assistant
+access levels and permission groups; concurrent current rounds, round start times, preparation
+time, public schedule + iCal; three-state motion release (info slides first); public draw "current
+round only"; public team/adjudicator record pages; public adjudicator tab; public and private
+scoresheets; public tab top-N limits; noindex control; public elimination bracket; anonymity
+(anonymous speakers, hidden institutions, code names shown/generated); email delivery webhooks;
+CSV exports (participants, availability, break eligibility, conflicts); simulated results /
+demo tournament for rehearsals; registration breadth (institution/coach self-registration,
+auto-accept, over-allocation, slot transfers, name/code-name generators, region/phone/gender
+fields); feedback score step, full team-feedback modes, intro text, unexpected and "important"
+feedback views; venue room URL and category descriptions.
+
+**Low (polish):** custom side names (Gov/Opp…); toggles for the reply-speaker rule and for
+motions altogether; reverse public motion order; copy motions between rounds; cross-tournament
+motion statistics; team emoji and speakers in the draw; team references and institution prefixes;
+check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
+web push.
+
+### D. Not gaps (different design or not applicable)
+Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"
+is inexpressible); per-round result releases instead of a global switch; barcodes from entity ids;
+one role-gated route tree instead of admin/assistant/public trees; per-round side pre-allocation;
+no public forms addressed by numeric ids (private URL + passcode is deliberate); Django plumbing,
+cache commands and legacy ballot views; SendGrid-specific configuration.
 
 ## Where CrabbyTab stands
 

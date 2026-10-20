@@ -1,5 +1,6 @@
 "use client";
 
+import { formatScore } from "@/lib/scoreDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, FileCheck2, Lightbulb, Printer, Save, ShieldCheck, Users } from "lucide-react";
@@ -684,8 +685,8 @@ function ResultPreview(props: {
             const score = props.teamScores[side];
             return (
               <li key={side}>
-                <span className="font-semibold">{props.teamNames[side]}</span> ({side}) — {score.points} pt{score.points === 1 ? "" : "s"}, total {score.totalSpeakerScore}
-                {score.margin !== undefined && `, margin ${score.margin > 0 ? "+" : ""}${score.margin}`}
+                <span className="font-semibold">{props.teamNames[side]}</span> ({side}) — {score.points} pt{score.points === 1 ? "" : "s"}, total {formatScore(score.totalSpeakerScore)}
+                {score.margin !== undefined && `, margin ${score.margin > 0 ? "+" : ""}${formatScore(score.margin)}`}
                 {score.votes !== undefined && `, ${score.votes} vote${score.votes === 1 ? "" : "s"}`}
               </li>
             );

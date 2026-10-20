@@ -220,7 +220,11 @@ export interface TournamentPreferences {
   maxTimesPerSide?: number; // default 5
   maxAllowedSideImbalance?: number; // default 0
   pullupPenalty?: number; // default 0
-  preliminaryPanelsPerScheduleSlot?: number; // default 1
+  /**
+   * @deprecated Never implemented: stored by older versions but read by nothing. Concurrent
+   * rounds / schedule slots are tracked as a wave 5 roadmap item. Kept so saved settings still load.
+   */
+  preliminaryPanelsPerScheduleSlot?: number;
 
   bpPullupDistribution?: BPPullupDistribution; // "anywhere"
   bpPositionCost?: BPPositionCost; // "renyi_entropy"

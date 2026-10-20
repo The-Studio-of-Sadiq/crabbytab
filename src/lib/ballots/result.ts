@@ -93,8 +93,13 @@ export function isReplyEntry(entry: Pick<SpeakerScoreEntry, "position">, rules: 
   return replySpeechesEnabled(rules) && entry.position > substantiveSpeakerCount(rules);
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+/**
+ * Strips floating-point noise (e.g. 0.1 + 0.2) without changing the value. Scores are NOT rounded
+ * to a display precision: averaged voting scores such as 224/3 must stay exact so equal averages
+ * stay tied, as in Tabbycat. Display code formats them.
+ */
+function cleanScore(value: number): number {
+  return Math.round(value * 1e9) / 1e9;
 }
 
 /**
@@ -129,7 +134,7 @@ export function markGhostSpeeches(entries: SpeakerScoreEntry[], rules: BallotRul
 /** A team's total for one scoresheet: counted substantive speeches plus the reply. */
 export function teamSpeakerTotal(entries: SpeakerScoreEntry[], rules: BallotRules): number {
   const includeGhosts = rules.preferences?.teamScoreIncludesGhosts ?? false;
-  return round2(
+  return cleanScore(
     entries
       .filter((entry) => isReplyEntry(entry, rules) || includeGhosts || !entry.ghost)
       .reduce((sum, entry) => sum + (Number.isFinite(entry.score) ? entry.score : 0), 0)
@@ -166,7 +171,7 @@ export function consensusTeamScores(
       totalSpeakerScore: totals[side],
       rank,
       win: rules.format === "bp" ? points >= 2 : rank === 1,
-      ...(rules.format === "bp" || !opponent ? {} : { margin: round2(totals[side] - totals[opponent]) }),
+      ...(rules.format === "bp" || !opponent ? {} : { margin: cleanScore(totals[side] - totals[opponent]) }),
     };
   }
   return result;
@@ -224,13 +229,14 @@ export function aggregateVotingSheets(
     winner = tieBreaker;
   }
   const majority = sheets.filter((_, index) => outcomes[index].winner === winner);
+  const majorityOutcomes = outcomes.filter((outcome) => outcome.winner === winner);
   const averageOver = (pool: AdjudicatorSheet[]) => {
     const averaged = {} as Record<DebateSide, SpeakerScoreEntry[]>;
     for (const side of TWO_TEAM_SIDES) {
       const template = pool[0].speakerScores[side] || [];
       averaged[side] = template.map((entry, index) => ({
         ...entry,
-        score: round2(
+        score: cleanScore(
           pool.reduce((sum, sheet) => sum + (sheet.speakerScores[side]?.[index]?.score ?? 0), 0) / pool.length
         ),
       }));
@@ -243,7 +249,7 @@ export function aggregateVotingSheets(
     ? outcomes
     : outcomes.filter((outcome) => outcome.winner === winner);
   const loser = winner === first ? second : first;
-  const margin = round2(
+  const margin = cleanScore(
     marginOutcomes.reduce((sum, outcome) => sum + outcome.totals[winner] - outcome.totals[loser], 0) /
       marginOutcomes.length
   );
@@ -254,7 +260,10 @@ export function aggregateVotingSheets(
       side,
       teamId: teamIds[side] || "",
       points: won ? 1 : 0,
-      totalSpeakerScore: teamSpeakerTotal(speakerScores[side], rules),
+      // The mean of the majority sheets' own totals: exact, unlike a sum of averaged speeches.
+      totalSpeakerScore: cleanScore(
+        majorityOutcomes.reduce((sum, outcome) => sum + outcome.totals[side], 0) / majorityOutcomes.length
+      ),
       rank: won ? 1 : 2,
       win: won,
       margin: won ? margin : -margin,
