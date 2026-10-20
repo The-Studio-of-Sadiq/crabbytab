@@ -78,8 +78,24 @@ export type FeedbackQuestionType =
 export type FeedbackAnswer = string | number | boolean | string[] | null;
 /** Pre-wave-3 preset; see FeedbackPathConfig and src/lib/feedback/paths.ts for how it maps. */
 export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
-/** Which adjudicators a team gives feedback on: the chair only, or every adjudicator on the panel. */
-export type TeamFeedbackTargets = "chair" | "all_adjudicators" | "none";
+/**
+ * Which adjudicators a team gives feedback on (Tabbycat `feedback_from_teams`), as allowed / expected:
+ * - "chair": the chair / the chair (CrabbyTab's original "orallist" approximation);
+ * - "orallist": voting adjudicators, with a prompt to pick the orallist / one submission;
+ * - "voting_allowed": voting adjudicators / one submission (the orallist);
+ * - "all_allowed": every adjudicator incl. trainees / one submission (the orallist);
+ * - "all_voting": voting adjudicators / each of them;
+ * - "all_adjudicators": every adjudicator / each of them;
+ * - "none".
+ */
+export type TeamFeedbackTargets =
+  | "chair"
+  | "orallist"
+  | "voting_allowed"
+  | "all_allowed"
+  | "all_voting"
+  | "all_adjudicators"
+  | "none";
 /** Who gives feedback on whom (Tabbycat's feedback_from_teams and feedback_paths, made explicit). */
 export interface FeedbackPathConfig {
   teams: TeamFeedbackTargets;
@@ -89,6 +105,8 @@ export interface FeedbackPathConfig {
   traineesOnChair: boolean;
   /** Every adjudicator (trainees included) on every other adjudicator; implies the four above. */
   adjudicatorsOnEachOther: boolean;
+  /** Panellists on each other, trainees excluded (Tabbycat "with-p-on-p"). Absent = false. */
+  panellistsOnEachOther?: boolean;
   /** Teams and adjudicators may also rate teams. Never expected, never counted in adjudicator scores. */
   onTeams: boolean;
 }
@@ -158,6 +176,14 @@ export interface TournamentPreferences {
   /** Paths in elimination rounds; absent -> same as feedbackPaths. */
   eliminationFeedbackPaths?: FeedbackPathConfig;
   feedbackInEliminationRounds?: boolean;
+  /** Feedback (w45): score step, e.g. 0.5 (Tabbycat `adj_score_step`). Absent = 1. */
+  feedbackScoreStep?: number;
+  /** Shown above every feedback form (Tabbycat `feedback_introduction`). Plain text. */
+  feedbackIntroduction?: string;
+  /** Count and show feedback no path expected (Tabbycat `show_unexpected_feedback`). Absent = true. */
+  showUnexpectedFeedback?: boolean;
+  /** "Important" feedback differs from the adjudicator's base score by more than this. Absent = 2. */
+  feedbackImportantThreshold?: number;
   checkInExpiresAfterHours?: number;
   publicCheckInStatus?: boolean;
   /**

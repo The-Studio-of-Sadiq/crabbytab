@@ -27,7 +27,8 @@ import {
   calculateFeedbackSummaries,
   isFeedbackCountedForScore,
 } from "@/lib/feedback/scores";
-import { feedbackSourcesForTarget, roundFeedbackProgress } from "@/lib/feedback/progress";
+import { feedbackSourcesForTarget, roundFeedbackProgress, unexpectedFeedback } from "@/lib/feedback/progress";
+import { defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adminFeedbackLinkError } from "@/features/tournament/application/feedback";
 
@@ -61,7 +62,7 @@ export default function FeedbackPage() {
   const [entryRoundId, setEntryRoundId] = useState("");
   const [entryDebateId, setEntryDebateId] = useState("");
   const [entrySourceKey, setEntrySourceKey] = useState("");
-  const [score, setScore] = useState(Math.round((minScore + maxScore) / 2));
+  const [score, setScore] = useState(defaultFeedbackScore(preferences));
   const [agree, setAgree] = useState(true);
   const [comments, setComments] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -237,6 +238,14 @@ export default function FeedbackPage() {
         : undefined,
     [progressRound, debates, feedback, preferences]
   );
+  // Tabbycat's show_unexpected_feedback: submissions no path expected in this round.
+  const unexpected = useMemo(
+    () =>
+      progressRound && preferences?.showUnexpectedFeedback !== false
+        ? unexpectedFeedback(progressRound, debates, feedback, feedbackPathsForRound(preferences, progressRound))
+        : [],
+    [progressRound, debates, feedback, preferences]
+  );
 
   // ─── Source weights ───
   const savedWeights = preferences?.feedbackSourceWeights ?? {};
@@ -327,7 +336,7 @@ export default function FeedbackPage() {
           <button
             onClick={() => {
               resetEntry();
-              setScore(Math.round((minScore + maxScore) / 2));
+              setScore(defaultFeedbackScore(preferences));
               setShowModal(true);
             }}
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded text-xs shadow-xs transition"
@@ -413,6 +422,22 @@ export default function FeedbackPage() {
                     </li>
                   ))}
                 </ul>
+              )}
+              {unexpected.length > 0 && (
+                <details className="rounded border border-gray-200 px-3 py-1.5">
+                  <summary className="cursor-pointer text-gray-700">
+                    <span aria-hidden="true">? </span>
+                    {unexpected.length} unexpected submission(s): feedback no path expected (still counted unless ignored).
+                  </summary>
+                  <ul className="mt-1 divide-y divide-gray-100">
+                    {unexpected.map((submission) => (
+                      <li key={submission.id} className="py-1">
+                        {submission.sourceName} on {submission.targetAdjudicatorName ?? adjudicatorsById.get(submission.targetAdjudicatorId ?? "")?.name ?? "adjudicator"}
+                        {" "}({debatesById.get(submission.debateId)?.venueName ?? "debate"})
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </>
           )}
@@ -676,8 +701,9 @@ export default function FeedbackPage() {
                     type="number"
                     min={minScore}
                     max={maxScore}
+                    step={feedbackScoreStep(preferences)}
                     value={score}
-                    onChange={(e) => setScore(parseInt(e.target.value, 10) || minScore)}
+                    onChange={(e) => setScore(parseFloat(e.target.value) || minScore)}
                     className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                 </label>

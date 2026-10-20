@@ -74,9 +74,24 @@ through. Any such conflict is reported. A penalty of 0 turns that check off.
 (`TournamentPreferences.feedbackPaths`, `src/lib/feedback/paths.ts`), as Tabbycat's
 "feedback from teams" and "feedback paths" settings:
 
-- **Teams** give feedback on the chair only, on every adjudicator on the panel, or nobody.
+- **Teams** (all of Tabbycat's `feedback_from_teams` modes; *allowed* = may be rated, *expected* =
+  counted as owed):
+
+  | Mode | Allowed | Expected |
+  |---|---|---|
+  | The chair only | chair | chair |
+  | The orallist (Tabbycat "orallist") | voting adjudicators, with a prompt to pick whoever gave the oral | one submission |
+  | Any voting adjudicator allowed | voting adjudicators | one submission |
+  | Any adjudicator allowed | every adjudicator, trainees too | one submission |
+  | Every voting adjudicator | voting adjudicators | each of them |
+  | Every adjudicator on the panel | every adjudicator | each of them |
+  | Nobody | — | — |
+
+  "One submission" is the orallist: CrabbyTab does not record who gave the oral, so a team's first
+  submission on any allowed adjudicator of the debate settles it; further ones are *unexpected*.
 - **Adjudicators:** chair on panellists, chair on trainees, panellists on chair, trainees on
-  chair, each switched separately, or *every adjudicator on every other* (trainees included).
+  chair, *panellists on each other* (trainees excluded; Tabbycat "with-p-on-p"), each switched
+  separately, or *every adjudicator on every other* (trainees included).
 - **Feedback on teams** (teams and adjudicators rating teams) can be allowed. It is never
   expected and never counts towards adjudicator scores.
 - **Elimination rounds** can have their own paths (`eliminationFeedbackPaths`); without them the
@@ -106,7 +121,21 @@ panel* to restore that. Under *everyone* teams are now also expected to rate eve
 
 The progress panel lists, per round, the feedback the round's paths expect. Any submission from
 that source about that target in the round counts as received, including unconfirmed and ignored
-ones.
+ones. With **Show unexpected feedback** (default on; Tabbycat `show_unexpected_feedback`) it also
+lists, marked "?", submissions no path expected; they still count towards scores unless ignored.
+
+## Feedback options
+
+*Settings → Adjudicator Feedback*:
+
+- **Feedback score step** (Tabbycat `adj_score_step`, default 1): scores are the minimum plus a
+  whole number of steps, checked in the forms and again by the private sync and data-entry routes
+  (`validateFeedbackScore`); forms start in the middle of the scale, on a step.
+- **Feedback introduction** (Tabbycat `feedback_introduction`): plain text shown above every feedback
+  form in the private portals.
+- **Important feedback threshold** (default 2, Tabbycat's fixed value): *Individual feedback forms →
+  Important only* lists feedback whose score differs from the rated adjudicator's current base score
+  by more than the threshold (Tabbycat's "important feedback" view).
 
 ## Feedback questions
 

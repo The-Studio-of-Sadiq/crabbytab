@@ -8,7 +8,7 @@ import type {
   Round,
 } from "@/types";
 import { isFeedbackEnabledForRound } from "./questions";
-import { isFeedbackPathAllowed, toFeedbackPathConfig } from "./paths";
+import { expectsOneTeamSubmission, isFeedbackPathAllowed, isFeedbackPathExpected, toFeedbackPathConfig } from "./paths";
 import { adjudicatorRoleInDebate } from "./scores";
 
 export interface ExpectedFeedback {
@@ -19,6 +19,8 @@ export interface ExpectedFeedback {
   sourceRole: FeedbackSourceRole;
   targetAdjudicatorId: string;
   targetRole: FeedbackTargetRole;
+  /** Orallist modes: a submission on any voting adjudicator of the debate settles this. */
+  anyVotingTarget?: boolean;
 }
 
 function panelOf(debate: Debate): Array<{ id: string; role: FeedbackTargetRole }> {
@@ -43,11 +45,12 @@ export function expectedFeedbackForDebate(
   const config = toFeedbackPathConfig(path);
   const panel = panelOf(debate);
   const expected: ExpectedFeedback[] = [];
+  const oneSubmission = expectsOneTeamSubmission(config);
 
   for (const slot of Object.values(debate.teams ?? {})) {
     if (!slot?.teamId) continue;
     for (const target of panel) {
-      if (!isFeedbackPathAllowed(config, "team", target.role)) continue;
+      if (!isFeedbackPathExpected(config, "team", target.role)) continue;
       expected.push({
         roundId: debate.roundId,
         debateId: debate.id,
@@ -56,6 +59,7 @@ export function expectedFeedbackForDebate(
         sourceRole: "team",
         targetAdjudicatorId: target.id,
         targetRole: target.role,
+        ...(oneSubmission ? { anyVotingTarget: true } : {}),
       });
     }
   }
@@ -77,15 +81,21 @@ export function expectedFeedbackForDebate(
   return expected;
 }
 
-/** The adjudicators a participant of a debate gives feedback on under the paths, in panel order. */
+/** The adjudicators a participant of a debate may give feedback on under the paths, in panel order. */
 export function feedbackTargetsForSource(
   debate: Debate,
   source: { sourceType: "team" | "adjudicator"; sourceId: string },
   path: FeedbackPath | FeedbackPathConfig
 ): Array<{ targetAdjudicatorId: string; targetRole: FeedbackTargetRole }> {
-  return expectedFeedbackForDebate(debate, path)
-    .filter((item) => item.sourceType === source.sourceType && item.sourceId === source.sourceId)
-    .map(({ targetAdjudicatorId, targetRole }) => ({ targetAdjudicatorId, targetRole }));
+  const config = toFeedbackPathConfig(path);
+  const panel = panelOf(debate);
+  const sourceRole: FeedbackSourceRole | null = source.sourceType === "team"
+    ? "team"
+    : panel.find((member) => member.id === source.sourceId)?.role ?? null;
+  if (!sourceRole) return [];
+  return panel
+    .filter((target) => target.id !== source.sourceId && isFeedbackPathAllowed(config, sourceRole, target.role))
+    .map((target) => ({ targetAdjudicatorId: target.id, targetRole: target.role }));
 }
 
 function submissionKey(item: {
@@ -129,16 +139,19 @@ export function roundFeedbackProgress(
   const enabled = isFeedbackEnabledForRound({ postponed: false }, round, feedbackInEliminationRounds);
   if (!enabled) return { roundId: round.id, enabled, expected: 0, submitted: 0, outstanding: [] };
 
-  const received = new Set(
-    submissions
-      .filter((submission) => submission.roundId === round.id)
-      .map(submissionKey)
+  const roundSubmissions = submissions.filter((submission) => submission.roundId === round.id);
+  const received = new Set(roundSubmissions.map(submissionKey));
+  // Orallist modes: any submission from the team on a voting adjudicator of that debate counts.
+  const teamOnVoting = new Set(
+    roundSubmissions
+      .filter((submission) => submission.sourceType === "team")
+      .map((submission) => `${submission.debateId}|${submission.sourceId}`)
   );
   const expected = roundDebates.flatMap((debate) => expectedFeedbackForDebate(debate, path));
   const bySource = new Map<string, OutstandingSource>();
   let submitted = 0;
   for (const item of expected) {
-    if (received.has(submissionKey(item))) {
+    if (received.has(submissionKey(item)) || (item.anyVotingTarget && teamOnVoting.has(`${item.debateId}|${item.sourceId}`))) {
       submitted += 1;
       continue;
     }
@@ -160,6 +173,38 @@ export function roundFeedbackProgress(
     submitted,
     outstanding: [...bySource.values()],
   };
+}
+
+/**
+ * Submissions of a round that no path expected (Tabbycat's unexpected feedback): allowed but not
+ * owed (a team rating a panellist in "all_allowed"), or outside every path. Feedback on teams is
+ * never expected and not listed. In orallist modes the first submission per team counts as the
+ * expected one; further ones are unexpected.
+ */
+export function unexpectedFeedback(
+  round: Pick<Round, "id">,
+  debates: Debate[],
+  submissions: FeedbackSubmission[],
+  path: FeedbackPath | FeedbackPathConfig
+): FeedbackSubmission[] {
+  const expected = debates
+    .filter((debate) => debate.roundId === round.id)
+    .flatMap((debate) => expectedFeedbackForDebate(debate, path));
+  const exact = new Set(expected.filter((item) => !item.anyVotingTarget).map(submissionKey));
+  const oneOf = new Set(expected.filter((item) => item.anyVotingTarget).map((item) => `${item.debateId}|${item.sourceId}`));
+  const usedOneOf = new Set<string>();
+  return submissions
+    .filter((submission) => submission.roundId === round.id && submission.targetType !== "team")
+    .sort((left, right) => (left.timestamp || "").localeCompare(right.timestamp || ""))
+    .filter((submission) => {
+      if (exact.has(submissionKey(submission))) return false;
+      const key = `${submission.debateId}|${submission.sourceId}`;
+      if (submission.sourceType === "team" && oneOf.has(key) && !usedOneOf.has(key)) {
+        usedOneOf.add(key);
+        return false;
+      }
+      return true;
+    });
 }
 
 export interface FeedbackSourceOption {

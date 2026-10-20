@@ -278,6 +278,7 @@ export const bn: Catalogue = {
   "teamPortal.modalTeamTitle": "প্রতিপক্ষ দল ফিডব্যাক",
   "teamPortal.targetAdjudicator": "যে বিচারকের জন্য",
   "teamPortal.targetTeam": "যে প্রতিপক্ষ দলের জন্য",
+  "teamPortal.orallistPrompt": "যদি কোনো প্যানেলিস্ট মৌখিক বিচার ব্যাখ্যা দিয়ে থাকেন (চেয়ার ভিন্নমত পোষণ করলে), তাহলে চেয়ারের বদলে সেই প্যানেলিস্টকে মূল্যায়ন করুন।",
   "teamPortal.agreeQuestion": "আপনি কি এই বিচারকের সিদ্ধান্তের সঙ্গে একমত ছিলেন?",
   "teamPortal.adjudicatorComments": "গঠনমূলক ফিডব্যাক ও যুক্তি",
   "teamPortal.adjudicatorPlaceholder": "গঠনমূলক বিষয়গুলো লিখুন: মৌখিক রায়ের মান, যুক্তির সংঘাত অনুসরণ, ন্যায্যতা…",
