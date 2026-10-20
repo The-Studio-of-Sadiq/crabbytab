@@ -1,5 +1,6 @@
 "use client";
 
+import { formatScore } from "@/lib/scoreDisplay";
 import React, { useMemo, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { exportStandingsToCsv } from "@/lib/csv/importer";
@@ -281,7 +282,7 @@ export default function StandingsPage() {
                       <div className="flex items-center gap-1 font-mono text-[11px] text-fg-muted">
                         {spk.scoresByRound.map((sr, idx) => (
                           <span key={idx} className="rounded-sm bg-muted px-1.5 py-0.5">
-                            {sr.score}
+                            {formatScore(sr.score)}
                           </span>
                         ))}
                       </div>

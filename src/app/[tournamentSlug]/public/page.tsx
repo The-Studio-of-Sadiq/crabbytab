@@ -1,5 +1,6 @@
 "use client";
 
+import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -86,7 +87,7 @@ export default function PublicTournamentPage() {
     institutions,
     publicRoundsLoading,
   } = useTournament();
-  const { t, plural, formatDecimal, formatList } = useI18n();
+  const { t, plural, formatDecimal, formatList, formatNumber } = useI18n();
 
   const getVenueCategory = (venueId?: string, venueName?: string): string | undefined => {
     if (!venueId && !venueName) return undefined;
@@ -631,7 +632,7 @@ export default function PublicTournamentPage() {
                                       <div className="text-[11px] text-gray-500 font-mono">
                                         {t("public.rank", { rank: tScore.rank })}
                                         {roundTeamSpeaksReleased && (
-                                          <> &bull; {t("public.points", { points: tScore.points })} &bull; {t("public.speaks", { speaks: tScore.totalSpeakerScore })}</>
+                                          <> &bull; {t("public.points", { points: tScore.points })} &bull; {t("public.speaks", { speaks: formatNumber(tScore.totalSpeakerScore, SCORE_DISPLAY_OPTIONS) })}</>
                                         )}
                                       </div>
                                     )}
@@ -655,7 +656,7 @@ export default function PublicTournamentPage() {
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
                                         {tScore.win ? t("public.win") : t("public.loss")}
-                                        {roundTeamSpeaksReleased && <> &bull; {t("public.speaks", { speaks: tScore.totalSpeakerScore })}</>}
+                                        {roundTeamSpeaksReleased && <> &bull; {t("public.speaks", { speaks: formatNumber(tScore.totalSpeakerScore, SCORE_DISPLAY_OPTIONS) })}</>}
                                       </div>
                                     )}
                                   </td>

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatScore } from "@/lib/scoreDisplay";
 import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -63,7 +64,7 @@ function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: 
       </div>
       {score && (
         <div className="font-mono text-[11px] text-fg-muted">
-          {isBP ? `${score.points} pts` : score.win ? "WIN" : "LOSS"} · {score.totalSpeakerScore} spks
+          {isBP ? `${score.points} pts` : score.win ? "WIN" : "LOSS"} · {formatScore(score.totalSpeakerScore)} spks
         </div>
       )}
     </TD>
