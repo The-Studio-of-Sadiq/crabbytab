@@ -74,7 +74,8 @@ means the sync/publish hardening PR that added this section.
 | 3 diversity | PARTIAL | #12 | fields, editor badges, per-panel summary done; no diversity stats page |
 | 3 round lifecycle and release | PARTIAL | #11, #16 | completion and per-tab/list release flags done; no motions-tab release; format change not guarded after draws exist |
 | 3 public site | PARTIAL | #11, #16 | tabs, lists, break per category, projector reveal, by-team view done; no public (non-private) feedback or ballot submission |
-| 3 draw editor flags / adj search / touch-keyboard | PARTIAL | #23 | `DrawCheckPanel` lists repeat/history warnings; no inline side-balance flags; team placement is drag-only |
+| 3 draw editor flags / adj search / touch-keyboard | PARTIAL | #23, wave 3 #15 | inline rematch (with rounds), institution, side history and imbalance, pull-up, bracket and room-rank flags (`drawFlags.ts`); draw details view; Move then Place/Swap team placement with live announcements (`drawEditing.ts`); adjudicator search and keyboard placement on the allocation page still open |
+| 2 manual-ballot sides, swing teams | FIXED | wave 3 #16 | `manualSides.ts` (sides recorded on tab-room, portal and printed ballots; history and standings read them); `swingTeams.ts`, `Team.isSwing` excluded from standings and breaks |
 | 3 data (DebateXML import, CSV exports, backup restore) | FIXED | #14 | `debateXmlImport.ts`, `csv/exporters.ts`, `tournamentBackup.ts` |
 | 3 notifications, QR slips, self check-in | FIXED | #16 | `api/tournaments/[id]/notifications`, `lib/qr/qrcode.ts` |
 | 3 team break eligibility and speaker categories | FIXED | #11 | `TeamCategoryFields.tsx`; CSV `break_categories` |
@@ -91,7 +92,7 @@ means the sync/publish hardening PR that added this section.
 
 **Still open:** 0.5-7, 0.5-8, 1.11, 4.2, 4.3, analytics ranges. **Partial:** 0.5-5, 1.9, 1.12, Phase 2 standings
 extras (two speaker metrics), diversity stats page, motions-tab release and format-change guard, public non-private
-submission, draw-editor side-balance flags and keyboard placement, 4.1, 4.5, 4.6, i18n,
+submission, allocation-page keyboard placement, 4.1, 4.5, 4.6, i18n,
 accessibility. **Unverified:** BP elimination sides by seed.
 
 ## Feature comparison and roadmap (2026-10-19, `beta` 591c1ac)
@@ -169,7 +170,9 @@ in database order.
 institution auto-create, conflicts CSV; #13 speaker categories as entities driving eligibility;
 #14 self-registration (after #6); #15 draw-editor history / side-balance / pull-up flags, draw
 details, keyboard placement; #16 manual-ballot sides, swing teams; #17 feedback number/checkbox
-questions, configurable paths, base-score history.
+questions, configurable paths, base-score history. *#15 and #16 done: see [draw-generation.md](draw-generation.md)
+("Sides chosen on the ballot", "Swing teams", "Draw editor"). Tabbycat has no automatic swing
+exclusion; CrabbyTab leaves swing teams out of standings and breaks itself.*
 
 **Wave 4 — P3/P4.** #18 WADL and AIDA 2019 break rules; #19 1000-team two-team allocation speed
 (7–18 s/round) and sharding; #20 soft ranked venue constraints, per-round venue availability,
