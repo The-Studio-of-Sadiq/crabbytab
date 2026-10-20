@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { sidesPending } from "@/lib/draw/manualSides";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
@@ -570,7 +571,8 @@ export default function TeamPrivatePortalPage() {
             {displayedDebates.map((debate) => {
               const round = roundsMap.get(debate.roundId);
 
-              // Determine team's side
+              // Determine team's side (none yet when sides are chosen at the debate)
+              const sidesTbc = sidesPending(debate);
               let mySide: DebateSide | null = null;
               for (const [sKey, slot] of Object.entries(debate.teams || {})) {
                 if (slot?.teamId === team.id) {
@@ -631,9 +633,14 @@ export default function TeamPrivatePortalPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {mySide && (
+                      {mySide && !sidesTbc && (
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 uppercase">
                           {t("teamPortal.yourSide", { side: mySide })}
+                        </span>
+                      )}
+                      {mySide && sidesTbc && (
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-800 border border-gray-300">
+                          {t("common.sidesTbc")}
                         </span>
                       )}
                     </div>
@@ -714,7 +721,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; {t("side.AFF")}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>AFF &bull; {t("side.AFF")}</>}</span>
                               <span className="text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                               {mySide === "AFF" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
@@ -725,7 +732,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; {t("side.NEG")}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>NEG &bull; {t("side.NEG")}</>}</span>
                               <span className="text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                               {mySide === "NEG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>

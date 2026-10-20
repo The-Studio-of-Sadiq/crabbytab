@@ -1,4 +1,5 @@
 import type { Debate, DebateSide, Motion } from "@/types";
+import { sidesPending } from "@/lib/draw/manualSides";
 
 /** Pure helpers for the projector display (`/[slug]/display`). */
 
@@ -36,11 +37,13 @@ export function buildAlphabeticalDraw(debates: Debate[], isBP: boolean): Alphabe
       });
       continue;
     }
+    // Sides chosen at the debate are not shown before they are recorded.
+    const pending = sidesPending(debate);
     for (const slot of slots) {
       rows.push({
         teamId: slot.teamId,
         teamName: slot.teamName,
-        side: slot.side,
+        side: pending ? undefined : slot.side,
         venueName: debate.venueName,
         opponents: slots.filter((other) => other.teamId !== slot.teamId).map((other) => other.teamName),
         bye: false,
