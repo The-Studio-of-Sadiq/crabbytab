@@ -245,7 +245,8 @@ export interface TournamentContextType {
   updateRound: (round: Round) => Promise<void>;
   /** Throws DrawHasResultsError when the round has ballots, unless discardExistingResults is set. */
   generateDraw: (roundId: string, options?: { discardExistingResults?: boolean }) => Promise<void>;
-  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
+  /** Resolves to the allocator's non-fatal warnings. */
+  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<string[]>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
@@ -2084,11 +2085,10 @@ export function TournamentProvider({
     }, { ...options, override }));
   };
 
-  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
-    await guarded((override) =>
+  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) =>
+    guarded((override) =>
       autoAllocateCommand(roundId, panelSize, allocationDependencies, settings, override)
     );
-  };
 
   const updateDebate = async (debate: Debate) => {
     await guarded((override) => updateDebateCommand(debate, debates, allocationDependencies, override));

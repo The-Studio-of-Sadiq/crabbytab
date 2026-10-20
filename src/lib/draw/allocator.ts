@@ -11,6 +11,7 @@ import type {
   PreformedPanel,
 } from "@/types";
 import { solveHungarian } from "./hungarian";
+import { allocateTabbycatHungarian, type TabbycatHungarianMode } from "./tabbycatHungarian";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { blendAdjudicatorScore, isFeedbackCountedForScore } from "@/lib/feedback/scores";
 
@@ -842,6 +843,14 @@ export interface IntelligentAllocationContext {
   venuePriorities?: Map<string, number>;
   /** Panels formed before the draw; placed as units before the other debates are filled. */
   preformedPanels?: PreformedPanel[];
+  /** Receives non-fatal allocation warnings (e.g. too few voting adjudicators). */
+  warnings?: string[];
+}
+
+function tabbycatHungarianMode(strategy: AdjudicatorPanelStrategy | undefined): TabbycatHungarianMode | undefined {
+  if (strategy === "tabbycat_voting") return "voting";
+  if (strategy === "tabbycat_consensus") return "consensus";
+  return undefined;
 }
 
 function emptyAllocation(debateId: string): AdjudicatorAllocationResult {
@@ -1132,7 +1141,45 @@ export function autoAllocateAdjudicators(
     ? []
     : availableAdjs.filter((adj) => !usedAdjIds.has(adj.id) && adj.trainee);
 
-  if (nonTrainees.length > 0 && openDebateOrder.length > 0) {
+  const tabbycatMode = tabbycatHungarianMode(options.panelStrengthStrategy);
+  if (tabbycatMode && openDebateOrder.length > 0) {
+    const pastPanelHistory = buildPastPanelHistory(allPastDebates);
+    const openIds = new Set(openDebateOrder.map((index) => debates[index].id));
+    const debateById = new Map(debates.filter((debate) => openIds.has(debate.id)).map((debate) => [debate.id, debate]));
+    const candidate = (adj: Adjudicator) => ({ id: adj.id, score: scoreOf(adj) });
+    const voterIds = new Set(nonTrainees.map((adj) => adj.id));
+    const { panels, warnings } = allocateTabbycatHungarian({
+      mode: tabbycatMode,
+      debates: openDebateOrder.map((index) => ({ id: debates[index].id, priority: priorityOf(debates[index]) })),
+      voters: nonTrainees.map(candidate),
+      // Tabbycat seats every non-voter (trainees and voters below the minimum score) as a trainee.
+      trainees: noTrainees
+        ? []
+        : availableAdjs.filter((adj) => !usedAdjIds.has(adj.id) && !voterIds.has(adj.id)).map(candidate),
+      noPanellists,
+      noTrainees,
+      conflictCost(adjudicatorId, debateId, chairId) {
+        const adj = adjById.get(adjudicatorId)!;
+        const costs = teamConflictCosts(adj, teamsOf(debateById.get(debateId)!), fullPastAdjTeams, options, weights);
+        let cost = costs.institution + costs.personal + costs.history;
+        const chair = chairId ? adjById.get(chairId) : undefined;
+        if (chair) cost += adjudicatorPairCost(adj, chair, pastPanelHistory, options, weights);
+        return cost;
+      },
+    });
+    context?.warnings?.push(...warnings);
+    for (const panel of panels) {
+      const result = resultsMap.get(panel.debateId)!;
+      if (panel.chairId) {
+        result.chairId = panel.chairId;
+        result.chairName = nameOf(panel.chairId);
+      }
+      result.panellistIds.push(...panel.panellistIds);
+      result.panellistNames.push(...panel.panellistIds.map(nameOf));
+      result.traineeIds.push(...panel.traineeIds);
+      result.traineeNames.push(...panel.traineeIds.map(nameOf));
+    }
+  } else if (nonTrainees.length > 0 && openDebateOrder.length > 0) {
     const sizes = planPanelSizes(
       openDebateOrder.length,
       nonTrainees.length,
@@ -1239,7 +1286,7 @@ export function autoAllocateAdjudicators(
   }
 
   // ─── Step 6: Trainees (conflict-checked, lower-priority debates first) ───
-  if (trainees.length > 0) {
+  if (!tabbycatMode && trainees.length > 0) {
     const lowestPriorityFirst = [...sortedDebateIndices].reverse();
     const sortedTrainees = [...trainees].sort((a, b) => scoreOf(a) - scoreOf(b) || a.id.localeCompare(b.id));
     for (const trainee of sortedTrainees) {

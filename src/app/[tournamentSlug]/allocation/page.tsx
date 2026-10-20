@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
 import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
+import type { AdjudicatorPanelStrategy } from "@/types";
 import { Adjudicator, Debate, PanelSizingMode, Team } from "@/types";
 import {
   calculateAdjDebateConflict,
@@ -42,6 +43,13 @@ function describeError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+const STRATEGY_HINTS: Record<AdjudicatorPanelStrategy, string> = {
+  crabbytab_v1: "Preset 1 ranks adjudicators into priority rooms; this is the existing CrabbyTab behavior.",
+  panel_average: "Panel average strategy matches each panel's average strength to debate priority.",
+  tabbycat_voting: "Tabbycat voting: the strongest adjudicators chair the most important rooms alone and the rest form panels of three; panel size is ignored.",
+  tabbycat_consensus: "Tabbycat consensus: every voting adjudicator is spread as evenly as possible across rooms; panel size is ignored.",
+};
+
 export default function AllocationPage() {
   const {
     tournament,
@@ -72,6 +80,7 @@ export default function AllocationPage() {
   const [isAllocating, setIsAllocating] = useState(false);
   const [revealError, setRevealError] = useState("");
   const [manualAssignmentError, setManualAssignmentError] = useState("");
+  const [allocationWarnings, setAllocationWarnings] = useState<string[]>([]);
   const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
   const [showPriorityPanel, setShowPriorityPanel] = useState(true);
 
@@ -447,8 +456,9 @@ export default function AllocationPage() {
     if (!activeRound) return;
     setIsAllocating(true);
     setManualAssignmentError("");
+    setAllocationWarnings([]);
     try {
-      await autoAllocate(activeRound.id, panelSize, { panelSizing });
+      setAllocationWarnings(await autoAllocate(activeRound.id, panelSize, { panelSizing }));
     } catch (error) {
       if (!(error instanceof ComputeCancelledError)) {
         setManualAssignmentError(describeError(error, "Could not allocate adjudicators."));
@@ -641,9 +651,7 @@ export default function AllocationPage() {
             </div>
             {feedbackWeightError && <p role="alert" className="mt-1 text-[10px] text-red-700">{feedbackWeightError}</p>}
             <p className="mt-1 text-[10px] text-indigo-700">
-              {tournament?.preferences?.adjudicatorPanelStrategy === "panel_average"
-                ? "Panel average strategy matches each panel's average strength to debate priority."
-                : "Preset 1 ranks adjudicators into priority rooms; this is the existing CrabbyTab behavior."}
+              {STRATEGY_HINTS[tournament?.preferences?.adjudicatorPanelStrategy ?? "crabbytab_v1"]}
               {tournament?.preferences?.usePreformedPanels && (activeRound?.preformedPanels?.length ?? 0) > 0
                 ? ` ${activeRound?.preformedPanels?.length} preformed panel(s) are placed first.`
                 : ""}
@@ -725,6 +733,14 @@ export default function AllocationPage() {
 
       {revealError && <p role="alert" className="text-xs text-red-700">{revealError}</p>}
       {manualAssignmentError && <p role="alert" className="text-xs text-red-700">{manualAssignmentError}</p>}
+      {allocationWarnings.length > 0 && (
+        <div role="status" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-semibold">Allocated with warnings:</p>
+          <ul className="list-disc pl-5">
+            {allocationWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </div>
+      )}
 
       {/* Round Selector Bar */}
       <div className="flex items-center space-x-2 overflow-x-auto pb-1">

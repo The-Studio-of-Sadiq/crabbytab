@@ -72,6 +72,8 @@ export interface AutoAllocationResult {
     panelSize: number;
     panelSizing: PanelSizingMode;
     preformedPanelCount: number;
+    /** Non-fatal allocator warnings (e.g. Tabbycat's "too few voting adjudicators"). */
+    warnings: string[];
     assignments: Array<{
       debateId: string;
       chairId?: string;
@@ -131,6 +133,7 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
     feedbackWeight: round?.feedbackWeight,
     venuePriorities: new Map(input.venues.map((venue) => [venue.id, venue.priority])),
     preformedPanels: tournament.preferences?.usePreformedPanels ? round?.preformedPanels : undefined,
+    warnings: [],
   };
   const effectivePanelSize = tournament.preferences?.noPanellistAdjs ? 1 : panelSize;
   const panelSizing = settings.panelSizing ?? tournament.preferences?.panelSizingMode ?? "fixed";
@@ -193,6 +196,7 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
       panelSize: effectivePanelSize,
       panelSizing,
       preformedPanelCount: intelligentContext.preformedPanels?.length ?? 0,
+      warnings: intelligentContext.warnings ?? [],
       assignments: allocations.map((allocation) => ({
         debateId: allocation.debateId,
         chairId: allocation.chairId,
@@ -210,7 +214,7 @@ export async function autoAllocateCommand(
   dependencies: AllocationDependencies,
   settings: AutoAllocateSettings = {},
   override?: RuleOverride
-): Promise<void> {
+): Promise<string[]> {
   const guardedRound = dependencies.rounds.find((item) => item.id === roundId);
   if (
     guardedRound &&
@@ -241,7 +245,7 @@ export async function autoAllocateCommand(
   const result = dependencies.computeAllocation
     ? await dependencies.computeAllocation(input)
     : computeAutoAllocation(input);
-  if (!result) return;
+  if (!result) return [];
   const round = dependencies.rounds.find((item) => item.id === roundId);
   const currentDebates = dependencies.latestDebates?.() ?? dependencies.debates;
   if (roundChangedBetween(roundId, { debates: dependencies.debates }, { debates: currentDebates })) {
@@ -269,11 +273,13 @@ export async function autoAllocateCommand(
       panelSizing: result.details.panelSizing,
       feedbackWeight: round?.feedbackWeight,
       preformedPanelCount: result.details.preformedPanelCount,
+      ...(result.details.warnings.length > 0 ? { warnings: result.details.warnings } : {}),
       debateCount: finalRoundDebates.length,
       adjudicatorCount: dependencies.adjudicators.length,
       assignments: result.details.assignments,
     },
   });
+  return result.details.warnings;
 }
 
 export async function updateDebateCommand(

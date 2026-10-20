@@ -58,7 +58,11 @@ export type BPPositionCost = "renyi_entropy" | "sum_squared_deviations";
 export type BPAssignmentMethod = "hungarian" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
-export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
+/**
+ * "tabbycat_voting" / "tabbycat_consensus": Tabbycat's Hungarian allocators (see
+ * lib/draw/tabbycatHungarian.ts); they ignore panel size and panel sizing.
+ */
+export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average" | "tabbycat_voting" | "tabbycat_consensus";
 /**
  * Tabbycat's answer types: text (t), long text (tl), integer box (i), float box (f), integer
  * scale (is), yes/no dropdown (bs), checkbox (bc), select one (ss), select many (ms).
