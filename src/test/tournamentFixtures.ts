@@ -201,9 +201,11 @@ function sheetScores(
       };
     });
     if (replySpeechesEnabled(rules)) {
+      // The last substantive speaker may not reply (Tabbycat), so an iron person's team replies with its second speaker.
+      const replySpeaker = ironPersonSide === side ? team.speakers[1] : team.speakers[0];
       entries.push({
-        speakerId: team.speakers[0].id,
-        speakerName: team.speakers[0].name,
+        speakerId: replySpeaker.id,
+        speakerName: replySpeaker.name,
         position: substantive + 1,
         score: (rules.preferences?.maxReplyScore ?? 40) - 1 - place,
       });

@@ -32,6 +32,7 @@ export const SPEAKER_METRIC_LABELS: Record<SpeakerMetricId, string> = {
   speeches_count: "Speeches given",
   reply_sum: "Total reply score",
   reply_avg: "Average reply score",
+  srank: "Speech ranks (sum)",
 };
 
 /** 1 = higher value ranks better; -1 = lower value ranks better. */
@@ -65,6 +66,8 @@ export const SPEAKER_METRIC_DIRECTION: Record<SpeakerMetricId, 1 | -1> = {
   speeches_count: 1,
   reply_sum: 1,
   reply_avg: 1,
+  // A lower sum of speech ranks is better, as Tabbycat's srank.
+  srank: -1,
 };
 
 export const ALL_TEAM_METRICS = Object.keys(TEAM_METRIC_LABELS) as TeamMetricId[];
@@ -133,6 +136,8 @@ export interface TeamRoundAccum {
   votesPossible?: number;
   /** The team gave an iron-person (duplicate) speech in this debate. */
   ironed?: boolean;
+  /** The round's weight (Round.weight); points count this many times. Absent = 1. */
+  weight?: number;
 }
 
 export interface TeamMetricContext {
@@ -146,7 +151,8 @@ export function computeTeamMetrics(
   ctx: TeamMetricContext
 ): Record<TeamMetricId, number> {
   const played = rounds.filter((r) => r.speaksSum !== null);
-  const points = rounds.reduce((s, r) => s + r.points, 0);
+  // Tabbycat multiplies points by the round's weight (Round.weight); wins and who-beat-whom are unweighted.
+  const points = rounds.reduce((s, r) => s + r.points * (r.weight ?? 1), 0);
   const wins = rounds.filter((r) => r.win).length;
   const speaksValues = played.map((r) => r.speaksSum as number);
   const speaksSum = speaksValues.reduce((s, v) => s + v, 0);
@@ -174,7 +180,8 @@ export function computeTeamMetrics(
     speaks_ind_avg: mean(individualScores),
     speaks_stddev: popStdDev(speaksValues),
     margin_sum: marginSum,
-    margin_avg: mean(rounds.filter((r) => !r.bye).map((r) => r.margin)),
+    // Byes, forfeits and results-only ballots have no margin (null in Tabbycat), so they are left out.
+    margin_avg: mean(rounds.filter((r) => !r.bye && r.speaksSum !== null).map((r) => r.margin)),
     draw_strength_wins: drawStrengthWins,
     draw_strength_speaks: drawStrengthSpeaks,
     firsts,
@@ -203,10 +210,15 @@ export function trimmedMean(scores: number[], trim: number): number {
   return mean(kept);
 }
 
+/**
+ * `speechRanks` are the ranks of the speaker's counted substantive speeches, for Tabbycat's
+ * "srank" (their sum). A speaker with no ranked speeches gets 0, as Tabbycat sorts a missing sum.
+ */
 export function computeSpeakerMetrics(
   substantiveScores: number[],
   replyScores: number[],
-  trim: number
+  trim: number,
+  speechRanks: number[] = []
 ): Record<SpeakerMetricId, number> {
   const sum = substantiveScores.reduce((a, b) => a + b, 0);
   const replySum = replyScores.reduce((a, b) => a + b, 0);
@@ -219,5 +231,6 @@ export function computeSpeakerMetrics(
     speeches_count: substantiveScores.length,
     reply_sum: replySum,
     reply_avg: mean(replyScores),
+    srank: speechRanks.reduce((a, b) => a + b, 0),
   };
 }

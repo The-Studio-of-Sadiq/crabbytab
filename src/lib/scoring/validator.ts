@@ -1,4 +1,5 @@
 import { TournamentPreferences } from "@/types";
+import { replyScoreStep } from "@/lib/ballots/ballotRules";
 
 export interface ScoreValidationResult {
   valid: boolean;
@@ -60,7 +61,8 @@ export function validateSpeakerScore(
 
 /**
  * Validates a reply speaker score against tournament preferences.
- * Must be within [minReplyScore, maxReplyScore] and a valid step increment (typically half of substantive step).
+ * Must be within [minReplyScore, maxReplyScore] and a multiple of the reply step (stepReplyScore,
+ * or half the substantive step when that is not set).
  */
 export function validateReplyScore(
   score: number,
@@ -68,7 +70,7 @@ export function validateReplyScore(
 ): ScoreValidationResult {
   const min = preferences?.minReplyScore ?? 34;
   const max = preferences?.maxReplyScore ?? 42;
-  const step = (preferences?.stepSpeakerScore ?? 1) / 2; // Reply step is half substantive step (e.g. 0.5)
+  const step = replyScoreStep(preferences);
 
   if (typeof score !== "number" || isNaN(score)) {
     return { valid: false, error: "Reply score must be a valid number." };

@@ -1,4 +1,5 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { roundWeight } from "@/lib/ballots/ballotRules";
 import { applyBallotSides } from "@/lib/draw/manualSides";
 import {
   Tournament,
@@ -75,6 +76,8 @@ export function calculateStandings(
     rounds.filter((round) => round.stage === "elimination" || round.cancelled).map((round) => round.id)
   );
   debates = debates.filter((debate) => !excludedRoundIds.has(debate.roundId));
+  const weightByRoundId = new Map(rounds.map((round) => [round.id, roundWeight(round)]));
+  const weightOf = (debate: Debate) => weightByRoundId.get(debate.roundId) ?? 1;
 
   const debateById = new Map(debates.map((debate) => [debate.id, debate]));
   // A ballot only counts for the debate it was recorded for: if the draw changed underneath it
@@ -145,7 +148,7 @@ export function calculateStandings(
       const byePoints = isBP ? 3 : 1;
       const side = (Object.entries(debate.teams).find(([, slot]) => slot?.teamId === team.id)?.[0]
         ?? (isBP ? "OG" : "AFF")) as DebateSide;
-      teamRow.points += byePoints;
+      teamRow.points += byePoints * weightOf(debate);
       if (isBP) {
         teamRow.firstPlaces!++;
       } else {
@@ -161,6 +164,7 @@ export function calculateStandings(
         pulledUp: false,
         bye: true,
         rankInRoom: isBP ? 1 : undefined,
+        weight: weightOf(debate),
       });
       teamRow.roundResults.push({
         roundSeq: debate.roundSeq,
@@ -197,8 +201,9 @@ export function calculateStandings(
       const totalSpeakersScore = teamScore?.totalSpeakerScore !== undefined
         ? teamScore.totalSpeakerScore
         : substantiveList.reduce((sum, sc) => sum + (sc.score || 0), 0);
-      // A forfeit has a result but no speeches; it is excluded from speaker-score averages.
-      const isForfeit = Boolean(ballot.forfeitSide);
+      // A forfeit or results-only ballot has a result but no speaker scores: its team score is
+      // absent (not zero), so it is left out of every speaks and margin metric, as in Tabbycat.
+      const isForfeit = Boolean(ballot.forfeitSide) || Boolean(ballot.noSpeakerScores);
       const substantiveEntries = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
       // Voting ballots record each side's votes; consensus ballots record none (and carry none).
       const votesPossible = teamScore?.votes !== undefined
@@ -210,7 +215,7 @@ export function calculateStandings(
       const win = isBP ? pts >= 2 : Boolean(teamScore?.win) || pts === 1;
       const margin = isBP ? 0 : teamScore?.margin || 0;
 
-      teamRow.points += pts;
+      teamRow.points += pts * weightOf(debate);
       if (!isForfeit) teamRow.totalSpeakerScore += totalSpeakersScore;
 
       if (isBP) {
@@ -221,7 +226,7 @@ export function calculateStandings(
       } else {
         if (win) teamRow.wins!++;
         else teamRow.losses!++;
-        teamRow.margins! += margin;
+        if (!isForfeit) teamRow.margins! += margin;
       }
 
       const opponentTeamIds = slotsInDebate
@@ -239,6 +244,7 @@ export function calculateStandings(
         rankInRoom: isBP ? bpRankInRoom(pts) : undefined,
         ...(votesPossible ? { votesGiven: teamScore?.votes ?? 0, votesPossible } : {}),
         ironed: !isForfeit && substantiveEntries.length > countedSpeeches.length,
+        weight: weightOf(debate),
       });
 
       teamRow.roundResults.push({
@@ -308,6 +314,7 @@ export function calculateStandings(
   const speakerRowsMap = new Map<string, SpeakerStandingRow>();
   const replyRowsMap = new Map<string, SpeakerStandingRow>();
   const speakerScoresByRound = new Map<string, { substantive: number[]; reply: number[] }>();
+  const speechRanksBySpeaker = new Map<string, number[]>();
 
   for (const team of teams) {
     if (team.isSwing) continue;
@@ -401,6 +408,9 @@ export function calculateStandings(
           spkRow.speechesCount++;
           spkRow.scoresByRound.push({ roundSeq: debate.roundSeq, score: entry.score, position: entry.position });
           speakerScoresByRound.get(entry.speakerId)!.substantive.push(entry.score);
+          if (typeof entry.rank === "number") {
+            speechRanksBySpeaker.set(entry.speakerId, [...(speechRanksBySpeaker.get(entry.speakerId) ?? []), entry.rank]);
+          }
         }
       }
     }
@@ -412,10 +422,14 @@ export function calculateStandings(
 
   // Standings eligibility (Tabbycat's "speeches missable"): a speaker must have given at least
   // (preliminary rounds with results so far − missable) speeches to be ranked. Only rounds that
-  // have results count, so a round in progress never makes anyone ineligible.
+  // have results count, so a round in progress never makes anyone ineligible. Rounds whose
+  // ballots carry no speaker scores (speakersInBallots) are not counted either: Tabbycat counts
+  // every preliminary round, which makes every speaker ineligible once such a round exists.
+  const hasSpeakerScores = (ballot: BallotSubmission | undefined) =>
+    Boolean(ballot && !ballot.noSpeakerScores && !ballot.forfeitSide);
   const roundsWithResults = new Set(
     debates
-      .filter((debate) => !debate.postponed && (ballotMap.has(debate.id) || (debate.byeTeamId && debate.byeResult === "win")))
+      .filter((debate) => !debate.postponed && (hasSpeakerScores(ballotMap.get(debate.id)) || (debate.byeTeamId && debate.byeResult === "win")))
       .map((debate) => debate.roundId)
   ).size;
   const minimumSpeeches = (missable: number | undefined) =>
@@ -428,7 +442,7 @@ export function calculateStandings(
       row.averageScore = row.speechesCount > 0 ? Number((row.totalScore / row.speechesCount).toFixed(2)) : 0;
       row.metrics = isReplyList
         ? computeSpeakerMetrics(scores.reply, [], trim)
-        : computeSpeakerMetrics(scores.substantive, scores.reply, trim);
+        : computeSpeakerMetrics(scores.substantive, scores.reply, trim, speechRanksBySpeaker.get(row.speakerId) ?? []);
     }
     const minimum = minimumSpeeches(
       isReplyList ? tournament.preferences?.standingsMissedReplies : tournament.preferences?.standingsMissedDebates

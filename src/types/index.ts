@@ -29,7 +29,9 @@ export type SpeakerMetricId =
   | "speaks_trimmed_mean"
   | "speeches_count"
   | "reply_sum"
-  | "reply_avg";
+  | "reply_avg"
+  /** Sum of the speaker's speech ranks within debates (speakerRanks). Lower ranks higher. */
+  | "srank";
 
 export type OddBracketMethod =
   | "pullup_top"
@@ -57,6 +59,39 @@ export type BPPullupDistribution = "anywhere" | "top" | "bottom";
 export type BPPositionCost = "renyi_entropy" | "sum_squared_deviations";
 export type BPAssignmentMethod = "hungarian" | "random";
 export type ByeTeamResults = "absent" | "win";
+/** Tabbycat's score_aggregation_function: how a panel's scores for one speech are combined. */
+export type ScoreAggregation = "mean" | "median";
+/** Tabbycat's speakers_in_ballots: when ballots ask for speaker scores. */
+export type SpeakersInBallots = "always" | "prelim" | "never";
+/** Tabbycat's speaker_ranks: whether ballots rank the speeches in a debate. */
+export type SpeakerRanksMode = "none" | "any" | "high-points";
+/**
+ * Tabbycat's winners_in_ballots: "none" = the higher total wins; "high-points" = the winner is
+ * declared but must have the higher total; "tied-points" = declared, may also break a tie;
+ * "low-points" = declared, overrides the scores.
+ */
+export type WinnerDeclaration = "none" | "high-points" | "tied-points" | "low-points";
+/** Tabbycat's side_names for two-team formats. */
+export type SideNames = "aff-neg" | "gov-opp" | "prop-opp" | "pro-con" | "appellant-respondent" | "1-2" | "pl-def";
+/** Which speeches a score criterion applies to (Tabbycat ScoreCriterion.speech_type). */
+export type ScoreCriterionSpeechType = "all" | "substantive" | "reply";
+
+/**
+ * A weighted part of a speaker score (Tabbycat ScoreCriterion). When a tournament defines
+ * criteria, adjudicators score each criterion and the speaker score is Σ weight × criterion score.
+ */
+export interface ScoreCriterion {
+  id: string;
+  name: string;
+  seq: number;
+  speechType: ScoreCriterionSpeechType;
+  weight: number;
+  minScore: number;
+  maxScore: number;
+  step: number;
+  /** Optional criteria may be left blank; a blank counts as 0. */
+  required: boolean;
+}
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
 export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
 /**
@@ -245,8 +280,31 @@ export interface TournamentPreferences {
   eliminationBallotMode?: BallotMode;
   /** With ballotDoubleEntry: "review" = a second person reviews and confirms; "blind" = a second person re-enters without seeing the first entry. */
   ballotCheckMode?: BallotCheckMode;
-  /** Allow a team with the lower total speaker score to be awarded the win (consensus ballots only). */
+  /**
+   * @deprecated Superseded by winnersInBallots ("low-points"). Still read when winnersInBallots is
+   * absent, and kept in step with it on save, so older settings and clients behave the same.
+   */
   allowLowPointWins?: boolean;
+  /** How a debate's winner is decided; absent = from allowLowPointWins. See ballots/ballotRules. */
+  winnersInBallots?: WinnerDeclaration;
+  /** How a voting panel's scores for one speech are combined. Absent = "mean". */
+  scoreAggregation?: ScoreAggregation;
+  /** When ballots ask for speaker scores. Absent = "always". */
+  speakersInBallots?: SpeakersInBallots;
+  /** Speech ranks on consensus ballots. Absent = "none". */
+  speakerRanks?: SpeakerRanksMode;
+  /** Weighted score criteria; empty or absent = speakers get a single score. */
+  scoreCriteria?: ScoreCriterion[];
+  /** Largest allowed winning margin on one scoresheet; 0 or absent = no limit. */
+  maximumMargin?: number;
+  /** Step for reply scores. Absent = half the substantive step (CrabbyTab's earlier rule). */
+  stepReplyScore?: number;
+  /** The reply speaker must have given a substantive speech in the debate. Absent = true. */
+  requireSubstantiveForReply?: boolean;
+  /** Names for the two sides in two-team formats. Absent = "aff-neg". */
+  sideNames?: SideNames;
+  /** Ballots record the motion debated, and motions are managed per round. Absent = true. */
+  enableMotions?: boolean;
   /** Record which motion each team vetoed. */
   enableMotionVetoes?: boolean;
   /** Allow two-team debates to be recorded as forfeits. */
@@ -379,6 +437,8 @@ export interface Round {
   preallocatedSides?: Record<string, TwoTeamSide>;
   /** Seed of the draw generator's random source for the current draw; regenerating with it reproduces the draw. */
   drawSeed?: number;
+  /** Tabbycat Round.weight: team points earned in this round count this many times. Absent = 1. */
+  weight?: number;
 }
 
 export interface PreformedPanel {
@@ -581,6 +641,10 @@ export interface SpeakerScoreEntry {
   score: number;
   /** A duplicate (iron-person) speech: excluded from speaker standings, and from team totals unless teamScoreIncludesGhosts. */
   ghost?: boolean;
+  /** Speech rank within the debate (1 = best), when the tournament ranks speeches. */
+  rank?: number;
+  /** Score per criterion id, when the tournament uses score criteria; `score` is their weighted sum. */
+  criteria?: Record<string, number>;
 }
 
 export interface TeamScoreEntry {
@@ -605,6 +669,8 @@ export interface AdjudicatorSheet {
   adjudicatorId: string;
   adjudicatorName?: string;
   speakerScores: Record<DebateSide, SpeakerScoreEntry[]>;
+  /** The side this adjudicator declared the winner, when winnersInBallots is not "none" or the ballot has no scores. */
+  declaredWinner?: DebateSide;
 }
 
 export interface BallotSubmission {
@@ -632,6 +698,11 @@ export interface BallotSubmission {
   vetoes?: Partial<Record<DebateSide, string>>;
   /** Side that forfeited; a forfeit ballot carries no speaker scores. */
   forfeitSide?: DebateSide;
+  /**
+   * A results-only ballot (speakersInBallots): ranks or winners without speaker scores. Team
+   * totals are recorded as 0 but mean "no score", and standings leave them out.
+   */
+  noSpeakerScores?: boolean;
   /** Blind double entry: the version this entry was checked against. */
   checksVersion?: number;
   discardedBy?: string;
