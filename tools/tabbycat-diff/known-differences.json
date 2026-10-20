@@ -7,35 +7,12 @@
       "note": "CrabbyTab's DebateXML importer totals each imported ballot with CrabbyTab's defaults, so iron-person (ghost) speeches are left out of team scores. Tabbycat's default, and WUDC 35.9.3.2, is to include them, and Tabbycat's importer applies the style preset first. The harness recomputes the imported totals with Tabbycat's setting so every later comparison starts from equal team scores. Follow-up: have the importer apply the style's preset (RULES_PRESETS) before totalling ballots."
     },
     {
-      "id": "australs-voting/standings/teams/metric/margin_*",
-      "classification": "CrabbyTab defect",
-      "note": "Voting ballots are averaged across the majority and then rounded to 0.01 (round2 in aggregateVotingSheets and consensusTeamScores, src/lib/ballots/result.ts), so a 3-judge margin of 8/3 is stored as 2.67. Tabbycat keeps full precision. Not fixed here because it changes stored ballot data; see the parity plan."
-    },
-    {
-      "id": "australs-voting/standings/teams/metric/speaks_stddev",
-      "classification": "CrabbyTab defect",
-      "note": "Same cause as the margins: averaged voting scores are rounded to 0.01 before the standard deviation is taken."
-    },
-    {
-      "id": "australs-voting/standings/speakers/metric/stdev",
-      "classification": "CrabbyTab defect",
-      "note": "Same cause as the margins: each speech's average across the panel is rounded to 0.01 when the voting ballot is aggregated."
-    },
-    {
-      "id": "australs-voting/standings/speakers/rank",
-      "classification": "CrabbyTab defect",
-      "note": "The 0.01 rounding of averaged voting scores splits real ties: after round 2, S17, S37 and S55 all average 224/3 in Tabbycat and share 38th place, but CrabbyTab stores 74.665 for two of them and 74.67 for the third, so it ranks them 38th and 39th."
-    },
-    {
-      "id": "*/standings/teams/metric/num_adjs",
-      "classification": "CrabbyTab defect",
-      "note": "CrabbyTab's DebateXML importer treats a debate with one per-adjudicator ballot as a consensus ballot, and consensus ballots record no votes, so 'votes/ballots carried' is 0 for every sole-adjudicator debate. Tabbycat counts a unanimous vote, normalised to 3. Only the importer path is shown to be affected; ballots entered in the app were not checked by this harness. Not in any fixture's precedence, so no rank is affected."
-    },
-    {
       "id": "bp-uneven/standings/teams/metric/draw_strength",
       "classification": "rule difference",
       "note": "In BP, Tabbycat's draw strength sums opponents' points; CrabbyTab's draw_strength_wins counts opponents' wins (a 1st or 2nd). The BP rules preset already lists this as unsupported and leaves draw strength out of the BP precedence (src/lib/setup/presets.ts), so BP ranks still agree. Follow-up: compute BP draw strength from points.",
-      "dependsOn": ["PR #36 (BP preset precedence)"]
+      "dependsOn": [
+        "PR #36 (BP preset precedence)"
+      ]
     },
     {
       "id": "bp-uneven/standings/teams/metric/wins",
@@ -71,19 +48,25 @@
       "id": "twoteam-odd-ties/break/BC1/breaking",
       "classification": "rule difference",
       "note": "Eight teams are tied on wins for the last of six places. Tabbycat 2.12.1 breaks one of them, picked by its random standings tie-break, and marks the other seven as reserves. Its code says every team tied for the last place should break, but add_reserve_teams then overwrites them as reserves (breakqual/base.py). CrabbyTab holds the whole tie out of the break and blocks generation until the tab director resolves it, so it breaks five teams and reports the tie.",
-      "dependsOn": ["PR #36 (cutoffTies)"]
+      "dependsOn": [
+        "PR #36 (cutoffTies)"
+      ]
     },
     {
       "id": "twoteam-odd-ties/break/BC1/reserves",
       "classification": "rule difference",
       "note": "Same tie as above: Tabbycat lists the seven tied teams it did not break as reserves. CrabbyTab picks no reserves until the break cutoff tie is resolved.",
-      "dependsOn": ["PR #36 (cutoffTies)"]
+      "dependsOn": [
+        "PR #36 (cutoffTies)"
+      ]
     },
     {
       "id": "twoteam-odd-ties/break/BC1/seeds",
       "classification": "rule difference",
       "note": "T5, T8, T11 and T18 are tied (3 wins, the only metric). Tabbycat gives them the same break rank (2); CrabbyTab numbers them 2 to 5 in standings order, which is team-name order inside a tie, so elimination seeding among tied teams is decided by name and the tie is not shown. Follow-up: carry equal seeds into elimination pairing or mark the tie.",
-      "dependsOn": ["PR #36 (break tie handling)"]
+      "dependsOn": [
+        "PR #36 (break tie handling)"
+      ]
     },
     {
       "id": "*/allocation/r*/historyRepeats",

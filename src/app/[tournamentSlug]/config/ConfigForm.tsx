@@ -114,7 +114,6 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     pairingDeviationPenalty: 0,
     maxTimesPerSide: 5,
     maxAllowedSideImbalance: 0,
-    preliminaryPanelsPerScheduleSlot: 1,
     oddBracketMethod: "intermediate_bubble",
     pairingMethod: "fold",
     conflictAvoidance: "one_up_one_down",
@@ -896,27 +895,6 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Preliminary panels per schedule slot
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={prefs.preliminaryPanelsPerScheduleSlot ?? 1}
-                    onChange={(e) =>
-                      setPrefs((p) => ({
-                        ...p,
-                        preliminaryPanelsPerScheduleSlot: Math.max(1, parseInt(e.target.value, 10) || 1),
-                      }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    When greater than 1, consecutive preliminary rounds are treated as parallel panels in the same schedule slot (e.g. A and B). Current-round navigation and feedback eligibility use the shared slot. Round creation assigns schedule groups from this value.
-                  </p>
-                </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Bye team results

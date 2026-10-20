@@ -907,6 +907,25 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
   const motionRounds = new Map<string, Set<string>>();
   // Which stages had results, and which had one ballot per adjudicator (voting).
   const ballotsByStage = { preliminary: { any: false, voting: false }, elimination: { any: false, voting: false } };
+  // Ballot mode per stage, from the archive's evidence. Several scoresheets in a debate mean one
+  // ballot per adjudicator (voting); one ballot signed by a whole panel means consensus. When every
+  // debate had a sole adjudicator the archive cannot tell them apart, so the stage takes Tabbycat's
+  // default for two-team formats (ballots_per_debate = per-adj, i.e. voting). BP is always consensus.
+  const votingStages = { preliminary: false, elimination: false };
+  if (format !== "bp") {
+    for (const stage of ["preliminary", "elimination"] as const) {
+      const stageDebates = rawRounds
+        .filter((rawRound) => (stage === "elimination") === Boolean(rawRound.elimination))
+        .flatMap((rawRound) => rawRound.debates)
+        .filter((raw) => raw.sides.length === sides.length);
+      const perAdjudicator = stageDebates.some((raw) => ballotKeys(raw).length > 1);
+      const panelSigned = stageDebates.some((raw) => {
+        const keys = ballotKeys(raw);
+        return keys.length === 1 && keyIds(keys[0]).length > 1;
+      });
+      votingStages[stage] = perAdjudicator || !panelSigned;
+    }
+  }
 
   rawRounds.forEach((rawRound, roundIndex) => {
     const seq = roundIndex + 1;
@@ -918,7 +937,8 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       const teamIds: SideRecord<string> = Object.fromEntries(sides.map((side, index) => [side, raw.sides[index].teamId]));
       const motion = raw.motionId ? motionById.get(raw.motionId) : undefined;
       if (motion) motionRounds.set(motion.id, (motionRounds.get(motion.id) ?? new Set()).add(roundId));
-      const result = buildBallot(raw, sides, teamIds, rules, speakerNames, log);
+      const stage = rawRound.elimination ? "elimination" : "preliminary";
+      const result = buildBallot(raw, sides, teamIds, rules, speakerNames, log, votingStages[stage]);
       const stageBallots = ballotsByStage[rawRound.elimination ? "elimination" : "preliminary"];
       if (result) stageBallots.any = true;
       if (result?.sheets) stageBallots.voting = true;
@@ -1187,18 +1207,29 @@ interface BuiltBallot {
  * Rebuilds a debate's result. One scoresheet is a consensus ballot; several scoresheets in a
  * two-team debate are a voting ballot (one sheet per adjudicator, aggregated by majority).
  */
+/** The distinct ballot keys (one per scoresheet) recorded for a debate. */
+function ballotKeys(raw: RawDebate): string[] {
+  return [...new Set(raw.sides.flatMap((side) => [
+    ...side.ballots.map((ballot) => ballot.key),
+    ...side.speeches.flatMap((speech) => [...speech.scores.keys()]),
+  ]))];
+}
+
 function buildBallot(
   raw: RawDebate,
   sides: DebateSide[],
   teamIds: SideRecord<string>,
   rules: BallotRules,
   speakerNames: Map<string, string>,
-  log: IssueLog
+  log: IssueLog,
+  /**
+   * The debate's stage uses one ballot per adjudicator. A sole adjudicator's single scoresheet is
+   * then a one-sheet voting ballot (one vote of one), as Tabbycat records it, not a consensus
+   * ballot, which carries no votes.
+   */
+  stageIsVoting = false
 ): BuiltBallot | undefined {
-  const keys = [...new Set(raw.sides.flatMap((side) => [
-    ...side.ballots.map((ballot) => ballot.key),
-    ...side.speeches.flatMap((speech) => [...speech.scores.keys()]),
-  ]))];
+  const keys = ballotKeys(raw);
   if (keys.length === 0) return undefined;
 
   const speakerScoresFor = (key: string, strict: boolean): Record<DebateSide, SpeakerScoreEntry[]> | undefined => {
@@ -1224,7 +1255,9 @@ function buildBallot(
     return complete ? result : undefined;
   };
 
-  if (keys.length > 1) {
+  const soleVotingSheet =
+    stageIsVoting && keys.length === 1 && rules.format !== "bp" && Boolean(resolveBallotAdjudicator(keys[0], raw));
+  if (keys.length > 1 || soleVotingSheet) {
     if (rules.format === "bp") {
       log.error(raw.path, "BP debates must have a single consensus ballot.");
       return undefined;

@@ -193,3 +193,33 @@ describe("assembling and diffing", () => {
     expect(diffBallots(first, first, "wsdc")).toEqual([]);
   });
 });
+
+describe("voting averages keep full precision", () => {
+  it("keeps equal averages tied instead of rounding them apart (224/3, as in Tabbycat)", () => {
+    // Each AFF speaker's three scores sum to 224, so every average is exactly 224/3. Rounding to
+    // 0.01 used to store 74.67 for some and 74.665-style values for others, splitting the tie.
+    const sheets = [
+      sheet("chair", [75, 74, 75], [70, 70, 70]),
+      sheet("p1", [74, 75, 74], [70, 70, 70]),
+      sheet("p2", [75, 75, 75], [70, 70, 70]),
+    ];
+    const result = aggregateVotingSheets(sheets, "chair", teamIds, twoTeam);
+    const substantive = result.speakerScores.AFF.filter((entry) => entry.position <= 3).map((entry) => entry.score);
+    expect(new Set(substantive).size).toBe(1);
+    expect(substantive[0]).toBeCloseTo(224 / 3, 9);
+    // Team total is the exact mean of the sheet totals (259, 258, 260), not a sum of averages.
+    expect(result.teamScores.AFF.totalSpeakerScore).toBe(259);
+  });
+
+  it("stores the exact mean margin rather than a value rounded to 0.01", () => {
+    const sheets = [
+      sheet("chair", [72, 72, 72], [70, 70, 70]),
+      sheet("p1", [71, 71, 71], [70, 70, 70]),
+      sheet("p2", [71, 70, 71], [70, 70, 70]),
+    ];
+    const result = aggregateVotingSheets(sheets, "chair", teamIds, twoTeam);
+    // AFF totals 251, 248 and 247 against NEG's 245: margins 6, 3 and 2, mean 11/3.
+    expect(result.teamScores.AFF.margin).toBeCloseTo(11 / 3, 9);
+    expect(result.teamScores.AFF.margin).not.toBe(3.67);
+  });
+});
