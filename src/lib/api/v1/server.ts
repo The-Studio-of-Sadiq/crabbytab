@@ -1,4 +1,4 @@
-import { getPublicViewReader } from "@/lib/publicView/store";
+import { getPublicViewReader, publishPublicView } from "@/lib/publicView/store";
 import { clientAddressFromHeaders } from "@/lib/privateTeamRateLimit";
 import { createFirestoreApiStore } from "./firestoreStore";
 import { handleApiRequest, type ApiServices } from "./http";
@@ -16,6 +16,7 @@ function getServices(): ApiServices {
     routes: API_ROUTES,
     limiter,
     now: () => new Date(),
+    publishPublicView: (tournamentId) => publishPublicView({ tournamentId }),
   };
   return services;
 }

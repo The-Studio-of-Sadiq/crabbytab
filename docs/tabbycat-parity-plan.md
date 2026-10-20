@@ -40,6 +40,7 @@ means the sync/publish hardening PR that added this section.
 | Sync: upload published despite conflicts / part-way failure | FIXED | this PR | refused (`publishBlockerAfterUpload`, `UploadIssue`) |
 | Sync: no unsynced indicator or `beforeunload` warning | FIXED | this PR | `computePendingChanges`, top-bar sync status, `useBeforeUnloadWarning` |
 | 24 REST API: read endpoints, per-area scopes, `/me`, OpenAPI 3.1 | FIXED | wave 4 API read PR | `lib/api/v1/*`, `app/api/v1/[[...path]]`; every Tabbycat v1 read resource except users/groups/global institutions/schedule events/web push; public scope = published view; see [api.md](./api.md) |
+| 24 REST API: write endpoints (CRUD, generate draw/break, allocation, ballots, check-ins, feedback, publish) | FIXED | wave 4 API write PR | `lib/api/v1/{session,tabRoom,ballotInput}.ts`, `routes/write/*`; every write runs the tab-room command and guards in one transaction, bumps `syncVersion`, archives the replaced version and audits with the token; overridable rules via `override.reason`; see [api.md](./api.md#writes) |
 | 1.1 elimination rounds counted in standings | FIXED | #10 | `standings/calculator.ts` filters elimination and cancelled rounds |
 | 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
 | 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |

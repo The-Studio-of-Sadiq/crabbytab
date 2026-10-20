@@ -26,6 +26,8 @@ export interface ApiServices {
   routes: readonly ApiRoute[];
   limiter: MemoryRateLimiter;
   now(): Date;
+  /** Rebuilds and publishes a tournament's public view (lib/publicView/store.ts). */
+  publishPublicView?(tournamentId: string): Promise<unknown>;
 }
 
 export interface ApiRequest {
@@ -268,10 +270,12 @@ export async function handleApiRequest(request: ApiRequest, services: ApiService
       // "/teams/standings" must win over "/teams/{teamId}": prefer the template with more literal segments.
       .sort((left, right) => literalSegments(right.route.path) - literalSegments(left.route.path));
     if (matching.length === 0) throw new ApiError(404, "not_found", "No such API endpoint.");
+    // Only the most specific template counts: "/teams/standings" is never "/teams/{teamId}".
     const specificity = literalSegments(matching[0].route.path);
-    const found = matching.find((candidate) => candidate.route.method === method);
+    const best = matching.filter((candidate) => literalSegments(candidate.route.path) === specificity);
+    const found = best.find((candidate) => candidate.route.method === method);
     if (!found) {
-      const allow = [...new Set(matching.filter((candidate) => literalSegments(candidate.route.path) === specificity).map((candidate) => candidate.route.method))].join(", ");
+      const allow = [...new Set(best.map((candidate) => candidate.route.method))].join(", ");
       throw new ApiError(405, "method_not_allowed", `Use ${allow} for this endpoint.`, {}, { Allow: allow });
     }
     const { route } = found;
@@ -298,8 +302,9 @@ export async function handleApiRequest(request: ApiRequest, services: ApiService
     if (BODY_METHODS.has(method)) {
       const raw = await readJsonBody(request, route.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);
       if (route.body) {
-        if (raw === undefined) throw new ApiError(400, "bad_request", "A JSON request body is required.");
-        body = route.body.parse(raw);
+        // No body is an empty object: endpoints whose fields are all optional need none, and the
+        // schema names any required field that is missing.
+        body = route.body.parse(raw ?? {});
       } else if (raw !== undefined) {
         throw new ApiError(400, "bad_request", "This endpoint takes no request body.");
       }
@@ -333,6 +338,9 @@ export async function handleApiRequest(request: ApiRequest, services: ApiService
       participant: authenticated?.participant ?? null,
       now,
       requestId,
+      publishPublicView: authenticated?.store && services.publishPublicView
+        ? () => services.publishPublicView!(authenticated!.store!.tournamentId)
+        : null,
     };
     const result = await route.handler(context);
     const response = isRouteResponse(result) ? result : { body: result };
