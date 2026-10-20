@@ -1,3 +1,4 @@
+import { MANUAL_SIDES_FLAG } from "@/lib/draw/manualSides";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -173,6 +174,8 @@ export function buildPublicProjection(
           "importance",
           "sidesConfirmed",
         ]),
+        // Only the marker for sides chosen at the debate is public, so pages can say so.
+        ...(debate.flags?.includes(MANUAL_SIDES_FLAG) ? { flags: [MANUAL_SIDES_FLAG] } : {}),
         // Confirming a ballot copies its points and speaker total onto the team slots, so they are
         // released on the same terms as the ballot itself.
         teams: Object.fromEntries(

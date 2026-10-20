@@ -26,7 +26,7 @@ export function AuthScreen({ mode }: { mode: Mode }) {
   const titles: Record<Mode, { heading: string; sub: string }> = {
     login: {
       heading: "Sign in",
-      sub: "Use your email and password to open the tab room. Accounts are added by the site administrator in Firebase Authentication.",
+      sub: "Use your email and password to open the tab room. New tournament staff join through an emailed invitation.",
     },
     reset: {
       heading: "Reset password",

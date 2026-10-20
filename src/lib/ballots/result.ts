@@ -13,6 +13,7 @@ import type {
   TournamentPreferences,
 } from "@/types";
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
+import { ballotSideAssignment, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
 
 /**
  * Pure ballot logic shared by tab-room entry, the private portal and standings: how speeches are
@@ -74,8 +75,13 @@ export function usesVotingBallots(rules: BallotRules): boolean {
  */
 export function ballotMatchesDebate(
   ballot: Pick<BallotSubmission, "teamScores">,
-  debate: Pick<Debate, "teams">
+  debate: Pick<Debate, "teams"> & Partial<Pick<Debate, "flags" | "sidesConfirmed" | "byeTeamId">>
 ): boolean {
+  // Sides chosen on the ballot: it may put the debate's teams on either side.
+  if (sidesChosenOnBallot({ flags: [], ...debate })) {
+    const assignment = ballotSideAssignment(ballot);
+    if (Object.keys(assignment).length > 0) return isSidePermutation(debate, assignment);
+  }
   for (const [side, slot] of Object.entries(debate.teams || {})) {
     const recorded = ballot.teamScores?.[side as DebateSide]?.teamId;
     if (slot?.teamId && recorded && recorded !== slot.teamId) return false;

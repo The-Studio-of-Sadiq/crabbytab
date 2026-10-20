@@ -29,6 +29,7 @@ import {
   Gavel,
 } from "lucide-react";
 import { DebateSide } from "@/types";
+import { sidesPending } from "@/lib/draw/manualSides";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { speakerRowsInCategory, speakersInCategory, sortSpeakerCategories } from "@/lib/speakerCategories";
 import { formatMetricValue } from "@/lib/standings/metrics";
@@ -512,6 +513,9 @@ export default function PublicTournamentPage() {
                               (["AFF", "NEG"] as DebateSide[]).map((side) => (
                                 <td key={side} className="text-xs font-semibold text-gray-900">
                                   {d.teams?.[side]?.teamName || "—"}
+                                  {sidesPending(d) && (
+                                    <span className="block text-[10px] font-normal text-gray-500">{t("common.sidesTbc")}</span>
+                                  )}
                                 </td>
                               ))
                             )}

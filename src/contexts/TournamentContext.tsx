@@ -252,17 +252,20 @@ export interface TournamentContextType {
   confirmBallot: (ballotId: string, debateId: string, submittedBallot?: BallotSubmission) => Promise<void>;
   discardBallot: (ballotId: string) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
-  addInstitutions: (institutions: Omit<Institution, "id" | "tournamentId">[]) => Promise<void>;
+  /** Resolves to the created institutions. */
+  addInstitutions: (institutions: Omit<Institution, "id" | "tournamentId">[]) => Promise<Institution[]>;
   /** Creates and updates institutions, teams and adjudicators in one write per collection (previewed imports). */
   saveEntityBatch: (batch: EntityBatch, source: string) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
-  addTeams: (teams: Omit<Team, "id" | "tournamentId">[]) => Promise<void>;
+  /** Resolves to the created teams (with ids and private URL keys). */
+  addTeams: (teams: Omit<Team, "id" | "tournamentId">[]) => Promise<Team[]>;
   updateTeam: (team: Team, privatePasscode?: string) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
   addAdjudicator: (adj: Omit<Adjudicator, "id" | "tournamentId">) => Promise<void>;
-  addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<void>;
+  /** Resolves to the created adjudicators (with ids and private URL keys). */
+  addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<Adjudicator[]>;
   updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
   updateAdjudicators: (adjudicators: Adjudicator[]) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
@@ -2115,9 +2118,7 @@ export function TournamentProvider({
     );
   };
 
-  const addInstitutions = async (instData: Omit<Institution, "id" | "tournamentId">[]) => {
-    await addInstitutionsCommand(instData);
-  };
+  const addInstitutions = (instData: Omit<Institution, "id" | "tournamentId">[]) => addInstitutionsCommand(instData);
 
   const addInstitution = async (instData: Omit<Institution, "id" | "tournamentId">) => {
     await addInstitutionsCommand([instData]);
@@ -2134,9 +2135,7 @@ export function TournamentProvider({
     }
   };
 
-  const addTeams = async (teamData: Omit<Team, "id" | "tournamentId">[]) => {
-    await addTeamsCommand(teamData);
-  };
+  const addTeams = (teamData: Omit<Team, "id" | "tournamentId">[]) => addTeamsCommand(teamData);
 
   const addTeam = async (teamData: Omit<Team, "id" | "tournamentId">) => {
     await addTeamsCommand([teamData]);
@@ -2151,9 +2150,7 @@ export function TournamentProvider({
     if (teams.some((team) => team.id === teamId)) recordSyncTombstones({ teams: [teamId] });
   };
 
-  const addAdjudicators = async (adjData: Omit<Adjudicator, "id" | "tournamentId">[]) => {
-    await addAdjudicatorsCommand(adjData);
-  };
+  const addAdjudicators = (adjData: Omit<Adjudicator, "id" | "tournamentId">[]) => addAdjudicatorsCommand(adjData);
 
   const addAdjudicator = async (adjData: Omit<Adjudicator, "id" | "tournamentId">) => {
     await addAdjudicatorsCommand([adjData]);

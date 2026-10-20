@@ -92,8 +92,12 @@ export interface TournamentPreferences {
   maxReplyScore: number; // typically 45 or 50
   /** "bracket" is a legacy value; round creation treats it as "random". */
   drawRule: "power_paired" | "random" | "round_robin" | "bracket";
-  /** "preallocated": two-team only; sides come from Round.preallocatedSides. */
-  sideAllocationRule: "balanced" | "random" | "preallocated";
+  /**
+   * "preallocated": two-team only; sides come from Round.preallocatedSides.
+   * "manual_ballot": two-team only; the draw pairs teams without sides and each debate's ballot
+   * records which team took which side (Tabbycat's "manual-ballot"). See lib/draw/manualSides.ts.
+   */
+  sideAllocationRule: "balanced" | "random" | "preallocated" | "manual_ballot";
   ballotDoubleEntry: boolean;
   publicDraw: boolean;
   publicResults: boolean;
@@ -364,6 +368,8 @@ export interface Speaker {
    * every entry with resolveSpeakerCategoryRef, so both keep working.
    */
   categories?: string[];
+  /** Swing teams: the registered speaker this swing speaker stands in for, if any. */
+  swingSourceSpeakerId?: string;
 }
 
 export interface Team {
@@ -393,6 +399,13 @@ export interface Team {
   venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
+  /**
+   * A swing (composite) team formed to fill a room. It is drawn only in `swingRoundIds`, its
+   * results count for its opponents, and it is left out of team and speaker standings and breaks.
+   */
+  isSwing?: boolean;
+  /** Rounds a swing team is drawn in. */
+  swingRoundIds?: string[];
 }
 
 export interface AdjudicatorConflict {
@@ -493,6 +506,11 @@ export interface Debate {
   roomRank: number;
   importance: number;
   resultStatus: DebateResultStatus;
+  /**
+   * With the "manual_ballot" side rule (flag "manual_ballot_sides"), false until a confirmed
+   * ballot records which team took which side; the slots' sides are only the draw's order until
+   * then. Other debates do not read it.
+   */
   sidesConfirmed: boolean;
   flags: string[];
   teams: Record<DebateSide, DebateTeamSlot>;

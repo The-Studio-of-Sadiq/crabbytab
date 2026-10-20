@@ -126,6 +126,77 @@ negative teams. Missing or uneven allocations are reported, not guessed.
 With an automatic bye method, the remainder teams get a bye. A bye counted as a win gives
 the team its points and a win (BP: 3 points and a first) but, as in Tabbycat, no speaker
 scores. Speaker tabs and speaker-score averages ignore it, and so does the margin average.
+A swing team never takes the bye.
+
+### Sides chosen on the ballot
+
+The `manual_ballot` side rule (Tabbycat's "manual-ballot", two-team formats only; the NZ
+Easters preset uses it) pairs teams without fixing sides, e.g. for a coin toss before the
+debate. Code: `src/lib/draw/manualSides.ts`.
+
+- Every generated or hand-built room gets the flag `manual_ballot_sides` and
+  `sidesConfirmed: false`. The slots' sides are then only the order the draw listed the teams
+  in. Byes and debates drawn under other rules are never affected (their `sidesConfirmed`
+  was never meaningful), and changing the rule later does not change existing draws.
+- Pairing ignores side history, side balance and the side limits, since no side is assigned.
+  The draw check skips `side_limit` for these rooms.
+- The draw, public draw, projector, private portals and printed ballots show the teams with
+  "sides chosen at the debate" instead of a side. Printed ballots ask the adjudicator to tick
+  each team's side.
+- The ballot records the sides: `teamScores[side].teamId`. Tab-room entry asks which team
+  was Affirmative before scores are entered; the chair's portal ballot does the same, and the
+  server (`privateBallot.ts`) accepts any arrangement of the debate's own teams and refuses a
+  ballot without one while the sides are open.
+- Confirming a ballot moves the teams to the recorded sides and sets `sidesConfirmed: true`.
+  A later confirmed version may record other sides (the ballot is the authority for these
+  rooms); discarding the confirmed version reopens the sides.
+- Side history, standings, motion statistics and elimination advancement read the sides of
+  confirmed ballots (`resolveRecordedSides` / `applyBallotSides`), so a chair's portal ballot
+  counts before anyone rearranges the debate record. A room whose sides are still open counts
+  as a meeting with no side.
+- Draw edits still go through the normal draw commands, so live sync and the state rules
+  (no matchup change once a ballot exists) apply.
+
+### Swing teams
+
+When the available teams do not fill the last room, the Draw page offers swing teams next
+to the automatic byes (`SwingTeamPanel`, `application/swingTeams.ts`). A swing team is a
+composite team formed for a round: its speakers are reserves or registered speakers of other
+teams, each with a new speaker id (`Speaker.swingSourceSpeakerId` names the speaker it
+stands in for), so swing speeches never mix with the speaker's own record.
+
+- `Team.isSwing` and `Team.swingRoundIds`: the team is eligible, and marked available, only
+  in those preliminary rounds. An earlier swing team can be reused in a later round.
+- It is drawn like any team and never takes a bye. Its results count for its opponents
+  (wins, points, opponent strength).
+- It is left out of team standings, the speaker and reply tabs, and therefore the break.
+  Tabbycat has a swing team type but leaves this to the tab director (break eligibility,
+  duplicate speeches, "speeches missable"); CrabbyTab does it automatically.
+
+## Draw editor
+
+The Draw page shows, for each debate, its bracket, room rank, whether sides are chosen on the
+ballot, and the draw check's problems and warnings. Each team carries inline flags
+(`src/lib/draw/drawFlags.ts`; hover or focus a flag for the full sentence):
+
+- **Met R2, R4**: a rematch, with the rounds the teams met in.
+- **Same institution**.
+- **AFF ×2, NEG ×1** (BP: each position): sides so far, including sides recorded on ballots.
+- **AFF ×3** (warning): the side this round would leave the team that many times on it, two or
+  more above its least-used side (or above `maxAllowedSideImbalance` when larger). Not shown
+  while sides are chosen on the ballot or in elimination rounds.
+- **Pulled up** in this round, and **Pulled up ×N before**.
+- **Swing**.
+
+"Draw details" lists every team with points, this round's room and opponents, sides by
+round (TBC when not yet recorded), previous opponents with rounds, side counts and pull-ups,
+for checking a draw before release.
+
+Teams can be moved without dragging: **Move** picks a team (from a slot or the unassigned
+pool), then **Place here** / **Swap here** on a slot, or **Return picked team to pool**.
+Escape cancels. Every move is announced in an ARIA live region, and drag-and-drop uses the
+same move logic (`src/lib/draw/drawEditing.ts`): a swap within a room keeps each team's slot
+details; a team moved to another room loses its pull-up mark.
 
 ## Differences from Tabbycat
 
@@ -139,7 +210,10 @@ scores. Speaker tabs and speaker-score averages ignore it, and so does the margi
   whole side list when too few teams satisfy it.
 - `fold_top_adjacent_rest` and `adjacent` with preallocated sides pair the side lists in
   order (Tabbycat has no allocated-sides variant).
-- Seeded draws are two-team only, and preallocated sides are two-team only.
+- Seeded draws are two-team only, and preallocated sides and sides chosen on the ballot are
+  two-team only.
+- Swing teams are excluded from standings and breaks automatically (Tabbycat leaves it to
+  the tab director).
 - Tabbycat's whole-draw "minimum cost matching including pull-ups" generator, which chooses
   pull-ups by cost, is not implemented. `pullupPenalty` applies to BP only.
 

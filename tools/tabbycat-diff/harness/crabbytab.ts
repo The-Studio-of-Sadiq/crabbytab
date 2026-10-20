@@ -142,7 +142,7 @@ export function translatePreferences(
     balance: "balanced",
     random: "random",
     preallocated: "preallocated",
-    "manual-ballot": "balanced",
+    "manual-ballot": "manual_ballot",
   } as const);
 
   if (format === "bp") {

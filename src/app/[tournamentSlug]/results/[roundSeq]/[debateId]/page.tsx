@@ -29,6 +29,7 @@ import {
   type BallotRules,
 } from "@/lib/ballots/result";
 import type { AdjudicatorSheet, BallotSubmission, DebateSide, SpeakerScoreEntry } from "@/types";
+import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -41,7 +42,18 @@ export default function BallotEntryPage() {
   const { tournament, debates, rounds, teams, adjudicators, motions, ballots, submitBallot, confirmBallot, discardBallot } =
     useTournament();
 
-  const debate = debates.find((item) => item.id === debateId);
+  const drawnDebate = debates.find((item) => item.id === debateId);
+  // Sides chosen on the ballot (manual-ballot): the person entering the ballot records which team
+  // took the first side; everything below works on the debate arranged that way.
+  const choosesSides = Boolean(drawnDebate && sidesChosenOnBallot(drawnDebate) && drawnDebate.teams.AFF && drawnDebate.teams.NEG);
+  const [affTeamId, setAffTeamId] = useState<string | null>(null);
+  const [reloadBlank, setReloadBlank] = useState(false);
+  const debate = useMemo(() => {
+    if (!drawnDebate || !choosesSides || !affTeamId) return drawnDebate;
+    const negTeamId = [drawnDebate.teams.AFF?.teamId, drawnDebate.teams.NEG?.teamId].find((id) => id && id !== affTeamId);
+    const assignment = { AFF: affTeamId, NEG: negTeamId };
+    return isSidePermutation(drawnDebate, assignment) ? arrangeDebateSides(drawnDebate, assignment) : drawnDebate;
+  }, [drawnDebate, choosesSides, affTeamId]);
   const round = rounds.find((item) => item.seq === roundSeq);
   const rules: BallotRules = useMemo(
     () => ({ format: tournament?.format || "bp", preferences: tournament?.preferences, stage: round?.stage }),
@@ -95,10 +107,31 @@ export default function BallotEntryPage() {
     setShowErrors(false);
   }, []);
 
+  // Sides chosen on the ballot: start from the sides of the ballot being shown (or already
+  // confirmed on the debate); otherwise the user picks them before entering scores.
+  useEffect(() => {
+    if (!choosesSides || affTeamId || !drawnDebate) return;
+    const base =
+      checkState.kind === "review" || checkState.kind === "awaiting-other"
+        ? checkState.pending
+        : checkState.kind === "blind-check" ? undefined : confirmedBallot;
+    const fromBallot = base?.teamScores?.AFF?.teamId;
+    if (fromBallot) setAffTeamId(fromBallot);
+    else if (drawnDebate.sidesConfirmed) setAffTeamId(drawnDebate.teams.AFF?.teamId || null);
+  }, [choosesSides, affTeamId, drawnDebate, checkState, confirmedBallot]);
+  // A side change re-arranges the rosters, so the entry restarts from a blank ballot.
+  useEffect(() => {
+    if (!reloadBlank || !blank) return;
+    setReloadBlank(false);
+    initializedFor.current = debateId;
+    loadEntry(blank);
+  }, [reloadBlank, blank, debateId, loadEntry]);
+
   // Initialise once per debate: a blind checker starts blank; otherwise show the entry awaiting a
   // check, else the confirmed result, else a blank ballot.
   useEffect(() => {
     if (!blank || initializedFor.current === debateId) return;
+    if (choosesSides && !affTeamId) return;
     initializedFor.current = debateId;
     const base =
       checkState.kind === "blind-check"
@@ -107,7 +140,7 @@ export default function BallotEntryPage() {
           ? checkState.pending
           : confirmedBallot;
     loadEntry(base ? entryFromBallot(base, blank, rules) : blank);
-  }, [blank, checkState, confirmedBallot, debateId, loadEntry, rules]);
+  }, [blank, checkState, confirmedBallot, debateId, loadEntry, rules, choosesSides, affTeamId]);
 
   const errors = useMemo(
     () =>
@@ -154,7 +187,43 @@ export default function BallotEntryPage() {
     );
   }
 
-  if (!entry) return <div className="p-8 text-center text-sm text-gray-500">Loading ballot…</div>;
+  const sidePicker = choosesSides && drawnDebate ? (
+    <fieldset className="space-y-2 rounded border border-blue-200 bg-blue-50/60 p-3">
+      <legend className="px-1 text-xs font-bold text-gray-800">Sides (chosen at the debate)</legend>
+      <p className="text-[11px] text-gray-600">This round&apos;s sides were not fixed by the draw. Record which team was Affirmative.</p>
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:gap-6">
+        {[drawnDebate.teams.AFF, drawnDebate.teams.NEG].map((slot) => slot?.teamId && (
+          <label key={slot.teamId} className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+            <input
+              type="radio"
+              name="affirmative-team"
+              checked={affTeamId === slot.teamId}
+              onChange={() => {
+                if (affTeamId && entry && JSON.stringify(entry) !== initialSnapshot &&
+                  !window.confirm("Changing the sides clears the scores entered so far. Continue?")) return;
+                setAffTeamId(slot.teamId);
+                setReloadBlank(true);
+              }}
+            />
+            {slot.teamName} was Affirmative
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  ) : null;
+
+  if (!entry) {
+    return sidePicker && !affTeamId ? (
+      <div className="mx-auto max-w-4xl space-y-4 pb-12">
+        <button onClick={() => router.push(`/${tournamentSlug}/results`)} className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900">
+          <ArrowLeft className="h-3.5 w-3.5" />
+          <span>Back to Results Overview</span>
+        </button>
+        <h2 className="text-lg font-bold text-gray-900">Debate Ballot Entry &bull; {debate.venueName}</h2>
+        {sidePicker}
+      </div>
+    ) : <div className="p-8 text-center text-sm text-gray-500">Loading ballot…</div>;
+  }
 
   const dirty = JSON.stringify(entry) !== initialSnapshot;
   const chairId = debate.adjudicators?.chairId;
@@ -298,6 +367,7 @@ export default function BallotEntryPage() {
         )}
 
         <form onSubmit={(event) => event.preventDefault()} className="space-y-6 p-5">
+          {sidePicker}
           {preferences?.ballotIntroExplanation?.trim() && (
             <div className="space-y-1 rounded-md border border-blue-200 bg-blue-50/80 p-3.5 text-xs leading-relaxed text-blue-900">
               <div className="font-bold text-blue-950">Ballot instructions</div>

@@ -16,6 +16,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  ClipboardList,
   Clock,
   ExternalLink,
   Eye,
@@ -168,6 +169,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
         <NavLink href={`${base}/imports/teams`} icon={Users2} label="Teams" />
         <NavLink href={`${base}/imports/adjudicators`} icon={UserCheck} label="Adjudicators" />
         <NavLink href={`${base}/imports/diversity`} icon={Users} label="Diversity" />
+        {isOwnerOrAdmin && <NavLink href={`${base}/registration`} icon={ClipboardList} label="Registration" />}
         {!isDataEntryAssistant && (
           <>
             <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label="Speaker categories" />
