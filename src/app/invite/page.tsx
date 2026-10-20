@@ -11,6 +11,7 @@ import { Alert } from "@/components/ui/Feedback";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Field";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { auth } from "@/lib/firebase";
 import { firebaseAuthMessage } from "@/lib/authErrors";
 import type { MessageKey } from "@/lib/i18n";
@@ -250,7 +251,7 @@ export default function InvitePage() {
 
   return (
     <PublicFormShell>
-      <h1 className="mb-4 text-xl font-semibold tracking-tight text-fg">{t("invite.title")}</h1>
+      <PageHeader className="mb-4" title={t("invite.title")} />
       {content}
     </PublicFormShell>
   );

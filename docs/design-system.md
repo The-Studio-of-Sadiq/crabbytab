@@ -36,7 +36,7 @@ Other tokens:
 - `<html data-theme="light|dark">` is set before first paint by `themeInitScript` (`src/lib/theme`), from the viewer's saved choice (`localStorage["crabbytab:theme"]`: `light`, `dark` or `system`). `system` follows `prefers-color-scheme` and updates live.
 - Dark tokens apply only inside an element with the `themed` class. The tournament shell has it. The login, home and public pages are not themed yet and stay light.
 - **Don't use `dark:` variants or hard-coded colours** (`bg-white`, `text-gray-900`, hex values) in new code. The tokens switch automatically.
-- `theme-light` forces the light palette within a subtree. The shell wraps every tournament page that has not been migrated in a `theme-light` panel, so its hard-coded colours stay legible in dark mode. When you migrate a page, add its path to `THEMED_SUBPATHS` in `src/components/layout/TournamentChrome.tsx` (or, for a route with dynamic segments, its prefix to `THEMED_PREFIXES`).
+- `theme-light` forces the light palette within a subtree. The shell wraps every tournament page that has not been migrated in a `theme-light` panel, so its hard-coded colours stay legible in dark mode. When you migrate a page, add its path to `THEMED_SUBPATHS` in `src/components/layout/TournamentChrome.tsx` (or, for a route with dynamic segments, its section prefix to `THEMED_SECTIONS`).
 - `theme-projector` is a high-contrast palette for the projector display (`/[slug]/display`): black canvas, white text, a yellow accent and saturated side colours. It ignores the viewer's light/dark choice.
 - Users switch theme from the top-bar theme button, or from the account menu on small screens.
 

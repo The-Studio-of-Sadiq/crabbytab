@@ -2,28 +2,32 @@
 
 import React, { useState, useMemo, useRef } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { parseMotionsCsv } from "@/lib/csv/importer";
-import {
-  Lightbulb,
-  Plus,
-  Upload,
-  Edit2,
-  Trash2,
-  CheckCircle2,
-  Lock,
-  Search,
-  FileText,
-  X,
-  Sparkles,
-  HelpCircle,
-  FileSpreadsheet,
-} from "lucide-react";
+import { CheckCircle2, Edit2, Lightbulb, Lock, Plus, Search, Trash2, Upload } from "lucide-react";
 import { Motion } from "@/types";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { RoundMotionsPanel } from "@/features/tournament/components/RoundMotionsPanel";
 import { MotionSettingsCard } from "@/features/tournament/components/MotionSettingsCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+
+/** CSV template shown as the placeholder; column names are parsed back, so they stay in English. */
+const CSV_EXAMPLE =
+  "text,reference,infoslide,round\n\"This House would ban algorithmic feeds.\",\"R1: Tech\",\"Chronological feeds only.\",\"Round 1\"\n\"This House regrets the glorification of work ethic.\",\"R2: Culture\",\"\",\"Round 2\"";
+const CSV_COLUMNS = "text, reference, infoslide, round";
+
+const CREATE_FORM_ID = "create-motion-form";
+const EDIT_FORM_ID = "edit-motion-form";
 
 export default function MotionsPage() {
+  const { t, rich, formatList } = useI18n();
   const { tournament, motions, rounds, addMotion, addMotions, updateMotion, deleteMotion } = useTournament();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,6 +41,9 @@ export default function MotionsPage() {
   const [selectedFileName, setSelectedFileName] = useState("");
   const [isImportingMotions, setIsImportingMotions] = useState(false);
   const [csvImportError, setCsvImportError] = useState("");
+  const [motionPendingDelete, setMotionPendingDelete] = useState<Motion | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,6 +75,7 @@ export default function MotionsPage() {
     await addMotion({
       text: newText.trim(),
       infoSlide: newInfoSlide.trim() || undefined,
+      // Saved to the record, so it stays in English for every viewer.
       reference: newRef.trim() || `Motion ${motions.length + 1}`,
       rounds: selectedRoundId ? [selectedRoundId] : [],
       released: false, // Don't make them public by default!
@@ -93,6 +101,20 @@ export default function MotionsPage() {
   // Toggle Release
   const toggleMotionRelease = async (motion: Motion) => {
     setMotionPendingRelease(motion);
+  };
+
+  const confirmDelete = async () => {
+    if (!motionPendingDelete) return;
+    setIsDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteMotion(motionPendingDelete.id);
+      setMotionPendingDelete(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : t("setup.importsExtra.motions.deleteError"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // CSV File Handler
@@ -132,72 +154,74 @@ export default function MotionsPage() {
       setSelectedFileName("");
       setShowCsvModal(false);
     } catch (error) {
-      setCsvImportError(error instanceof Error ? error.message : "Could not import motions from this CSV.");
+      // Parser messages are shown as they are (English).
+      setCsvImportError(error instanceof Error ? error.message : t("setup.importsExtra.motions.csvError"));
     } finally {
       setIsImportingMotions(false);
     }
   };
 
+  const closeCsvModal = () => {
+    setShowCsvModal(false);
+    setCsvText("");
+    setSelectedFileName("");
+  };
+
+  const pendingReleaseName = motionPendingRelease?.reference;
+  const releaseDescription = motionPendingRelease?.released
+    ? pendingReleaseName
+      ? t("setup.importsExtra.motions.unpublishDescriptionNamed", { name: pendingReleaseName })
+      : t("setup.importsExtra.motions.unpublishDescription")
+    : pendingReleaseName
+      ? t("setup.importsExtra.motions.publishDescriptionNamed", { name: pendingReleaseName })
+      : t("setup.importsExtra.motions.publishDescription");
+
+  const strong = { b: (text: string) => <strong className="font-semibold text-fg">{text}</strong> };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Lightbulb className="w-6 h-6 text-amber-500" />
-            <span>Motions</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Manage debate motions, information slides, CSV batch imports, and per-round public release.
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowCsvModal(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-800 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-          >
-            <Upload className="w-3.5 h-3.5 text-gray-500" />
-            <span>Upload CSV</span>
-          </button>
-
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Motion</span>
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title={t("setup.importsExtra.motions.title")}
+        description={t("setup.importsExtra.motions.description")}
+        actions={
+          <>
+            <Button onClick={() => setShowCsvModal(true)}>
+              <Upload aria-hidden="true" />
+              {t("setup.importsExtra.motions.uploadCsv")}
+            </Button>
+            <Button variant="primary" onClick={() => setShowAddModal(true)}>
+              <Plus aria-hidden="true" />
+              {t("setup.importsExtra.motions.addMotion")}
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters & Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center space-x-2">
-          <select
-            value={filterRoundId}
-            onChange={(e) => setFilterRoundId(e.target.value)}
-            className="bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">All Rounds</option>
-            {rounds.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <Select
+          aria-label={t("setup.importsExtra.motions.filterRound")}
+          value={filterRoundId}
+          onChange={(e) => setFilterRoundId(e.target.value)}
+          wrapperClassName="sm:w-56"
+        >
+          <option value="">{t("setup.importsExtra.motions.allRounds")}</option>
+          {rounds.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </Select>
 
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search motions or topic tags..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-          />
-        </div>
+        <Input
+          type="search"
+          aria-label={t("setup.importsExtra.motions.search")}
+          placeholder={t("setup.importsExtra.motions.searchPlaceholder")}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          leadingIcon={<Search />}
+          wrapperClassName="w-full sm:w-64"
+        />
       </div>
 
       {filterRoundId && rounds.some((round) => round.id === filterRoundId) && (
@@ -208,388 +232,318 @@ export default function MotionsPage() {
       <div className="space-y-4">
         {filteredMotions.map((motion, idx) => {
           const assignedRounds = rounds.filter((r) => motion.rounds && motion.rounds.includes(r.id));
+          const label = motion.reference || t("setup.importsExtra.motions.fallbackReference", { number: idx + 1 });
 
           return (
-            <div
-              key={motion.id}
-              className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-2xs hover:border-blue-400 transition"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-2">
+            <Card key={motion.id} className="p-4">
+              <div className="mb-2 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
-                    {motion.reference || `Motion ${idx + 1}`}
-                  </span>
+                  <Badge tone="accent">{label}</Badge>
                   {assignedRounds.length > 0 ? (
-                    <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
-                      Allocated to: {assignedRounds.map((round) => round.name).join(", ")}
-                    </span>
+                    <Badge>
+                      {t("setup.importsExtra.motions.allocatedTo", { rounds: formatList(assignedRounds.map((round) => round.name)) })}
+                    </Badge>
                   ) : (
-                    <span className="text-[11px] text-gray-400 italic">Unassigned round</span>
+                    <span className="text-xs italic text-fg-muted">{t("setup.importsExtra.motions.unassigned")}</span>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  {/* Public Release Toggle Button */}
-                  <button
-                    onClick={() => toggleMotionRelease(motion)}
-                    className={`inline-flex items-center space-x-1 text-xs font-semibold px-2.5 py-1 rounded border transition ${
-                      motion.released
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
-                        : "bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200"
-                    }`}
-                  >
+                <div className="flex items-center gap-1">
+                  {/* Public release toggle */}
+                  <Button size="sm" onClick={() => toggleMotionRelease(motion)}>
                     {motion.released ? (
                       <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Released to Public</span>
+                        <CheckCircle2 className="text-success" aria-hidden="true" />
+                        {t("setup.importsExtra.motions.released")}
                       </>
                     ) : (
                       <>
-                        <Lock className="w-3.5 h-3.5 text-gray-500" />
-                        <span>Release Motion to Public</span>
+                        <Lock className="text-fg-subtle" aria-hidden="true" />
+                        {t("setup.importsExtra.motions.release")}
                       </>
                     )}
-                  </button>
+                  </Button>
 
-                  {/* Edit Motion Button */}
-                  <button
+                  <IconButton
+                    size="sm"
+                    label={t("setup.importsExtra.motions.edit", { name: label })}
+                    icon={<Edit2 />}
                     onClick={() => setEditingMotion(motion)}
-                    className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded transition"
-                    title="Edit Motion Info"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
+                  />
 
-                  {/* Delete Motion Button */}
-                  <button
+                  <IconButton
+                    size="sm"
+                    label={t("setup.importsExtra.motions.delete", { name: label })}
+                    icon={<Trash2 />}
                     onClick={() => {
-                      if (confirm(`Delete motion "${motion.reference || motion.text.substring(0, 30)}..."?`)) {
-                        deleteMotion(motion.id);
-                      }
+                      setDeleteError("");
+                      setMotionPendingDelete(motion);
                     }}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded transition"
-                    title="Delete Motion"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  />
                 </div>
               </div>
 
-              {/* Motion Text */}
-              <blockquote className="text-base font-bold text-gray-900 my-3 pl-3 border-l-4 border-amber-500">
+              {/* Motion text */}
+              <blockquote className="my-3 border-s-4 border-accent ps-3 text-base font-semibold text-fg">
                 &ldquo;{motion.text}&rdquo;
               </blockquote>
 
-              {/* Info Slide if present */}
+              {/* Info slide if present */}
               {motion.infoSlide && (
-                <div className="mt-3 p-3 bg-amber-50/60 border border-amber-200 rounded text-xs text-amber-900">
-                  <strong className="block font-bold mb-0.5 uppercase tracking-wide text-[10px] text-amber-800">
-                    Infoslide / Context
+                <div className="mt-3 rounded-md border border-border bg-muted/50 p-3 text-xs text-fg">
+                  <strong className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                    {t("setup.importsExtra.motions.infoslide")}
                   </strong>
                   <p className="whitespace-pre-line">{motion.infoSlide}</p>
                 </div>
               )}
-            </div>
+            </Card>
           );
         })}
 
         {filteredMotions.length === 0 && (
-          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-10 text-center">
-            <Lightbulb className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-            <h3 className="text-base font-bold text-gray-800 mb-1">No Motions Found</h3>
-            <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-              Add debate motions manually or upload a CSV file with round assignments and info slides.
-            </p>
-            <div className="flex justify-center items-center gap-2">
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Motion</span>
-              </button>
-              <button
-                onClick={() => setShowCsvModal(true)}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 rounded text-xs font-bold shadow-xs transition"
-              >
-                <Upload className="w-4 h-4 text-gray-500" />
-                <span>Upload CSV</span>
-              </button>
-            </div>
-          </div>
+          <EmptyState
+            icon={<Lightbulb />}
+            title={t("setup.importsExtra.motions.emptyTitle")}
+            description={t("setup.importsExtra.motions.emptyDescription")}
+            action={
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="primary" onClick={() => setShowAddModal(true)}>
+                  <Plus aria-hidden="true" />
+                  {t("setup.importsExtra.motions.addMotion")}
+                </Button>
+                <Button onClick={() => setShowCsvModal(true)}>
+                  <Upload aria-hidden="true" />
+                  {t("setup.importsExtra.motions.uploadCsv")}
+                </Button>
+              </div>
+            }
+          />
         )}
       </div>
 
-      {/* Add Motion Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Lightbulb className="w-5 h-5 text-amber-500" />
-              <span>Create Debate Motion</span>
-            </h3>
-            <form onSubmit={handleCreateMotion} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Motion Reference / Topic Tag
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Round 1: International Relations"
-                  value={newRef}
-                  onChange={(e) => setNewRef(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+      {/* Add motion */}
+      <Dialog
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        size="lg"
+        title={t("setup.importsExtra.motions.createTitle")}
+        icon={<Lightbulb className="text-fg-subtle" aria-hidden="true" />}
+        footer={
+          <>
+            <Button onClick={() => setShowAddModal(false)}>{t("setup.common.cancel")}</Button>
+            <Button type="submit" form={CREATE_FORM_ID} variant="primary">
+              {t("setup.importsExtra.motions.save")}
+            </Button>
+          </>
+        }
+      >
+        <form id={CREATE_FORM_ID} onSubmit={handleCreateMotion} className="space-y-4">
+          <Input
+            label={t("setup.importsExtra.motions.referenceLabel")}
+            type="text"
+            placeholder={t("setup.importsExtra.motions.referencePlaceholder")}
+            value={newRef}
+            onChange={(e) => setNewRef(e.target.value)}
+          />
+          <Textarea
+            label={t("setup.importsExtra.motions.textLabel")}
+            rows={3}
+            required
+            placeholder={t("setup.importsExtra.motions.textPlaceholder")}
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            className="font-medium"
+          />
+          <Textarea
+            label={t("setup.importsExtra.motions.infoslideLabel")}
+            help={t("setup.importsExtra.motions.infoslideHelp")}
+            rows={2}
+            placeholder={t("setup.importsExtra.motions.infoslidePlaceholder")}
+            value={newInfoSlide}
+            onChange={(e) => setNewInfoSlide(e.target.value)}
+          />
+          <Select
+            label={t("setup.importsExtra.motions.roundLabel")}
+            help={t("setup.common.optional")}
+            value={selectedRoundId}
+            onChange={(e) => setSelectedRoundId(e.target.value)}
+          >
+            <option value="">{t("setup.importsExtra.motions.noRound")}</option>
+            {rounds.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+          <Alert tone="info">{rich("setup.importsExtra.motions.privateNote", strong)}</Alert>
+        </form>
+      </Dialog>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Motion Text</label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="This House would..."
-                  value={newText}
-                  onChange={(e) => setNewText(e.target.value)}
-                  className="w-full border border-gray-300 rounded p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                />
+      {/* Edit motion */}
+      <Dialog
+        open={editingMotion !== null}
+        onClose={() => setEditingMotion(null)}
+        size="lg"
+        title={t("setup.importsExtra.motions.editTitle")}
+        icon={<Edit2 className="text-fg-subtle" aria-hidden="true" />}
+        footer={
+          <>
+            <Button onClick={() => setEditingMotion(null)}>{t("setup.common.cancel")}</Button>
+            <Button type="submit" form={EDIT_FORM_ID} variant="primary">
+              {t("setup.common.saveChanges")}
+            </Button>
+          </>
+        }
+      >
+        {editingMotion && (
+          <form id={EDIT_FORM_ID} onSubmit={handleUpdateMotion} className="space-y-4">
+            <Input
+              label={t("setup.importsExtra.motions.referenceLabel")}
+              type="text"
+              value={editingMotion.reference || ""}
+              onChange={(e) => setEditingMotion({ ...editingMotion, reference: e.target.value })}
+            />
+            <Textarea
+              label={t("setup.importsExtra.motions.textLabel")}
+              rows={3}
+              required
+              value={editingMotion.text}
+              onChange={(e) => setEditingMotion({ ...editingMotion, text: e.target.value })}
+              className="font-medium"
+            />
+            <Textarea
+              label={t("setup.importsExtra.motions.infoslideLabel")}
+              help={t("setup.importsExtra.motions.infoslideHelp")}
+              rows={3}
+              value={editingMotion.infoSlide || ""}
+              onChange={(e) => setEditingMotion({ ...editingMotion, infoSlide: e.target.value })}
+            />
+            <fieldset aria-describedby="motion-rounds-help">
+              <legend className="mb-1.5 block text-xs font-medium text-fg">{t("setup.importsExtra.motions.assignedRounds")}</legend>
+              <div className="grid max-h-40 grid-cols-1 gap-1.5 overflow-y-auto rounded-md border border-border p-2 sm:grid-cols-2">
+                {rounds.map((r) => (
+                  <Checkbox
+                    key={r.id}
+                    label={r.name}
+                    checked={Boolean(editingMotion.rounds?.includes(r.id))}
+                    onChange={(e) => {
+                      const current = editingMotion.rounds || [];
+                      const next = e.target.checked ? [...current, r.id] : current.filter((id) => id !== r.id);
+                      const roundSeq = { ...editingMotion.roundSeq };
+                      if (!e.target.checked) delete roundSeq[r.id];
+                      setEditingMotion({ ...editingMotion, rounds: next, roundSeq });
+                    }}
+                  />
+                ))}
               </div>
+              <p id="motion-rounds-help" className="mt-1 text-xs text-fg-muted">
+                {t("setup.importsExtra.motions.assignedRoundsHelp")}
+              </p>
+            </fieldset>
+          </form>
+        )}
+      </Dialog>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Infoslide (Optional context notes)
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Infoslide details..."
-                  value={newInfoSlide}
-                  onChange={(e) => setNewInfoSlide(e.target.value)}
-                  className="w-full border border-gray-300 rounded p-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Assign to Round (Optional)</label>
-                <select
-                  value={selectedRoundId}
-                  onChange={(e) => setSelectedRoundId(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white"
-                >
-                  <option value="">-- No specific round --</option>
-                  {rounds.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="p-2.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-600 flex items-center space-x-2">
-                <Lock className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                <span>Motions remain <strong>private</strong> by default until manually released before round start.</span>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  Save Motion
-                </button>
-              </div>
-            </form>
+      {/* CSV upload / import */}
+      <Dialog
+        open={showCsvModal}
+        onClose={closeCsvModal}
+        size="lg"
+        title={t("setup.importsExtra.motions.csvTitle")}
+        description={
+          <>
+            {t("setup.importsExtra.motions.csvDescription")} <code className="font-mono text-fg">{CSV_COLUMNS}</code>
+          </>
+        }
+        icon={<Upload className="text-fg-subtle" aria-hidden="true" />}
+        footer={
+          <>
+            <Button onClick={closeCsvModal}>{t("setup.common.cancel")}</Button>
+            <Button
+              variant="primary"
+              onClick={handleCsvImport}
+              disabled={!csvText.trim()}
+              loading={isImportingMotions}
+              loadingText={t("setup.importsExtra.csv.importing")}
+            >
+              {t("setup.importsExtra.motions.importMotions")}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 p-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <Button size="sm" onClick={() => fileInputRef.current?.click()}>
+              <Upload aria-hidden="true" />
+              {t("setup.importsExtra.csv.chooseFile")}
+            </Button>
+            <span className="max-w-[200px] truncate text-xs text-fg-muted">
+              {selectedFileName || t("setup.importsExtra.motions.noFile")}
+            </span>
           </div>
+
+          <Textarea
+            label={t("setup.importsExtra.motions.csvPaste")}
+            rows={6}
+            placeholder={CSV_EXAMPLE}
+            value={csvText}
+            onChange={(e) => {
+              setCsvText(e.target.value);
+              setCsvImportError("");
+            }}
+            className="font-mono text-xs"
+          />
+
+          {csvImportError && (
+            <Alert tone="danger" role="alert">
+              {csvImportError}
+            </Alert>
+          )}
+
+          <Alert tone="info">{rich("setup.importsExtra.motions.csvPrivateNote", strong)}</Alert>
         </div>
-      )}
+      </Dialog>
 
-      {/* Edit Motion Modal */}
-      {editingMotion && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Edit2 className="w-5 h-5 text-blue-600" />
-              <span>Edit Motion Info</span>
-            </h3>
-            <form onSubmit={handleUpdateMotion} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Motion Reference / Topic Tag
-                </label>
-                <input
-                  type="text"
-                  value={editingMotion.reference || ""}
-                  onChange={(e) => setEditingMotion({ ...editingMotion, reference: e.target.value })}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Motion Text</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={editingMotion.text}
-                  onChange={(e) => setEditingMotion({ ...editingMotion, text: e.target.value })}
-                  className="w-full border border-gray-300 rounded p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Infoslide (Optional context notes)
-                </label>
-                <textarea
-                  rows={3}
-                  value={editingMotion.infoSlide || ""}
-                  onChange={(e) => setEditingMotion({ ...editingMotion, infoSlide: e.target.value })}
-                  className="w-full border border-gray-300 rounded p-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <fieldset>
-                <legend className="block text-xs font-semibold text-gray-700 mb-1">Assigned rounds</legend>
-                <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto rounded border border-gray-200 p-2">
-                  {rounds.map((r) => (
-                    <label key={r.id} className="flex items-center gap-2 text-xs text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(editingMotion.rounds?.includes(r.id))}
-                        onChange={(e) => {
-                          const current = editingMotion.rounds || [];
-                          const next = e.target.checked ? [...current, r.id] : current.filter((id) => id !== r.id);
-                          const roundSeq = { ...editingMotion.roundSeq };
-                          if (!e.target.checked) delete roundSeq[r.id];
-                          setEditingMotion({ ...editingMotion, rounds: next, roundSeq });
-                        }}
-                        className="rounded border-gray-300"
-                      />
-                      {r.name}
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-1 text-[11px] text-gray-500">A motion can be reused in several rounds (for example parallel panels).</p>
-              </fieldset>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingMotion(null)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CSV Upload / Import Modal */}
-      {showCsvModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-2 flex items-center space-x-2">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-              <span>Import Motions from CSV</span>
-            </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Upload a <code>.csv</code> file or paste CSV text with columns: <code>text, reference, infoslide, round</code>.
-            </p>
-
-            {/* File Upload Selector */}
-            <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 rounded text-xs font-semibold text-gray-800 shadow-2xs"
-                >
-                  <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Choose CSV File</span>
-                </button>
-                <span className="text-xs text-gray-600 truncate max-w-[200px]">
-                  {selectedFileName || "No file chosen"}
-                </span>
-              </div>
-            </div>
-
-            {/* Direct Text Area */}
-            <div>
-              <label className="block text-[11px] font-semibold text-gray-700 mb-1">
-                Or paste CSV text directly:
-              </label>
-              <textarea
-                rows={6}
-                placeholder={"text,reference,infoslide,round\n\"This House would ban algorithmic feeds.\",\"R1: Tech\",\"Chronological feeds only.\",\"Round 1\"\n\"This House regrets the glorification of work ethic.\",\"R2: Culture\",\"\",\"Round 2\""}
-                value={csvText}
-                onChange={(e) => {
-                  setCsvText(e.target.value);
-                  setCsvImportError("");
-                }}
-                className="w-full border border-gray-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
-              />
-            </div>
-
-            {csvImportError && <p role="alert" className="text-xs text-red-700 mb-3">{csvImportError}</p>}
-
-            <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-800 mb-4">
-              All imported motions will remain <strong>private (unreleased)</strong> by default.
-            </div>
-
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCsvModal(false);
-                  setCsvText("");
-                  setSelectedFileName("");
-                }}
-                className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCsvImport}
-                disabled={!csvText.trim() || isImportingMotions}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
-              >
-                {isImportingMotions ? "Importing..." : "Import Motions"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <MotionSettingsCard />
 
       {motionPendingRelease && (
         <ReleaseActionDialog
-          title={motionPendingRelease.released ? "Unpublish this motion?" : "Publish this motion?"}
-          description={motionPendingRelease.released
-            ? `Unpublishing ${motionPendingRelease.reference || "this motion"} removes it from the public motions page and presentation.`
-            : `Publishing ${motionPendingRelease.reference || "this motion"} makes it visible on the public motions page and presentation.`}
-          confirmLabel={motionPendingRelease.released ? "Unpublish motion" : "Publish motion"}
+          title={
+            motionPendingRelease.released
+              ? t("setup.importsExtra.motions.unpublishTitle")
+              : t("setup.importsExtra.motions.publishTitle")
+          }
+          description={releaseDescription}
+          confirmLabel={
+            motionPendingRelease.released
+              ? t("setup.importsExtra.motions.unpublish")
+              : t("setup.importsExtra.motions.publish")
+          }
           apply={() => updateMotion({ ...motionPendingRelease, released: !motionPendingRelease.released })}
           onClose={() => setMotionPendingRelease(null)}
+        />
+      )}
+
+      {motionPendingDelete && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.importsExtra.motions.deleteTitle", {
+            name: motionPendingDelete.reference || `${motionPendingDelete.text.substring(0, 30)}…`,
+          })}
+          description={t("setup.importsExtra.motions.deleteDescription")}
+          confirmLabel={t("setup.common.delete")}
+          isBusy={isDeleting}
+          error={deleteError || undefined}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setMotionPendingDelete(null)}
         />
       )}
     </div>

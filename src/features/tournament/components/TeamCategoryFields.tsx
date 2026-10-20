@@ -1,8 +1,13 @@
 "use client";
 
 import React from "react";
+import { Check } from "lucide-react";
 
 import type { BreakCategory } from "@/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Checkbox } from "@/components/ui/Field";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { selectableBreakCategories } from "@/lib/teamCategories";
 import { resolveSpeakerCategoryIds, type SpeakerCategoryView } from "@/lib/speakerCategories";
 
@@ -16,37 +21,33 @@ export function BreakEligibilityField({
   value: string[];
   onChange: (categoryIds: string[]) => void;
 }) {
+  const { t, formatList } = useI18n();
   const selectable = selectableBreakCategories(categories);
   const general = categories.filter((category) => category.isGeneral);
   return (
-    <fieldset className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-1.5">
-      <legend className="text-xs font-bold text-gray-800 px-1">Break eligibility</legend>
+    <fieldset className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+      <legend className="px-1 text-xs font-medium text-fg">{t("setup.imports.breakEligibility")}</legend>
       {selectable.length === 0 ? (
-        <p className="text-[11px] text-gray-500">
-          No restricted break categories yet. Add ESL, novice or similar categories on the Break page.
-        </p>
+        <p className="text-xs text-fg-muted">{t("setup.imports.breakEligibilityEmpty")}</p>
       ) : (
         selectable.map((category) => (
-          <label key={category.id} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={value.includes(category.id)}
-              onChange={(event) =>
-                onChange(
-                  event.target.checked
-                    ? [...value.filter((id) => id !== category.id), category.id]
-                    : value.filter((id) => id !== category.id)
-                )
-              }
-              className="rounded border-gray-300 text-blue-600"
-            />
-            <span>{category.name}</span>
-          </label>
+          <Checkbox
+            key={category.id}
+            label={category.name}
+            checked={value.includes(category.id)}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...value.filter((id) => id !== category.id), category.id]
+                  : value.filter((id) => id !== category.id)
+              )
+            }
+          />
         ))
       )}
       {general.length > 0 && (
-        <p className="text-[11px] text-gray-500">
-          Every team is eligible for {general.map((category) => category.name).join(", ")}.
+        <p className="text-xs text-fg-muted">
+          {t("setup.imports.breakEligibilityGeneral", { names: formatList(general.map((category) => category.name)) })}
         </p>
       )}
     </fieldset>
@@ -70,9 +71,14 @@ export function SpeakerCategoriesInput({
   value: string[] | undefined;
   onChange: (categories: string[]) => void;
 }) {
+  const { t } = useI18n();
   const selected = resolveSpeakerCategoryIds(value, categories);
   if (categories.length === 0) {
-    return <p id={id} className="text-[11px] text-gray-500">No speaker categories yet (add them under Speaker categories).</p>;
+    return (
+      <p id={id} className="text-xs text-fg-muted">
+        {t("setup.imports.speakerCategoriesEmpty")}
+      </p>
+    );
   }
   const refFor = (category: SpeakerCategoryView) => (category.unsaved ? category.slug : category.id);
   return (
@@ -91,11 +97,13 @@ export function SpeakerCategoriesInput({
                   .map(refFor)
               )
             }
-            className={`rounded border px-2 py-0.5 text-[11px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-              on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-            }`}
+            className={cn(
+              "inline-flex h-6 items-center gap-1 rounded-sm border px-2 text-[11px] font-medium transition-colors",
+              focusRing,
+              on ? "border-accent bg-accent text-accent-fg" : "border-border-strong bg-surface text-fg hover:bg-muted"
+            )}
           >
-            {on ? "✓ " : ""}
+            {on && <Check className="h-3 w-3" aria-hidden="true" />}
             {category.name}
           </button>
         );

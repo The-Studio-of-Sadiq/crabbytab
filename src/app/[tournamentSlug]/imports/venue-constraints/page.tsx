@@ -5,12 +5,16 @@ import Link from "next/link";
 import { CheckCircle2, Trash2, Upload, XCircle } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Button, IconButton } from "@/components/ui/Button";
+import { Section } from "@/components/ui/Card";
+import { Button, buttonClasses, IconButton } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Feedback";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/Badge";
-import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import type { MessageKey } from "@/lib/i18n/messages";
 import {
   applyVenueConstraintsPlan,
   listVenueConstraints,
@@ -23,12 +27,13 @@ import {
 } from "@/lib/venues/constraintEdits";
 import { normaliseCategory } from "@/lib/venues/venues";
 
-const KIND_LABELS: Record<ConstraintSubjectKind, string> = {
-  team: "Team",
-  adjudicator: "Adjudicator",
-  institution: "Institution",
+const KIND_KEYS: Record<ConstraintSubjectKind, MessageKey> = {
+  team: "setup.importsExtra.venueConstraints.kindTeam",
+  adjudicator: "setup.importsExtra.venueConstraints.kindAdjudicator",
+  institution: "setup.importsExtra.venueConstraints.kindInstitution",
 };
 
+/** CSV example shown as the placeholder; column names are parsed back, so they stay in English. */
 const EXAMPLE = [
   "team,adjudicator,institution,category,priority",
   "Oxford A,,,Step-free,10",
@@ -36,11 +41,18 @@ const EXAMPLE = [
   ",,Cambridge Union,Purple,1",
 ].join("\n");
 
+/** A label that opens a visually hidden file input; it shows a focus ring while the input has focus. */
+const fileLabelClasses = cn(
+  buttonClasses({ variant: "secondary" }),
+  "cursor-pointer focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-background"
+);
+
 /**
  * Soft, ranked room preferences (Tabbycat venue constraints): a team, adjudicator or institution
  * prefers rooms of a category. Room allocation meets them where it can, higher priority first.
  */
 export default function VenueConstraintsPage() {
+  const { t, plural, rich } = useI18n();
   const { tournament, teams, adjudicators, institutions, venues, isOwnerOrAdmin, saveEntityBatch } = useTournament();
   const subjects = useMemo(() => ({ teams, adjudicators, institutions }), [teams, adjudicators, institutions]);
   const rows = useMemo(() => listVenueConstraints(subjects), [subjects]);
@@ -71,7 +83,7 @@ export default function VenueConstraintsPage() {
       setMessage({ tone: "success", text: summary });
       return true;
     } catch (error) {
-      setMessage({ tone: "danger", text: error instanceof Error ? error.message : "Could not save the room preference." });
+      setMessage({ tone: "danger", text: error instanceof Error ? error.message : t("setup.importsExtra.venueConstraints.saveError") });
       return false;
     } finally {
       setBusy(false);
@@ -88,21 +100,21 @@ export default function VenueConstraintsPage() {
     event.preventDefault();
     const value = Number(priority);
     if (!subjectId || !category.trim() || !Number.isInteger(value)) {
-      setMessage({ tone: "danger", text: "Choose who it is for, a category and a whole-number priority." });
+      setMessage({ tone: "danger", text: t("setup.importsExtra.venueConstraints.invalidForm") });
       return;
     }
     try {
       const batch = batchFor(kind, subjectId, (item) => withVenueConstraint(item, { category, priority: value }));
-      if (await save(batch, "Room preference saved.")) setCategory("");
+      if (await save(batch, t("setup.importsExtra.venueConstraints.saved"))) setCategory("");
     } catch (error) {
-      setMessage({ tone: "danger", text: error instanceof Error ? error.message : "Could not save the room preference." });
+      setMessage({ tone: "danger", text: error instanceof Error ? error.message : t("setup.importsExtra.venueConstraints.saveError") });
     }
   };
 
   const remove = (row: ConstraintRow) =>
     save(
       batchFor(row.kind, row.subjectId, (item) => withoutVenueConstraint(item, row.category)),
-      `Removed ${row.subjectName}'s ${row.category} preference.`
+      t("setup.importsExtra.venueConstraints.removed", { name: row.subjectName, category: row.category })
     );
 
   const counts = useMemo(() => {
@@ -119,7 +131,7 @@ export default function VenueConstraintsPage() {
     const applied = applyVenueConstraintsPlan(planVenueConstraintsImport(text, subjects), subjects);
     const ok = await save(
       { teamsUpdated: applied.teams, adjudicatorsUpdated: applied.adjudicators, institutionsUpdated: applied.institutions },
-      `${applied.applied} room preference${applied.applied === 1 ? "" : "s"} imported.`
+      plural("setup.importsExtra.venueConstraints.imported", applied.applied)
     );
     if (ok) {
       setPlan(null);
@@ -128,101 +140,125 @@ export default function VenueConstraintsPage() {
     }
   };
 
+  const resultLabel = (status: "add" | "update" | "exists") =>
+    status === "add"
+      ? t("setup.importsExtra.csv.willBeAdded")
+      : status === "update"
+        ? t("setup.importsExtra.csv.priorityWillChange")
+        : t("setup.importsExtra.csv.alreadyRecordedRow");
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Room preferences"
-        description={
-          <>
-            Soft, ranked room constraints: a team, adjudicator or institution prefers rooms of a category (set on the{" "}
-            <Link href={`/${tournament?.slug}/imports/venues`} className="underline">Venues</Link> page). Room allocation
-            meets them where it can, a higher priority beating any number of lower ones, and never at the cost of a hard
-            room requirement. Unmet preferences show in the draw check.
-          </>
-        }
+        title={t("setup.importsExtra.venueConstraints.title")}
+        description={rich("setup.importsExtra.venueConstraints.description", {
+          link: (label) => (
+            <Link href={`/${tournament?.slug}/imports/venues`} className="text-accent-text underline">
+              {label}
+            </Link>
+          ),
+        })}
       />
 
-      {!isOwnerOrAdmin && <Alert tone="info">Only tournament administrators can change room preferences.</Alert>}
+      {!isOwnerOrAdmin && <Alert tone="info">{t("setup.importsExtra.venueConstraints.adminOnly")}</Alert>}
       {message && <Alert tone={message.tone} role={message.tone === "danger" ? "alert" : "status"}>{message.text}</Alert>}
 
       {isOwnerOrAdmin && (
-        <form onSubmit={add} className="grid gap-3 rounded-lg border border-border bg-surface p-4 sm:grid-cols-5" aria-label="Add a room preference">
-          <Select label="For" value={kind} onChange={(event) => { setKind(event.target.value as ConstraintSubjectKind); setSubjectId(""); }}>
-            {(Object.keys(KIND_LABELS) as ConstraintSubjectKind[]).map((item) => <option key={item} value={item}>{KIND_LABELS[item]}</option>)}
+        <form
+          onSubmit={add}
+          className="grid gap-3 rounded-lg border border-border bg-surface p-4 sm:grid-cols-5"
+          aria-label={t("setup.importsExtra.venueConstraints.formLabel")}
+        >
+          <Select
+            label={t("setup.importsExtra.venueConstraints.for")}
+            value={kind}
+            onChange={(event) => {
+              setKind(event.target.value as ConstraintSubjectKind);
+              setSubjectId("");
+            }}
+          >
+            {(Object.keys(KIND_KEYS) as ConstraintSubjectKind[]).map((item) => (
+              <option key={item} value={item}>{t(KIND_KEYS[item])}</option>
+            ))}
           </Select>
-          <Select label={KIND_LABELS[kind]} value={subjectId} onChange={(event) => setSubjectId(event.target.value)} wrapperClassName="sm:col-span-2">
-            <option value="">Choose…</option>
+          <Select
+            label={t(KIND_KEYS[kind])}
+            value={subjectId}
+            onChange={(event) => setSubjectId(event.target.value)}
+            wrapperClassName="sm:col-span-2"
+          >
+            <option value="">{t("setup.importsExtra.csv.choose")}</option>
             {sortedOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </Select>
           <Input
-            label="Room category"
+            label={t("setup.importsExtra.venueConstraints.roomCategory")}
             value={category}
             list="room-categories"
             onChange={(event) => setCategory(event.target.value)}
           />
-          <Input label="Priority" type="number" step={1} value={priority} onChange={(event) => setPriority(event.target.value)} />
+          <Input
+            label={t("setup.importsExtra.venueConstraints.priority")}
+            type="number"
+            step={1}
+            value={priority}
+            onChange={(event) => setPriority(event.target.value)}
+          />
           <datalist id="room-categories">
             {categories.map((name) => <option key={name} value={name} />)}
           </datalist>
           <div className="sm:col-span-5">
-            <Button type="submit" variant="primary" loading={busy} loadingText="Saving…">Add preference</Button>
+            <Button type="submit" variant="primary" loading={busy} loadingText={t("setup.common.saving")}>
+              {t("setup.importsExtra.venueConstraints.addPreference")}
+            </Button>
           </div>
         </form>
       )}
 
-      {rows.length === 0 ? (
-        <p className="text-xs text-fg-muted">No room preferences yet.</p>
-      ) : (
-        <TableContainer>
-          <Table>
-            <THead>
-              <TR>
-                <TH>Who</TH>
-                <TH>Type</TH>
-                <TH>Room category</TH>
-                <TH align="right">Priority</TH>
-                <TH align="right"><span className="sr-only">Actions</span></TH>
+      <TableContainer>
+        <Table>
+          <THead>
+            <TR>
+              <TH>{t("setup.importsExtra.venueConstraints.who")}</TH>
+              <TH>{t("setup.importsExtra.csv.type")}</TH>
+              <TH>{t("setup.importsExtra.venueConstraints.roomCategory")}</TH>
+              <TH align="right">{t("setup.importsExtra.venueConstraints.priority")}</TH>
+              <TH align="right"><span className="sr-only">{t("setup.common.actions")}</span></TH>
+            </TR>
+          </THead>
+          <TBody>
+            {rows.length === 0 && <TableEmpty colSpan={5}>{t("setup.importsExtra.venueConstraints.empty")}</TableEmpty>}
+            {rows.map((row) => (
+              <TR key={`${row.kind}-${row.subjectId}-${row.category}`}>
+                <TD>{row.subjectName}</TD>
+                <TD className="text-xs">{t(KIND_KEYS[row.kind])}</TD>
+                <TD>
+                  {row.category}
+                  {!categories.some((name) => normaliseCategory(name) === normaliseCategory(row.category)) && (
+                    <span className="ms-2 text-xs text-warning">{t("setup.importsExtra.venueConstraints.noRoomHasCategory")}</span>
+                  )}
+                </TD>
+                <TD numeric>{row.priority}</TD>
+                <TD align="right">
+                  {isOwnerOrAdmin && (
+                    <IconButton
+                      label={t("setup.importsExtra.venueConstraints.removeLabel", { name: row.subjectName, category: row.category })}
+                      icon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
+                      onClick={() => void remove(row)}
+                      disabled={busy}
+                    />
+                  )}
+                </TD>
               </TR>
-            </THead>
-            <TBody>
-              {rows.map((row) => (
-                <TR key={`${row.kind}-${row.subjectId}-${row.category}`}>
-                  <TD>{row.subjectName}</TD>
-                  <TD className="text-xs">{KIND_LABELS[row.kind]}</TD>
-                  <TD>
-                    {row.category}
-                    {!categories.some((name) => normaliseCategory(name) === normaliseCategory(row.category)) && (
-                      <span className="ml-2 text-xs text-warning">no room has this category</span>
-                    )}
-                  </TD>
-                  <TD numeric>{row.priority}</TD>
-                  <TD align="right">
-                    {isOwnerOrAdmin && (
-                      <IconButton
-                        label={`Remove ${row.subjectName}'s ${row.category} preference`}
-                        icon={<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />}
-                        onClick={() => void remove(row)}
-                        disabled={busy}
-                      />
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        </TableContainer>
-      )}
+            ))}
+          </TBody>
+        </Table>
+      </TableContainer>
 
       {isOwnerOrAdmin && (
-        <section className="space-y-3" aria-labelledby="room-preferences-csv">
-          <h2 id="room-preferences-csv" className="text-sm font-semibold text-fg">Import from CSV</h2>
-          <p className="text-xs text-fg-muted">
-            One preference per row: fill exactly one of team, adjudicator (name or email) or institution (name or code), plus
-            category and a whole-number priority. A row for a category the subject already has updates its priority.
-          </p>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface px-3 py-1.5 text-xs font-semibold shadow-2xs hover:bg-muted">
-            <Upload className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            <span>Choose CSV file</span>
+        <Section title={t("setup.importsExtra.venueConstraints.csvTitle")} description={t("setup.importsExtra.venueConstraints.csvHelp")}>
+          <label className={fileLabelClasses}>
+            <Upload aria-hidden="true" />
+            <span>{t("setup.importsExtra.csv.chooseFile")}</span>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -235,44 +271,49 @@ export default function VenueConstraintsPage() {
                   setText(await file.text());
                   setPlan(null);
                 } catch (error) {
-                  setMessage({ tone: "danger", text: error instanceof Error ? error.message : "Could not read the file." });
+                  setMessage({ tone: "danger", text: error instanceof Error ? error.message : t("setup.importsExtra.csv.readError") });
                 }
               }}
             />
           </label>
           <Textarea
-            label="Or paste CSV text"
+            label={t("setup.importsExtra.csv.pasteLabel")}
             rows={5}
             value={text}
             placeholder={EXAMPLE}
-            onChange={(event) => { setText(event.target.value); setPlan(null); }}
+            onChange={(event) => {
+              setText(event.target.value);
+              setPlan(null);
+            }}
             className="font-mono text-xs"
           />
           <Button onClick={() => setPlan(planVenueConstraintsImport(text, subjects))} disabled={!text.trim()}>
-            Preview preferences
+            {t("setup.importsExtra.venueConstraints.preview")}
           </Button>
           {plan && (
             <div className="space-y-3">
               {plan.fileErrors.length > 0 && (
-                <Alert tone="danger" role="alert" title="This file cannot be imported">
-                  <ul className="list-disc pl-4">{plan.fileErrors.map((error) => <li key={error}>{error}</li>)}</ul>
+                <Alert tone="danger" role="alert" title={t("setup.importsExtra.csv.fileErrorsTitle")}>
+                  <ul className="list-disc ps-4">{plan.fileErrors.map((error) => <li key={error}>{error}</li>)}</ul>
                 </Alert>
               )}
               {plan.ignoredColumns.length > 0 && (
-                <Alert tone="warning" title="Columns that will be ignored">{plan.ignoredColumns.join(", ")}</Alert>
+                <Alert tone="warning" title={t("setup.importsExtra.csv.ignoredColumnsTitle")}>{plan.ignoredColumns.join(", ")}</Alert>
               )}
               {plan.rows.length > 0 && (
                 <div className="flex flex-wrap gap-2" role="status">
-                  <StatusPill tone="success">{counts.add} to add</StatusPill>
-                  <StatusPill tone="success">{counts.update} to update</StatusPill>
-                  <StatusPill tone="neutral">{counts.exists} unchanged</StatusPill>
-                  {counts.error > 0 && <StatusPill tone="danger">{counts.error} with errors</StatusPill>}
+                  <StatusPill tone="success">{t("setup.importsExtra.csv.toAdd", { count: counts.add })}</StatusPill>
+                  <StatusPill tone="success">{t("setup.importsExtra.csv.toUpdate", { count: counts.update })}</StatusPill>
+                  <StatusPill tone="neutral">{t("setup.importsExtra.csv.unchanged", { count: counts.exists })}</StatusPill>
+                  {counts.error > 0 && (
+                    <StatusPill tone="danger">{t("setup.importsExtra.csv.withErrors", { count: counts.error })}</StatusPill>
+                  )}
                 </div>
               )}
               {counts.error > 0 && (
                 <Checkbox
-                  label="Import the valid rows only"
-                  description="Rows with errors are skipped."
+                  label={t("setup.importsExtra.csv.validOnly")}
+                  description={t("setup.importsExtra.csv.validOnlyHelp")}
                   checked={validOnly}
                   onChange={(event) => setValidOnly(event.target.checked)}
                 />
@@ -282,28 +323,40 @@ export default function VenueConstraintsPage() {
                   <Table>
                     <THead>
                       <TR>
-                        <TH align="right">Row</TH>
-                        <TH>Preference</TH>
-                        <TH>Result</TH>
+                        <TH align="right">{t("setup.importsExtra.csv.row")}</TH>
+                        <TH>{t("setup.importsExtra.venueConstraints.preferenceColumn")}</TH>
+                        <TH>{t("setup.importsExtra.csv.result")}</TH>
                       </TR>
                     </THead>
                     <TBody>
                       {plan.rows.map((row) => (
                         <TR key={row.rowNumber}>
                           <TD numeric>{row.rowNumber}</TD>
-                          <TD>{row.subjectName ? `${row.subjectName}: ${row.category} (priority ${row.priority})` : "—"}</TD>
+                          <TD>
+                            {row.subjectName
+                              ? t("setup.importsExtra.venueConstraints.previewRow", {
+                                  name: row.subjectName,
+                                  category: row.category ?? "—",
+                                  priority: row.priority ?? "—",
+                                })
+                              : "—"}
+                          </TD>
                           <TD className="text-xs">
                             {row.status === "error" ? (
+                              // Issue messages come from the CSV planner and are shown as they are (English).
                               row.issues.map((issue) => (
                                 <span key={issue} className="flex gap-1 text-danger">
                                   <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                  <span><span className="sr-only">Error: </span>{issue}</span>
+                                  <span>
+                                    <span className="sr-only">{t("setup.importsExtra.csv.errorPrefix")} </span>
+                                    {issue}
+                                  </span>
                                 </span>
                               ))
                             ) : (
                               <span className="inline-flex items-center gap-1 text-success">
                                 <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                                {row.status === "add" ? "Will be added" : row.status === "update" ? "Priority will change" : "Already recorded"}
+                                {resultLabel(row.status)}
                               </span>
                             )}
                           </TD>
@@ -313,12 +366,18 @@ export default function VenueConstraintsPage() {
                   </Table>
                 </TableContainer>
               )}
-              <Button variant="primary" onClick={confirmImport} disabled={importBlocked} loading={busy} loadingText="Importing…">
-                Import {counts.add + counts.update} preference{counts.add + counts.update === 1 ? "" : "s"}
+              <Button
+                variant="primary"
+                onClick={confirmImport}
+                disabled={importBlocked}
+                loading={busy}
+                loadingText={t("setup.importsExtra.csv.importing")}
+              >
+                {plural("setup.importsExtra.venueConstraints.importButton", counts.add + counts.update)}
               </Button>
             </div>
           )}
-        </section>
+        </Section>
       )}
     </div>
   );

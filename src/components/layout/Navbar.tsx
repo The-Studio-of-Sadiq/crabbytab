@@ -25,6 +25,7 @@ import { ThemeMenuItems, ThemeToggle, useThemePreference } from "@/components/ui
 import { LanguageMenuItems } from "@/components/ui/LanguageSwitcher";
 import { describeRoundStatus } from "@/components/layout/roundStatus";
 import { useBeforeUnloadWarning } from "@/components/layout/useBeforeUnloadWarning";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { db } from "@/lib/firebase";
 import {
   describePendingCollection,
@@ -89,13 +90,14 @@ function SyncStatus({
     ballotConfirmationConflicts,
     isOwnerOrAdmin,
   } = useTournament();
+  const { t, plural } = useI18n();
   const isSyncing = cloudSyncState === "syncing";
 
   if (localSaveError) {
     return (
       <div className="flex min-w-0 items-center gap-2">
         <StatusPill tone="danger" title={localSaveError}>
-          <span className="max-sm:sr-only">Not saved</span>
+          <span className="max-sm:sr-only">{t("setup.shell.syncNotSaved")}</span>
         </StatusPill>
         <span role="alert" className="hidden max-w-[220px] truncate text-xs text-danger xl:inline" title={localSaveError}>
           {localSaveError}
@@ -107,70 +109,68 @@ function SyncStatus({
   if (!cloudSyncEnabled) {
     const pill = isSyncing ? (
       <StatusPill tone="info" icon={<Loader2 className="animate-spin" aria-hidden="true" />}>
-        <span className="max-sm:sr-only">Syncing…</span>
+        <span className="max-sm:sr-only">{t("setup.shell.syncSyncing")}</span>
       </StatusPill>
     ) : divergedRecords.length > 0 ? (
       <button
         type="button"
         onClick={onOpenConflicts}
         className={cn("rounded-full", focusRing)}
-        title="Records changed both on this device and in the cloud. Choose which version to keep."
+        title={t("setup.shell.syncConflictsHint")}
       >
         <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
-          <span className="max-sm:sr-only">
-            {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
-          </span>
+          <span className="max-sm:sr-only">{plural("setup.shell.syncConflicts", divergedRecords.length)}</span>
         </StatusPill>
       </button>
     ) : !isOnline ? (
-      <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title="Offline; changes are saved locally">
-        <span className="max-sm:sr-only">Offline</span>
+      <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title={t("setup.shell.syncOfflineLocalHint")}>
+        <span className="max-sm:sr-only">{t("setup.shell.syncOffline")}</span>
       </StatusPill>
     ) : (
-      <StatusPill tone="neutral" icon={<Cloud aria-hidden="true" />} title="Offline-first; changes are saved on this device">
-        <span className="max-sm:sr-only">Local copy</span>
+      <StatusPill tone="neutral" icon={<Cloud aria-hidden="true" />} title={t("setup.shell.syncLocalCopyHint")}>
+        <span className="max-sm:sr-only">{t("setup.shell.syncLocalCopy")}</span>
       </StatusPill>
     );
     return <div className="flex min-w-0 items-center gap-2">{pill}</div>;
   }
 
-  const pendingLabel = `${pendingChanges.total} change${pendingChanges.total === 1 ? "" : "s"} not uploaded`;
+  const pendingLabel = plural("setup.shell.syncPending", pendingChanges.total);
   const pill = isSyncing ? (
     <StatusPill tone="info" icon={<Loader2 className="animate-spin" aria-hidden="true" />}>
-      <span className="max-sm:sr-only">Syncing…</span>
+      <span className="max-sm:sr-only">{t("setup.shell.syncSyncing")}</span>
     </StatusPill>
   ) : uploadIssue ? (
     <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
       <span className="max-sm:sr-only">
         {uploadIssue.kind === "conflicts"
-          ? `${uploadIssue.count} upload conflict${uploadIssue.count === 1 ? "" : "s"}`
-          : "Upload incomplete"}
+          ? plural("setup.shell.syncUploadConflicts", uploadIssue.count)
+          : t("setup.shell.syncUploadIncomplete")}
       </span>
     </StatusPill>
   ) : divergedRecords.length > 0 ? (
     <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
-      <span className="max-sm:sr-only">
-        {divergedRecords.length} sync conflict{divergedRecords.length === 1 ? "" : "s"}
-      </span>
+      <span className="max-sm:sr-only">{plural("setup.shell.syncConflicts", divergedRecords.length)}</span>
     </StatusPill>
   ) : cloudSyncState === "error" ? (
     <StatusPill tone="danger">
-      <span className="max-sm:sr-only">Sync failed</span>
+      <span className="max-sm:sr-only">{t("setup.shell.syncFailed")}</span>
     </StatusPill>
   ) : ballotConfirmationConflicts.length > 0 ? (
     <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
       <span className="max-sm:sr-only">
-        {ballotConfirmationConflicts.length} double confirmation{ballotConfirmationConflicts.length === 1 ? "" : "s"}
+        {plural("setup.shell.syncDoubleConfirmations", ballotConfirmationConflicts.length)}
       </span>
     </StatusPill>
   ) : liveSync.mode === "error" ? (
     <StatusPill tone="danger" icon={<AlertTriangle aria-hidden="true" />} title={describeLiveSyncStatus(liveSync)}>
-      <span className="max-sm:sr-only">Live updates stopped</span>
+      <span className="max-sm:sr-only">{t("setup.shell.syncLiveStopped")}</span>
     </StatusPill>
   ) : liveSync.mode === "offline" ? (
     <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />} title={describeLiveSyncStatus(liveSync)}>
       <span className="max-sm:sr-only">
-        {liveSync.queuedWrites > 0 ? `Offline — ${liveSync.queuedWrites} queued` : "Offline"}
+        {liveSync.queuedWrites > 0
+          ? t("setup.shell.syncOfflineQueued", { count: liveSync.queuedWrites })
+          : t("setup.shell.syncOffline")}
       </span>
     </StatusPill>
   ) : pendingChanges.total > 0 ? (
@@ -185,15 +185,15 @@ function SyncStatus({
         : <RadioTower aria-hidden="true" />}
       title={describeLiveSyncStatus(liveSync)}
     >
-      <span className="max-sm:sr-only">{liveSync.mode === "live" ? "Live" : "Connecting…"}</span>
+      <span className="max-sm:sr-only">{liveSync.mode === "live" ? t("setup.shell.syncLive") : t("setup.shell.syncConnecting")}</span>
     </StatusPill>
   ) : !isOnline ? (
     <StatusPill tone="warning" icon={<CloudOff aria-hidden="true" />}>
-      <span className="max-sm:sr-only">Offline</span>
+      <span className="max-sm:sr-only">{t("setup.shell.syncOffline")}</span>
     </StatusPill>
   ) : (
     <StatusPill tone="success" icon={<Cloud aria-hidden="true" />}>
-      <span className="max-sm:sr-only">Uploaded</span>
+      <span className="max-sm:sr-only">{t("setup.shell.syncUploaded")}</span>
     </StatusPill>
   );
 
@@ -201,68 +201,62 @@ function SyncStatus({
     <div className="flex min-w-0 items-center gap-2">
       <DropdownMenu
         align="end"
-        triggerLabel="Cloud sync status"
+        triggerLabel={t("setup.shell.syncMenuTrigger")}
         triggerClassName="h-8 px-1"
         menuClassName="w-80 max-w-[calc(100vw-2rem)]"
         trigger={pill}
       >
-        <DropdownMenuLabel>Cloud sync</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("setup.shell.syncMenuHeading")}</DropdownMenuLabel>
         <div role="presentation" className="space-y-2 px-2 pb-2 text-xs text-fg-muted">
           {uploadIssue && (
             <p className="text-warning">{describeUploadIssue(uploadIssue)}</p>
           )}
           {divergedRecords.length > 0 && (
-            <p className="text-warning">
-              {divergedRecords.length} record(s) changed both here and in the cloud. Choose which version to keep before uploading.
-            </p>
+            <p className="text-warning">{plural("setup.shell.syncDivergedDetail", divergedRecords.length)}</p>
           )}
           {ballotConfirmationConflicts.length > 0 && (
             <p className="text-warning">
-              {ballotConfirmationConflicts.length} debate(s) have more than one confirmed ballot, confirmed on
-              different devices. Open the debate&apos;s ballots and discard the version that should not count.
+              {plural("setup.shell.syncDoubleConfirmDetail", ballotConfirmationConflicts.length)}
             </p>
           )}
           {liveSync.mode !== "off" ? (
             <p className={liveSync.mode === "error" ? "text-danger" : liveSync.mode === "offline" ? "text-warning" : undefined}>
-              {describeLiveSyncStatus(liveSync)} Ballots, check-ins, draws and allocations sync live; settings,
-              rounds, motions, rooms, breaks and feedback still upload with Upload now.
+              {t("setup.shell.syncLiveDetail", { status: describeLiveSyncStatus(liveSync) })}
             </p>
           ) : isOwnerOrAdmin && !liveSyncEnabled ? (
-            <p>Live updates are paused on this device; every change waits for Upload now.</p>
+            <p>{t("setup.shell.syncLivePaused")}</p>
           ) : null}
           {pendingChanges.total > 0 ? (
             <>
-              <p>
-                {pendingLabel}. They are saved on this device, but the cloud and public pages do not have them yet.
-              </p>
-              <ul className="list-disc space-y-0.5 pl-4">
+              <p>{plural("setup.shell.syncPendingDetail", pendingChanges.total)}</p>
+              <ul className="list-disc space-y-0.5 ps-4">
                 {pendingChanges.collections.map((item) => (
                   <li key={item.collection}>{describePendingCollection(item)}</li>
                 ))}
               </ul>
             </>
           ) : (
-            <p>Everything on this device has been uploaded.</p>
+            <p>{t("setup.shell.syncAllUploaded")}</p>
           )}
-          {!isOnline && liveSync.mode === "off" && <p>You are offline. Changes stay on this device until you upload.</p>}
+          {!isOnline && liveSync.mode === "off" && <p>{t("setup.shell.syncOfflineDetail")}</p>}
           {cloudSyncMessage && (
             <p className={cloudSyncState === "error" ? "text-danger" : undefined}>
-              Last result: {cloudSyncMessage}
+              {t("setup.shell.syncLastResult", { message: cloudSyncMessage })}
             </p>
           )}
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem icon={<Upload />} onSelect={onUpload} disabled={!isOnline || isSyncing}>
-          Upload now
+          {t("setup.shell.uploadNow")}
         </DropdownMenuItem>
         {onDownload && (
           <DropdownMenuItem icon={<CloudDownload />} onSelect={onDownload} disabled={!isOnline || isSyncing}>
-            Download and compare
+            {t("setup.shell.downloadAndCompare")}
           </DropdownMenuItem>
         )}
         {divergedRecords.length > 0 && (
           <DropdownMenuItem icon={<AlertTriangle />} onSelect={onOpenConflicts}>
-            Resolve sync conflicts ({divergedRecords.length})…
+            {t("setup.shell.resolveConflicts", { count: divergedRecords.length })}
           </DropdownMenuItem>
         )}
         {isOwnerOrAdmin && (
@@ -270,12 +264,12 @@ function SyncStatus({
             icon={liveSyncEnabled ? <Pause /> : <Play />}
             onSelect={() => setLiveSyncEnabled(!liveSyncEnabled)}
           >
-            {liveSyncEnabled ? "Pause live updates on this device" : "Resume live updates"}
+            {liveSyncEnabled ? t("setup.shell.pauseLive") : t("setup.shell.resumeLive")}
           </DropdownMenuItem>
         )}
         {onExportRecovery && (uploadIssue?.kind === "conflicts" || divergedRecords.length > 0) && (
           <DropdownMenuItem icon={<Download />} onSelect={onExportRecovery} disabled={!isOnline || isSyncing}>
-            Export archived cloud versions
+            {t("setup.shell.exportArchivedVersions")}
           </DropdownMenuItem>
         )}
       </DropdownMenu>
@@ -324,6 +318,7 @@ export function Navbar({
     liveSync,
   } = useTournament();
   const { user, logout } = useAuth();
+  const { t, plural } = useI18n();
   const { preference, setPreference } = useThemePreference();
   const [isOnline, setIsOnline] = useState(true);
   const [showRoundModal, setShowRoundModal] = useState(false);
@@ -358,9 +353,7 @@ export function Navbar({
   );
 
   const handleUpload = async () => {
-    if (!window.confirm(
-      "Upload this device's changes and publish public pages? Cloud-only records are retained. Different cloud versions are archived before replacement. If any record conflicts with a newer cloud version, public pages are not updated until you resolve it."
-    )) {
+    if (!window.confirm(t("setup.shell.confirmUpload"))) {
       return;
     }
     try {
@@ -371,11 +364,7 @@ export function Navbar({
   };
 
   const handleDownload = async () => {
-    if (
-      !window.confirm(
-        "Merge Firestore records into this device? Records not changed here since the last sync take the cloud version. Records changed here are kept, and flagged as conflicts if the cloud changed them too. No cloud records are deleted."
-      )
-    ) {
+    if (!window.confirm(t("setup.shell.confirmDownload"))) {
       return;
     }
     try {
@@ -421,9 +410,7 @@ export function Navbar({
   };
 
   const handleStaffSync = async () => {
-    if (!window.confirm(
-      "Upload participant, ballot, feedback, and result changes? Tournament settings, draw pairings, and allocations will not be uploaded."
-    )) {
+    if (!window.confirm(t("setup.shell.confirmStaffSync"))) {
       return;
     }
     try {
@@ -452,8 +439,8 @@ export function Navbar({
   };
 
   const tournamentName = tournament?.shortName || tournament?.name || tournamentSlug;
-  const formatLabel = tournament?.format === "bp" ? "BP (4-Team)" : "UADC (2-Team)";
-  const activeStatus = activeRound ? describeRoundStatus(activeRound) : null;
+  const formatLabel = tournament?.format === "bp" ? t("setup.shell.formatBp") : t("setup.shell.formatUadc");
+  const activeStatus = activeRound ? describeRoundStatus(activeRound, t) : null;
   const userInitial = user?.displayName ? user.displayName.charAt(0).toUpperCase() : "T";
 
   return (
@@ -462,7 +449,7 @@ export function Navbar({
       <SyncConflictsDialog open={showConflictsDialog} onClose={() => setShowConflictsDialog(false)} />
       <div className="flex h-full items-center gap-1 px-2 sm:gap-2 sm:px-3">
         <IconButton
-          label="Open navigation"
+          label={t("setup.shell.openNavigation")}
           icon={<Menu />}
           onClick={onOpenNav}
           aria-expanded={navOpen}
@@ -473,15 +460,15 @@ export function Navbar({
         <Link
           href="/"
           className={iconButtonClasses({ className: "max-sm:hidden" })}
-          aria-label="CrabbyTab home"
-          title="CrabbyTab home"
+          aria-label={t("setup.shell.home")}
+          title={t("setup.shell.home")}
         >
           <Image src="/crabbytab.svg" alt="" width={24} height={24} className="h-6 w-6" />
         </Link>
 
         {/* Tournament switcher */}
         <DropdownMenu
-          triggerLabel={`Tournament: ${tournamentName}`}
+          triggerLabel={t("setup.shell.tournamentMenuTrigger", { name: tournamentName })}
           triggerClassName="h-8 min-w-0 max-w-[30vw] px-2 sm:max-w-[320px]"
           trigger={
             <>
@@ -492,13 +479,13 @@ export function Navbar({
           }
         >
           <DropdownMenuLabel>{formatLabel}</DropdownMenuLabel>
-          <DropdownMenuItem href="/" icon={<Layers />}>All tournaments</DropdownMenuItem>
-          <DropdownMenuItem href="/tournaments/new" icon={<FilePlus2 />}>New tournament</DropdownMenuItem>
-          <DropdownMenuItem href="/tournaments/import" icon={<Import />}>Import tournament</DropdownMenuItem>
-          <DropdownMenuItem href="/tournaments/demo" icon={<FlaskConical />}>Load demo tournament</DropdownMenuItem>
+          <DropdownMenuItem href="/" icon={<Layers />}>{t("setup.shell.allTournaments")}</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/new" icon={<FilePlus2 />}>{t("setup.shell.newTournament")}</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/import" icon={<Import />}>{t("setup.shell.importTournament")}</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/demo" icon={<FlaskConical />}>{t("setup.shell.loadDemo")}</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem href={`/${tournamentSlug}/public`} external icon={<ExternalLink />}>
-            Open public tab
+            {t("setup.shell.openPublicTab")}
           </DropdownMenuItem>
         </DropdownMenu>
 
@@ -506,7 +493,7 @@ export function Navbar({
 
         {/* Round switcher (visible at every width so rounds can be changed and created on mobile) */}
         <DropdownMenu
-          triggerLabel={activeRound ? `Round: ${activeRound.name}` : "Select round"}
+          triggerLabel={activeRound ? t("setup.shell.roundMenuTrigger", { name: activeRound.name }) : t("setup.shell.selectRound")}
           triggerClassName="h-8 shrink-0 px-2"
           menuClassName="w-64"
           trigger={
@@ -515,11 +502,11 @@ export function Navbar({
                 {activeRound ? (
                   activeRound.abbreviation || `R${activeRound.seq}`
                 ) : rounds.length ? (
-                  "Round"
+                  t("setup.shell.roundButton")
                 ) : (
                   <>
-                    <span className="sm:hidden">Rounds</span>
-                    <span className="max-sm:hidden">No rounds</span>
+                    <span className="sm:hidden">{t("setup.shell.groupRounds")}</span>
+                    <span className="max-sm:hidden">{t("setup.shell.noRounds")}</span>
                   </>
                 )}
               </span>
@@ -532,32 +519,32 @@ export function Navbar({
             </>
           }
         >
-          {rounds.length > 0 && <DropdownMenuLabel>Rounds</DropdownMenuLabel>}
+          {rounds.length > 0 && <DropdownMenuLabel>{t("setup.shell.groupRounds")}</DropdownMenuLabel>}
           {rounds.map((round) => (
             <DropdownMenuRadioItem
               key={round.id}
               checked={activeRound?.id === round.id}
               onSelect={() => setActiveRound(round)}
-              description={describeRoundStatus(round).label}
+              description={describeRoundStatus(round, t).label}
             >
               <span className="font-medium">{round.abbreviation || `R${round.seq}`}</span>
               <span className="text-fg-muted"> · {round.name}</span>
             </DropdownMenuRadioItem>
           ))}
           {rounds.length === 0 && (
-            <p className="px-2 py-1.5 text-xs text-fg-muted">No rounds have been created yet.</p>
+            <p className="px-2 py-1.5 text-xs text-fg-muted">{t("setup.shell.noRoundsYet")}</p>
           )}
           {isOwnerOrAdmin && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem icon={<Plus />} onSelect={() => setShowRoundModal(true)}>
-                New round…
+                {t("setup.shell.newRoundMenu")}
               </DropdownMenuItem>
             </>
           )}
         </DropdownMenu>
 
-        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
+        <div className="ms-auto flex min-w-0 items-center gap-1 sm:gap-2">
           <SyncStatus
             isOnline={isOnline}
             cloudSyncEnabled={cloudSyncEnabled}
@@ -574,20 +561,20 @@ export function Navbar({
                 variant="ghost"
                 onClick={handleDownload}
                 disabled={!isOnline || isSyncing}
-                title="Merge cloud records with this device's local copy"
+                title={t("setup.shell.downloadHint")}
               >
                 <CloudDownload aria-hidden="true" />
-                <span className="sr-only md:not-sr-only">{isSyncing ? "Syncing…" : "Download"}</span>
+                <span className="sr-only md:not-sr-only">{isSyncing ? t("setup.shell.syncSyncing") : t("setup.shell.download")}</span>
               </Button>
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={handleUpload}
                 disabled={!isOnline || isSyncing}
-                title="Merge this device's records into Firestore; archive any conflicting cloud versions"
+                title={t("setup.shell.uploadHint")}
               >
                 <Upload aria-hidden="true" />
-                <span className="sr-only md:not-sr-only">{isSyncing ? "Syncing…" : "Upload"}</span>
+                <span className="sr-only md:not-sr-only">{isSyncing ? t("setup.shell.syncSyncing") : t("setup.shell.upload")}</span>
               </Button>
             </>
           ) : user && isDataEntryAssistant ? (
@@ -596,18 +583,18 @@ export function Navbar({
               variant="secondary"
               onClick={handleStaffSync}
               disabled={!isOnline || isSyncing}
-              title="Upload approved participant, ballot, feedback, and result records"
+              title={t("setup.shell.staffUploadHint")}
             >
               <Upload aria-hidden="true" />
-              <span>{isSyncing ? "Uploading…" : "Upload"}</span>
+              <span>{isSyncing ? t("setup.shell.uploading") : t("setup.shell.upload")}</span>
             </Button>
           ) : !user ? (
             <Link
               href={`/login?next=${encodeURIComponent(`/${tournamentSlug}`)}`}
-              title="Sign in only when you want to upload your local copy"
+              title={t("setup.shell.signInHint")}
               className="whitespace-nowrap text-xs text-accent-text max-sm:hidden underline-offset-2 hover:underline"
             >
-              Sign in to upload
+              {t("setup.shell.signInToUpload")}
             </Link>
           ) : null}
 
@@ -616,8 +603,8 @@ export function Navbar({
             target="_blank"
             rel="noreferrer"
             className={iconButtonClasses({ className: "max-md:hidden" })}
-            aria-label="Open public tab in a new tab"
-            title="Public tab"
+            aria-label={t("setup.shell.openPublicTabNewTab")}
+            title={t("setup.shell.navPublicTab")}
           >
             <ExternalLink aria-hidden="true" />
           </Link>
@@ -627,7 +614,7 @@ export function Navbar({
           {/* User menu */}
           <DropdownMenu
             align="end"
-            triggerLabel="Account menu"
+            triggerLabel={t("setup.shell.accountMenu")}
             triggerClassName="h-8 px-1"
             menuClassName="w-64"
             trigger={
@@ -640,13 +627,15 @@ export function Navbar({
             }
           >
             <div role="presentation" className="-mx-1 mb-1 border-b border-border px-3 pb-2 pt-1.5">
-              <p className="truncate text-[13px] font-medium text-fg">{user?.displayName || "Tab Director"}</p>
+              <p className="truncate text-[13px] font-medium text-fg">{user?.displayName || t("setup.shell.defaultUserName")}</p>
               <p className="truncate text-xs text-fg-muted">{user?.email || "director@tabbycat.local"}</p>
             </div>
-            <DropdownMenuItem href="/" icon={<Layers />}>All tournaments</DropdownMenuItem>
-            <DropdownMenuItem href={`/${tournamentSlug}/config/draw`} icon={<Shield />}>Tournament settings</DropdownMenuItem>
+            <DropdownMenuItem href="/" icon={<Layers />}>{t("setup.shell.allTournaments")}</DropdownMenuItem>
+            <DropdownMenuItem href={`/${tournamentSlug}/config/draw`} icon={<Shield />}>
+              {t("setup.shell.tournamentSettings")}
+            </DropdownMenuItem>
             {isOwnerOrAdmin && (
-              <DropdownMenuItem href={`/${tournamentSlug}/api`} icon={<KeyRound />}>API access</DropdownMenuItem>
+              <DropdownMenuItem href={`/${tournamentSlug}/api`} icon={<KeyRound />}>{t("setup.shell.navApiAccess")}</DropdownMenuItem>
             )}
             {isOwnerOrAdmin && (
               <>
@@ -657,11 +646,11 @@ export function Navbar({
                     try {
                       exportTournamentBackup();
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : "Could not export backup.");
+                      window.alert(error instanceof Error ? error.message : t("setup.shell.exportBackupFailed"));
                     }
                   }}
                 >
-                  Export tournament backup
+                  {t("setup.shell.exportBackup")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   icon={<Download />}
@@ -669,20 +658,20 @@ export function Navbar({
                     try {
                       exportTournamentArchive();
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : "Could not export DebateXML archive.");
+                      window.alert(error instanceof Error ? error.message : t("setup.shell.exportArchiveFailed"));
                     }
                   }}
                 >
-                  Export DebateXML archive
+                  {t("setup.shell.exportArchive")}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<CloudDownload />} onSelect={() => setShowRestoreDialog(true)}>
-                  Restore tournament backup…
+                  {t("setup.shell.restoreBackup")}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<Download />} onSelect={handleExportRecovery} disabled={!isOnline || isSyncing}>
-                  Export sync recovery
+                  {t("setup.shell.exportSyncRecovery")}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<CloudUpload />} onSelect={handleRepublish} disabled={!isOnline || isSyncing}>
-                  Republish public pages
+                  {t("setup.shell.republish")}
                 </DropdownMenuItem>
               </>
             )}
@@ -690,7 +679,7 @@ export function Navbar({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem icon={<AlertTriangle />} onSelect={() => setShowConflictsDialog(true)}>
-                  Resolve sync conflicts ({divergedRecords.length})…
+                  {t("setup.shell.resolveConflicts", { count: divergedRecords.length })}
                 </DropdownMenuItem>
               </>
             )}
@@ -707,7 +696,7 @@ export function Navbar({
                 router.push("/");
               }}
             >
-              Sign out
+              {t("setup.shell.signOut")}
             </DropdownMenuItem>
           </DropdownMenu>
         </div>
@@ -717,19 +706,19 @@ export function Navbar({
         open={republishPlan !== null}
         onClose={() => setRepublishPlan(null)}
         role="alertdialog"
-        title={republishPlan?.kind === "blocked" ? "Public pages cannot be republished yet" : "Upload changes before republishing?"}
+        title={republishPlan?.kind === "blocked" ? t("setup.shell.republishBlockedTitle") : t("setup.shell.republishConfirmTitle")}
         description={
           republishPlan?.kind === "blocked"
             ? republishPlan.reason
-            : `Republishing publishes the cloud copy. ${republishPlan?.kind === "confirm-pending" ? republishPlan.pendingTotal : 0} change(s) on this device are not uploaded, so the public would see an older version.`
+            : plural("setup.shell.republishPending", republishPlan?.kind === "confirm-pending" ? republishPlan.pendingTotal : 0)
         }
         icon={<AlertTriangle className="text-warning" aria-hidden="true" />}
         footer={
           republishPlan?.kind === "blocked" ? (
             <>
-              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>Close</Button>
+              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>{t("setup.common.close")}</Button>
               {uploadIssue?.kind === "partial" ? (
-                <Button variant="primary" onClick={uploadFromRepublish}>Upload again</Button>
+                <Button variant="primary" onClick={uploadFromRepublish}>{t("setup.shell.uploadAgain")}</Button>
               ) : (
                 <Button
                   variant="primary"
@@ -738,15 +727,15 @@ export function Navbar({
                     void handleDownload();
                   }}
                 >
-                  Download and compare
+                  {t("setup.shell.downloadAndCompare")}
                 </Button>
               )}
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>Cancel</Button>
-              <Button variant="secondary" onClick={() => republish(true)}>Publish cloud copy anyway</Button>
-              <Button variant="primary" onClick={uploadFromRepublish}>Upload and publish</Button>
+              <Button variant="secondary" onClick={() => setRepublishPlan(null)}>{t("setup.common.cancel")}</Button>
+              <Button variant="secondary" onClick={() => republish(true)}>{t("setup.shell.publishAnyway")}</Button>
+              <Button variant="primary" onClick={uploadFromRepublish}>{t("setup.shell.uploadAndPublish")}</Button>
             </>
           )
         }
@@ -756,41 +745,41 @@ export function Navbar({
         open={showRoundModal}
         onClose={() => setShowRoundModal(false)}
         dismissible={!isCreatingRound}
-        title="Create new round"
-        description="Rounds are added after the existing ones. You can change their settings later."
+        title={t("setup.shell.createRoundTitle")}
+        description={t("setup.shell.createRoundDescription")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowRoundModal(false)} disabled={isCreatingRound}>
-              Cancel
+              {t("setup.common.cancel")}
             </Button>
-            <Button variant="primary" type="submit" form="create-round-form" loading={isCreatingRound} loadingText="Creating...">
-              Create round
+            <Button variant="primary" type="submit" form="create-round-form" loading={isCreatingRound} loadingText={t("setup.shell.creating")}>
+              {t("setup.shell.createRound")}
             </Button>
           </>
         }
       >
         <form id="create-round-form" onSubmit={handleCreateRound} className="space-y-4">
           <Input
-            label="Round name"
+            label={t("setup.shell.roundName")}
             required
-            placeholder={`Round ${rounds.length + 1}`}
+            placeholder={t("setup.shell.roundNamePlaceholder", { number: rounds.length + 1 })}
             value={newRoundName}
             onChange={(e) => setNewRoundName(e.target.value)}
           />
           <Input
-            label="Abbreviation"
-            help="For example R4, QF, SF or GF. Defaults to the next round number."
+            label={t("setup.shell.abbreviation")}
+            help={t("setup.shell.abbreviationHelp")}
             placeholder={`R${rounds.length + 1}`}
             value={newRoundAbbr}
             onChange={(e) => setNewRoundAbbr(e.target.value)}
           />
           <Select
-            label="Round stage"
+            label={t("setup.shell.roundStage")}
             value={newRoundStage}
             onChange={(e) => setNewRoundStage(e.target.value === "elimination" ? "elimination" : "preliminary")}
           >
-            <option value="preliminary">Preliminary (In-Rounds)</option>
-            <option value="elimination">Elimination (Out-Rounds / Break)</option>
+            <option value="preliminary">{t("setup.shell.stagePreliminary")}</option>
+            <option value="elimination">{t("setup.shell.stageElimination")}</option>
           </Select>
         </form>
       </Dialog>

@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { Copy, RotateCw, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, RotateCw, XCircle } from "lucide-react";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import type { RegistrationCounters, RepresentativeSummary } from "@/lib/registration/types";
 import { StatusPill } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
 import { Input } from "@/components/ui/Field";
@@ -33,6 +35,8 @@ export function RepresentativesPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [issued, setIssued] = useState<IssuedRepresentativeLink | null>(null);
+  const [revoking, setRevoking] = useState<RepresentativeSummary | null>(null);
+  const { t } = useI18n();
 
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key);
@@ -40,7 +44,7 @@ export function RepresentativesPanel({
     try {
       await action();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Could not update representatives.");
+      setError(actionError instanceof Error ? actionError.message : t("setup.registration.representativesFailed"));
     } finally {
       setBusy(null);
     }
@@ -63,25 +67,25 @@ export function RepresentativesPanel({
   return (
     <Card>
       <CardHeader
-        title="Institution representatives"
-        description="Each representative gets a personal link to register their institution's teams and adjudicators. Adding the same person and institution again issues a new link."
+        title={t("setup.registration.representativesTitle")}
+        description={t("setup.registration.representativesDescription")}
       />
       <CardBody className="space-y-4">
         <form onSubmit={add} className="grid gap-3 sm:grid-cols-3">
-          <Input label="Institution" required maxLength={120} value={institutionName} onChange={(event) => setInstitutionName(event.target.value)} />
-          <Input label="Representative email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
-          <Input label="Representative name" maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
+          <Input label={t("setup.registration.institution")} required maxLength={120} value={institutionName} onChange={(event) => setInstitutionName(event.target.value)} />
+          <Input label={t("setup.registration.representativeEmail")} type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+          <Input label={t("setup.registration.representativeName")} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
           <Input
-            label="Team places"
-            help="Empty: the default per-institution limit."
+            label={t("setup.registration.teamPlaces")}
+            help={t("setup.registration.placesHelp")}
             type="number"
             min={0}
             value={teamQuota}
             onChange={(event) => setTeamQuota(event.target.value)}
           />
           <Input
-            label="Adjudicator places"
-            help="Empty: the default per-institution limit."
+            label={t("setup.registration.adjudicatorPlaces")}
+            help={t("setup.registration.placesHelp")}
             type="number"
             min={0}
             value={adjudicatorQuota}
@@ -89,34 +93,34 @@ export function RepresentativesPanel({
           />
           <div className="flex items-end">
             <Button type="submit" variant="primary" loading={busy === "add"} disabled={busy !== null}>
-              Add and send link
+              {t("setup.registration.addAndSend")}
             </Button>
           </div>
         </form>
 
         {error && <Alert tone="danger" role="alert">{error}</Alert>}
         {issued && (
-          <Alert tone={issued.delivered ? "success" : "warning"} role="status" title={issued.delivered ? `Link emailed to ${issued.email}` : `Link not emailed to ${issued.email}`}>
+          <Alert tone={issued.delivered ? "success" : "warning"} role="status" title={t(issued.delivered ? "setup.registration.linkEmailed" : "setup.registration.linkNotEmailed", { email: issued.email })}>
             {issued.error && <p>{issued.error}</p>}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 readOnly
-                aria-label={`Registration link for ${issued.email}`}
+                aria-label={t("setup.registration.linkFor", { email: issued.email })}
                 value={issued.link}
                 onFocus={(event) => event.currentTarget.select()}
                 className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-1 font-mono text-[11px]"
               />
               <Button size="sm" onClick={() => void navigator.clipboard?.writeText(issued.link)}>
                 <Copy aria-hidden="true" />
-                Copy
+                {t("setup.common.copy")}
               </Button>
             </div>
-            <p className="mt-1 text-xs">Shown once: only a hash of the link is stored.</p>
+            <p className="mt-1 text-xs">{t("setup.registration.linkShownOnce")}</p>
           </Alert>
         )}
 
         {representatives.length === 0 ? (
-          <p className="text-xs text-fg-muted">No representatives yet.</p>
+          <p className="text-xs text-fg-muted">{t("setup.registration.noRepresentatives")}</p>
         ) : (
           <ul className="divide-y divide-border border-y border-border">
             {representatives.map((representative) => {
@@ -126,15 +130,26 @@ export function RepresentativesPanel({
                   <div className="min-w-0 space-y-0.5">
                     <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
                       {representative.institution.name}
-                      <StatusPill tone={representative.status === "active" ? "success" : "neutral"}>
-                        {representative.status === "active" ? "Active" : "Revoked"}
+                      <StatusPill
+                        tone={representative.status === "active" ? "success" : "neutral"}
+                        icon={representative.status === "active" ? <CheckCircle2 aria-hidden="true" /> : <XCircle aria-hidden="true" />}
+                      >
+                        {t(representative.status === "active" ? "setup.registration.representativeActive" : "setup.registration.representativeRevoked")}
                       </StatusPill>
                     </p>
                     <p className="text-xs text-fg-muted">
-                      {representative.name ? `${representative.name} · ` : ""}
-                      {representative.email} · teams {used.teams}
-                      {representative.teamQuota !== undefined ? ` / ${representative.teamQuota}` : ""} · adjudicators {used.adjudicators}
-                      {representative.adjudicatorQuota !== undefined ? ` / ${representative.adjudicatorQuota}` : ""}
+                      {[
+                        representative.name,
+                        representative.email,
+                        representative.teamQuota !== undefined
+                          ? t("setup.registration.usageTeamsQuota", { used: used.teams, quota: representative.teamQuota })
+                          : t("setup.registration.usageTeams", { used: used.teams }),
+                        representative.adjudicatorQuota !== undefined
+                          ? t("setup.registration.usageAdjudicatorsQuota", { used: used.adjudicators, quota: representative.adjudicatorQuota })
+                          : t("setup.registration.usageAdjudicators", { used: used.adjudicators }),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                     {representative.deliveryError && <p className="text-xs text-warning">{representative.deliveryError}</p>}
                   </div>
@@ -144,7 +159,7 @@ export function RepresentativesPanel({
                         size="sm"
                         loading={busy === `resend-${representative.id}`}
                         disabled={busy !== null}
-                        aria-label={`Send a new link to ${representative.email}`}
+                        aria-label={t("setup.registration.newLinkFor", { email: representative.email })}
                         onClick={() =>
                           void run(`resend-${representative.id}`, async () => {
                             const result = await client.resendRepresentative(representative.id);
@@ -154,23 +169,18 @@ export function RepresentativesPanel({
                         }
                       >
                         <RotateCw aria-hidden="true" />
-                        New link
+                        {t("setup.registration.newLink")}
                       </Button>
                       <Button
                         size="sm"
                         variant="danger"
                         loading={busy === `revoke-${representative.id}`}
                         disabled={busy !== null}
-                        aria-label={`Revoke the link for ${representative.institution.name}`}
-                        onClick={() => {
-                          if (!window.confirm(`Revoke ${representative.email}'s link for ${representative.institution.name}? Submissions already made stay in the queue.`)) return;
-                          void run(`revoke-${representative.id}`, async () => {
-                            onChange((await client.revokeRepresentative(representative.id)).representatives);
-                          });
-                        }}
+                        aria-label={t("setup.registration.revokeFor", { institution: representative.institution.name })}
+                        onClick={() => setRevoking(representative)}
                       >
                         <XCircle aria-hidden="true" />
-                        Revoke
+                        {t("setup.registration.revoke")}
                       </Button>
                     </div>
                   )}
@@ -180,6 +190,25 @@ export function RepresentativesPanel({
           </ul>
         )}
       </CardBody>
+      {revoking && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.registration.revokeTitle")}
+          description={t("setup.registration.revokeDescription", {
+            email: revoking.email,
+            institution: revoking.institution.name,
+          })}
+          confirmLabel={t("setup.registration.revokeConfirm")}
+          onCancel={() => setRevoking(null)}
+          onConfirm={() => {
+            const representative = revoking;
+            setRevoking(null);
+            void run(`revoke-${representative.id}`, async () => {
+              onChange((await client.revokeRepresentative(representative.id)).representatives);
+            });
+          }}
+        />
+      )}
     </Card>
   );
 }

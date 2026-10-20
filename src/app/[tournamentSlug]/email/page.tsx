@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Mail, Send, ShieldCheck } from "lucide-react";
+import { History, Mail, RefreshCw, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Feedback";
 import { AutomaticNotificationsPanel } from "@/features/tournament/components/AutomaticNotificationsPanel";
 import { EmailSettingsPanel } from "@/features/tournament/components/EmailSettingsPanel";
 import {
@@ -19,19 +26,20 @@ import type {
   EmailRecipientGroup,
   StoredEmailCampaign,
 } from "@/lib/email/messaging";
+import type { MessageKey } from "@/lib/i18n/messages";
 
-const RECIPIENT_GROUP_LABELS: Record<EmailRecipientGroup, string> = {
-  all_teams: "All teams",
-  breaking_teams: "Breaking teams",
-  non_breaking_teams: "Non-breaking teams",
-  all_adjudicators: "All adjudicators",
-  checked_in_adjudicators: "Checked-in adjudicators",
-  trainees: "All trainees",
-  all_participants: "All participants",
-  round_participants: "Teams in a round",
-  round_adjudicators: "Adjudicators in a round",
-  chairs: "Chairs in a round",
-  panellists: "Panellists in a round",
+const RECIPIENT_GROUP_LABELS: Record<EmailRecipientGroup, MessageKey> = {
+  all_teams: "setup.email.groupAllTeams",
+  breaking_teams: "setup.email.groupBreakingTeams",
+  non_breaking_teams: "setup.email.groupNonBreakingTeams",
+  all_adjudicators: "setup.email.groupAllAdjudicators",
+  checked_in_adjudicators: "setup.email.groupCheckedInAdjudicators",
+  trainees: "setup.email.groupTrainees",
+  all_participants: "setup.email.groupAllParticipants",
+  round_participants: "setup.email.groupRoundParticipants",
+  round_adjudicators: "setup.email.groupRoundAdjudicators",
+  chairs: "setup.email.groupChairs",
+  panellists: "setup.email.groupPanellists",
 };
 
 const ROUND_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
@@ -41,38 +49,49 @@ const ROUND_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
   "panellists",
 ];
 
+/** Subjects and bodies are sent as written (emails are English-only); only the labels are translated. */
 const EMAIL_TEMPLATES = {
   announcement: {
-    label: "Tournament announcement",
+    label: "setup.email.templateAnnouncement",
     subject: "{{tournament}} announcement",
     body: "Hi {{name}},\n\nAn update from {{tournament}}.\n\nBest,\nTournament Staff",
   },
   round_details: {
-    label: "Round details",
+    label: "setup.email.templateRoundDetails",
     subject: "{{tournament}} — {{round}} details",
     body: "Hi {{name}},\n\nYour details for {{round}}:\n{{debate}}\nVenue: {{venue}}\nChair: {{chair}}\n\nBest,\nTournament Staff",
   },
   adjudicator_assignment: {
-    label: "Adjudicator assignment",
+    label: "setup.email.templateAdjudicatorAssignment",
     subject: "{{tournament}} — {{round}} adjudicator assignment",
     body: "Hi {{name}},\n\nYou are assigned to {{debate}} in {{round}}.\nVenue: {{venue}}\nChair: {{chair}}\nPanellists: {{panellists}}\n\nBest,\nTournament Staff",
   },
   feedback_reminder: {
-    label: "Feedback reminder",
+    label: "setup.email.templateFeedbackReminder",
     subject: "{{tournament}} — please submit feedback",
     body: "Hi {{name}},\n\nPlease remember to submit feedback for {{round}}.\n\nBest,\nTournament Staff",
   },
   adjudicator_private_portal: {
-    label: "Adjudicator private portal credentials",
+    label: "setup.email.templateAdjudicatorPrivatePortal",
     subject: "{{tournament}} — your private adjudicator portal",
     body: "Hi {{name}},\n\nUse your personal link and passcode to access your adjudicator portal for {{tournament}}.\n\nPrivate link: {{private_url}}\nPasscode: {{passcode}}\n\nPlease keep these details private and do not forward this email.\n\nBest,\nTournament Staff",
   },
   team_private_portal: {
-    label: "Team private portal credentials",
+    label: "setup.email.templateTeamPrivatePortal",
     subject: "{{tournament}} — your team's private portal",
     body: "Hi {{name}},\n\nUse your team's link and passcode to see your draw, check in and submit feedback for {{tournament}}.\n\nTeam: {{team}}\nPrivate link: {{private_url}}\nPasscode: {{passcode}}\n\nPlease share these details only with your teammates.\n\nBest,\nTournament Staff",
   },
-} as const;
+} as const satisfies Record<string, { label: MessageKey; subject: string; body: string }>;
+
+const SMTP_VARIABLES: { name: string; note?: MessageKey }[] = [
+  { name: "SMTP_HOST" },
+  { name: "SMTP_PORT", note: "setup.email.smtpPortNote" },
+  { name: "SMTP_SECURE", note: "setup.email.smtpSecureNote" },
+  { name: "SMTP_USER" },
+  { name: "SMTP_PASS" },
+  { name: "SMTP_FROM" },
+  { name: "FIREBASE_SERVICE_ACCOUNT_JSON", note: "setup.email.smtpServiceAccountNote" },
+];
 
 export default function EmailSettingsPage() {
   const {
@@ -85,6 +104,7 @@ export default function EmailSettingsPage() {
     venues,
   } = useTournament();
   const { user } = useAuth();
+  const { t, plural, formatDateTime, formatList } = useI18n();
   const [testSending, setTestSending] = useState(false);
   const [testRecipient, setTestRecipient] = useState("");
   const [testMessage, setTestMessage] = useState("");
@@ -100,14 +120,15 @@ export default function EmailSettingsPage() {
   const [campaignError, setCampaignError] = useState("");
   const [campaignHistory, setCampaignHistory] = useState<StoredEmailCampaign[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState("");
+  // null: no error. "": failed without a server message (the translated fallback is shown).
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [retryingCampaignId, setRetryingCampaignId] = useState("");
 
   const refreshCampaignHistory = useCallback(async () => {
     if (!tournament || !user || !isOwnerOrAdmin) return;
 
     setHistoryLoading(true);
-    setHistoryError("");
+    setHistoryError(null);
     try {
       const token = await user.getIdToken();
       const response = await fetch(
@@ -115,10 +136,10 @@ export default function EmailSettingsPage() {
         { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
       );
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to load campaign history.");
+      if (!response.ok) throw new Error(result.error || "");
       setCampaignHistory(result.campaigns as StoredEmailCampaign[]);
     } catch (cause) {
-      setHistoryError(cause instanceof Error ? cause.message : "Unable to load campaign history.");
+      setHistoryError(cause instanceof Error ? cause.message : "");
     } finally {
       setHistoryLoading(false);
     }
@@ -170,7 +191,8 @@ export default function EmailSettingsPage() {
         body: renderEmailTemplate(body, recipients[0], tournament.name, selectedRound?.name),
       };
     } catch (cause) {
-      previewError = cause instanceof Error ? cause.message : "Invalid template variable.";
+      // Messages thrown by the template renderer are shown as written.
+      previewError = cause instanceof Error ? cause.message : t("setup.email.invalidTemplateVariable");
     }
   }
 
@@ -191,10 +213,10 @@ export default function EmailSettingsPage() {
         body: JSON.stringify({ tournamentId: tournament.id, recipientEmail: testRecipient.trim() }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to test SMTP.");
+      if (!response.ok) throw new Error(result.error || t("setup.email.testFailed"));
       setTestMessage(result.message);
     } catch (cause) {
-      setTestError(cause instanceof Error ? cause.message : "Unable to test SMTP.");
+      setTestError(cause instanceof Error ? cause.message : t("setup.email.testFailed"));
     } finally {
       setTestSending(false);
     }
@@ -223,12 +245,12 @@ export default function EmailSettingsPage() {
         }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to send the campaign.");
+      if (!response.ok) throw new Error(result.error || t("setup.email.sendFailed"));
       setCampaignResult(result as EmailCampaignResult);
       setConfirmedSend(false);
       await refreshCampaignHistory();
     } catch (cause) {
-      setCampaignError(cause instanceof Error ? cause.message : "Unable to send the campaign.");
+      setCampaignError(cause instanceof Error ? cause.message : t("setup.email.sendFailed"));
     } finally {
       setSendingCampaign(false);
     }
@@ -251,11 +273,11 @@ export default function EmailSettingsPage() {
         body: JSON.stringify({ tournamentId: tournament.id, campaignId }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to retry failed emails.");
+      if (!response.ok) throw new Error(result.error || t("setup.email.retryError"));
       setCampaignResult(result as EmailCampaignResult);
       await refreshCampaignHistory();
     } catch (cause) {
-      setCampaignError(cause instanceof Error ? cause.message : "Unable to retry failed emails.");
+      setCampaignError(cause instanceof Error ? cause.message : t("setup.email.retryError"));
       await refreshCampaignHistory();
     } finally {
       setRetryingCampaignId("");
@@ -270,115 +292,103 @@ export default function EmailSettingsPage() {
 
   if (!isOwnerOrAdmin) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-        Only tournament administrators can manage email settings.
-      </div>
+      <Alert tone="warning" role="status">
+        {t("setup.email.adminOnly")}
+      </Alert>
     );
   }
 
+  const overLimit = recipients.length > MAX_CAMPAIGN_RECIPIENTS;
+  const canConfirm = recipients.length > 0 && !overLimit && (!requiresRound || Boolean(roundId));
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900">
-          <Mail className="h-6 w-6 text-blue-600" />
-          Tournament email
-        </h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Configure an SMTP provider for server-side tournament email.
-        </p>
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-fg-subtle" aria-hidden="true" />
+            {t("setup.email.title")}
+          </span>
+        }
+        description={t("setup.email.description")}
+      />
 
-      <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-        <h2 className="flex items-center gap-2 text-sm font-bold text-gray-900">
-          <ShieldCheck className="h-4 w-4 text-emerald-600" />
-          Secure SMTP configuration
-        </h2>
-        <p className="text-sm text-gray-600">
-          SMTP settings are supplied by the deployment operator as server environment variables.
-          Credentials are never saved in tournament data or sent to the browser.
-        </p>
-        <div className="rounded-md bg-gray-50 p-3 font-mono text-xs text-gray-800">
-          <div>SMTP_HOST</div>
-          <div>SMTP_PORT (default: 587)</div>
-          <div>SMTP_SECURE (defaults to true for port 465)</div>
-          <div>SMTP_USER</div>
-          <div>SMTP_PASS</div>
-          <div>SMTP_FROM</div>
-          <div>FIREBASE_SERVICE_ACCOUNT_JSON (server-side admin authorization)</div>
-        </div>
-        <p className="text-xs text-gray-500">
-          Add these values to the server deployment environment and redeploy. Use an app password
-          or provider-issued credential, not your personal account password. Port 587 uses
-          required STARTTLS; port 465 uses implicit TLS. The Firebase service-account JSON must
-          have access to read tournament administrator records.
-        </p>
-        <label className="block max-w-md text-xs font-semibold text-gray-700">
-          Test recipient email
-          <input
+      <Card>
+        <CardHeader icon={<ShieldCheck aria-hidden="true" />} title={t("setup.email.smtpTitle")} />
+        <CardBody className="space-y-4">
+          <p className="text-[13px] text-fg-muted">{t("setup.email.smtpIntro")}</p>
+          <ul
+            aria-label={t("setup.email.smtpEnvLabel")}
+            className="space-y-0.5 rounded-md border border-border bg-muted p-3 font-mono text-xs text-fg"
+          >
+            {SMTP_VARIABLES.map((variable) => (
+              <li key={variable.name}>
+                {variable.name}
+                {variable.note && <span className="text-fg-muted"> ({t(variable.note)})</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-fg-muted">{t("setup.email.smtpHelp")}</p>
+          <Input
+            label={t("setup.email.testRecipientLabel")}
             type="email"
             required
             value={testRecipient}
             onChange={(event) => setTestRecipient(event.target.value)}
             placeholder={user?.email || "name@example.com"}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+            wrapperClassName="max-w-md"
           />
-        </label>
-        <button
-          type="button"
-          onClick={sendTestEmail}
-          disabled={testSending || !testRecipient.trim()}
-          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Send className="h-4 w-4" />
-          {testSending ? "Sending test..." : "Send test email"}
-        </button>
-        {testMessage && <p role="status" className="text-sm text-emerald-700">{testMessage}</p>}
-        {testError && <p role="alert" className="text-sm text-red-700">{testError}</p>}
-      </section>
+          <Button
+            variant="primary"
+            onClick={sendTestEmail}
+            disabled={!testRecipient.trim()}
+            loading={testSending}
+            loadingText={t("setup.email.sendingTest")}
+          >
+            <Send className="h-4 w-4" aria-hidden="true" />
+            {t("setup.email.sendTest")}
+          </Button>
+          {testMessage && <Alert tone="success" role="status">{testMessage}</Alert>}
+          {testError && <Alert tone="danger" role="alert">{testError}</Alert>}
+        </CardBody>
+      </Card>
 
-      <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-        <div>
-          <h2 className="text-sm font-bold text-gray-900">Compose tournament email</h2>
-          <p className="mt-1 text-xs text-gray-600">
-            Messages are sent separately to protect recipient privacy. Up to {MAX_CAMPAIGN_RECIPIENTS} unique email addresses per send.
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block text-xs font-semibold text-gray-700">
-            Recipients
-            <select
+      <Card>
+        <CardHeader
+          icon={<Send aria-hidden="true" />}
+          title={t("setup.email.composeTitle")}
+          description={t("setup.email.composeDescription", { limit: MAX_CAMPAIGN_RECIPIENTS })}
+        />
+        <CardBody className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select
+              label={t("setup.email.recipientsLabel")}
               value={recipientGroup}
               onChange={(event) => {
                 setRecipientGroup(event.target.value as EmailRecipientGroup);
                 clearCampaignResult();
               }}
-              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
             >
               {EMAIL_RECIPIENT_GROUPS.map((group) => (
-                <option key={group} value={group}>{RECIPIENT_GROUP_LABELS[group]}</option>
+                <option key={group} value={group}>{t(RECIPIENT_GROUP_LABELS[group])}</option>
               ))}
-            </select>
-          </label>
-          <label className="block text-xs font-semibold text-gray-700">
-            Round (optional except for round groups)
-            <select
+            </Select>
+            <Select
+              label={t("setup.email.roundLabel")}
               value={roundId}
               onChange={(event) => {
                 setRoundId(event.target.value);
                 clearCampaignResult();
               }}
-              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
             >
-              <option value="">No round</option>
+              <option value="">{t("setup.email.noRound")}</option>
               {rounds.filter((round) => !round.cancelled).map((round) => (
                 <option key={round.id} value={round.id}>{round.name}</option>
               ))}
-            </select>
-          </label>
-          <label className="block text-xs font-semibold text-gray-700 sm:col-span-2">
-            Template
-            <select
+            </Select>
+            <Select
+              label={t("setup.email.templateLabel")}
+              wrapperClassName="sm:col-span-2"
               value={templateId}
               onChange={(event) => {
                 const nextId = event.target.value as keyof typeof EMAIL_TEMPLATES | "custom";
@@ -395,36 +405,37 @@ export default function EmailSettingsPage() {
                 }
                 clearCampaignResult();
               }}
-              className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm font-normal"
             >
               {Object.entries(EMAIL_TEMPLATES).map(([id, template]) => (
-                <option key={id} value={id}>{template.label}</option>
+                <option key={id} value={id}>{t(template.label)}</option>
               ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-        </div>
+              <option value="custom">{t("setup.email.templateCustom")}</option>
+            </Select>
+          </div>
 
-        {requiresRound && !roundId && (
-          <p className="text-sm text-amber-700">Choose a round to resolve this recipient group.</p>
-        )}
-        {credentialConflict && (
-          <p role="alert" className="text-sm text-red-700">
-            {credentialConflict} belongs to more than one participant. Each participant needs their own email
-            address to receive a private URL and passcode.
-          </p>
-        )}
-        <p className={`text-sm font-medium ${recipients.length > MAX_CAMPAIGN_RECIPIENTS ? "text-red-700" : "text-gray-700"}`}>
-          {recipients.length} {includesPrivateCredentials ? "individual recipient" : "unique recipient"}{recipients.length === 1 ? "" : "s"} with an email address
-          {recipients.length > MAX_CAMPAIGN_RECIPIENTS ? ` — over the ${MAX_CAMPAIGN_RECIPIENTS}-recipient limit` : ""}
-        </p>
-        <p className="text-xs text-gray-500">
-          Team groups use email addresses on team speakers. Add speaker email addresses in participant records to include those teams.
-        </p>
+          {requiresRound && !roundId && (
+            <Alert tone="warning">{t("setup.email.chooseRound")}</Alert>
+          )}
+          {credentialConflict && (
+            <Alert tone="danger" role="alert">
+              {t("setup.email.credentialConflict", { email: credentialConflict })}
+            </Alert>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
+            <span>
+              {plural(
+                includesPrivateCredentials ? "setup.email.recipientCountIndividual" : "setup.email.recipientCountUnique",
+                recipients.length
+              )}
+            </span>
+            {overLimit && (
+              <StatusPill tone="danger">{t("setup.email.overLimit", { limit: MAX_CAMPAIGN_RECIPIENTS })}</StatusPill>
+            )}
+          </div>
+          <p className="text-xs text-fg-muted">{t("setup.email.teamEmailHelp")}</p>
 
-        <label className="block text-xs font-semibold text-gray-700">
-          Subject
-          <input
+          <Input
+            label={t("setup.email.subjectLabel")}
             value={subject}
             maxLength={200}
             onChange={(event) => {
@@ -432,12 +443,9 @@ export default function EmailSettingsPage() {
               setTemplateId("custom");
               clearCampaignResult();
             }}
-            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm font-normal"
           />
-        </label>
-        <label className="block text-xs font-semibold text-gray-700">
-          Message
-          <textarea
+          <Textarea
+            label={t("setup.email.messageLabel")}
             value={body}
             maxLength={20_000}
             rows={9}
@@ -446,83 +454,73 @@ export default function EmailSettingsPage() {
               setTemplateId("custom");
               clearCampaignResult();
             }}
-            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm font-normal"
           />
-        </label>
 
-        <div className="rounded-md bg-gray-50 p-3 text-xs text-gray-700">
-          <p className="font-semibold">Template variables</p>
-          <p className="mt-1 font-mono">
-            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
-          </p>
-          <p className="mt-1 text-gray-500">
-            Round, debate, and adjudicator details are populated when a round is selected and assignments exist.
-            {" "}Private portal credentials are populated individually for adjudicators and teams and are excluded from campaign history.
-            {" "}Side, result, points and ballot are only filled by automatic notifications.
-          </p>
-        </div>
+          <div className="rounded-md border border-border bg-muted p-3 text-xs text-fg">
+            <p className="font-semibold">{t("setup.email.variablesTitle")}</p>
+            <p className="mt-1 break-words font-mono">
+              {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
+            </p>
+            <p className="mt-1 text-fg-muted">{t("setup.email.variablesHelp")}</p>
+          </div>
 
-        {previewError && <p role="alert" className="text-sm text-red-700">{previewError}</p>}
-        {preview && (
-          <details className="rounded border border-gray-200 p-3">
-            <summary className="cursor-pointer text-xs font-semibold text-gray-700">
-              Preview for {recipients[0].name}
-            </summary>
-            <p className="mt-3 text-sm font-semibold text-gray-900">{preview.subject}</p>
-            <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm text-gray-700">{preview.body}</pre>
-          </details>
-        )}
+          {previewError && <Alert tone="danger" role="alert">{previewError}</Alert>}
+          {preview && (
+            <details className="rounded-md border border-border p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-fg">
+                {t("setup.email.previewSummary", { name: recipients[0].name })}
+              </summary>
+              <p className="mt-3 text-sm font-semibold text-fg">{preview.subject}</p>
+              <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm text-fg-muted">{preview.body}</pre>
+            </details>
+          )}
 
-        {recipients.length > 0 &&
-        recipients.length <= MAX_CAMPAIGN_RECIPIENTS &&
-        (!requiresRound || Boolean(roundId)) ? (
-          <label className="flex items-start gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
+          {canConfirm ? (
+            <Checkbox
+              label={plural("setup.email.confirmSend", recipients.length)}
               checked={confirmedSend}
               onChange={(event) => setConfirmedSend(event.target.checked)}
-              className="mt-0.5"
             />
-            <span>I confirm sending this email to {recipients.length} individual recipient{recipients.length === 1 ? "" : "s"}.</span>
-          </label>
-        ) : null}
+          ) : null}
 
-        <button
-          type="button"
-          onClick={sendCampaign}
-          disabled={
-            sendingCampaign ||
-            !confirmedSend ||
-            recipients.length === 0 ||
-            recipients.length > MAX_CAMPAIGN_RECIPIENTS ||
-            Boolean(credentialConflict) ||
-            (requiresRound && !roundId) ||
-            Boolean(previewError)
-          }
-          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Send className="h-4 w-4" />
-          {sendingCampaign ? "Sending..." : `Send to ${recipients.length} recipients`}
-        </button>
+          <Button
+            variant="primary"
+            onClick={sendCampaign}
+            loading={sendingCampaign}
+            loadingText={t("setup.email.sending")}
+            disabled={
+              !confirmedSend ||
+              recipients.length === 0 ||
+              overLimit ||
+              Boolean(credentialConflict) ||
+              (requiresRound && !roundId) ||
+              Boolean(previewError)
+            }
+          >
+            <Send className="h-4 w-4" aria-hidden="true" />
+            {plural("setup.email.sendTo", recipients.length)}
+          </Button>
 
-        {campaignError && <p role="alert" className="text-sm text-red-700">{campaignError}</p>}
-        {campaignResult && (
-          <div role="status" className="space-y-2 rounded-md border border-gray-200 p-3 text-sm">
-            <p className="font-semibold text-gray-900">
-              Sent {campaignResult.sent}; failed {campaignResult.failed}.
-            </p>
-            {campaignResult.failed > 0 && (
-              <ul className="list-inside list-disc text-red-700">
-                {campaignResult.results.filter((result) => !result.sent).map((result) => (
-                  <li key={result.email}>
-                    {result.email}{result.error ? ` — ${result.error}` : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </section>
+          {campaignError && <Alert tone="danger" role="alert">{campaignError}</Alert>}
+          {campaignResult && (
+            <Alert
+              role="status"
+              tone={campaignResult.failed > 0 ? "warning" : "success"}
+              title={t("setup.email.campaignResult", { sent: campaignResult.sent, failed: campaignResult.failed })}
+            >
+              {campaignResult.failed > 0 && (
+                <ul className="list-inside list-disc text-danger">
+                  {campaignResult.results.filter((result) => !result.sent).map((result) => (
+                    <li key={result.email} className="break-words">
+                      {result.email}{result.error ? ` — ${result.error}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Alert>
+          )}
+        </CardBody>
+      </Card>
 
       <AutomaticNotificationsPanel onSent={() => void refreshCampaignHistory()} />
 
@@ -539,89 +537,110 @@ export default function EmailSettingsPage() {
         />
       )}
 
-      <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">Campaign history</h2>
-            <p className="mt-1 text-xs text-gray-600">
-              The latest 50 sends and retry attempts are stored for tournament administrators.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void refreshCampaignHistory()}
-            disabled={historyLoading}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-50"
-          >
-            {historyLoading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-
-        {historyError && <p role="alert" className="text-sm text-red-700">{historyError}</p>}
-        {!historyLoading && campaignHistory.length === 0 && !historyError && (
-          <p className="text-sm text-gray-500">No email campaigns have been sent yet.</p>
-        )}
-        <div className="space-y-3">
-          {campaignHistory.map((campaign) => (
-            <article key={campaign.id} className="rounded-md border border-gray-200 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <p className="break-words text-sm font-semibold text-gray-900">
-                    {campaign.subjectTemplate}
-                  </p>
-                  <p className="text-xs text-gray-600">
-                    {new Date(campaign.createdAt).toLocaleString()} · {RECIPIENT_GROUP_LABELS[campaign.recipientGroup]}
-                    {campaign.roundName ? ` · ${campaign.roundName}` : ""}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Sent by {campaign.senderName || campaign.senderEmail || "Unknown"}
-                    {campaign.retryOf ? " · Retry attempt" : ""}
-                    {campaign.notificationKey ? " · Automatic notification" : ""}
-                    {campaign.status === "sending" ? " · In progress" : ""}
-                  </p>
-                  <p className="text-xs font-medium text-gray-700">
-                    {campaign.sent} sent · {campaign.failed} failed
-                    {campaign.delivery && Object.keys(campaign.delivery).length > 0 && (
-                      <> · delivery: {Object.entries(
-                        Object.values(campaign.delivery).reduce<Record<string, number>>((counts, status) => {
-                          counts[status.event] = (counts[status.event] ?? 0) + 1;
-                          return counts;
-                        }, {})
-                      ).map(([event, count]) => `${count} ${event}`).join(", ")}</>
-                    )}
-                  </p>
+      <Card>
+        <CardHeader
+          icon={<History aria-hidden="true" />}
+          title={t("setup.email.historyTitle")}
+          description={t("setup.email.historyDescription")}
+          actions={
+            <Button
+              size="sm"
+              onClick={() => void refreshCampaignHistory()}
+              loading={historyLoading}
+              loadingText={t("setup.email.refreshing")}
+            >
+              <RefreshCw aria-hidden="true" />
+              {t("setup.common.refresh")}
+            </Button>
+          }
+        />
+        <CardBody className="space-y-3">
+          {historyError !== null && (
+            <Alert tone="danger" role="alert">{historyError || t("setup.email.historyLoadFailed")}</Alert>
+          )}
+          {historyLoading && campaignHistory.length === 0 && (
+            <div className="space-y-2">
+              <p role="status" className="text-xs text-fg-muted">{t("setup.email.historyLoading")}</p>
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+            </div>
+          )}
+          {!historyLoading && campaignHistory.length === 0 && historyError === null && (
+            <EmptyState icon={<Mail aria-hidden="true" />} title={t("setup.email.historyEmpty")} />
+          )}
+          {campaignHistory.map((campaign) => {
+            const deliveryCounts =
+              campaign.delivery && Object.keys(campaign.delivery).length > 0
+                ? Object.entries(
+                    Object.values(campaign.delivery).reduce<Record<string, number>>((counts, status) => {
+                      counts[status.event] = (counts[status.event] ?? 0) + 1;
+                      return counts;
+                    }, {})
+                  ).map(([event, count]) => t("setup.email.deliveryCount", { count, event }))
+                : [];
+            return (
+              <article key={campaign.id} className="rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="break-words text-sm font-semibold text-fg">{campaign.subjectTemplate}</p>
+                    <p className="text-xs text-fg-muted">
+                      {formatDateTime(campaign.createdAt)} · {t(RECIPIENT_GROUP_LABELS[campaign.recipientGroup])}
+                      {campaign.roundName ? ` · ${campaign.roundName}` : ""}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
+                      <span>
+                        {t("setup.email.sentBy", {
+                          name: campaign.senderName || campaign.senderEmail || t("setup.email.unknownSender"),
+                        })}
+                      </span>
+                      {campaign.retryOf && <Badge>{t("setup.email.retryAttempt")}</Badge>}
+                      {campaign.notificationKey && <Badge tone="info">{t("setup.email.automaticNotification")}</Badge>}
+                      {campaign.status === "sending" && (
+                        <StatusPill tone="warning">{t("setup.email.inProgress")}</StatusPill>
+                      )}
+                    </div>
+                    <p className="text-xs font-medium text-fg">
+                      {t("setup.email.campaignCounts", { sent: campaign.sent, failed: campaign.failed })}
+                      {deliveryCounts.length > 0 && (
+                        <> · {t("setup.email.deliverySummary", { summary: formatList(deliveryCounts) })}</>
+                      )}
+                    </p>
+                  </div>
+                  {campaign.failedRecipients.length > 0 &&
+                    campaign.status !== "sending" &&
+                    !campaign.retriedBy && (
+                    <Button
+                      size="sm"
+                      onClick={() => void retryFailed(campaign.id)}
+                      disabled={Boolean(retryingCampaignId)}
+                      loading={retryingCampaignId === campaign.id}
+                      loadingText={t("setup.email.retrying")}
+                      className="shrink-0"
+                    >
+                      <RefreshCw aria-hidden="true" />
+                      {plural("setup.email.retryFailed", campaign.failedRecipients.length)}
+                    </Button>
+                  )}
                 </div>
-                {campaign.failedRecipients.length > 0 &&
-                  campaign.status !== "sending" &&
-                  !campaign.retriedBy && (
-                  <button
-                    type="button"
-                    onClick={() => void retryFailed(campaign.id)}
-                    disabled={Boolean(retryingCampaignId)}
-                    className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-                  >
-                    {retryingCampaignId === campaign.id ? "Retrying..." : `Retry ${campaign.failedRecipients.length} failed`}
-                  </button>
+                {campaign.failedRecipients.length > 0 && (
+                  <details className="mt-3 border-t border-border pt-2">
+                    <summary className="cursor-pointer text-xs font-semibold text-danger">
+                      {t("setup.email.viewFailed")}
+                    </summary>
+                    <ul className="mt-2 space-y-1 text-xs text-danger">
+                      {campaign.results.filter((result) => !result.sent).map((result) => (
+                        <li key={result.email} className="break-words">
+                          {result.email}{result.error ? ` — ${result.error}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
-              </div>
-              {campaign.failedRecipients.length > 0 && (
-                <details className="mt-3 border-t border-gray-100 pt-2">
-                  <summary className="cursor-pointer text-xs font-semibold text-red-700">
-                    View failed recipients and errors
-                  </summary>
-                  <ul className="mt-2 space-y-1 text-xs text-red-700">
-                    {campaign.results.filter((result) => !result.sent).map((result) => (
-                      <li key={result.email}>
-                        {result.email}{result.error ? ` — ${result.error}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
+              </article>
+            );
+          })}
+        </CardBody>
+      </Card>
     </div>
   );
 }

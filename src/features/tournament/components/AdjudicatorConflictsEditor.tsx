@@ -1,6 +1,12 @@
+"use client";
+
 import { X } from "lucide-react";
 import type { Adjudicator, Institution, Team } from "@/types";
 import type { ConflictSelection } from "@/lib/adjudicators/conflicts";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Select } from "@/components/ui/Field";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 
 interface AdjudicatorConflictsEditorProps {
   adjudicator: Adjudicator;
@@ -13,49 +19,55 @@ interface AdjudicatorConflictsEditorProps {
 
 interface ConflictListProps {
   label: string;
+  /** Accessible name of the "add" select. */
+  addLabel: string;
   selectedIds: string[];
   options: Array<{ id: string; label: string }>;
   onChange(ids: string[]): void;
 }
 
-function ConflictList({ label, selectedIds, options, onChange }: ConflictListProps) {
+function ConflictList({ label, addLabel, selectedIds, options, onChange }: ConflictListProps) {
+  const { t } = useI18n();
   const labels = new Map(options.map((option) => [option.id, option.label]));
   const available = options.filter((option) => !selectedIds.includes(option.id));
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-semibold text-gray-700">{label}</span>
-        {selectedIds.map((id) => (
-          <span
-            key={id}
-            className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[11px] text-red-800"
-          >
-            {labels.get(id) ?? "Removed record"}
-            <button
-              type="button"
-              onClick={() => onChange(selectedIds.filter((item) => item !== id))}
-              aria-label={`Remove conflict with ${labels.get(id) ?? "removed record"}`}
-              className="text-red-500 hover:text-red-800"
+        <span className="text-xs font-medium text-fg">{label}</span>
+        {selectedIds.map((id) => {
+          const name = labels.get(id) ?? t("setup.imports.removedRecord");
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-sm border border-danger-border bg-danger-subtle px-1.5 py-0.5 text-[11px] text-danger"
             >
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
-        {selectedIds.length === 0 && <span className="text-[11px] text-gray-400">None</span>}
+              {name}
+              <button
+                type="button"
+                onClick={() => onChange(selectedIds.filter((item) => item !== id))}
+                aria-label={t("setup.imports.removeConflict", { name })}
+                title={t("setup.imports.removeConflict", { name })}
+                className={cn("rounded-sm text-danger hover:text-fg", focusRing)}
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </span>
+          );
+        })}
+        {selectedIds.length === 0 && <span className="text-[11px] text-fg-muted">{t("setup.common.none")}</span>}
       </div>
-      <select
+      <Select
         value=""
         onChange={(event) => {
           if (event.target.value) onChange([...selectedIds, event.target.value]);
         }}
-        aria-label={`Add ${label.toLowerCase()}`}
-        className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+        aria-label={addLabel}
       >
-        <option value="">Add…</option>
+        <option value="">{t("setup.imports.conflictAddOption")}</option>
         {available.map((option) => (
           <option key={option.id} value={option.id}>{option.label}</option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }
@@ -69,15 +81,14 @@ export function AdjudicatorConflictsEditor({
   institutions,
   onChange,
 }: AdjudicatorConflictsEditorProps) {
+  const { t } = useI18n();
   return (
-    <fieldset className="space-y-2 rounded-md border border-gray-200 bg-gray-50 p-3">
-      <legend className="px-1 text-xs font-bold text-gray-800">Conflicts</legend>
-      <p className="text-[11px] text-gray-500">
-        The adjudicator&apos;s own institution is always a conflict. Auto-allocation avoids these and the
-        allocation editor flags them.
-      </p>
+    <fieldset className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+      <legend className="px-1 text-xs font-medium text-fg">{t("setup.imports.conflictsLegend")}</legend>
+      <p className="text-xs text-fg-muted">{t("setup.imports.conflictsHelp")}</p>
       <ConflictList
-        label="Team conflicts"
+        label={t("setup.imports.teamConflicts")}
+        addLabel={t("setup.imports.addTeamConflict")}
         selectedIds={selection.teamIds}
         options={[...teams]
           .sort((a, b) => a.name.localeCompare(b.name))
@@ -85,7 +96,8 @@ export function AdjudicatorConflictsEditor({
         onChange={(teamIds) => onChange({ ...selection, teamIds })}
       />
       <ConflictList
-        label="Adjudicator conflicts"
+        label={t("setup.imports.adjudicatorConflicts")}
+        addLabel={t("setup.imports.addAdjudicatorConflict")}
         selectedIds={selection.adjudicatorIds}
         options={adjudicators
           .filter((other) => other.id !== adjudicator.id)
@@ -94,7 +106,8 @@ export function AdjudicatorConflictsEditor({
         onChange={(adjudicatorIds) => onChange({ ...selection, adjudicatorIds })}
       />
       <ConflictList
-        label="Other institution conflicts"
+        label={t("setup.imports.institutionConflicts")}
+        addLabel={t("setup.imports.addInstitutionConflict")}
         selectedIds={selection.institutionIds}
         options={institutions
           .filter((institution) => institution.id !== adjudicator.institutionId)

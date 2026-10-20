@@ -114,6 +114,17 @@ CrabbyTab's configured penalties. As in Tabbycat's code, the voting strategy giv
 chairs the top rooms. Their warnings (too few voters or panellists) are shown on the allocation
 page and stored in the audit event. Preformed panels are still placed first with any strategy.
 
+## Editing panels by keyboard and touch
+
+Every drag on the allocation page has a button equivalent. **Move** on any judge (in the pool or
+on a panel) picks it; each debate then offers **Place as chair** (**Replace chair** when one is
+set; the old chair returns to the pool, as when dragging), **Add as panellist** and **Add as
+trainee**, and a placed judge can be sent back with **Return to pool**. Focus moves to the first
+target, arrow keys / Home / End move between targets, Escape cancels, and the clash preview shown
+while dragging is also shown for the picked judge. Picks, placements and refusals (for example a
+trainee dropped on a chair slot) are announced in an ARIA live region. Drops and buttons run the
+same code path.
+
 ## Preformed panels from an anticipated draw
 
 Allocation → Preformed panels → *Create from anticipated draw* ports Tabbycat's

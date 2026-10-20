@@ -4,10 +4,13 @@ import React, { useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Upload, XCircle } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
-import { Button } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Alert } from "@/components/ui/Feedback";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import { focusRing } from "@/components/ui/focus";
+import { cn } from "@/components/ui/cn";
 import { StatusPill } from "@/components/ui/Badge";
 import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { createEntityId } from "@/features/tournament/application/entities";
@@ -23,27 +26,51 @@ import {
   type RowAction,
 } from "@/lib/csv/importPlan";
 import { effectiveSpeakerCategories } from "@/lib/speakerCategories";
+import type { MessageKey } from "@/lib/i18n";
 
-const NOUNS: Record<ImportKind, { plural: string; title: string }> = {
-  institutions: { plural: "institutions", title: "Institutions" },
-  teams: { plural: "teams", title: "Teams" },
-  adjudicators: { plural: "adjudicators", title: "Adjudicators" },
+/** English collection names for the audit summary, which is saved and so stays untranslated. */
+const AUDIT_NOUNS: Record<ImportKind, string> = {
+  institutions: "Institutions",
+  teams: "Teams",
+  adjudicators: "Adjudicators",
 };
 
-const COLUMN_HELP: Record<ImportKind, string> = {
-  institutions: "Columns: name (required), code, region. Quote names that contain commas.",
-  teams:
-    "Columns: name (required), institution, code, speaker1 … speaker5, speakerN_email, speakerN_categories, break_categories, division.",
-  adjudicators: "Columns: name (required), email, institution, score, trainee, independent, gender, region.",
+const TEXT: Record<
+  ImportKind,
+  { title: MessageKey; columns: MessageKey; heading: MessageKey; newInstitutionsHelp: MessageKey }
+> = {
+  institutions: {
+    title: "setup.imports.csvTitleInstitutions",
+    columns: "setup.imports.csvColumnsInstitutions",
+    heading: "setup.imports.institutionsTitle",
+    newInstitutionsHelp: "setup.imports.csvNewInstitutionsHelpInstitutions",
+  },
+  teams: {
+    title: "setup.imports.csvTitleTeams",
+    columns: "setup.imports.csvColumnsTeams",
+    heading: "setup.imports.teamsTitle",
+    newInstitutionsHelp: "setup.imports.csvNewInstitutionsHelpTeams",
+  },
+  adjudicators: {
+    title: "setup.imports.csvTitleAdjudicators",
+    columns: "setup.imports.csvColumnsAdjudicators",
+    heading: "setup.imports.adjudicatorsTitle",
+    newInstitutionsHelp: "setup.imports.csvNewInstitutionsHelpAdjudicators",
+  },
 };
 
+/** Example CSV text: column headers are parsed back, so these stay in English. */
 const PLACEHOLDERS: Record<ImportKind, string> = {
   institutions: "name,code,region\nOxford Union Society,OXF,UK\n\"University of Dhaka, Bangladesh\",DU,Dhaka",
   teams: "name,institution,speaker1,speaker2,speaker1_categories\nOxford A,Oxford Union Society,Jane Doe,John Smith,ESL",
   adjudicators: "name,email,institution,score,trainee\nEleanor Vance,eleanor@example.org,Oxford Union Society,8.5,no",
 };
 
-const ACTION_LABELS: Record<RowAction, string> = { create: "Create", update: "Update existing", skip: "Skip" };
+const ACTION_LABELS: Record<RowAction, MessageKey> = {
+  create: "setup.imports.csvActionCreate",
+  update: "setup.imports.csvActionUpdate",
+  skip: "setup.imports.csvActionSkip",
+};
 
 /**
  * CSV import with a preview: paste or upload, review what each row would do, then confirm.
@@ -66,7 +93,8 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
   const [onlyProblems, setOnlyProblems] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const noun = NOUNS[kind];
+  const { t, plural, formatList } = useI18n();
+  const kindText = TEXT[kind];
 
   const speakerCategories = useMemo(
     () => effectiveSpeakerCategories(tournament?.preferences.speakerCategories, teams),
@@ -103,7 +131,7 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
       setText(await file.text());
       setReadError("");
     } catch (error) {
-      setReadError(error instanceof Error ? error.message : "Could not read the selected file.");
+      setReadError(error instanceof Error ? error.message : t("setup.imports.csvReadError"));
     }
   };
 
@@ -158,13 +186,13 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
           preferences: { ...tournament.preferences, speakerCategories: commit.speakerCategories },
         });
       }
-      await saveEntityBatch(commit, `${noun.title} CSV import`);
+      await saveEntityBatch(commit, `${AUDIT_NOUNS[kind]} CSV import`);
       setSaving(false);
       reset();
       onClose();
     } catch (error) {
       setSaving(false);
-      setSaveError(error instanceof Error ? error.message : "Could not save the import.");
+      setSaveError(error instanceof Error ? error.message : t("setup.imports.csvSaveError"));
     }
   };
 
@@ -178,33 +206,35 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
       onClose={close}
       dismissible={!saving}
       size="lg"
-      icon={<Upload className="text-accent" />}
-      title={`Import ${noun.plural} from CSV`}
-      description={plan ? "Check what each row will do. Nothing is saved until you confirm." : COLUMN_HELP[kind]}
+      icon={<Upload className="text-accent" aria-hidden="true" />}
+      title={t(kindText.title)}
+      description={plan ? t("setup.imports.csvPreviewDescription") : t(kindText.columns)}
       className="sm:max-w-5xl"
       footer={
         plan ? (
           <>
             <Button variant="ghost" onClick={() => setPlan(null)} disabled={saving}>
-              Back to the CSV
+              {t("setup.imports.csvBack")}
             </Button>
             <Button
               variant="primary"
               onClick={confirm}
               disabled={blocked}
               loading={saving}
-              loadingText="Importing…"
+              loadingText={t("setup.imports.csvImporting")}
             >
-              Import {counts.create} new{counts.update > 0 ? `, update ${counts.update}` : ""}
+              {counts.update > 0
+                ? t("setup.imports.csvConfirmCreateUpdate", { created: counts.create, updated: counts.update })
+                : t("setup.imports.csvConfirmCreate", { created: counts.create })}
             </Button>
           </>
         ) : (
           <>
             <Button variant="ghost" onClick={close}>
-              Cancel
+              {t("setup.common.cancel")}
             </Button>
             <Button variant="primary" onClick={preview} disabled={!text.trim()}>
-              Preview import
+              {t("setup.imports.csvPreview")}
             </Button>
           </>
         )
@@ -212,14 +242,21 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
     >
       {!plan ? (
         <div className="space-y-3">
-          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface px-3 py-1.5 text-xs font-semibold shadow-2xs hover:bg-muted">
-            <Upload className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            <span>Choose CSV file</span>
-            <input type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
-          </label>
-          {text && <span className="ml-2 text-xs text-fg-muted">CSV loaded ({text.split(/\r?\n/).length} lines)</span>}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The file input is visually hidden; the label shows the focus ring while it has focus. */}
+            <label className={cn(buttonClasses({ variant: "secondary" }), "cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent")}>
+              <Upload className="text-fg-muted" aria-hidden="true" />
+              <span>{t("setup.imports.csvChooseFile")}</span>
+              <input type="file" accept=".csv,text/csv" onChange={handleFile} className="sr-only" />
+            </label>
+            {text && (
+              <span role="status" className="text-xs text-fg-muted">
+                {plural("setup.imports.csvLoaded", text.split(/\r?\n/).length)}
+              </span>
+            )}
+          </div>
           <Textarea
-            label="Or paste CSV text"
+            label={t("setup.imports.csvPasteLabel")}
             rows={9}
             value={text}
             placeholder={PLACEHOLDERS[kind]}
@@ -231,27 +268,29 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
       ) : (
         <div className="space-y-4">
           {plan.fileErrors.length > 0 && (
-            <Alert tone="danger" role="alert" title="This file cannot be imported">
-              <ul className="list-disc pl-4">
+            <Alert tone="danger" role="alert" title={t("setup.imports.csvFileErrorsTitle")}>
+              <ul className="list-disc ps-4">
                 {plan.fileErrors.map((error) => <li key={error}>{error}</li>)}
               </ul>
             </Alert>
           )}
           {plan.ignoredColumns.length > 0 && (
-            <Alert tone="warning" title="Columns that will be ignored">
-              {plan.ignoredColumns.join(", ")}
+            <Alert tone="warning" title={t("setup.imports.csvIgnoredColumnsTitle")}>
+              {formatList(plan.ignoredColumns)}
             </Alert>
           )}
 
           {plan.rows.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
-              <StatusPill tone="success">{counts.create} to create</StatusPill>
-              <StatusPill tone="info">{counts.update} to update</StatusPill>
-              <StatusPill tone="neutral">{counts.skip} skipped</StatusPill>
-              {errorRows > 0 && <StatusPill tone="danger">{errorRows} with errors</StatusPill>}
+              <StatusPill tone="success">{t("setup.imports.csvToCreate", { count: counts.create })}</StatusPill>
+              <StatusPill tone="info">{t("setup.imports.csvToUpdate", { count: counts.update })}</StatusPill>
+              <StatusPill tone="neutral">{t("setup.imports.csvSkipped", { count: counts.skip })}</StatusPill>
+              {errorRows > 0 && (
+                <StatusPill tone="danger">{t("setup.imports.csvWithErrors", { count: errorRows })}</StatusPill>
+              )}
               <Checkbox
-                className="ml-auto"
-                label="Only rows that need attention"
+                className="ms-auto"
+                label={t("setup.imports.csvOnlyProblems")}
                 checked={onlyProblems}
                 onChange={(event) => setOnlyProblems(event.target.checked)}
               />
@@ -259,11 +298,11 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
           )}
 
           {errorRows > 0 && (
-            <Alert tone="danger" title={`${errorRows} row${errorRows === 1 ? " has" : "s have"} errors`}>
-              <p>Fix the file and preview again, or import the other rows and skip these.</p>
+            <Alert tone="danger" title={plural("setup.imports.csvErrorRows", errorRows)}>
+              <p>{t("setup.imports.csvErrorRowsHelp")}</p>
               <Checkbox
                 className="mt-2"
-                label="Import the valid rows only"
+                label={t("setup.imports.csvValidRowsOnly")}
                 checked={choices.validRowsOnly === true}
                 onChange={(event) => setChoices((current) => ({ ...current, validRowsOnly: event.target.checked }))}
               />
@@ -273,20 +312,17 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
           {plan.newInstitutions.length > 0 && (
             <section aria-labelledby="new-institutions-heading" className="space-y-2">
               <h3 id="new-institutions-heading" className="text-[13px] font-semibold">
-                New institutions ({plan.newInstitutions.length})
+                {t("setup.imports.csvNewInstitutionsTitle", { count: plan.newInstitutions.length })}
               </h3>
-              <p className="text-xs text-fg-muted">
-                These institutions are not registered yet. They are created with the import; untick one to keep its name
-                on the {noun.plural} without linking it (no institution conflicts then).
-              </p>
+              <p className="text-xs text-fg-muted">{t(kindText.newInstitutionsHelp)}</p>
               <TableContainer>
                 <Table>
                   <THead>
                     <TR>
-                      <TH>Create</TH>
-                      <TH>Name</TH>
-                      <TH>Code</TH>
-                      <TH>Used on rows</TH>
+                      <TH>{t("setup.imports.csvColCreate")}</TH>
+                      <TH>{t("setup.common.name")}</TH>
+                      <TH>{t("setup.imports.code")}</TH>
+                      <TH>{t("setup.imports.csvColUsedOnRows")}</TH>
                     </TR>
                   </THead>
                   <TBody>
@@ -298,14 +334,15 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
                           <TD>
                             <input
                               type="checkbox"
-                              aria-label={`Create ${item.name}`}
+                              aria-label={t("setup.imports.csvCreateInstitution", { name: item.name })}
+                              className={cn("h-4 w-4 cursor-pointer rounded-sm accent-[rgb(var(--color-accent))]", focusRing)}
                               checked={create}
                               onChange={(event) => editInstitution(item.key, { create: event.target.checked })}
                             />
                           </TD>
                           <TD>
                             <Input
-                              aria-label={`Name for ${item.name}`}
+                              aria-label={t("setup.imports.csvInstitutionNameFor", { name: item.name })}
                               value={edit?.name ?? item.name}
                               disabled={!create}
                               onChange={(event) => editInstitution(item.key, { name: event.target.value })}
@@ -313,13 +350,13 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
                           </TD>
                           <TD className="w-32">
                             <Input
-                              aria-label={`Code for ${item.name}`}
+                              aria-label={t("setup.imports.csvInstitutionCodeFor", { name: item.name })}
                               value={edit?.code ?? item.code}
                               disabled={!create}
                               onChange={(event) => editInstitution(item.key, { code: event.target.value })}
                             />
                           </TD>
-                          <TD className="text-xs text-fg-muted">{item.rowNumbers.join(", ")}</TD>
+                          <TD className="text-xs text-fg-muted">{formatList(item.rowNumbers.map(String))}</TD>
                         </TR>
                       );
                     })}
@@ -328,7 +365,7 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
               </TableContainer>
               {institutionErrors.length > 0 && (
                 <Alert tone="danger" role="alert">
-                  <ul className="list-disc pl-4">
+                  <ul className="list-disc ps-4">
                     {institutionErrors.map((error) => <li key={error}>{error}</li>)}
                   </ul>
                 </Alert>
@@ -337,22 +374,22 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
           )}
 
           {plan.newSpeakerCategories.length > 0 && (
-            <Alert tone="info" title="New speaker categories">
-              {plan.newSpeakerCategories.join(", ")} will be added to the speaker categories (not public until you
-              change that on the Speaker categories page).
+            <Alert tone="info" title={t("setup.imports.csvNewSpeakerCategoriesTitle")}>
+              {t("setup.imports.csvNewSpeakerCategoriesBody", { names: formatList(plan.newSpeakerCategories) })}
             </Alert>
           )}
 
           {plan.rows.length > 0 && (
             <TableContainer className="max-h-[50vh]">
               <Table>
+                <caption className="sr-only">{t("setup.imports.csvRowsCaption")}</caption>
                 <THead>
                   <TR>
-                    <TH align="right">Row</TH>
-                    <TH>{noun.title}</TH>
-                    <TH>Matches</TH>
-                    <TH>Action</TH>
-                    <TH>Notes</TH>
+                    <TH align="right">{t("setup.imports.csvColRow")}</TH>
+                    <TH>{t(kindText.heading)}</TH>
+                    <TH>{t("setup.imports.csvColMatches")}</TH>
+                    <TH>{t("setup.imports.csvColAction")}</TH>
+                    <TH>{t("setup.imports.csvColNotes")}</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -364,28 +401,34 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
                         <div className="text-xs text-fg-muted">{row.details}</div>
                       </TD>
                       <TD className="text-xs">
-                        {row.match ? `${row.match.name} (${row.match.reason})` : row.duplicateOfRow ? `Row ${row.duplicateOfRow}` : "—"}
+                        {/* The match reason comes from src/lib/csv/importPlan and is shown as it is (English). */}
+                        {row.match
+                          ? `${row.match.name} (${row.match.reason})`
+                          : row.duplicateOfRow
+                            ? t("setup.imports.csvDuplicateOfRow", { row: row.duplicateOfRow })
+                            : "—"}
                       </TD>
                       <TD>
                         {row.actions.length > 1 ? (
                           <Select
-                            aria-label={`Action for row ${row.rowNumber}`}
+                            aria-label={t("setup.imports.csvActionFor", { row: row.rowNumber })}
                             value={chosenAction(row, choices)}
                             onChange={(event) => setAction(row.rowNumber, event.target.value as RowAction)}
                             className="w-40"
                           >
                             {row.actions.map((action) => (
-                              <option key={action} value={action}>{ACTION_LABELS[action]}</option>
+                              <option key={action} value={action}>{t(ACTION_LABELS[action])}</option>
                             ))}
                           </Select>
                         ) : (
-                          <span className="text-xs text-fg-muted">{ACTION_LABELS[row.defaultAction]}</span>
+                          <span className="text-xs text-fg-muted">{t(ACTION_LABELS[row.defaultAction])}</span>
                         )}
                       </TD>
                       <TD className="text-xs">
+                        {/* Issue messages come from src/lib/csv and are shown as they are (English). */}
                         {row.issues.length === 0 ? (
                           <span className="inline-flex items-center gap-1 text-success">
-                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> OK
+                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {t("setup.imports.csvRowOk")}
                           </span>
                         ) : (
                           <ul className="space-y-0.5">
@@ -400,7 +443,11 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
                                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                 )}
                                 <span>
-                                  <span className="sr-only">{issue.severity === "error" ? "Error: " : "Warning: "}</span>
+                                  <span className="sr-only">
+                                    {issue.severity === "error"
+                                      ? t("setup.imports.csvIssueError")
+                                      : t("setup.imports.csvIssueWarning")}{" "}
+                                  </span>
                                   {issue.message}
                                 </span>
                               </li>

@@ -5,6 +5,8 @@ import React, { useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Button } from "@/components/ui/Button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import { createSeededRng, randomSeed } from "@/lib/draw/rng";
 import { generateTeamCodeNames, hasCodeName, assignTeamEmoji, type CodeNameMethod } from "@/lib/codeNames";
 import { getPublicSiteSettings, PUBLIC_TEXT_MAX_LENGTH, publicUsesTeamCodeNames } from "@/lib/publicFeatures";
@@ -34,52 +36,53 @@ function limitValue(raw: string): number | undefined {
  * per-item releases (adjudicator tab, scoresheets, diversity, ...) are on the Public release panel.
  */
 export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: TournamentPreferences; setPrefs: SetPrefs }) {
+  const { t } = useI18n();
   const site = getPublicSiteSettings(prefs);
   const set = <K extends keyof TournamentPreferences>(key: K, value: TournamentPreferences[K] | undefined) =>
     setPrefs((current) => withValue(current, key, value));
 
   return (
-    <div className="space-y-5 border-t border-gray-100 pt-4">
+    <div className="space-y-6 border-t border-border pt-4">
       <section className="space-y-3">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-gray-700">Draw and tabs</h4>
+        <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.siteDrawTabsTitle")}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
-            label="Public draw"
+            label={t("setup.config.publicDrawLabel")}
             value={site.drawMode}
-            help="Current round only shows the latest released draw (Tabbycat public_draw)."
+            help={t("setup.config.publicDrawHelp")}
             onChange={(event) => {
               const mode = event.target.value as TournamentPreferences["publicDrawMode"];
               // The legacy switch is kept in step for older readers.
               setPrefs((current) => ({ ...current, publicDrawMode: mode, publicDraw: mode !== "off" }));
             }}
           >
-            <option value="off">Off</option>
-            <option value="current">Current round only</option>
-            <option value="all">All released rounds</option>
+            <option value="off">{t("setup.config.publicDrawOff")}</option>
+            <option value="current">{t("setup.config.publicDrawCurrent")}</option>
+            <option value="all">{t("setup.config.publicDrawAll")}</option>
           </Select>
           <Select
-            label="Adjudicator tab shows"
+            label={t("setup.config.adjTabShowsLabel")}
             value={site.adjudicatorTabShows}
             onChange={(event) => set("adjudicatorTabShows", event.target.value as TournamentPreferences["adjudicatorTabShows"])}
-            help="Release the adjudicator tab from the Public release panel."
+            help={t("setup.config.adjTabShowsHelp")}
           >
-            <option value="test">Base score only</option>
-            <option value="final">Final (feedback-blended) score only</option>
-            <option value="all">Base, final and per-round feedback</option>
+            <option value="test">{t("setup.config.adjTabTest")}</option>
+            <option value="final">{t("setup.config.adjTabFinal")}</option>
+            <option value="all">{t("setup.config.adjTabAll")}</option>
           </Select>
         </div>
         <div className="grid gap-3 sm:grid-cols-4">
           {([
-            ["teamTabLimit", "Team tab: top N"],
-            ["speakerTabLimit", "Speaker tab: top N"],
-            ["repliesTabLimit", "Replies tab: top N"],
-          ] as const).map(([key, label]) => (
+            ["teamTabLimit", "setup.config.teamTabLimitLabel"],
+            ["speakerTabLimit", "setup.config.speakerTabLimitLabel"],
+            ["repliesTabLimit", "setup.config.repliesTabLimitLabel"],
+          ] as const satisfies ReadonlyArray<readonly [string, MessageKey]>).map(([key, label]) => (
             <Input
               key={key}
               type="number"
               min={0}
               step={1}
-              label={label}
+              label={t(label)}
               value={prefs[key] ?? 0}
               onChange={(event) => set(key, limitValue(event.target.value))}
             />
@@ -88,8 +91,8 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             type="number"
             min={-1}
             step={1}
-            label="Break page metrics"
-            help="-1 all, 0 none"
+            label={t("setup.config.breakMetricsLabel")}
+            help={t("setup.config.breakMetricsHelp")}
             value={prefs.publicBreakMetrics ?? -1}
             onChange={(event) => {
               const value = Math.floor(Number(event.target.value));
@@ -97,116 +100,110 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             }}
           />
         </div>
-        <p className="text-[11px] text-gray-500">
-          0 shows every rank. With a limit, the tab is computed when pages are published and rounds seen only through the
-          released tab publish no individual results, so ranks below the cutoff cannot be worked out.
-        </p>
+        <p className="text-xs text-fg-muted">{t("setup.config.tabLimitHelp")}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           <Checkbox
-            label="Show break categories on the participants page"
+            label={t("setup.config.breakCategoriesLabel")}
             checked={site.breakCategoriesOnParticipants}
             onChange={(event) => set("publicBreakCategories", event.target.checked || undefined)}
           />
           <Select
-            label="Motions order"
+            label={t("setup.config.motionsOrderLabel")}
             value={site.motionsOrder}
             onChange={(event) => set("publicMotionsOrder", event.target.value as TournamentPreferences["publicMotionsOrder"])}
           >
-            <option value="forward">Earliest round first</option>
-            <option value="reverse">Latest round first</option>
+            <option value="forward">{t("setup.config.motionsOrderForward")}</option>
+            <option value="reverse">{t("setup.config.motionsOrderReverse")}</option>
           </Select>
         </div>
       </section>
 
       <section className="space-y-3">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-gray-700">Names and anonymity</h4>
+        <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.siteNamesTitle")}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <Select
-            label="Team code names"
+            label={t("setup.config.teamCodeNamesLabel")}
             value={site.teamCodeNames}
             onChange={(event) => set("teamCodeNames", event.target.value as TournamentPreferences["teamCodeNames"])}
-            help="Code-name modes publish only the code name; real names never leave the server."
+            help={t("setup.config.teamCodeNamesHelp")}
           >
-            <option value="off">Off</option>
-            <option value="all-tooltips">Real names, code names as tooltips</option>
-            <option value="admin-tooltips-code">Code names publicly (real names for staff)</option>
-            <option value="admin-tooltips-real">Code names publicly (staff see both)</option>
-            <option value="everywhere">Code names everywhere</option>
+            <option value="off">{t("setup.config.codeNamesOff")}</option>
+            <option value="all-tooltips">{t("setup.config.codeNamesAllTooltips")}</option>
+            <option value="admin-tooltips-code">{t("setup.config.codeNamesAdminCode")}</option>
+            <option value="admin-tooltips-real">{t("setup.config.codeNamesAdminReal")}</option>
+            <option value="everywhere">{t("setup.config.codeNamesEverywhere")}</option>
           </Select>
           <Select
-            label="Speaker and adjudicator code names"
+            label={t("setup.config.participantCodeNamesLabel")}
             value={site.participantCodeNames}
             onChange={(event) => set("participantCodeNames", event.target.value as TournamentPreferences["participantCodeNames"])}
-            help="Set code names in the participant directory."
+            help={t("setup.config.participantCodeNamesHelp")}
           >
-            <option value="off">Off</option>
-            <option value="everywhere">Code names on public pages</option>
+            <option value="off">{t("setup.config.codeNamesOff")}</option>
+            <option value="everywhere">{t("setup.config.participantCodeNamesPublic")}</option>
           </Select>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <Checkbox
-            label="Show team institutions"
+            label={t("setup.config.showTeamInstitutions")}
             checked={site.showTeamInstitutions}
             onChange={(event) => set("showTeamInstitutions", event.target.checked ? undefined : false)}
           />
           <Checkbox
-            label="Show adjudicator institutions"
+            label={t("setup.config.showAdjInstitutions")}
             checked={site.showAdjudicatorInstitutions}
             onChange={(event) => set("showAdjudicatorInstitutions", event.target.checked ? undefined : false)}
           />
           <Checkbox
-            label="Show team emoji"
+            label={t("setup.config.showEmoji")}
             checked={site.showEmoji}
             onChange={(event) => set("showEmoji", event.target.checked ? undefined : false)}
           />
           <Checkbox
-            label="Show speakers in the draw"
+            label={t("setup.config.showSpeakersInDraw")}
             checked={site.showSpeakersInDraw}
             onChange={(event) => set("showSpeakersInDraw", event.target.checked ? undefined : false)}
           />
           <Checkbox
-            label="Show splitting adjudicators"
-            description="Marks voting adjudicators whose sheet chose the losing team."
+            label={t("setup.config.showSplittingAdjs")}
+            description={t("setup.config.showSplittingAdjsHelp")}
             checked={site.showSplittingAdjudicators}
             onChange={(event) => set("showSplittingAdjudicators", event.target.checked || undefined)}
           />
         </div>
-        <p className="text-[11px] text-gray-500">
-          Mark individual speakers and adjudicators as anonymous in the participant directory: their names are redacted
-          on every public page.
-        </p>
+        <p className="text-xs text-fg-muted">{t("setup.config.anonymityHelp")}</p>
         <CodeNameTools usesCodeNames={publicUsesTeamCodeNames(site.teamCodeNames)} />
       </section>
 
       <section className="space-y-3">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-gray-700">Public homepage</h4>
+        <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.siteHomepageTitle")}</h3>
         <Select
-          label="Search engines"
+          label={t("setup.config.searchEnginesLabel")}
           value={site.searchEngineIndexing}
           onChange={(event) => set("searchEngineIndexing", event.target.value as TournamentPreferences["searchEngineIndexing"])}
-          help="Adds a noindex flag; search engines may ignore it, so it is not a privacy control."
+          help={t("setup.config.searchEnginesHelp")}
           wrapperClassName="max-w-md"
         >
-          <option value="all">Allow every public page to be indexed</option>
-          <option value="homepage-only">Only the public tab homepage</option>
-          <option value="none">No pages</option>
+          <option value="all">{t("setup.config.searchEnginesAll")}</option>
+          <option value="homepage-only">{t("setup.config.searchEnginesHomepage")}</option>
+          <option value="none">{t("setup.config.searchEnginesNone")}</option>
         </Select>
         <div className="grid gap-3 sm:grid-cols-2">
           <Textarea
-            label="Welcome message"
+            label={t("setup.config.welcomeMessageLabel")}
             rows={4}
             maxLength={PUBLIC_TEXT_MAX_LENGTH}
             value={prefs.welcomeMessage ?? ""}
             onChange={(event) => set("welcomeMessage", event.target.value || undefined)}
-            help="Plain text, shown at the top of the public tab."
+            help={t("setup.config.welcomeMessageHelp")}
           />
           <Textarea
-            label="Tournament staff"
+            label={t("setup.config.staffCreditsLabel")}
             rows={4}
             maxLength={PUBLIC_TEXT_MAX_LENGTH}
             value={prefs.tournamentStaff ?? ""}
             onChange={(event) => set("tournamentStaff", event.target.value || undefined)}
-            help="Credits for the convenors, adjudication core and tab team."
+            help={t("setup.config.staffCreditsHelp")}
           />
         </div>
       </section>
@@ -216,52 +213,58 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
 
 /** Fills in missing team emoji and code names (Tabbycat's code-name generators). */
 function CodeNameTools({ usesCodeNames }: { usesCodeNames: boolean }) {
+  const { t, plural } = useI18n();
   const { teams, saveEntityBatch, isOwnerOrAdmin } = useTournament();
   const [method, setMethod] = useState<CodeNameMethod>("emoji");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const missingCodes = teams.filter((team) => !hasCodeName(team)).length;
   const missingEmoji = teams.filter((team) => !team.emoji).length;
 
   const run = async (kind: "codes" | "emoji") => {
     setBusy(true);
-    setStatus("");
+    setStatus(null);
     try {
       const rng = createSeededRng(randomSeed());
       const updated = kind === "codes" ? generateTeamCodeNames(teams, method, rng) : assignTeamEmoji(teams, rng);
+      // The audit labels are saved with the change, so they stay in English.
       if (updated.length > 0) await saveEntityBatch({ teamsUpdated: updated }, kind === "codes" ? "code-name generator" : "emoji generator");
-      setStatus(`${updated.length} team(s) updated.`);
+      setStatus({ tone: "success", text: plural("setup.config.teamsUpdated", updated.length) });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not update the teams.");
+      // Messages thrown by the tournament context are shown as they are (English).
+      setStatus({ tone: "error", text: error instanceof Error ? error.message : t("setup.config.teamsUpdateFailed") });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-2 text-xs">
-      <p className="text-gray-700">
-        {missingCodes} of {teams.length} team(s) have no code name; {missingEmoji} have no emoji.
-        {usesCodeNames && missingCodes > 0 && " Teams without a code name appear without a name on public pages."}
+    <div className="space-y-3 rounded-md border border-border bg-muted p-3 text-[13px]">
+      <p className="text-fg">
+        {t("setup.config.codeNameSummary", { missingCodes, total: teams.length, missingEmoji })}
+        {usesCodeNames && missingCodes > 0 && <> {t("setup.config.codeNameMissingWarning")}</>}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <Select
-          label="Code name standard"
+          label={t("setup.config.codeNameStandardLabel")}
           value={method}
           onChange={(event) => setMethod(event.target.value as CodeNameMethod)}
           disabled={!isOwnerOrAdmin || busy}
         >
-          <option value="emoji">Emoji names</option>
-          <option value="last_names">Speakers&apos; last names</option>
+          <option value="emoji">{t("setup.config.codeNameEmoji")}</option>
+          <option value="last_names">{t("setup.config.codeNameLastNames")}</option>
         </Select>
         <Button type="button" size="sm" variant="secondary" disabled={!isOwnerOrAdmin || busy || missingCodes === 0} onClick={() => void run("codes")}>
-          Generate missing code names
+          {t("setup.config.generateCodeNames")}
         </Button>
         <Button type="button" size="sm" variant="secondary" disabled={!isOwnerOrAdmin || busy || missingEmoji === 0} onClick={() => void run("emoji")}>
-          Assign missing emoji
+          {t("setup.config.assignEmoji")}
         </Button>
       </div>
-      {status && <p role="status" className="text-gray-600">{status}</p>}
+      <div role="status">
+        {status?.tone === "success" && <p className="text-fg-muted">{status.text}</p>}
+      </div>
+      {status?.tone === "error" && <p role="alert" className="text-danger">{status.text}</p>}
     </div>
   );
 }

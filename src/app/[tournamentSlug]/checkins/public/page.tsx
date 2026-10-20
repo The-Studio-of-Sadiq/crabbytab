@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { PublicShell } from "@/components/public/PublicShell";
+import { Alert } from "@/components/ui/Feedback";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 
 // Sentinel for "no server message": translated at render time so a language switch applies to it.
 const LOAD_ERROR = "__load_error__";
@@ -57,66 +59,57 @@ export default function PublicCheckinsPage() {
   }, [params.tournamentSlug]);
 
   const errorMessage = error === LOAD_ERROR ? t("publicCheckins.loadError") : error;
-
-  if (error && !status) {
-    return (
-      <main className="mx-auto max-w-3xl space-y-4 p-6">
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-xl font-bold text-gray-900">{t("publicCheckins.title")}</h1>
-          <LanguageSwitcher />
-        </div>
-        <p role="alert" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{errorMessage}</p>
-        <Link href={`/${params.tournamentSlug}/public`} className="text-sm font-semibold text-blue-700 hover:underline">
-          {t("publicCheckins.back")}
-        </Link>
-      </main>
-    );
-  }
+  const tournamentName = status?.tournamentName || t("common.tournament");
 
   return (
-    <main className="mx-auto max-w-3xl space-y-5 p-6">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {t("publicCheckins.heading", { tournament: status?.tournamentName || t("common.tournament") })}
-          </h1>
-          <p className="mt-1 text-sm text-gray-600">{t("publicCheckins.description")}</p>
-        </div>
-        <LanguageSwitcher />
-      </header>
-      {error && <p role="alert" className="text-sm text-amber-800">{errorMessage}</p>}
-      {!status ? <p role="status" className="text-sm text-gray-600">{t("publicCheckins.loading")}</p> : (
+    <PublicShell
+      width="narrow"
+      title={tournamentName}
+      backHref={`/${params.tournamentSlug}/public`}
+      backLabel={t("publicCheckins.back")}
+    >
+      <PageHeader
+        title={status ? t("publicCheckins.heading", { tournament: tournamentName }) : t("publicCheckins.title")}
+        description={t("publicCheckins.description")}
+      />
+      {error && <Alert role="alert" tone="warning">{errorMessage}</Alert>}
+      {!status ? (
+        !error && <p role="status" className="text-[13px] text-fg-muted">{t("publicCheckins.loading")}</p>
+      ) : (
         <>
-          <div className="overflow-x-auto rounded border border-gray-200 bg-white">
-            <table className="w-full text-start text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-600">
-                <tr>
-                  <th className="px-4 py-3">{t("publicCheckins.col.round")}</th>
-                  <th className="px-4 py-3">{t("publicCheckins.col.teams")}</th>
-                  <th className="px-4 py-3">{t("publicCheckins.col.adjudicators")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table className="text-start">
+              <THead>
+                <TR>
+                  <TH className="text-start">{t("publicCheckins.col.round")}</TH>
+                  <TH className="text-end">{t("publicCheckins.col.teams")}</TH>
+                  <TH className="text-end">{t("publicCheckins.col.adjudicators")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {status.rounds.length === 0 && <TableEmpty colSpan={3}>{t("public.noRows")}</TableEmpty>}
                 {status.rounds.map((round) => (
-                  <tr key={round.id}>
-                    <th scope="row" className="px-4 py-3 font-semibold text-gray-900">{round.name}</th>
-                    <td className="px-4 py-3">
+                  <TR key={round.id}>
+                    <TH scope="row" className="border-b border-border bg-transparent text-start text-[13px] font-medium normal-case tracking-normal text-fg">
+                      {round.name}
+                    </TH>
+                    <TD numeric className="text-end">
                       {t("publicCheckins.ratio", { present: formatNumber(round.teamsPresent), total: formatNumber(round.teamsTotal) })}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TD>
+                    <TD numeric className="text-end">
                       {t("publicCheckins.ratio", {
                         present: formatNumber(round.adjudicatorsPresent),
                         total: formatNumber(round.adjudicatorsTotal),
                       })}
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-gray-500">{t("publicCheckins.updated", { time: formatTime(status.updatedAt) })}</p>
+              </TBody>
+            </Table>
+          </TableContainer>
+          <p className="text-xs text-fg-muted">{t("publicCheckins.updated", { time: formatTime(status.updatedAt) })}</p>
         </>
       )}
-    </main>
+    </PublicShell>
   );
 }

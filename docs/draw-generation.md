@@ -229,7 +229,9 @@ for checking a draw before release.
 
 Teams can be moved without dragging: **Move** picks a team (from a slot or the unassigned
 pool), then **Place here** / **Swap here** on a slot, or **Return picked team to pool**.
-Escape cancels. Every move is announced in an ARIA live region, and drag-and-drop uses the
+Focus jumps to the first target; arrow keys, Home and End move between targets, Enter or Space
+places, and Escape cancels (`usePlaceTargetNavigation`). The same buttons work on touch screens,
+where HTML5 drag does not. Every move is announced in an ARIA live region, and drag-and-drop uses the
 same move logic (`src/lib/draw/drawEditing.ts`): a swap within a room keeps each team's slot
 details; a team moved to another room loses its pull-up mark.
 

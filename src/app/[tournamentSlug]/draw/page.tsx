@@ -21,7 +21,7 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { csvFileStem, drawCsv } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
-import { DebateSide, Debate, Team, Venue } from "@/types";
+import { DebateSide, Debate, Team } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { isVenueAvailableForRound, safeVenueUrl, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
@@ -37,6 +37,58 @@ import { buildDrawDetails, computeDrawFlags, type DebateFlags } from "@/lib/draw
 import { moveTeam, type PickedTeam, type TeamLocation } from "@/lib/draw/drawEditing";
 import { MANUAL_SIDES_FLAG, sidesPending } from "@/lib/draw/manualSides";
 import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
+import { slotPickKey } from "@/features/tournament/components/DrawTeamSlot";
+import { poolPickKey } from "@/features/tournament/components/UnassignedTeamsPool";
+import { usePlaceTargetNavigation } from "@/features/tournament/components/usePlaceTargetNavigation";
+import type { RoomRef, SlotRef, TeamMoveEvent } from "@/lib/draw/drawEditing";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import { Checkbox, Input, Select } from "@/components/ui/Field";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+
+type T = ReturnType<typeof useI18n>["t"];
+
+function roomText(ref: RoomRef, t: T): string {
+  return ref.venueName || t("tabroom.draw.roomFallback", { number: ref.roomRank });
+}
+
+function slotText(ref: SlotRef, t: T): string {
+  const room = roomText(ref, t);
+  return ref.side ? t("tabroom.draw.slot.where", { room, side: ref.side }) : room;
+}
+
+/** The live-region sentence for a draw edit, in the viewer's language. */
+function describeMove(event: TeamMoveEvent, t: T): string {
+  switch (event.kind) {
+    case "returned_to_pool":
+      return t("tabroom.draw.move.returnedToPool", { team: event.team, from: slotText(event.from, t) });
+    case "placed":
+      return event.displaced
+        ? t("tabroom.draw.move.placedDisplacing", { team: event.team, to: slotText(event.to, t), displaced: event.displaced })
+        : t("tabroom.draw.move.placed", { team: event.team, to: slotText(event.to, t) });
+    case "swapped_sides":
+      return t("tabroom.draw.move.swappedSides", { team: event.team, other: event.other, room: roomText(event.room, t) });
+    case "moved_side":
+      return t("tabroom.draw.move.movedSide", { team: event.team, side: event.side, room: roomText(event.room, t) });
+    case "swapped":
+      return t("tabroom.draw.move.swapped", {
+        team: event.team,
+        teamNow: slotText(event.teamNow, t),
+        other: event.other,
+        otherNow: slotText(event.otherNow, t),
+      });
+    case "moved":
+      return t("tabroom.draw.move.moved", { team: event.team, from: slotText(event.from, t), to: slotText(event.to, t) });
+  }
+}
+
+type PendingGenerate = { kind: "discard"; ballots: number; debates: number } | { kind: "overwrite" };
 
 export default function DrawPage() {
   const {
@@ -58,12 +110,18 @@ export default function DrawPage() {
     addTeam,
     teamStandings,
   } = useTournament();
+  const { t, plural, rich } = useI18n();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
+  const [generateError, setGenerateError] = useState("");
+  const [pendingGenerate, setPendingGenerate] = useState<PendingGenerate | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  /** Where focus lands when a pick ends and its own Move button is gone (the slot the team went to). */
+  const [focusAfterPick, setFocusAfterPick] = useState<string | null>(null);
 
   // Drag & drop, and keyboard/touch "pick, then place" editing
   const [, setDraggingItem] = useState<TeamDragPayload | null>(null);
@@ -81,7 +139,7 @@ export default function DrawPage() {
       } catch (error) {
         setDraggingItem(null);
         setPicked(null);
-        setDrawEditError(error instanceof Error ? error.message : "Could not change the draw.");
+        setDrawEditError(error instanceof Error ? error.message : t("tabroom.draw.error.editFailed"));
       }
     };
   }
@@ -138,60 +196,61 @@ export default function DrawPage() {
   const pointsByTeam = useMemo(() => new Map(teamStandings.map((row) => [row.teamId, row.points])), [teamStandings]);
   const sidesOnBallot = !isBP && tournament?.preferences?.sideAllocationRule === "manual_ballot";
 
-  // Escape cancels a pick; switching rounds drops it.
-  useEffect(() => {
-    if (!picked) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setPicked(null);
-        setAnnouncement("Move cancelled.");
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [picked]);
+  const cancelPick = () => {
+    setPicked(null);
+    setAnnouncement(t("tabroom.common.moveCancelled"));
+  };
+  // Escape cancels a pick, arrows/Home/End move between targets, focus returns afterwards.
+  usePlaceTargetNavigation(Boolean(picked), cancelPick, focusAfterPick);
+  // Switching rounds drops a pick.
   useEffect(() => setPicked(null), [activeRound?.id]);
 
-  // Generate draw
-  const handleGenerate = async () => {
+  const runGenerate = async (discardExistingResults: boolean) => {
     if (!activeRound) return;
+    setIsGenerating(true);
+    try {
+      await generateDraw(activeRound.id, { discardExistingResults });
+    } catch (error) {
+      if (!(error instanceof ComputeCancelledError)) {
+        setGenerateError(error instanceof Error ? error.message : t("tabroom.draw.error.generateFailed"));
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Generate draw: a venue shortage blocks; existing results or an existing draw are confirmed first.
+  const handleGenerate = () => {
+    if (!activeRound) return;
+    setGenerateError("");
     if (!tournament) {
-      window.alert("Tournament details are not available yet. Please try again.");
+      setGenerateError(t("tabroom.draw.error.tournamentUnavailable"));
       return;
     }
     const requiredVenues = getRequiredVenueCount(tournament, activeRound, teams);
     const availableVenueCount = venues.filter((venue) => isVenueAvailableForRound(venue, activeRound.id)).length;
     if (availableVenueCount < requiredVenues) {
-      window.alert(
-        `Not enough available venues for this draw. ${requiredVenues} venues are required for the checked-in teams, but only ${availableVenueCount} are available. Add or enable venues before generating the draw.`
-      );
+      setGenerateError(t("tabroom.draw.error.venueShortage", { required: requiredVenues, available: availableVenueCount }));
       return;
     }
     const existingResults = roundResults(activeRound.id, debates, ballots);
     if (existingResults.length > 0) {
       const resultDebates = new Set(existingResults.map((ballot) => ballot.debateId)).size;
-      if (!confirm(
-        `This round already has ${existingResults.length} ballot(s) for ${resultDebates} debate(s). ` +
-        "Regenerating the draw will DISCARD these results (they stay in each ballot's history but will no longer count). " +
-        "Only do this if the round has not actually been debated as drawn. Discard results and regenerate?"
-      )) {
-        return;
-      }
-    } else if (roundDebates.length > 0) {
-      if (!confirm("A draw already exists for this round. Regenerating will overwrite all current matchups. Proceed?")) {
-        return;
-      }
+      setPendingGenerate({ kind: "discard", ballots: existingResults.length, debates: resultDebates });
+      return;
     }
-    setIsGenerating(true);
-    try {
-      await generateDraw(activeRound.id, { discardExistingResults: existingResults.length > 0 });
-    } catch (error) {
-      if (!(error instanceof ComputeCancelledError)) {
-        window.alert(error instanceof Error ? error.message : "Could not generate the draw.");
-      }
-    } finally {
-      setIsGenerating(false);
+    if (roundDebates.length > 0) {
+      setPendingGenerate({ kind: "overwrite" });
+      return;
     }
+    void runGenerate(false);
+  };
+
+  const confirmGenerate = () => {
+    const pending = pendingGenerate;
+    setPendingGenerate(null);
+    // Results are discarded only when the user confirmed discarding them.
+    if (pending) void runGenerate(pending.kind === "discard");
   };
 
   // Toggle release
@@ -236,14 +295,14 @@ export default function DrawPage() {
     await updateDebates(updated);
   });
 
-  // Delete a debate room
+  // Delete a debate room (after the confirmation dialog)
   const handleDeleteDebate = async (debateId: string) => {
-    if (!confirm("Are you sure you want to delete this debate room? Assigned teams will return to the unassigned pool.")) return;
+    setDrawEditError("");
     const updated = debates.filter((d) => d.id !== debateId);
     try {
       await updateDebates(updated);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Could not delete the debate room.");
+      setDrawEditError(error instanceof Error ? error.message : t("tabroom.draw.error.deleteFailed"));
     }
   };
 
@@ -255,19 +314,19 @@ export default function DrawPage() {
     setVenueAssignmentError("");
     if (venue) {
       if (!isVenueAvailableForRound(venue, debate.roundId)) {
-        setVenueAssignmentError(`${venue.name} is unavailable in this round.`);
+        setVenueAssignmentError(t("tabroom.draw.error.venueUnavailable", { venue: venue.name }));
         return;
       }
       const occupiedBy = roundDebates.find(
         (other) => other.id !== debate.id && other.venueId === venue.id
       );
       if (occupiedBy) {
-        setVenueAssignmentError(`${venue.name} is already assigned to ${occupiedBy.venueName || occupiedBy.id}.`);
+        setVenueAssignmentError(t("tabroom.draw.error.venueOccupied", { venue: venue.name, room: occupiedBy.venueName || occupiedBy.id }));
         return;
       }
       const incompatibilities = getVenueIncompatibilities(debate, venue);
       if (incompatibilities.length > 0) {
-        setVenueAssignmentError(`${venue.name} is incompatible: ${incompatibilities.join("; ")}.`);
+        setVenueAssignmentError(t("tabroom.draw.error.venueIncompatible", { venue: venue.name, reasons: incompatibilities.join("; ") }));
         return;
       }
     }
@@ -279,7 +338,7 @@ export default function DrawPage() {
     try {
       await updateDebate(updated);
     } catch (error) {
-      setVenueAssignmentError(error instanceof Error ? error.message : "Could not change the venue.");
+      setVenueAssignmentError(error instanceof Error ? error.message : t("tabroom.draw.error.venueChangeFailed"));
     }
   };
 
@@ -295,7 +354,7 @@ export default function DrawPage() {
       await updateDebate({ ...debate, ...requirements });
     } catch (error) {
       setVenueAssignmentError(
-        error instanceof Error ? error.message : "Could not save debate venue requirements."
+        error instanceof Error ? error.message : t("tabroom.draw.error.venueRequirementsFailed")
       );
     }
   };
@@ -313,7 +372,7 @@ export default function DrawPage() {
       }));
     } catch (error) {
       setVenueAssignmentError(
-        error instanceof Error ? error.message : "Could not allocate venues for this round."
+        error instanceof Error ? error.message : t("tabroom.draw.error.venueAllocateFailed")
       );
     }
   };
@@ -328,32 +387,33 @@ export default function DrawPage() {
       !getEligibleTeamsForRound(teams, activeRound).some((team) => team.id === pick.teamId)
     ) {
       setPicked(null);
-      setDrawEditError(`${pick.teamName} did not qualify for ${activeRound.name}.`);
+      setDrawEditError(t("tabroom.draw.error.notQualified", { team: pick.teamName, round: activeRound.name }));
       return;
     }
     const move = moveTeam(debates, pick, target);
+    setFocusAfterPick(target.kind === "slot" ? slotPickKey(target.debateId, target.side) : poolPickKey(pick.teamId));
     setPicked(null);
     setDraggingItem(null);
     if (!move.announcement) {
-      setAnnouncement("Nothing changed.");
+      setAnnouncement(t("tabroom.common.nothingChanged"));
       return;
     }
     await updateDebates(move.debates);
-    setAnnouncement(move.announcement);
+    setAnnouncement(move.event ? describeMove(move.event, t) : move.announcement);
   });
 
   const roomLabelFor = (debateId: string) => {
     const debate = roundDebates.find((item) => item.id === debateId);
-    return debate?.venueName || `Room ${debate?.roomRank ?? ""}`;
+    return debate?.venueName || t("tabroom.draw.roomFallback", { number: debate?.roomRank ?? "" });
   };
 
   const pickTeam = (pick: PickedTeam) => {
     setDrawEditError("");
     setPicked(pick);
     setAnnouncement(
-      `${pick.teamName} picked${pick.from.kind === "slot" ? ` from ${roomLabelFor(pick.from.debateId)}` : " from the unassigned pool"}. ` +
-      "Choose Place here or Swap here on a slot" + (pick.from.kind === "slot" ? ", or return it to the pool" : "") +
-      ". Press Escape to cancel."
+      pick.from.kind === "slot"
+        ? t("tabroom.draw.announce.pickedFromRoom", { team: pick.teamName, room: roomLabelFor(pick.from.debateId) })
+        : t("tabroom.draw.announce.pickedFromPool", { team: pick.teamName })
     );
   };
 
@@ -420,105 +480,107 @@ export default function DrawPage() {
     );
   };
 
+  const drawReleased = activeRound?.drawStatus === "confirmed";
+  const sideOrder: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+  const pendingDeleteDebate = pendingDeleteId ? roundDebates.find((debate) => debate.id === pendingDeleteId) : undefined;
+  const divisions = [...new Map(teams
+    .filter((team) => team.divisionId || team.divisionName)
+    .map((team) => [team.divisionId || team.divisionName || "", {
+      id: team.divisionId || team.divisionName || "",
+      name: team.divisionName || team.divisionId || "",
+    }])).values()]
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const bold = { b: (text: string) => <strong className="font-semibold">{text}</strong> };
+
   return (
     <div className="space-y-6">
       <CurrentRoundsBar />
-      {/* Header & Action Controls */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Shuffle className="w-6 h-6 text-blue-600" />
-            <span>Draw & Matchups</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Generate and edit team matchups here. Assign adjudicators separately on the Allocation page.
-          </p>
-        </div>
+      <PageHeader
+        title={t("tabroom.draw.title")}
+        description={t("tabroom.draw.description")}
+        actions={
+          <>
+            <Button size="sm" variant="secondary" onClick={handleAddDebateRoom} disabled={!activeRound}>
+              <Plus aria-hidden="true" />
+              {t("tabroom.draw.action.addRoom")}
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={handleGenerate}
+              disabled={!activeRound}
+              loading={isGenerating}
+              loadingText={t("tabroom.draw.action.generating")}
+            >
+              <Shuffle aria-hidden="true" />
+              {t("tabroom.draw.action.generate")}
+            </Button>
+            <ComputeStatus kind="draw" />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleAutoAllocateVenues}
+              disabled={roundDebates.length === 0}
+              title={t("tabroom.draw.action.allocateVenuesTitle")}
+            >
+              <RefreshCw aria-hidden="true" />
+              {t("tabroom.draw.action.allocateVenues")}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPendingDrawRelease(!drawReleased)}
+              disabled={roundDebates.length === 0}
+            >
+              {drawReleased ? (
+                <>
+                  <CheckCircle2 className="text-success" aria-hidden="true" />
+                  {t("tabroom.draw.action.released")}
+                </>
+              ) : (
+                <>
+                  <Lock aria-hidden="true" />
+                  {t("tabroom.draw.action.release")}
+                </>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowDetails((value) => !value)}
+              disabled={roundDebates.length === 0}
+              aria-pressed={showDetails}
+              title={t("tabroom.draw.action.detailsTitle")}
+            >
+              <Table2 aria-hidden="true" />
+              {showDetails ? t("tabroom.draw.action.hideDetails") : t("tabroom.draw.action.details")}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleExportDrawCsv}
+              disabled={roundDebates.length === 0}
+              title={t("tabroom.draw.action.exportCsvTitle")}
+            >
+              <Download aria-hidden="true" />
+              {t("tabroom.draw.action.exportCsv")}
+            </Button>
+            <IconButton
+              size="sm"
+              variant="secondary"
+              onClick={() => window.print()}
+              label={t("tabroom.draw.action.print")}
+              icon={<Printer aria-hidden="true" />}
+            />
+          </>
+        }
+      />
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleAddDebateRoom}
-            disabled={!activeRound}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-800 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition disabled:opacity-50"
-          >
-            <Plus className="w-3.5 h-3.5 text-blue-600" />
-            <span>Add Room</span>
-          </button>
-
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !activeRound}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-            <span>{isGenerating ? "Generating..." : "Generate Draw"}</span>
-          </button>
-          <ComputeStatus kind="draw" />
-
-          <button
-            onClick={handleAutoAllocateVenues}
-            disabled={roundDebates.length === 0}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded text-xs font-bold shadow-2xs transition disabled:opacity-50"
-            title="Assign compatible available venues by debate priority"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Allocate Venues</span>
-          </button>
-
-          <button
-            onClick={() => setPendingDrawRelease(activeRound?.drawStatus !== "confirmed")}
-            disabled={roundDebates.length === 0}
-            className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-bold border transition disabled:opacity-50 ${
-              activeRound?.drawStatus === "confirmed"
-                ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
-                : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-            }`}
-          >
-            {activeRound?.drawStatus === "confirmed" ? (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Draw Released to Public</span>
-              </>
-            ) : (
-              <>
-                <Lock className="w-3.5 h-3.5" />
-                <span>Release Draw to Public</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowDetails((value) => !value)}
-            disabled={roundDebates.length === 0}
-            aria-pressed={showDetails}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
-            title="Per team: points, sides by round, previous opponents and pull-ups"
-          >
-            <Table2 className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{showDetails ? "Hide draw details" : "Draw details"}</span>
-          </button>
-
-          <button
-            onClick={handleExportDrawCsv}
-            disabled={roundDebates.length === 0}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded text-xs font-semibold transition disabled:opacity-50"
-            title="Download this round's draw, with adjudicators and motion, as CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </button>
-
-          <button
-            onClick={() => window.print()}
-            className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded text-xs transition"
-            title="Print Draw Sheet"
-          >
-            <Printer className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      {generateError && (
+        <Alert tone="danger" role="alert">
+          {generateError}
+        </Alert>
+      )}
 
       {tournament && activeRound && (
         <DrawSetupPanel
@@ -554,87 +616,75 @@ export default function DrawPage() {
         />
       )}
 
-      {showDetails && drawDetails.length > 0 && (
-        <DrawDetailsPanel rows={drawDetails} sides={isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]} />
-      )}
+      {showDetails && drawDetails.length > 0 && <DrawDetailsPanel rows={drawDetails} sides={sideOrder} />}
 
       {venueAssignmentError && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <Alert tone="danger" role="alert">
           {venueAssignmentError}
-        </p>
+        </Alert>
       )}
       {drawEditError && (
-        <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <Alert tone="danger" role="alert">
           {drawEditError}
-        </p>
+        </Alert>
       )}
       <p aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</p>
       {picked && (
-        <div className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900 shadow-sm">
+        <div className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent bg-accent-subtle px-3 py-2 text-xs text-fg shadow-lg">
           <span>
-            <span className="font-bold">{picked.teamName}</span> picked. Choose <span className="font-semibold">Place here</span> or{" "}
-            <span className="font-semibold">Swap here</span> on a slot{picked.from.kind === "slot" ? ", or return it to the pool" : ""}.
+            {picked.from.kind === "slot"
+              ? rich("tabroom.draw.banner.fromRoom", bold, { team: picked.teamName })
+              : rich("tabroom.draw.banner.fromPool", bold, { team: picked.teamName })}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              setPicked(null);
-              setAnnouncement("Move cancelled.");
-            }}
-            className="rounded border border-blue-300 bg-white px-2 py-1 font-semibold text-blue-800 hover:bg-blue-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            Cancel (Esc)
-          </button>
+          <Button size="sm" variant="secondary" onClick={cancelPick}>
+            {t("tabroom.common.cancelEsc")}
+          </Button>
         </div>
       )}
 
-      {/* Round Selector Bar */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">
-          Select Round:
+      {/* Round selector */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-label={t("tabroom.draw.rounds.aria")}>
+        <span className="mr-1 shrink-0 text-[11px] font-medium uppercase tracking-wide text-fg-muted" aria-hidden="true">
+          {t("tabroom.draw.rounds.label")}
         </span>
-        {rounds.map((r) => (
-          <button
-            key={r.id}
-            onClick={() => setActiveRound(r)}
-            className={`px-3 py-1 text-xs font-semibold rounded-md border transition ${
-              activeRound?.id === r.id
-                ? "bg-blue-600 text-white border-blue-700 shadow-xs"
-                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            {r.name}
-          </button>
-        ))}
+        {rounds.map((r) => {
+          const selected = activeRound?.id === r.id;
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => setActiveRound(r)}
+              aria-pressed={selected}
+              className={cn(
+                "h-7 shrink-0 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                focusRing,
+                selected ? "border-accent bg-accent text-accent-fg" : "border-border-strong bg-surface text-fg hover:bg-muted"
+              )}
+            >
+              {r.name}
+            </button>
+          );
+        })}
       </div>
-      {activeRound && teams.some((team) => team.divisionId || team.divisionName) && (
-        <label className="flex max-w-md items-center gap-2 text-xs font-semibold text-gray-700">
-          Division
-          <select
-            value={activeRound.divisionId || ""}
-            onChange={(event) => void updateRound({
-              ...activeRound,
-              divisionId: event.target.value || undefined,
-            })}
-            className="min-w-48 rounded border border-gray-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">All divisions</option>
-            {[...new Map(teams
-              .filter((team) => team.divisionId || team.divisionName)
-              .map((team) => [team.divisionId || team.divisionName || "", {
-                id: team.divisionId || team.divisionName || "",
-                name: team.divisionName || team.divisionId || "",
-              }])).values()]
-              .sort((left, right) => left.name.localeCompare(right.name))
-              .map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
-          </select>
-          <span className="font-normal text-gray-500">This round will draw only teams in the selected division.</span>
-        </label>
+      {activeRound && divisions.length > 0 && (
+        <Select
+          label={t("tabroom.draw.division.label")}
+          help={t("tabroom.draw.division.help")}
+          wrapperClassName="max-w-md space-y-1"
+          className="h-7 text-xs"
+          value={activeRound.divisionId || ""}
+          onChange={(event) => void updateRound({
+            ...activeRound,
+            divisionId: event.target.value || undefined,
+          })}
+        >
+          <option value="">{t("tabroom.draw.division.all")}</option>
+          {divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+        </Select>
       )}
 
-      {/* Unassigned Teams Bar & Search */}
+      {/* Unassigned teams pool (drop zone) and search */}
       <div className="space-y-3">
-        {/* Unassigned Teams Pool (Collapsible & Drop Zone) */}
         <UnassignedTeamsPool
           teams={unassignedTeams}
           expanded={showUnassigned}
@@ -650,52 +700,51 @@ export default function DrawPage() {
           onReturnToPool={() => picked && void applyMove(picked, { kind: "pool" })}
         />
 
-        {/* Search & Counter Filter */}
         {roundDebates.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="relative w-full max-w-sm">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Filter room, team, or judge..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <span className="text-xs text-gray-500">
-              Showing {filteredDebates.length} of {roundDebates.length} debates
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+            <Input
+              type="search"
+              aria-label={t("tabroom.draw.search.aria")}
+              placeholder={t("tabroom.draw.search.placeholder")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leadingIcon={<Search />}
+              wrapperClassName="w-full max-w-sm"
+              className="h-7 text-xs"
+            />
+            <span className="text-xs text-fg-muted" role="status">
+              {plural("tabroom.draw.search.showing", roundDebates.length, { shown: filteredDebates.length })}
             </span>
           </div>
         )}
       </div>
 
-      {/* Debates List */}
+      {/* Debates */}
       {roundDebates.length === 0 ? (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-10 text-center">
-          <Shuffle className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-gray-800 mb-1">No Draw Generated for {activeRound?.name}</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-            Generate power-paired pairings or click &quot;Add Room&quot; to manually construct the draw by dragging teams.
-          </p>
-          <div className="flex justify-center items-center gap-3">
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-            >
-              <Shuffle className="w-4 h-4" />
-              <span>Generate {activeRound?.name} Draw</span>
-            </button>
-            <button
-              onClick={handleAddDebateRoom}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-white hover:bg-gray-50 text-gray-800 font-bold border border-gray-300 rounded text-xs shadow-xs transition"
-            >
-              <Plus className="w-4 h-4 text-blue-600" />
-              <span>Manually Build Rooms</span>
-            </button>
-          </div>
-        </div>
+        <EmptyState
+          icon={<Shuffle aria-hidden="true" />}
+          title={activeRound ? t("tabroom.draw.empty.title", { round: activeRound.name }) : t("tabroom.draw.empty.noRound")}
+          description={t("tabroom.draw.empty.description")}
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={handleGenerate}
+                disabled={!activeRound}
+                loading={isGenerating}
+                loadingText={t("tabroom.draw.action.generating")}
+              >
+                <Shuffle aria-hidden="true" />
+                {t("tabroom.draw.empty.generate", { round: activeRound?.name ?? "" })}
+              </Button>
+              <Button size="sm" variant="secondary" onClick={handleAddDebateRoom} disabled={!activeRound}>
+                <Plus aria-hidden="true" />
+                {t("tabroom.draw.empty.buildManually")}
+              </Button>
+            </div>
+          }
+        />
       ) : (
         <div className="space-y-4">
           {filteredDebates.map((debate, dIdx) => {
@@ -707,220 +756,209 @@ export default function DrawPage() {
             const assignedVenueIssues = assignedVenue
               ? getVenueIncompatibilities(debate, assignedVenue)
               : [];
+            const roomLabel = debate.venueName || t("tabroom.draw.roomFallback", { number: dIdx + 1 });
 
             if (debate.byeTeamId) {
               const byeTeam = Object.values(debate.teams || {}).find((slot) => slot?.teamId === debate.byeTeamId);
               return (
-                <div
+                <Card
                   key={debate.id}
-                  className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  className="flex flex-col justify-between gap-2 border-info-border bg-info-subtle px-4 py-3 sm:flex-row sm:items-center"
                 >
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Bye</span>
-                    <div className="font-semibold text-gray-900 text-sm">{byeTeam?.teamName || "Team"}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="info">{t("tabroom.draw.bye.label")}</Badge>
+                    <span className="text-[13px] font-semibold text-fg">{byeTeam?.teamName || t("tabroom.draw.bye.teamFallback")}</span>
                   </div>
-                  <span className="text-xs font-semibold text-blue-800">
-                    {debate.byeResult === "win" ? "Full win awarded" : "Absent — no standings result"}
+                  <span className="text-xs font-medium text-fg-muted">
+                    {debate.byeResult === "win" ? t("tabroom.draw.bye.win") : t("tabroom.draw.bye.absent")}
                   </span>
-                </div>
+                </Card>
               );
             }
 
+            const url = safeVenueUrl(assignedVenue?.url);
+            const tooltip = assignedVenue ? venueTooltip(assignedVenue, tournament?.preferences?.venueCategories, "admin") : undefined;
+
             return (
-              <div
-                key={debate.id}
-                className="bg-white border border-[#d0d7de] rounded-lg shadow-2xs hover:border-blue-400 transition overflow-hidden"
-              >
-                {/* Room Header */}
-                <div className="bg-[#f6f8fa] px-4 py-2.5 border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <Card key={debate.id} className="overflow-hidden transition-colors hover:border-border-strong">
+                {/* Room header */}
+                <div className="flex flex-col justify-between gap-2 border-b border-border bg-muted px-3 py-2 sm:flex-row sm:items-center">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center space-x-1.5 text-xs font-bold text-gray-900">
-                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                      <select
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-fg">
+                      <MapPin className="h-3.5 w-3.5 text-fg-subtle" aria-hidden="true" />
+                      <Select
+                        aria-label={t("tabroom.draw.room.venueAria", { room: roomLabel })}
                         value={debate.venueId || ""}
                         onChange={(e) => handleChangeVenue(debate.id, e.target.value)}
-                        className="bg-transparent font-bold text-xs text-gray-900 border border-transparent hover:border-gray-300 rounded px-1 py-0.5 cursor-pointer"
+                        className="h-7 w-auto max-w-[18rem] text-xs font-semibold"
                       >
-                        <option value="">{debate.venueName || `Room ${dIdx + 1}`} (unassigned)</option>
-                        {venues.map((v) => (
-                          <option
-                            key={v.id}
-                            value={v.id}
-                            disabled={
-                              !isVenueAvailableForRound(v, debate.roundId) ||
-                              getVenueIncompatibilities(debate, v).length > 0 ||
-                              roundDebates.some((other) => other.id !== debate.id && other.venueId === v.id)
-                            }
-                          >
-                            {venueDisplayName(v, tournament?.preferences?.venueCategories)}{v.category ? ` · ${v.category}` : ""}{v.capacity !== undefined ? ` · ${v.capacity} seats` : ""}{!isVenueAvailableForRound(v, debate.roundId) ? " · unavailable" : ""}
-                          </option>
-                        ))}
-                      </select>
-                      {(() => {
-                        const assigned = venues.find((v) => v.id === debate.venueId);
-                        const url = safeVenueUrl(assigned?.url);
-                        const tooltip = assigned ? venueTooltip(assigned, tournament?.preferences?.venueCategories, "admin") : undefined;
-                        return (
-                          <>
-                            {tooltip && <span className="text-[10px] font-normal text-gray-500">{tooltip}</span>}
-                            {url && (
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] font-semibold text-blue-700 underline"
-                                aria-label={`Open the room link for ${assigned?.name}`}
-                              >
-                                Room link
-                              </a>
-                            )}
-                          </>
-                        );
-                      })()}
+                        <option value="">{t("tabroom.draw.room.venueUnassigned", { room: roomLabel })}</option>
+                        {venues.map((v) => {
+                          const available = isVenueAvailableForRound(v, debate.roundId);
+                          const parts = [
+                            venueDisplayName(v, tournament?.preferences?.venueCategories),
+                            ...(v.category ? [v.category] : []),
+                            ...(v.capacity !== undefined ? [plural("tabroom.draw.room.venueSeats", v.capacity)] : []),
+                            ...(!available ? [t("tabroom.draw.room.venueUnavailable")] : []),
+                          ];
+                          return (
+                            <option
+                              key={v.id}
+                              value={v.id}
+                              disabled={
+                                !available ||
+                                getVenueIncompatibilities(debate, v).length > 0 ||
+                                roundDebates.some((other) => other.id !== debate.id && other.venueId === v.id)
+                              }
+                            >
+                              {parts.join(" · ")}
+                            </option>
+                          );
+                        })}
+                      </Select>
+                      {tooltip && <span className="text-[11px] font-normal text-fg-muted">{tooltip}</span>}
+                      {url && (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cn("rounded-sm text-[11px] font-medium text-accent-text underline", focusRing)}
+                          aria-label={t("tabroom.draw.room.linkAria", { venue: assignedVenue?.name ?? roomLabel })}
+                        >
+                          {t("tabroom.draw.room.link")}
+                        </a>
+                      )}
                     </div>
 
                     {activeRound?.stage !== "elimination" && (
-                      <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded" title="Points bracket of this debate">
-                        Bracket {debate.bracket ?? 0}
-                      </span>
+                      <Badge title={t("tabroom.draw.room.bracketTitle")}>
+                        {t("tabroom.draw.room.bracket", { bracket: debate.bracket ?? 0 })}
+                      </Badge>
                     )}
-                    <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded" title="Room rank (1 is the top room)">
-                      Room rank {debate.roomRank}
-                    </span>
+                    <Badge title={t("tabroom.draw.room.rankTitle")}>
+                      {t("tabroom.draw.room.rank", { rank: debate.roomRank })}
+                    </Badge>
                     {pending && (
-                      <span className="text-[10px] font-semibold border border-dashed border-gray-400 text-gray-700 px-2 py-0.5 rounded" title="Sides are chosen on the ballot">
-                        Sides on ballot
-                      </span>
+                      <Badge className="border-dashed border-border-strong" title={t("tabroom.draw.room.sidesOnBallotTitle")}>
+                        {t("tabroom.draw.room.sidesOnBallot")}
+                      </Badge>
                     )}
                     {errorCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-800 bg-red-50 border border-red-300 px-2 py-0.5 rounded">
-                        <AlertTriangle className="w-3 h-3 text-red-600" aria-hidden="true" />
-                        {errorCount} problem{errorCount === 1 ? "" : "s"}
-                      </span>
+                      <StatusPill tone="danger" icon={<AlertTriangle aria-hidden="true" />}>
+                        {plural("tabroom.draw.room.problems", errorCount)}
+                      </StatusPill>
                     )}
                     {warningCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded">
-                        <AlertTriangle className="w-3 h-3 text-amber-600" aria-hidden="true" />
-                        {warningCount} warning{warningCount === 1 ? "" : "s"}
-                      </span>
+                      <StatusPill tone="warning">
+                        {plural("tabroom.draw.room.warnings", warningCount)}
+                      </StatusPill>
                     )}
-
                   </div>
 
-                  {/* Delete Room */}
-                  <div className="flex items-center space-x-3 text-xs">
-                    <button
-                      onClick={() => handleDeleteDebate(debate.id)}
-                      className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                      title="Delete this debate room"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <IconButton
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setPendingDeleteId(debate.id)}
+                    label={t("tabroom.draw.room.deleteAria", { room: roomLabel })}
+                    icon={<Trash2 aria-hidden="true" />}
+                    className="self-end hover:text-danger sm:self-auto"
+                  />
                 </div>
 
-                <div className="px-4 py-3 border-b border-gray-100 bg-white">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={debate.postponed === true}
-                        onChange={(event) => void updateDebate({
-                          ...debate,
-                          postponed: event.target.checked || undefined,
-                          postponedReason: event.target.checked ? debate.postponedReason : undefined,
-                        })}
-                      />
-                      Postponed (exclude from standings and history)
-                    </label>
+                {/* Postponement and venue requirements */}
+                <div className="border-b border-border px-3 py-2.5">
+                  <div className="flex flex-wrap items-end gap-x-4 gap-y-2 text-xs">
+                    <Checkbox
+                      className="pb-1 [&_label]:text-xs"
+                      label={t("tabroom.draw.room.postponed")}
+                      checked={debate.postponed === true}
+                      onChange={(event) => void updateDebate({
+                        ...debate,
+                        postponed: event.target.checked || undefined,
+                        postponedReason: event.target.checked ? debate.postponedReason : undefined,
+                      })}
+                    />
                     {debate.postponed && (
-                      <input
-                        type="text"
-                        aria-label="Postponement reason"
+                      <Input
+                        aria-label={t("tabroom.draw.room.postponedReasonAria")}
                         maxLength={500}
                         value={debate.postponedReason || ""}
                         onChange={(event) => void updateDebate({
                           ...debate,
                           postponedReason: event.target.value || undefined,
                         })}
-                        placeholder="Reason (optional)"
-                        className="min-w-48 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
+                        placeholder={t("tabroom.draw.room.postponedReasonPlaceholder")}
+                        wrapperClassName="min-w-48"
+                        className="h-7 min-w-48 w-auto text-xs"
                       />
                     )}
-                    <label className="flex flex-col gap-1 text-[10px] font-semibold text-gray-600">
-                      Required category
-                      <select
-                        aria-label={`${debate.venueName || `Room ${dIdx + 1}`} required venue category`}
-                        value={debate.requiredVenueCategory || ""}
-                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
-                          requiredVenueCategory: e.target.value || undefined,
-                        })}
-                        className="min-w-32 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
-                      >
-                        <option value="">Any category</option>
-                        {[...new Set([
-                          ...venues.map((venue) => venue.category?.trim()).filter((category): category is string => Boolean(category)),
-                          ...(debate.requiredVenueCategory ? [debate.requiredVenueCategory] : []),
-                        ])].sort((a, b) => a.localeCompare(b)).map((category) => (
-                          <option key={category} value={category}>{category}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1 text-[10px] font-semibold text-gray-600">
-                      Minimum seats
-                      <input
-                        aria-label={`${debate.venueName || `Room ${dIdx + 1}`} minimum venue capacity`}
-                        type="number"
-                        min="0"
-                        defaultValue={debate.requiredVenueCapacity ?? ""}
-                        onBlur={(e) => {
-                          if (!e.currentTarget.checkValidity()) {
-                            e.currentTarget.reportValidity();
-                            return;
-                          }
-                          const value = e.currentTarget.value;
-                          const requiredVenueCapacity = value ? Number(value) : undefined;
-                          if (requiredVenueCapacity === debate.requiredVenueCapacity) return;
-                          void handleUpdateVenueRequirements(debate, {
-                            requiredVenueCapacity,
-                          });
-                        }}
-                        className="w-24 rounded border border-gray-300 px-2 py-1 text-xs text-gray-800"
-                      />
-                    </label>
-                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={debate.requiresAccessibleVenue === true}
-                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
-                          requiresAccessibleVenue: e.target.checked,
-                        })}
-                      />
-                      Accessible
-                    </label>
-                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={debate.requiresOnlineVenue === true}
-                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
-                          requiresOnlineVenue: e.target.checked,
-                        })}
-                      />
-                      Online-capable
-                    </label>
-                    <label className="inline-flex items-center gap-1.5 pb-1 text-[10px] font-semibold text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={debate.requiresNearTabRoom === true}
-                        onChange={(e) => void handleUpdateVenueRequirements(debate, {
-                          requiresNearTabRoom: e.target.checked,
-                        })}
-                      />
-                      Near tab room
-                    </label>
+                    <Select
+                      label={t("tabroom.draw.room.requiredCategory")}
+                      aria-label={t("tabroom.draw.room.requiredCategoryAria", { room: roomLabel })}
+                      wrapperClassName="space-y-1"
+                      className="h-7 w-auto min-w-32 text-xs"
+                      value={debate.requiredVenueCategory || ""}
+                      onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                        requiredVenueCategory: e.target.value || undefined,
+                      })}
+                    >
+                      <option value="">{t("tabroom.draw.room.anyCategory")}</option>
+                      {[...new Set([
+                        ...venues.map((venue) => venue.category?.trim()).filter((category): category is string => Boolean(category)),
+                        ...(debate.requiredVenueCategory ? [debate.requiredVenueCategory] : []),
+                      ])].sort((a, b) => a.localeCompare(b)).map((category) => (
+                        <option key={category} value={category}>{category}</option>
+                      ))}
+                    </Select>
+                    <Input
+                      label={t("tabroom.draw.room.minSeats")}
+                      aria-label={t("tabroom.draw.room.minSeatsAria", { room: roomLabel })}
+                      wrapperClassName="space-y-1"
+                      type="number"
+                      min="0"
+                      defaultValue={debate.requiredVenueCapacity ?? ""}
+                      onBlur={(e) => {
+                        if (!e.currentTarget.checkValidity()) {
+                          e.currentTarget.reportValidity();
+                          return;
+                        }
+                        const value = e.currentTarget.value;
+                        const requiredVenueCapacity = value ? Number(value) : undefined;
+                        if (requiredVenueCapacity === debate.requiredVenueCapacity) return;
+                        void handleUpdateVenueRequirements(debate, {
+                          requiredVenueCapacity,
+                        });
+                      }}
+                      className="h-7 w-24 text-xs"
+                    />
+                    <Checkbox
+                      className="pb-1 [&_label]:text-xs"
+                      label={t("tabroom.draw.room.accessible")}
+                      checked={debate.requiresAccessibleVenue === true}
+                      onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                        requiresAccessibleVenue: e.target.checked,
+                      })}
+                    />
+                    <Checkbox
+                      className="pb-1 [&_label]:text-xs"
+                      label={t("tabroom.draw.room.online")}
+                      checked={debate.requiresOnlineVenue === true}
+                      onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                        requiresOnlineVenue: e.target.checked,
+                      })}
+                    />
+                    <Checkbox
+                      className="pb-1 [&_label]:text-xs"
+                      label={t("tabroom.draw.room.nearTabRoom")}
+                      checked={debate.requiresNearTabRoom === true}
+                      onChange={(e) => void handleUpdateVenueRequirements(debate, {
+                        requiresNearTabRoom: e.target.checked,
+                      })}
+                    />
                     {assignedVenueIssues.length > 0 && (
-                      <span className="basis-full text-[11px] font-semibold text-red-700" role="status">
-                        Assigned venue does not meet requirements: {assignedVenueIssues.join("; ")}.
+                      <span className="flex basis-full items-center gap-1 text-[11px] font-medium text-danger" role="status">
+                        <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        {t("tabroom.draw.room.venueNotMeeting", { reasons: assignedVenueIssues.join("; ") })}
                       </span>
                     )}
                   </div>
@@ -928,19 +966,19 @@ export default function DrawPage() {
 
                 {/* Matchup grid: drag and drop, or Move then Place / Swap */}
                 {flags && flags.issues.length > 0 && (
-                  <ul className="mx-4 mt-3 space-y-0.5 text-[11px] text-gray-700" aria-label={`Draw check for ${debate.venueName || `Room ${dIdx + 1}`}`}>
+                  <ul className="mx-3 mt-3 space-y-0.5 text-[11px] text-fg" aria-label={t("tabroom.draw.room.issuesAria", { room: roomLabel })}>
                     {flags.issues.map((issue: DebateFlags["issues"][number], index: number) => (
                       <li key={`${issue.code}-${index}`}>
-                        <span className={`font-semibold ${issue.severity === "error" ? "text-red-700" : "text-amber-800"}`}>
-                          {issue.severity === "error" ? "Problem:" : "Warning:"}
+                        <span className={cn("font-semibold", issue.severity === "error" ? "text-danger" : "text-warning")}>
+                          {issue.severity === "error" ? t("tabroom.draw.check.problem") : t("tabroom.draw.check.warning")}
                         </span>{" "}
                         {issue.message}
                       </li>
                     ))}
                   </ul>
                 )}
-                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {(isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side, sideIndex) => {
+                <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 lg:grid-cols-4">
+                  {sideOrder.map((side, sideIndex) => {
                     const slot = debate.teams?.[side];
                     const dropKey = `${debate.id}-${side}`;
                     const location: TeamLocation = { kind: "slot", debateId: debate.id, side };
@@ -949,8 +987,8 @@ export default function DrawPage() {
                         key={side}
                         debateId={debate.id}
                         side={side}
-                        pendingLabel={pending ? `Team ${sideIndex + 1}` : undefined}
-                        roomLabel={debate.venueName || `Room ${dIdx + 1}`}
+                        pendingLabel={pending ? t("tabroom.draw.slot.pendingLabel", { number: sideIndex + 1 }) : undefined}
+                        roomLabel={roomLabel}
                         slot={slot}
                         team={slot?.teamId ? teamsMap.get(slot.teamId) : undefined}
                         points={slot?.teamId ? pointsByTeam.get(slot.teamId) : undefined}
@@ -970,19 +1008,54 @@ export default function DrawPage() {
                     );
                   })}
                 </div>
-
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
+      {pendingGenerate && (
+        <ConfirmActionDialog
+          title={pendingGenerate.kind === "discard" ? t("tabroom.draw.confirm.discardTitle") : t("tabroom.draw.confirm.overwriteTitle")}
+          description={pendingGenerate.kind === "discard"
+            ? plural("tabroom.draw.confirm.discardDescription", pendingGenerate.ballots, {
+                debates: plural("tabroom.draw.confirm.debateCount", pendingGenerate.debates),
+              })
+            : t("tabroom.draw.confirm.overwriteDescription")}
+          confirmLabel={pendingGenerate.kind === "discard" ? t("tabroom.draw.confirm.discardConfirm") : t("tabroom.draw.confirm.overwriteConfirm")}
+          variant={pendingGenerate.kind === "discard" ? "danger" : "primary"}
+          onConfirm={confirmGenerate}
+          onCancel={() => setPendingGenerate(null)}
+          cancelLabel={t("tabroom.common.noCancel")}
+          busyLabel={t("tabroom.common.saving")}
+          closeLabel={t("tabroom.common.closeDialog")}
+        />
+      )}
+      {pendingDeleteId && (
+        <ConfirmActionDialog
+          title={t("tabroom.draw.confirm.deleteTitle", {
+            room: pendingDeleteDebate?.venueName || t("tabroom.draw.roomFallback", { number: pendingDeleteDebate?.roomRank ?? "" }),
+          })}
+          description={t("tabroom.draw.confirm.deleteDescription")}
+          confirmLabel={t("tabroom.draw.confirm.deleteConfirm")}
+          variant="danger"
+          onConfirm={() => {
+            const debateId = pendingDeleteId;
+            setPendingDeleteId(null);
+            void handleDeleteDebate(debateId);
+          }}
+          onCancel={() => setPendingDeleteId(null)}
+          cancelLabel={t("tabroom.common.noCancel")}
+          busyLabel={t("tabroom.common.saving")}
+          closeLabel={t("tabroom.common.closeDialog")}
+        />
+      )}
       {pendingDrawRelease !== null && activeRound && (
         <ReleaseActionDialog
-          title={pendingDrawRelease ? "Publish this draw?" : "Unpublish this draw?"}
+          title={pendingDrawRelease ? t("tabroom.draw.release.publishTitle") : t("tabroom.draw.release.unpublishTitle")}
           description={pendingDrawRelease
-            ? `Publishing ${activeRound.name} makes its room and team assignments visible on the public tab.`
-            : `Unpublishing ${activeRound.name} hides its draw from the public tab.`}
-          confirmLabel={pendingDrawRelease ? "Publish draw" : "Unpublish draw"}
+            ? t("tabroom.draw.release.publishDescription", { round: activeRound.name })
+            : t("tabroom.draw.release.unpublishDescription", { round: activeRound.name })}
+          confirmLabel={pendingDrawRelease ? t("tabroom.draw.release.publishConfirm") : t("tabroom.draw.release.unpublishConfirm")}
           apply={() => updateRound({ ...activeRound, drawStatus: pendingDrawRelease ? "confirmed" : "draft" })}
           onClose={() => setPendingDrawRelease(null)}
         />
