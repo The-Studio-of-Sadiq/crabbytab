@@ -50,7 +50,7 @@ means the sync/publish hardening PR that added this section.
 | 1.9 availability mismatch (editors vs generator) | PARTIAL | #23 | generator, allocator and `validateDraw` use per-round availability; draw and allocation editor pools still filter global `checkedIn` |
 | 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | FIXED | #11, wave 2 #8 | reserves, per-category status and partial elims; cutoff ties at the break and reserve cutoff reported (`BreakCategoryResult.cutoffTies`) and block generation until resolved with overrides (docs/standings-and-breaks.md) |
 | 1.11 venue re-allocation not persisted | OPEN | — | `application/allocation.ts` cloud save still passes `updatedRoundDebates` (latent while `AUTOMATIC_CLOUD_WRITES=false`; local save is correct) |
-| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` still unused |
+| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` replaced by `preliminaryPanels` (stored values migrated, w45 rounds/motions PR) |
 | 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15, wave 2 #10 | `draw/powerPaired.ts`; same pull-up counts and Tabbycat position cost as recorded Tabbycat v2.12.1 draws (`tools/tabbycat-diff`) |
 | 2 two-team draw (intermediate, bubble, min_cost, seeded, preallocated) | FIXED | #15 | `twoTeamDraw.ts`, `oddBrackets.ts`, `minCostPairing.ts`, `weightedMatching.ts`, `rng.ts` |
 | 2 allocator: importance-weighted cost, soft history, user weights | FIXED | #12 | `draw/allocator.ts`; `prioritizeClashAvoidance` removed |
@@ -213,7 +213,9 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
   adjudicator's sheet as a one-sheet voting ballot. `twoteam-odd-ties` standings now 2644/2644.
 - **`preliminaryPanelsPerScheduleSlot` did nothing** but its help text claimed behaviour: removed
   from the config UI; the stored field is kept (deprecated) so saved settings load. The real
-  feature is wave 5 "concurrent rounds and schedule".
+  feature is wave 5 "concurrent rounds and schedule". *Done (w45 rounds/motions PR): replaced by
+  `preliminaryPanels`, read from the old key and migrated on save; see
+  [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md).*
 - **Verified NOT a defect: public toggles default on.** `publicDraw/Results/Standings/Motions`
   default to on (Tabbycat: off), but every public item is double-gated by an explicit per-round or
   per-item release (draw release, `resultsReleased`, team-speaks release, per-motion release), so
@@ -262,6 +264,19 @@ motions altogether; reverse public motion order; copy motions between rounds; cr
 motion statistics; team emoji and speakers in the draw; team references and institution prefixes;
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
+
+**Done in the w45 rounds/motions PR** (see [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md)):
+concurrent current rounds (`Round.scheduleGroup`, Tabbycat `current_rounds`) with a slot bar on the
+draw, allocation, results and availability pages, clash checks, allocation/venue exclusion and live
+listeners for the whole slot; `preliminaryPanels` (prelim_panels) grouping; round start times,
+debate times and `preparationTime`; schedule events, public schedule page and cached iCalendar feed;
+three-state motion release (`Round.motionsStatus`, info slides first) honoured by the projection and
+projector; per-round motion order (`Motion.roundSeq`), copy motions between rounds / from the
+previous round, `publicMotionsOrder` (helper `orderMotionRoundsForPublic` for the public page);
+ranked motion preferences on ballots; cross-tournament motion statistics (`/tournaments/motions`).
+Not done here: the public motions tab still lists rounds in its own order (public-site PR), private
+portals do not show start times yet, and the motion-release email is left to the email PR (hook:
+`setMotionsStatusCommand`'s `onMotionsStatusChanged`).
 
 ### D. Not gaps (different design or not applicable)
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"
