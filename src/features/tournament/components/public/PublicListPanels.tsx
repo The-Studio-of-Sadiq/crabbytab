@@ -4,21 +4,24 @@ import React from "react";
 import Link from "next/link";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { publicRecordLinkClass } from "@/features/tournament/components/public/PublicSitePanels";
 import { SideBadge } from "@/components/ui/SideBadge";
 import type { PublicAdjudicatorLists, PublicInstitutionRow, PublicParticipants } from "@/lib/publicLists";
 import type { MotionStatistic } from "@/lib/motionStatistics";
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-      <h2 className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">{title}</h2>
+    <Card className="overflow-hidden">
+      <CardHeader title={title} description={description} />
       {children}
-    </section>
+    </Card>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="p-6 text-center text-xs text-gray-500">{children}</p>;
+  return <p className="px-4 py-8 text-center text-[13px] text-fg-muted">{children}</p>;
 }
 
 export function ParticipantsPanel({
@@ -41,37 +44,37 @@ export function ParticipantsPanel({
           <Empty>{t("lists.noTeams")}</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-start tabby-table">
-              <thead>
-                <tr>
-                  <th scope="col">{t("lists.col.team")}</th>
-                  <th scope="col">{t("lists.col.institution")}</th>
-                  <th scope="col">{t("lists.col.speakers")}</th>
-                  {showBreakCategories && <th scope="col">{t("lists.col.breakCategories")}</th>}
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-start">
+              <THead>
+                <TR>
+                  <TH scope="col">{t("lists.col.team")}</TH>
+                  <TH scope="col">{t("lists.col.institution")}</TH>
+                  <TH scope="col">{t("lists.col.speakers")}</TH>
+                  {showBreakCategories && <TH scope="col">{t("lists.col.breakCategories")}</TH>}
+                </TR>
+              </THead>
+              <TBody>
                 {participants.teams.map((team) => (
-                  <tr key={team.id}>
-                    <td className="text-xs font-bold text-gray-900">
+                  <TR key={team.id}>
+                    <TD className="text-xs font-semibold text-fg">
                       {teamHref?.(team.id) ? (
-                        <Link href={teamHref(team.id)!} className="hover:underline">{nameOrPlaceholder(team.name)}</Link>
+                        <Link href={teamHref(team.id)!} className={publicRecordLinkClass}>{nameOrPlaceholder(team.name)}</Link>
                       ) : (
                         nameOrPlaceholder(team.name)
                       )}
-                    </td>
-                    <td className="text-xs text-gray-600">{team.institutionName || "—"}</td>
-                    <td className="text-xs text-gray-700">
+                    </TD>
+                    <TD className="text-xs text-fg-muted">{team.institutionName || "—"}</TD>
+                    <TD className="text-xs text-fg-muted">
                       {formatList([
                         ...team.speakers,
                         ...Array.from({ length: team.anonymousSpeakers ?? 0 }, () => t("public.redacted")),
                       ]) || "—"}
-                    </td>
-                    {showBreakCategories && <td className="text-xs text-gray-600">{formatList(team.breakCategories ?? []) || "—"}</td>}
-                  </tr>
+                    </TD>
+                    {showBreakCategories && <TD className="text-xs text-fg-muted">{formatList(team.breakCategories ?? []) || "—"}</TD>}
+                  </TR>
                 ))}
-              </tbody>
-            </table>
+              </TBody>
+            </Table>
           </div>
         )}
       </Panel>
@@ -80,30 +83,30 @@ export function ParticipantsPanel({
           <Empty>{t("lists.noAdjudicators")}</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-start tabby-table">
-              <thead>
-                <tr>
-                  <th scope="col">{t("lists.col.adjudicator")}</th>
-                  <th scope="col">{t("lists.col.institution")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-start">
+              <THead>
+                <TR>
+                  <TH scope="col">{t("lists.col.adjudicator")}</TH>
+                  <TH scope="col">{t("lists.col.institution")}</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {participants.adjudicators.map((adjudicator) => (
-                  <tr key={adjudicator.id}>
-                    <td className="text-xs font-bold text-gray-900">
+                  <TR key={adjudicator.id}>
+                    <TD className="text-xs font-semibold text-fg">
                       {adjudicator.anonymous ? (
-                        <span className="italic text-gray-500">{t("public.redacted")}</span>
+                        <span className="italic text-fg-muted">{t("public.redacted")}</span>
                       ) : adjudicatorHref?.(adjudicator.id) ? (
-                        <Link href={adjudicatorHref(adjudicator.id)!} className="hover:underline">{nameOrPlaceholder(adjudicator.name)}</Link>
+                        <Link href={adjudicatorHref(adjudicator.id)!} className={publicRecordLinkClass}>{nameOrPlaceholder(adjudicator.name)}</Link>
                       ) : (
                         nameOrPlaceholder(adjudicator.name)
                       )}
-                    </td>
-                    <td className="text-xs text-gray-600">{adjudicator.institutionName || t("common.independent")}</td>
-                  </tr>
+                    </TD>
+                    <TD className="text-xs text-fg-muted">{adjudicator.institutionName || t("common.independent")}</TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
+              </TBody>
+            </Table>
           </div>
         )}
       </Panel>
@@ -121,28 +124,28 @@ export function InstitutionsPanel({ institutions }: { institutions: PublicInstit
         <Empty>{t("lists.noInstitutions")}</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-start tabby-table">
-            <thead>
-              <tr>
-                <th scope="col">{t("lists.col.institution")}</th>
-                <th scope="col">{t("lists.col.code")}</th>
-                {showRegions && <th scope="col">{t("lists.col.region")}</th>}
-                {showCounts && <th scope="col" className="text-end">{t("lists.col.teams")}</th>}
-                {showCounts && <th scope="col" className="text-end">{t("lists.col.adjudicators")}</th>}
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="text-start">
+            <THead>
+              <TR>
+                <TH scope="col">{t("lists.col.institution")}</TH>
+                <TH scope="col">{t("lists.col.code")}</TH>
+                {showRegions && <TH scope="col">{t("lists.col.region")}</TH>}
+                {showCounts && <TH scope="col" className="text-end">{t("lists.col.teams")}</TH>}
+                {showCounts && <TH scope="col" className="text-end">{t("lists.col.adjudicators")}</TH>}
+              </TR>
+            </THead>
+            <TBody>
               {institutions.map((row) => (
-                <tr key={row.id}>
-                  <td className="text-xs font-bold text-gray-900">{row.name}</td>
-                  <td className="text-xs font-mono text-gray-600">{row.code}</td>
-                  {showRegions && <td className="text-xs text-gray-600">{row.region || "—"}</td>}
-                  {showCounts && <td className="text-end text-xs font-mono">{row.teams}</td>}
-                  {showCounts && <td className="text-end text-xs font-mono">{row.adjudicators}</td>}
-                </tr>
+                <TR key={row.id}>
+                  <TD className="text-xs font-semibold text-fg">{row.name}</TD>
+                  <TD className="text-xs font-mono text-fg-muted">{row.code}</TD>
+                  {showRegions && <TD className="text-xs text-fg-muted">{row.region || "—"}</TD>}
+                  {showCounts && <TD className="text-end text-xs font-mono">{row.teams}</TD>}
+                  {showCounts && <TD className="text-end text-xs font-mono">{row.adjudicators}</TD>}
+                </TR>
               ))}
-            </tbody>
-          </table>
+            </TBody>
+          </Table>
         </div>
       )}
     </Panel>
@@ -156,13 +159,13 @@ function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAd
       {rows.length === 0 ? (
         <Empty>{empty}</Empty>
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <ul className="divide-y divide-border">
           {rows.map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-              <span className="font-bold text-gray-900">
-                {row.anonymous ? <span className="italic text-gray-500">{t("public.redacted")}</span> : row.name || t("public.noPublicName")}
+              <span className="font-semibold text-fg">
+                {row.anonymous ? <span className="italic text-fg-muted">{t("public.redacted")}</span> : row.name || t("public.noPublicName")}
               </span>
-              <span className="text-gray-600">{row.institutionName || t("common.independent")}</span>
+              <span className="text-fg-muted">{row.institutionName || t("common.independent")}</span>
             </li>
           ))}
         </ul>
@@ -202,23 +205,23 @@ export function MotionStatisticsSummary({ statistic, isBP }: { statistic: Motion
   const { plural, richPlural, rich, t, formatDecimal } = useI18n();
   if (statistic.debatesCounted === 0) return null;
   const { balance } = statistic;
-  const number = { n: (text: string) => <span className="font-mono font-bold">{text}</span> };
+  const number = { n: (text: string) => <span className="font-mono font-semibold">{text}</span> };
   const formatAverage = (value: number | null) => (value === null ? "—" : formatDecimal(value, 2));
   return (
-    <div className="mt-3 border-t border-gray-100 pt-3">
-      <p className="text-[11px] font-bold uppercase text-gray-500">
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="text-[11px] font-semibold uppercase text-fg-muted">
         {plural("motionStats.resultsFrom", statistic.debatesCounted)}
       </p>
       <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {statistic.positions.map((position) => (
-          <div key={position.side} className="rounded border border-gray-200 bg-gray-50 p-2">
+          <div key={position.side} className="rounded border border-border bg-muted p-2">
             <dt>
               <SideBadge side={position.side} />
             </dt>
-            <dd className="mt-1 text-xs text-gray-800">
+            <dd className="mt-1 text-xs text-fg">
               {richPlural(isBP ? "motionStats.firsts" : "motionStats.wins", position.wins, number)}
               {isBP && (
-                <span className="block text-[11px] text-gray-500">
+                <span className="block text-[11px] text-fg-muted">
                   {rich(
                     "motionStats.averagePoints",
                     { n: (text) => <span className="font-mono">{text}</span> },
@@ -231,7 +234,7 @@ export function MotionStatisticsSummary({ statistic, isBP }: { statistic: Motion
         ))}
       </dl>
       {balance.pValue !== null && (
-        <p className="mt-2 text-[11px] text-gray-500">
+        <p className="mt-2 text-[11px] text-fg-muted">
           {t("motionStats.sideBalance", {
             chiSquared: balance.chiSquared === null || balance.chiSquared === undefined ? "—" : formatDecimal(balance.chiSquared, 2),
             pValue: formatDecimal(balance.pValue, 3),

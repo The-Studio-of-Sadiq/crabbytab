@@ -4,6 +4,10 @@ import React from "react";
 import Link from "next/link";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { Badge } from "@/components/ui/Badge";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import type { BallotSubmission, Debate, DebateSide, Round, SpeakerScoreEntry, Team } from "@/types";
@@ -24,24 +28,25 @@ import { bracketRounds, type BracketRound } from "@/lib/publicBracket";
 
 function Panel({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-      <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de]">
-        <h2 className="font-bold text-xs text-gray-900">{title}</h2>
-        {description && <p className="mt-0.5 text-[11px] text-gray-600">{description}</p>}
-      </div>
+    <Card className="overflow-hidden">
+      <CardHeader title={title} description={description} />
       {children}
-    </section>
+    </Card>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="p-6 text-center text-xs text-gray-500">{children}</p>;
+  return <p className="px-4 py-8 text-center text-[13px] text-fg-muted">{children}</p>;
 }
+
+/** Link to a public record page. */
+export const publicRecordLinkClass = cn("rounded-sm hover:underline", focusRing);
+
 
 /** A published person's name: "Redacted" for anonymous people, a placeholder for a missing code name. */
 export function PublicPersonName({ name, anonymous }: { name?: string; anonymous?: boolean }) {
   const { t } = useI18n();
-  if (anonymous) return <span className="italic text-gray-500">{t("public.redacted")}</span>;
+  if (anonymous) return <span className="italic text-fg-muted">{t("public.redacted")}</span>;
   return <>{name || t("public.noPublicName")}</>;
 }
 
@@ -77,7 +82,7 @@ export function PublicTeamName({
   return (
     <Link
       href={recordHref}
-      className="hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
+      className={publicRecordLinkClass}
       aria-label={t("public.recordLink", { name: shown })}
     >
       {content}
@@ -92,12 +97,12 @@ export function WelcomePanel({ message, staff }: { message: string; staff: strin
     <div className="grid gap-4 md:grid-cols-2">
       {message && (
         <Panel title={t("public.welcomeTitle")}>
-          <p className="p-4 text-sm text-gray-800 whitespace-pre-line">{message}</p>
+          <p className="p-4 text-sm text-fg whitespace-pre-line">{message}</p>
         </Panel>
       )}
       {staff && (
         <Panel title={t("public.staffTitle")}>
-          <p className="p-4 text-sm text-gray-800 whitespace-pre-line">{staff}</p>
+          <p className="p-4 text-sm text-fg whitespace-pre-line">{staff}</p>
         </Panel>
       )}
     </div>
@@ -114,7 +119,7 @@ export function splittingAdjudicators(ballot: BallotSubmission | undefined): Set
 export function SplitMarker() {
   const { t } = useI18n();
   return (
-    <span title={t("public.splitHint")} className="ms-1 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-semibold text-amber-800">
+    <span title={t("public.splitHint")} className="ms-1 rounded border border-warning-border bg-warning-subtle px-1 text-[11px] font-semibold text-warning">
       {t("public.split")}
     </span>
   );
@@ -125,17 +130,17 @@ function SpeechRows({ entries, replyPosition }: { entries: SpeakerScoreEntry[]; 
   return (
     <>
       {entries.map((entry, index) => (
-        <tr key={`${entry.speakerId}-${entry.position}-${index}`}>
-          <td className="text-xs text-gray-500">
+        <TR key={`${entry.speakerId}-${entry.position}-${index}`}>
+          <TD className="text-xs text-fg-muted">
             {replyPosition !== undefined && entry.position === replyPosition
               ? t("public.scoresheet.reply")
               : t("public.scoresheet.speech", { position: entry.position })}
-          </td>
-          <td className="text-xs text-gray-900">
+          </TD>
+          <TD className="text-xs text-fg">
             <PublicPersonName name={entry.speakerName} anonymous={(entry as { anonymous?: boolean }).anonymous} />
-          </td>
-          <td className="text-end font-mono text-xs">{formatNumber(entry.score, SCORE_DISPLAY_OPTIONS)}</td>
-        </tr>
+          </TD>
+          <TD className="text-end font-mono text-xs">{formatNumber(entry.score, SCORE_DISPLAY_OPTIONS)}</TD>
+        </TR>
       ))}
     </>
   );
@@ -172,14 +177,14 @@ export function ScoresheetsPanel({
       ? [{ key: "panel", title: t("public.scoresheet.panel"), split: false, speakerScores: ballot.speakerScores }]
       : [];
   return (
-    <div className="border-t border-[#d0d7de] bg-gray-50/60 p-3" aria-label={t("public.scoresheetsFor", { debate: debate.venueName || debate.id })}>
+    <div className="border-t border-border bg-muted p-3" aria-label={t("public.scoresheetsFor", { debate: debate.venueName || debate.id })}>
       {sheets.length === 0 ? (
-        <p className="text-xs text-gray-500">{t("public.scoresheet.none")}</p>
+        <p className="text-xs text-fg-muted">{t("public.scoresheet.none")}</p>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {sheets.map((sheet) => (
-            <div key={sheet.key} className="rounded border border-[#d0d7de] bg-white">
-              <p className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-900">
+            <div key={sheet.key} className="rounded border border-border bg-surface">
+              <p className="border-b border-border px-3 py-2 text-xs font-semibold text-fg">
                 {sheet.title}
                 {sheet.split && <SplitMarker />}
               </p>
@@ -190,18 +195,18 @@ export function ScoresheetsPanel({
                     .filter((entry) => !entry.ghost)
                     .reduce((sum, entry) => sum + (Number.isFinite(entry.score) ? entry.score : 0), 0);
                   return (
-                    <table key={side} className="w-full text-start tabby-table">
-                      <caption className="text-start text-[11px] font-bold text-gray-700 pb-1">
+                    <Table key={side} className="text-start">
+                      <caption className="text-start text-[11px] font-semibold text-fg-muted pb-1">
                         {t(`side.${side}` as "side.AFF")} · {teamName(side)}
                       </caption>
-                      <tbody>
+                      <TBody>
                         <SpeechRows entries={entries} replyPosition={replyPosition} />
-                        <tr>
-                          <td colSpan={2} className="text-xs font-semibold">{t("public.scoresheet.total")}</td>
-                          <td className="text-end font-mono text-xs font-semibold">{formatNumber(total, SCORE_DISPLAY_OPTIONS)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                        <TR>
+                          <TD colSpan={2} className="text-xs font-semibold">{t("public.scoresheet.total")}</TD>
+                          <TD className="text-end font-mono text-xs font-semibold">{formatNumber(total, SCORE_DISPLAY_OPTIONS)}</TD>
+                        </TR>
+                      </TBody>
+                    </Table>
                   );
                 })}
               </div>
@@ -223,42 +228,42 @@ export function AdjudicatorTabPanel({ tab, recordHref }: { tab: PublicAdjudicato
         <Empty>{t("public.adjudicatorTabEmpty")}</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-start tabby-table">
-            <thead>
-              <tr>
-                <th scope="col">{t("lists.col.adjudicator")}</th>
-                <th scope="col">{t("lists.col.institution")}</th>
-                {showBase && <th scope="col" className="text-end">{t("public.col.baseScore")}</th>}
+          <Table className="text-start">
+            <THead>
+              <TR>
+                <TH scope="col">{t("lists.col.adjudicator")}</TH>
+                <TH scope="col">{t("lists.col.institution")}</TH>
+                {showBase && <TH scope="col" className="text-end">{t("public.col.baseScore")}</TH>}
                 {tab.rounds.map((round) => (
-                  <th key={round.id} scope="col" className="text-end">{round.name}</th>
+                  <TH key={round.id} scope="col" className="text-end">{round.name}</TH>
                 ))}
-                {showFinal && <th scope="col" className="text-end">{t("public.col.finalScore")}</th>}
-                {showFinal && <th scope="col" className="text-end">{t("public.col.feedbackCount")}</th>}
-              </tr>
-            </thead>
-            <tbody>
+                {showFinal && <TH scope="col" className="text-end">{t("public.col.finalScore")}</TH>}
+                {showFinal && <TH scope="col" className="text-end">{t("public.col.feedbackCount")}</TH>}
+              </TR>
+            </THead>
+            <TBody>
               {tab.rows.map((row) => {
                 const href = row.anonymous ? undefined : recordHref?.(row.adjudicatorId);
                 const name = <PublicPersonName name={row.name} anonymous={row.anonymous} />;
                 return (
-                  <tr key={row.adjudicatorId}>
-                    <td className="text-xs font-semibold text-gray-900">
-                      {href ? <Link href={href} className="hover:underline">{name}</Link> : name}
-                    </td>
-                    <td className="text-xs text-gray-600">{row.institutionName || "—"}</td>
-                    {showBase && <td className="text-end font-mono text-xs">{row.baseScore !== undefined ? formatDecimal(row.baseScore, 2) : "—"}</td>}
+                  <TR key={row.adjudicatorId}>
+                    <TD className="text-xs font-semibold text-fg">
+                      {href ? <Link href={href} className={publicRecordLinkClass}>{name}</Link> : name}
+                    </TD>
+                    <TD className="text-xs text-fg-muted">{row.institutionName || "—"}</TD>
+                    {showBase && <TD className="text-end font-mono text-xs">{row.baseScore !== undefined ? formatDecimal(row.baseScore, 2) : "—"}</TD>}
                     {tab.rounds.map((round) => (
-                      <td key={round.id} className="text-end font-mono text-xs text-gray-600">
+                      <TD key={round.id} className="text-end font-mono text-xs text-fg-muted">
                         {row.roundScores?.[round.id] !== undefined ? formatDecimal(row.roundScores[round.id], 2) : "—"}
-                      </td>
+                      </TD>
                     ))}
-                    {showFinal && <td className="text-end font-mono text-xs font-bold text-blue-700">{row.finalScore !== undefined ? formatDecimal(row.finalScore, 2) : "—"}</td>}
-                    {showFinal && <td className="text-end font-mono text-xs text-gray-600">{row.feedbackCount ?? 0}</td>}
-                  </tr>
+                    {showFinal && <TD className="text-end font-mono text-xs font-semibold text-accent-text">{row.finalScore !== undefined ? formatDecimal(row.finalScore, 2) : "—"}</TD>}
+                    {showFinal && <TD className="text-end font-mono text-xs text-fg-muted">{row.feedbackCount ?? 0}</TD>}
+                  </TR>
                 );
               })}
-            </tbody>
-          </table>
+            </TBody>
+          </Table>
         </div>
       )}
     </Panel>
@@ -282,25 +287,25 @@ export function SideAllocationsPanel({
         <Empty>{t("public.sidesEmpty")}</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-start tabby-table">
-            <thead>
-              <tr>
-                <th scope="col">{t("public.col.team")}</th>
-                {allocations.rounds.map((round) => <th key={round.id} scope="col">{round.name}</th>)}
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="text-start">
+            <THead>
+              <TR>
+                <TH scope="col">{t("public.col.team")}</TH>
+                {allocations.rounds.map((round) => <TH key={round.id} scope="col">{round.name}</TH>)}
+              </TR>
+            </THead>
+            <TBody>
               {teamIds.map((teamId) => (
-                <tr key={teamId}>
-                  <td className="text-xs font-semibold text-gray-900"><PublicTeamName team={teamsById.get(teamId)} /></td>
+                <TR key={teamId}>
+                  <TD className="text-xs font-semibold text-fg"><PublicTeamName team={teamsById.get(teamId)} /></TD>
                   {allocations.rounds.map((round) => {
                     const side = allocations.teams[teamId]?.[round.id];
-                    return <td key={round.id} className="text-xs">{side ? t(`side.${side}`) : "—"}</td>;
+                    return <TD key={round.id} className="text-xs">{side ? t(`side.${side}`) : "—"}</TD>;
                   })}
-                </tr>
+                </TR>
               ))}
-            </tbody>
-          </table>
+            </TBody>
+          </Table>
         </div>
       )}
     </Panel>
@@ -311,24 +316,24 @@ function BracketColumn({ round, teamHref }: { round: BracketRound; teamHref?: (t
   const { t } = useI18n();
   return (
     <div className="min-w-[220px] flex-1 space-y-2">
-      <h3 className="text-xs font-bold uppercase text-gray-600">{round.name}</h3>
+      <h3 className="text-xs font-semibold uppercase text-fg-muted">{round.name}</h3>
       {round.matches.map((match) => (
-        <div key={match.debateId} className="rounded border border-[#d0d7de] bg-white">
+        <div key={match.debateId} className="rounded border border-border bg-surface">
           {match.teams.map((team) => (
             <div
               key={`${match.debateId}-${team.side}`}
-              className={`flex items-center justify-between gap-2 px-2 py-1.5 text-xs border-b last:border-b-0 border-gray-100 ${
-                team.advanced ? "font-bold text-gray-900" : "text-gray-700"
+              className={`flex items-center justify-between gap-2 px-2 py-1.5 text-xs border-b last:border-b-0 border-border ${
+                team.advanced ? "font-semibold text-fg" : "text-fg-muted"
               }`}
             >
               <span className="min-w-0 truncate">
-                {team.seed !== undefined && <span className="me-1 font-mono text-[10px] text-gray-500">{team.seed}</span>}
+                {team.seed !== undefined && <span className="me-1 font-mono text-[11px] text-fg-muted">{team.seed}</span>}
                 <PublicTeamName name={team.name} team={team.team} recordHref={teamHref?.(team.teamId)} />
               </span>
               {team.advanced && <Badge tone="success">{t("public.advances")}</Badge>}
             </div>
           ))}
-          {match.venueName && <p className="px-2 py-1 text-[10px] text-gray-500">{match.venueName}</p>}
+          {match.venueName && <p className="px-2 py-1 text-[11px] text-fg-muted">{match.venueName}</p>}
         </div>
       ))}
     </div>
@@ -370,23 +375,23 @@ function DiversityTable({ title, rows, total }: { title: string; rows: PublicDiv
   const sum = total ?? rows.reduce((value, row) => value + row.count, 0);
   return (
     <div>
-      <h3 className="px-3 pt-3 text-[11px] font-bold uppercase text-gray-600">{title}</h3>
+      <h3 className="px-3 pt-3 text-[11px] font-semibold uppercase text-fg-muted">{title}</h3>
       {rows.length === 0 ? (
-        <p className="px-3 py-2 text-xs text-gray-500">{t("public.diversity.empty")}</p>
+        <p className="px-3 py-2 text-xs text-fg-muted">{t("public.diversity.empty")}</p>
       ) : (
-        <table className="w-full text-start tabby-table">
-          <tbody>
+        <Table className="text-start">
+          <TBody>
             {rows.map((row) => (
-              <tr key={row.label ?? "unspecified"}>
-                <td className="text-xs">{row.label ?? t("public.diversity.unspecified")}</td>
-                <td className="text-end font-mono text-xs">{row.count}</td>
-                <td className="text-end font-mono text-xs text-gray-500">
+              <TR key={row.label ?? "unspecified"}>
+                <TD className="text-xs">{row.label ?? t("public.diversity.unspecified")}</TD>
+                <TD className="text-end font-mono text-xs">{row.count}</TD>
+                <TD className="text-end font-mono text-xs text-fg-muted">
                   {sum > 0 ? formatNumber(row.count / sum, { style: "percent", maximumFractionDigits: 0 }) : "—"}
-                </td>
-              </tr>
+                </TD>
+              </TR>
             ))}
-          </tbody>
-        </table>
+          </TBody>
+        </Table>
       )}
     </div>
   );
@@ -396,28 +401,28 @@ function AverageTable({ title, rows }: { title: string; rows: PublicDiversityAve
   const { t, formatDecimal } = useI18n();
   return (
     <div>
-      <h3 className="px-3 pt-3 text-[11px] font-bold uppercase text-gray-600">{title}</h3>
+      <h3 className="px-3 pt-3 text-[11px] font-semibold uppercase text-fg-muted">{title}</h3>
       {rows.length === 0 ? (
-        <p className="px-3 py-2 text-xs text-gray-500">{t("public.diversity.empty")}</p>
+        <p className="px-3 py-2 text-xs text-fg-muted">{t("public.diversity.empty")}</p>
       ) : (
-        <table className="w-full text-start tabby-table">
-          <thead>
-            <tr>
-              <th scope="col">{t("public.diversity.gender")}</th>
-              <th scope="col" className="text-end">{t("public.diversity.count")}</th>
-              <th scope="col" className="text-end">{t("public.diversity.average")}</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="text-start">
+          <THead>
+            <TR>
+              <TH scope="col">{t("public.diversity.gender")}</TH>
+              <TH scope="col" className="text-end">{t("public.diversity.count")}</TH>
+              <TH scope="col" className="text-end">{t("public.diversity.average")}</TH>
+            </TR>
+          </THead>
+          <TBody>
             {rows.map((row) => (
-              <tr key={row.label ?? "unspecified"}>
-                <td className="text-xs">{row.label ?? t("public.diversity.unspecified")}</td>
-                <td className="text-end font-mono text-xs">{row.count}</td>
-                <td className="text-end font-mono text-xs">{formatDecimal(row.average, 2)}</td>
-              </tr>
+              <TR key={row.label ?? "unspecified"}>
+                <TD className="text-xs">{row.label ?? t("public.diversity.unspecified")}</TD>
+                <TD className="text-end font-mono text-xs">{row.count}</TD>
+                <TD className="text-end font-mono text-xs">{formatDecimal(row.average, 2)}</TD>
+              </TR>
             ))}
-          </tbody>
-        </table>
+          </TBody>
+        </Table>
       )}
     </div>
   );
@@ -458,34 +463,34 @@ export function FeedbackProgressPanel({ progress }: { progress: NonNullable<Publ
         <Empty>{t("public.feedbackProgressEmpty")}</Empty>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-start tabby-table">
-            <thead>
-              <tr>
-                <th scope="col">{t("lists.col.team")} / {t("lists.col.adjudicator")}</th>
-                <th scope="col" className="text-end">{t("public.col.submitted")}</th>
-                <th scope="col" className="text-end">{t("public.col.owed")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="text-start">
+            <THead>
+              <TR>
+                <TH scope="col">{t("lists.col.team")} / {t("lists.col.adjudicator")}</TH>
+                <TH scope="col" className="text-end">{t("public.col.submitted")}</TH>
+                <TH scope="col" className="text-end">{t("public.col.owed")}</TH>
+              </TR>
+            </THead>
+            <TBody>
               {progress.rows.map((row) => {
                 const owed = row.expected - row.submitted;
                 return (
-                  <tr key={`${row.sourceType}-${row.sourceId}`}>
-                    <td className="text-xs">
-                      <span className="me-2 text-[10px] uppercase text-gray-500">
+                  <TR key={`${row.sourceType}-${row.sourceId}`}>
+                    <TD className="text-xs">
+                      <span className="me-2 text-[11px] uppercase text-fg-muted">
                         {row.sourceType === "team" ? t("lists.col.team") : t("lists.col.adjudicator")}
                       </span>
-                      <span className="font-semibold text-gray-900"><PublicPersonName name={row.name} /></span>
-                    </td>
-                    <td className="text-end font-mono text-xs">{row.submitted} / {row.expected}</td>
-                    <td className="text-end text-xs">
+                      <span className="font-semibold text-fg"><PublicPersonName name={row.name} /></span>
+                    </TD>
+                    <TD className="text-end font-mono text-xs">{row.submitted} / {row.expected}</TD>
+                    <TD className="text-end text-xs">
                       {owed === 0 ? <Badge tone="success">{t("public.feedbackComplete")}</Badge> : <Badge tone="warning">{owed}</Badge>}
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 );
               })}
-            </tbody>
-          </table>
+            </TBody>
+          </Table>
         </div>
       )}
     </Panel>
