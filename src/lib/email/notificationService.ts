@@ -17,6 +17,7 @@ import {
 } from "@/lib/email/notifications";
 import { createSmtpEmailProvider, type EmailProvider } from "@/lib/email/provider";
 import { calculateStandings } from "@/lib/standings/calculator";
+import { loadPortalVenues } from "@/lib/privateParticipantData";
 
 /**
  * Server-side delivery of automatic notifications. All data comes from the cloud copy in
@@ -130,9 +131,11 @@ async function buildRoundRecipients(
     const debates = activeDocuments<Debate>(
       await tournamentRef.collection("debates").where("roundId", "==", round.id).get()
     );
+    // Room links for {{venue_url}}: one read per room of this round.
+    const venues = await loadPortalVenues(tournamentRef, debates);
     return event === "draw_teams"
-      ? buildDrawTeamRecipients(round, debates, teams, adjudicators)
-      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators);
+      ? buildDrawTeamRecipients(round, debates, teams, adjudicators, venues)
+      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators, venues);
   }
   // Running totals only include rounds whose results pass the same release test.
   const releasedRounds = rounds.filter((item) => areRoundResultsReleased(item, tournament.preferences));

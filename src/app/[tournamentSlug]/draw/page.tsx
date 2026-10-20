@@ -24,7 +24,7 @@ import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
-import { isVenueAvailableForRound } from "@/lib/venues/venues";
+import { isVenueAvailableForRound, safeVenueUrl, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
@@ -745,15 +745,36 @@ export default function DrawPage() {
                             key={v.id}
                             value={v.id}
                             disabled={
-                              v.available === false ||
+                              !isVenueAvailableForRound(v, debate.roundId) ||
                               getVenueIncompatibilities(debate, v).length > 0 ||
                               roundDebates.some((other) => other.id !== debate.id && other.venueId === v.id)
                             }
                           >
-                            {v.name}{v.category ? ` · ${v.category}` : ""}{v.capacity !== undefined ? ` · ${v.capacity} seats` : ""}{v.available === false ? " · unavailable" : ""}
+                            {venueDisplayName(v, tournament?.preferences?.venueCategories)}{v.category ? ` · ${v.category}` : ""}{v.capacity !== undefined ? ` · ${v.capacity} seats` : ""}{!isVenueAvailableForRound(v, debate.roundId) ? " · unavailable" : ""}
                           </option>
                         ))}
                       </select>
+                      {(() => {
+                        const assigned = venues.find((v) => v.id === debate.venueId);
+                        const url = safeVenueUrl(assigned?.url);
+                        const tooltip = assigned ? venueTooltip(assigned, tournament?.preferences?.venueCategories, "admin") : undefined;
+                        return (
+                          <>
+                            {tooltip && <span className="text-[10px] font-normal text-gray-500">{tooltip}</span>}
+                            {url && (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] font-semibold text-blue-700 underline"
+                                aria-label={`Open the room link for ${assigned?.name}`}
+                              >
+                                Room link
+                              </a>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {activeRound?.stage !== "elimination" && (

@@ -23,7 +23,7 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
-import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTeamsById } from "@/lib/privateParticipantData";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
@@ -522,6 +522,11 @@ export async function POST(request: NextRequest) {
     } : undefined;
 
     const roundsById = new Map(allRounds.map((round) => [round.id, round]));
+    // Room links (online rooms, maps) for debates of rounds still running.
+    const venues = await loadPortalVenues(
+      tournamentRef,
+      [...assignedDebates.values()].filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
+    );
     const responseDebates = [...assignedDebates.values()].map((debate) =>
       actorType === "team"
         ? sanitizeTeamPrivateDebate(
@@ -550,6 +555,7 @@ export async function POST(request: NextRequest) {
       teams: privateTeams,
       rounds: privateRounds,
       debates: responseDebates,
+      venues,
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);

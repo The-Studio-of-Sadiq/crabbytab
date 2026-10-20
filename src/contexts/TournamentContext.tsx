@@ -1266,6 +1266,8 @@ export function TournamentProvider({
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
+        /** Rooms of running debates (name, category, link) for the portal's room links. */
+        venues?: Array<Pick<Venue, "id" | "name" | "category" | "url">>;
         selfCheckIn?: SelfCheckInStatus | null;
       };
 
@@ -1341,6 +1343,17 @@ export function TournamentProvider({
           ...result.debates!,
         ]);
       }
+      if (result.venues) {
+        const portalVenues = result.venues.map((venue) => ({
+          ...venue,
+          tournamentId: result.tournament?.id ?? "",
+          priority: 0,
+        }));
+        setVenues((current) => [
+          ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+          ...portalVenues,
+        ]);
+      }
       setBallots(mergedBallots);
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
@@ -1395,7 +1408,17 @@ export function TournamentProvider({
     setFeedback((current) => [
       ...current.filter((item) => !result.feedback.some((remote: FeedbackSubmission) => remote.id === item.id)),
       ...(result.feedback as FeedbackSubmission[]),
-    ]);
+    ]);    if (Array.isArray(result.venues)) {
+      const portalVenues = (result.venues as Array<Pick<Venue, "id" | "name" | "category" | "url">>).map((venue) => ({
+        ...venue,
+        tournamentId: result.tournament.id as string,
+        priority: 0,
+      }));
+      setVenues((current) => [
+        ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+        ...portalVenues,
+      ]);
+    }
   };
 
   const queuePrivateRecord = async (
