@@ -3,6 +3,7 @@ import type {
   BallotSubmission,
   Debate,
   DebateSide,
+  Motion,
   Round,
   Team,
   TeamStandingRow,
@@ -11,6 +12,7 @@ import type {
 } from "@/types";
 import { MAX_CAMPAIGN_RECIPIENTS, resolveEmailRecipients, type EmailRecipient } from "@/lib/email/messaging";
 import { isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
+import { DEFAULT_EMAIL_TEMPLATES, type EmailTemplate } from "@/lib/email/settings";
 
 /**
  * Automatic notifications (Tabbycat's draw / results / ballot receipt emails). Everything here is
@@ -25,36 +27,28 @@ import { isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
  *   submitted.
  */
 
-export const ROUND_NOTIFICATION_EVENTS = ["draw_teams", "draw_adjudicators", "team_points"] as const;
+export const ROUND_NOTIFICATION_EVENTS = ["draw_teams", "draw_adjudicators", "team_points", "motions_released"] as const;
 export type RoundNotificationEvent = (typeof ROUND_NOTIFICATION_EVENTS)[number];
-export type NotificationEvent = RoundNotificationEvent | "ballot_receipt";
+export type NotificationEvent = RoundNotificationEvent | "ballot_receipt" | "ballot_confirmed";
 
-export const NOTIFICATION_TEMPLATES: Record<NotificationEvent, { subject: string; body: string }> = {
-  draw_teams: {
-    subject: "{{tournament}} — {{round}} draw",
-    body:
-      "Hi {{name}},\n\nThe draw for {{round}} has been released.\n\nTeam: {{team}}\nSide: {{side}}\nDebate: {{debate}}\nVenue: {{venue}} {{venue_url}}\nChair: {{chair}}\n\nGood luck!\nTournament Staff",
-  },
-  draw_adjudicators: {
-    subject: "{{tournament}} — {{round}} adjudicator allocation",
-    body:
-      "Hi {{name}},\n\nYour allocation for {{round}}:\n\nDebate: {{debate}}\nVenue: {{venue}} {{venue_url}}\nChair: {{chair}}\nPanellists: {{panellists}}\n\nThank you,\nTournament Staff",
-  },
-  team_points: {
-    subject: "{{tournament}} — {{round}} result for {{team}}",
-    body:
-      "Hi {{name}},\n\nResults for {{round}} have been released.\n\nTeam: {{team}}\nResult: {{result}}\nTeam points after released rounds: {{points}}\n\nTournament Staff",
-  },
-  ballot_receipt: {
-    subject: "{{tournament}} — ballot received for {{round}}",
-    body:
-      "Hi {{name}},\n\nWe received your ballot for {{debate}} ({{round}}, {{venue}}).\n\n{{ballot}}\n\nIf this is not what you submitted, contact the tab room straight away.\n\nTournament Staff",
-  },
+/** Default wording; each tournament may save its own (lib/email/settings.ts, `templateFor`). */
+export const NOTIFICATION_TEMPLATES: Record<NotificationEvent, EmailTemplate> = {
+  draw_teams: DEFAULT_EMAIL_TEMPLATES.draw_teams,
+  draw_adjudicators: DEFAULT_EMAIL_TEMPLATES.draw_adjudicators,
+  team_points: DEFAULT_EMAIL_TEMPLATES.team_points,
+  motions_released: DEFAULT_EMAIL_TEMPLATES.motions_released,
+  ballot_receipt: DEFAULT_EMAIL_TEMPLATES.ballot_receipt,
+  ballot_confirmed: DEFAULT_EMAIL_TEMPLATES.ballot_confirmed,
 };
 
 export type NotificationPreferences = Pick<
   TournamentPreferences,
-  "notifyDrawReleased" | "notifyTeamPoints" | "notifyBallotReceipt" | "publicResults"
+  | "notifyDrawReleased"
+  | "notifyTeamPoints"
+  | "notifyBallotReceipt"
+  | "notifyMotionsReleased"
+  | "notifyBallotConfirmed"
+  | "publicResults"
 >;
 
 /** Whether a round's results may be emailed to teams (and counted in running totals). */
@@ -64,6 +58,14 @@ export function areRoundResultsReleased(
 ): boolean {
   return round.resultsReleased === true && round.silent !== true && round.cancelled !== true &&
     preferences?.publicResults !== false;
+}
+
+/**
+ * Whether a round's motions may be emailed: released for the round and its draw visible to teams.
+ * The one place that decides it, so the three-state motion release (G5) only changes this.
+ */
+export function areRoundMotionsReleased(round: Pick<Round, "motionsReleased" | "drawStatus" | "cancelled">): boolean {
+  return round.motionsReleased === true && round.cancelled !== true && isDrawVisibleToTeams(round as Round);
 }
 
 export interface DueRoundNotification {
@@ -85,6 +87,9 @@ export function releasedRoundNotifications(
     }
     if (preferences?.notifyTeamPoints === true && areRoundResultsReleased(round, preferences)) {
       due.push({ event: "team_points", round });
+    }
+    if (preferences?.notifyMotionsReleased === true && areRoundMotionsReleased(round)) {
+      due.push({ event: "motions_released", round });
     }
   }
   return due;
@@ -252,4 +257,76 @@ export function buildBallotReceiptRecipient(
     venue: debate.venueName || "",
     ballot: summarizeBallot(ballot, debate, isBP),
   };
+}
+
+/** The round's released motions as plain text, one per line, with info slides indented. */
+export function formatRoundMotions(motions: Motion[], roundId: string): string {
+  return motions
+    .filter((motion) => motion.released && motion.rounds?.includes(roundId))
+    .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0))
+    .map((motion, index, all) => {
+      const label = all.length > 1 ? `${index + 1}. ` : "";
+      const slide = motion.infoSlide?.trim() ? `\n   Info slide: ${motion.infoSlide.trim()}` : "";
+      return `${label}${motion.text}${slide}`;
+    })
+    .join("\n");
+}
+
+/** Motions emails to every speaker and adjudicator in the round, once its motions are released. */
+export function buildMotionsRecipients(
+  round: Round,
+  debates: Debate[],
+  teams: Team[],
+  adjudicators: Adjudicator[],
+  motions: Motion[]
+): EmailRecipient[] {
+  if (!areRoundMotionsReleased(round)) return [];
+  const text = formatRoundMotions(motions, round.id);
+  if (!text) return [];
+  const roundDebates = debates.filter((debate) => debate.roundId === round.id);
+  const speakers = resolveEmailRecipients("round_participants", teams, adjudicators, roundDebates, round);
+  const panel = round.adjudicatorsRevealed === true
+    ? resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round)
+    : [];
+  const seen = new Set<string>();
+  return [...speakers, ...panel]
+    .filter((recipient) => {
+      const key = recipient.email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((recipient) => ({
+      ...recipient,
+      motions: text,
+      // Panels stay hidden from speakers until revealed.
+      ...(round.adjudicatorsRevealed === true ? {} : { chair: "TBA", panellists: "TBA" }),
+    }));
+}
+
+/**
+ * Ballot-confirmed emails (Tabbycat BALLOTS_CONFIRMED): every adjudicator of the debate with an
+ * address. With voting ballots each voting adjudicator also sees their own sheet as recorded.
+ */
+export function buildBallotConfirmedRecipients(
+  ballot: BallotSubmission,
+  debate: Debate,
+  adjudicators: Pick<Adjudicator, "id" | "name" | "email">[],
+  round: Pick<Round, "name"> | undefined,
+  isBP: boolean
+): EmailRecipient[] {
+  if (!ballot.confirmed || ballot.discarded) return [];
+  const panel = debate.adjudicators;
+  const ids = [...new Set([panel?.chairId, ...(panel?.panellistIds ?? []), ...(panel?.traineeIds ?? [])].filter(Boolean))];
+  const byId = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
+  const result = summarizeBallot(ballot, debate, isBP);
+  return ids.flatMap((id) => {
+    const adjudicator = byId.get(id as string);
+    if (!adjudicator) return [];
+    const recipient = buildBallotReceiptRecipient(adjudicator, ballot, debate, round, isBP);
+    if (!recipient) return [];
+    const sheet = ballot.sheets?.find((item) => item.adjudicatorId === adjudicator.id);
+    const own = sheet ? summarizeBallot({ ...ballot, speakerScores: sheet.speakerScores, motionText: undefined }, debate, isBP) : "";
+    return [{ ...recipient, ballot: own ? `${result}\n\nYour scoresheet:\n${own}` : result }];
+  });
 }

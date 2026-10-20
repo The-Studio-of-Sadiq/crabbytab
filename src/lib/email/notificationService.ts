@@ -1,21 +1,24 @@
 import type { DocumentReference, Firestore, QuerySnapshot } from "firebase-admin/firestore";
-import type { Adjudicator, BallotSubmission, Debate, Round, Team, Tournament } from "@/types";
+import type { Adjudicator, BallotSubmission, Debate, Motion, Round, Team, Tournament } from "@/types";
 import { createEmailCampaign } from "@/lib/email/history";
 import { sendEmailCampaign, type EmailRecipient, type EmailRecipientGroup } from "@/lib/email/messaging";
 import {
   areRoundResultsReleased,
+  buildBallotConfirmedRecipients,
   buildBallotReceiptRecipient,
+  buildMotionsRecipients,
   buildDrawAdjudicatorRecipients,
   buildDrawTeamRecipients,
   buildTeamPointsRecipients,
   chunkRecipients,
-  NOTIFICATION_TEMPLATES,
   notificationLogId,
   releasedRoundNotifications,
   type NotificationLogEntry,
   type RoundNotificationEvent,
 } from "@/lib/email/notifications";
 import { createSmtpEmailProvider, type EmailProvider } from "@/lib/email/provider";
+import { deliveryRef } from "@/lib/email/deliveryStatus";
+import { loadEmailSettings, replyToHeader, templateFor } from "@/lib/email/settings";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { loadPortalVenues } from "@/lib/privateParticipantData";
 
@@ -44,6 +47,7 @@ const RECIPIENT_GROUP: Record<RoundNotificationEvent, EmailRecipientGroup> = {
   draw_teams: "round_participants",
   draw_adjudicators: "round_adjudicators",
   team_points: "round_participants",
+  motions_released: "round_participants",
 };
 
 function activeDocuments<T>(snapshot: QuerySnapshot): T[] {
@@ -88,6 +92,7 @@ export async function baselineRoundNotifications(
       ...loaded.tournament.preferences,
       notifyDrawReleased: wanted.has("draw_teams") || wanted.has("draw_adjudicators"),
       notifyTeamPoints: wanted.has("team_points"),
+      notifyMotionsReleased: wanted.has("motions_released"),
     },
     loaded.rounds
   ).filter((item) => wanted.has(item.event));
@@ -131,6 +136,12 @@ async function buildRoundRecipients(
     const debates = activeDocuments<Debate>(
       await tournamentRef.collection("debates").where("roundId", "==", round.id).get()
     );
+    if (event === "motions_released") {
+      const motions = activeDocuments<Motion>(
+        await tournamentRef.collection("motions").where("rounds", "array-contains", round.id).get()
+      );
+      return buildMotionsRecipients(round, debates, teams, adjudicators, motions);
+    }
     // Room links for {{venue_url}}: one read per room of this round.
     const venues = await loadPortalVenues(tournamentRef, debates);
     return event === "draw_teams"
@@ -163,7 +174,7 @@ export type RoundNotificationResult =
   | { status: "idle" }
   | {
       status: "sent";
-      event: RoundNotificationEvent;
+      event: RoundNotificationEvent | "ballot_confirmed";
       roundName: string;
       sent: number;
       failed: number;
@@ -176,6 +187,17 @@ export type RoundNotificationResult =
  * without consuming a notification.
  */
 export async function sendNextRoundNotification(input: {
+  firestore: Firestore;
+  tournamentId: string;
+  sender: NotificationSender;
+  createProvider?: () => EmailProvider;
+}): Promise<RoundNotificationResult> {
+  const roundResult = await sendNextRoundEventNotification(input);
+  if (roundResult.status !== "idle") return roundResult;
+  return sendNextBallotConfirmation(input);
+}
+
+async function sendNextRoundEventNotification(input: {
   firestore: Firestore;
   tournamentId: string;
   sender: NotificationSender;
@@ -224,7 +246,8 @@ export async function sendNextRoundNotification(input: {
   }
 
   const recipients = chunks[claimedChunk];
-  const template = NOTIFICATION_TEMPLATES[event];
+  const settings = await loadEmailSettings(tournamentRef);
+  const template = templateFor(settings, event);
   const campaign = await createEmailCampaign(firestore, {
     tournamentId: input.tournamentId,
     senderUid: input.sender.uid,
@@ -244,7 +267,8 @@ export async function sendNextRoundNotification(input: {
     tournament.name,
     round.name,
     template.subject,
-    template.body
+    template.body,
+    { replyTo: replyToHeader(settings), ref: deliveryRef(input.tournamentId, campaign.id) }
   );
   await campaign.update(result);
   return { status: "sent", event, roundName: round.name, sent: result.sent, failed: result.failed, campaignId: campaign.id };
@@ -268,6 +292,7 @@ export async function sendBallotReceipts(input: {
   try {
     const provider = (input.createProvider ?? createSmtpEmailProvider)();
     const tournamentRef = input.firestore.collection("tournaments").doc(input.tournament.id);
+    let settings: Awaited<ReturnType<typeof loadEmailSettings>> | undefined;
     for (const ballot of input.ballots) {
       const debate = input.debates.get(ballot.debateId);
       if (!debate) continue;
@@ -295,7 +320,8 @@ export async function sendBallotReceipts(input: {
         if (isAlreadyExists(error)) continue;
         throw error;
       }
-      const template = NOTIFICATION_TEMPLATES.ballot_receipt;
+      settings ??= await loadEmailSettings(tournamentRef);
+      const template = templateFor(settings, "ballot_receipt");
       const campaign = await createEmailCampaign(input.firestore, {
         tournamentId: input.tournament.id,
         senderUid: SYSTEM_SENDER.uid,
@@ -315,7 +341,8 @@ export async function sendBallotReceipts(input: {
         input.tournament.name,
         round?.name,
         template.subject,
-        template.body
+        template.body,
+        { replyTo: replyToHeader(settings), ref: deliveryRef(input.tournament.id, campaign.id) }
       );
       await campaign.update(result);
     }
@@ -325,4 +352,129 @@ export async function sendBallotReceipts(input: {
       error instanceof Error ? error.message : "Unknown ballot receipt error."
     );
   }
+}
+
+/** Rounds whose confirmations are emailed: drawn for teams, not cancelled, not completed. */
+function ballotConfirmationRounds(rounds: Round[]): Round[] {
+  return rounds.filter((round) =>
+    round.cancelled !== true && round.completed !== true &&
+    (round.drawStatus === "confirmed" || round.drawStatus === "released")
+  );
+}
+
+function ballotConfirmedLogId(roundId: string): string {
+  return notificationLogId("ballot_confirmed", roundId);
+}
+
+interface BallotConfirmedLog {
+  event: "ballot_confirmed";
+  subjectId: string;
+  /** Ballot ids already emailed (or skipped when the organiser opted in). */
+  sentBallotIds: Record<string, true>;
+  updatedAt: string;
+}
+
+async function confirmedBallotsOf(tournamentRef: DocumentReference, roundId: string): Promise<BallotSubmission[]> {
+  const snapshot = await tournamentRef.collection("ballots").where("roundId", "==", roundId).where("confirmed", "==", true).get();
+  return activeDocuments<BallotSubmission>(snapshot).filter((ballot) => ballot.discarded !== true);
+}
+
+/**
+ * Marks every confirmed ballot of the running rounds as already emailed, so switching
+ * "ballot confirmed" emails on mid-round does not email earlier confirmations.
+ */
+export async function baselineBallotConfirmations(firestore: Firestore, tournamentId: string): Promise<number> {
+  const loaded = await loadTournament(firestore, tournamentId);
+  if (!loaded) return 0;
+  let skipped = 0;
+  for (const round of ballotConfirmationRounds(loaded.rounds)) {
+    const ballots = await confirmedBallotsOf(loaded.tournamentRef, round.id);
+    const logRef = loaded.tournamentRef.collection(LOG_COLLECTION).doc(ballotConfirmedLogId(round.id));
+    await firestore.runTransaction(async (transaction) => {
+      const current = (await transaction.get(logRef)).data() as BallotConfirmedLog | undefined;
+      const sentBallotIds = { ...(current?.sentBallotIds ?? {}) };
+      for (const ballot of ballots) {
+        if (!sentBallotIds[ballot.id]) {
+          sentBallotIds[ballot.id] = true;
+          skipped += 1;
+        }
+      }
+      transaction.set(logRef, {
+        event: "ballot_confirmed",
+        subjectId: round.id,
+        sentBallotIds,
+        updatedAt: new Date().toISOString(),
+      } satisfies BallotConfirmedLog);
+    });
+  }
+  return skipped;
+}
+
+/**
+ * Emails the next confirmed result not emailed yet to its debate's adjudicators. Reads only the
+ * confirmed ballots of running rounds and one log document per round; each ballot is claimed in a
+ * transaction before it is sent, so two triggers never email it twice.
+ */
+export async function sendNextBallotConfirmation(input: {
+  firestore: Firestore;
+  tournamentId: string;
+  createProvider?: () => EmailProvider;
+}): Promise<RoundNotificationResult> {
+  const { firestore } = input;
+  const loaded = await loadTournament(firestore, input.tournamentId);
+  if (!loaded || loaded.tournament.preferences?.notifyBallotConfirmed !== true) return { status: "idle" };
+  const { tournament, tournamentRef } = loaded;
+  for (const round of ballotConfirmationRounds(loaded.rounds)) {
+    const logRef = tournamentRef.collection(LOG_COLLECTION).doc(ballotConfirmedLogId(round.id));
+    const [ballots, logSnapshot] = await Promise.all([confirmedBallotsOf(tournamentRef, round.id), logRef.get()]);
+    const sent = (logSnapshot.data() as BallotConfirmedLog | undefined)?.sentBallotIds ?? {};
+    const next = ballots.find((ballot) => !sent[ballot.id]);
+    if (!next) continue;
+    const provider = (input.createProvider ?? createSmtpEmailProvider)();
+    const claimed = await firestore.runTransaction(async (transaction) => {
+      const current = (await transaction.get(logRef)).data() as BallotConfirmedLog | undefined;
+      if (current?.sentBallotIds?.[next.id]) return false;
+      transaction.set(logRef, {
+        event: "ballot_confirmed",
+        subjectId: round.id,
+        sentBallotIds: { ...(current?.sentBallotIds ?? {}), [next.id]: true },
+        updatedAt: new Date().toISOString(),
+      } satisfies BallotConfirmedLog);
+      return true;
+    });
+    if (!claimed) return { status: "sent", event: "ballot_confirmed", roundName: round.name, sent: 0, failed: 0 };
+    const [debateSnapshot, adjudicatorsSnapshot] = await Promise.all([
+      tournamentRef.collection("debates").doc(next.debateId).get(),
+      tournamentRef.collection("adjudicators").get(),
+    ]);
+    const debate = debateSnapshot.exists && typeof debateSnapshot.data()?.deletedAt !== "string"
+      ? ({ ...debateSnapshot.data(), id: debateSnapshot.id } as Debate)
+      : null;
+    const recipients = debate
+      ? buildBallotConfirmedRecipients(next, debate, activeDocuments<Adjudicator>(adjudicatorsSnapshot), round, tournament.format === "bp")
+      : [];
+    if (recipients.length === 0) return { status: "sent", event: "ballot_confirmed", roundName: round.name, sent: 0, failed: 0 };
+    const settings = await loadEmailSettings(tournamentRef);
+    const template = templateFor(settings, "ballot_confirmed");
+    const campaign = await createEmailCampaign(firestore, {
+      tournamentId: input.tournamentId,
+      senderUid: SYSTEM_SENDER.uid,
+      senderEmail: SYSTEM_SENDER.email,
+      senderName: SYSTEM_SENDER.name,
+      recipientGroup: "round_adjudicators",
+      roundId: round.id,
+      roundName: round.name,
+      subjectTemplate: template.subject,
+      bodyTemplate: template.body,
+      recipients,
+      notificationKey: notificationLogId("ballot_confirmed", next.id),
+    });
+    const result = await sendEmailCampaign(provider, recipients, tournament.name, round.name, template.subject, template.body, {
+      replyTo: replyToHeader(settings),
+      ref: deliveryRef(input.tournamentId, campaign.id),
+    });
+    await campaign.update(result);
+    return { status: "sent", event: "ballot_confirmed", roundName: round.name, sent: result.sent, failed: result.failed, campaignId: campaign.id };
+  }
+  return { status: "idle" };
 }

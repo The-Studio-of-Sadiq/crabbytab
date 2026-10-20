@@ -4,9 +4,12 @@ import type { TournamentPreferences } from "@/types";
 /** Client commands for the automatic notification route (`/api/tournaments/[id]/notifications`). */
 
 export function hasAutomaticRoundNotifications(
-  preferences: Partial<Pick<TournamentPreferences, "notifyDrawReleased" | "notifyTeamPoints">> | undefined
+  preferences:
+    | Partial<Pick<TournamentPreferences, "notifyDrawReleased" | "notifyTeamPoints" | "notifyMotionsReleased" | "notifyBallotConfirmed">>
+    | undefined
 ): boolean {
-  return preferences?.notifyDrawReleased === true || preferences?.notifyTeamPoints === true;
+  return preferences?.notifyDrawReleased === true || preferences?.notifyTeamPoints === true ||
+    preferences?.notifyMotionsReleased === true || preferences?.notifyBallotConfirmed === true;
 }
 
 export interface DueNotificationsSummary {
@@ -66,7 +69,7 @@ export async function sendDueNotificationsCommand(input: {
 export async function baselineNotificationsCommand(input: {
   tournamentId: string;
   idToken: string;
-  events: RoundNotificationEvent[];
+  events: Array<RoundNotificationEvent | "ballot_confirmed">;
   fetchImpl?: typeof fetch;
 }): Promise<number> {
   const result = await postNotifications(

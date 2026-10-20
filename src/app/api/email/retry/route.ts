@@ -18,6 +18,8 @@ import {
   EmailProviderConfigError,
 } from "@/lib/email/provider";
 import { createEmailCampaign } from "@/lib/email/history";
+import { deliveryRef } from "@/lib/email/deliveryStatus";
+import { loadEmailSettings, replyToHeader } from "@/lib/email/settings";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -155,13 +157,15 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    const settings = await loadEmailSettings(getAdminFirestore().collection("tournaments").doc(tournamentId));
     const result = await sendEmailCampaign(
       provider,
       recipients,
       tournament.name,
       source.roundName,
       source.subjectTemplate,
-      source.bodyTemplate
+      source.bodyTemplate,
+      { replyTo: replyToHeader(settings), ref: deliveryRef(tournamentId, campaign.id) }
     );
     await campaign.update(result);
     await sourceReference.update({ retryInProgress: false });

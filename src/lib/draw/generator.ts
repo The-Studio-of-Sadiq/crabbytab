@@ -308,6 +308,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     sideBalancePenalty: sidesOnBallot ? 0 : preferences?.sideBalancePenalty,
     pairingDeviationPenalty: preferences?.pairingDeviationPenalty,
     previouslySawPullupPenalty: preferences?.previouslySawPullupPenalty,
+    pullupPenalty: preferences?.pullupPenalty,
     ...sideLimits,
   };
   const markSidesOnBallot = (debates: Debate[]): Debate[] =>

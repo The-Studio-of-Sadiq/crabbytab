@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
 import type { Firestore } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
@@ -19,6 +20,7 @@ import {
   submitRegistration,
 } from "@/lib/registration/service";
 import {
+  entryName,
   MAX_REGISTRATION_BODY_BYTES,
   RegistrationValidationError,
   spamSignal,
@@ -153,6 +155,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       representativeToken: body.representativeToken,
       sourceHash: createHash("sha256").update(`${tournamentRef.id}:${address}`).digest("hex").slice(0, 16),
       now,
+    });
+    // Registration received (docs/email-notifications.md): only when switched on in the email settings.
+    await sendTemplatedEmail({
+      tournamentRef,
+      tournamentName: result.tournamentName,
+      event: "registration_received",
+      recipient: {
+        email: result.entry.contactEmail,
+        name: result.entry.contactName,
+        entry: entryName(result.entry),
+        institution: result.entry.institution?.name ?? "",
+      },
+      when: (settings) => settings.registrationEmails,
     });
     return json({ received: true, kind: result.kind });
   } catch (error) {
