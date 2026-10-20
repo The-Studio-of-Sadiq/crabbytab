@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import { parseVenuesCsv } from "@/lib/csv/importer";
 import {
@@ -178,7 +179,9 @@ export default function VenuesPage() {
             <span>Venues</span>
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Manage physical and online debate rooms, priority weights, and availability status.
+            Manage physical and online debate rooms, priority weights, and availability status. Teams, adjudicators
+            and institutions can prefer room categories on the{" "}
+            <Link href={`/${tournament?.slug}/imports/venue-constraints`} className="underline">Room preferences</Link> page.
           </p>
         </div>
 
