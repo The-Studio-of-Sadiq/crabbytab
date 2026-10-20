@@ -1619,7 +1619,19 @@ export function TournamentProvider({
   activeRoundIdRef.current = activeRound?.id;
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setLiveSyncEnabledState(getLocalStore().getItem(`${storagePrefix}_liveSyncDisabled`) !== "true");
+    // The local store reads synchronously only after the tournament's keys are loaded from
+    // IndexedDB; reading earlier throws and crashed every tournament page on first render.
+    let active = true;
+    const store = getLocalStore();
+    store
+      .loadPrefix(`${storagePrefix}_`)
+      .then(() => {
+        if (active) setLiveSyncEnabledState(store.getItem(`${storagePrefix}_liveSyncDisabled`) !== "true");
+      })
+      .catch((error: unknown) => console.warn("Could not read the live-sync setting:", error));
+    return () => {
+      active = false;
+    };
   }, [storagePrefix, loading]);
   useEffect(() => {
     setLiveAdminVerified(false);
