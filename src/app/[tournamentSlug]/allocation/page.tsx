@@ -38,6 +38,8 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/feedback/scores";
 import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
 import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
+import { DEFAULT_SHARD_STATE, ShardControls, type ShardState } from "@/features/tournament/components/ShardControls";
+import { buildShards } from "@/lib/draw/sharding";
 
 function describeError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -67,6 +69,7 @@ export default function AllocationPage() {
     teamStandings,
     breakCategories,
     institutions,
+    venues,
     recordAuditEvent,
   } = useTournament();
 
@@ -83,6 +86,7 @@ export default function AllocationPage() {
   const [allocationWarnings, setAllocationWarnings] = useState<string[]>([]);
   const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
   const [showPriorityPanel, setShowPriorityPanel] = useState(true);
+  const [shardState, setShardState] = useState<ShardState>(DEFAULT_SHARD_STATE);
 
   // Drag & drop state
   const [draggingJudge, setDraggingJudge] = useState<JudgeDragPayload | null>(null);
@@ -160,6 +164,29 @@ export default function AllocationPage() {
       return pb - pa;
     });
   }, [roundDebates, debatePriorities]);
+
+  const shards = useMemo(() => {
+    const venueById = new Map(venues.map((venue) => [venue.id, venue]));
+    return buildShards(
+      roundDebates.map((debate) => ({
+        id: debate.id,
+        bracket: debate.bracket,
+        importance: debatePriorities.get(debate.id)?.priorityScore ?? debate.importance,
+        roomRank: debate.roomRank,
+        venueName: debate.venueName,
+        venueCategory: debate.venueId ? venueById.get(debate.venueId)?.category : undefined,
+      })),
+      shardState
+    );
+  }, [roundDebates, debatePriorities, venues, shardState]);
+  const openShardIds = useMemo(
+    () => (shardState.index === null ? null : new Set(shards[shardState.index] ?? [])),
+    [shards, shardState.index]
+  );
+  const visibleRoundDebates = useMemo(
+    () => (openShardIds ? sortedRoundDebates.filter((debate) => openShardIds.has(debate.id)) : sortedRoundDebates),
+    [sortedRoundDebates, openShardIds]
+  );
 
   // Determine which adjudicators are currently assigned in this round
   const assignedAdjIds = useMemo(() => {
@@ -798,8 +825,22 @@ export default function AllocationPage() {
             </span>
           </div>
 
+          {roundDebates.length > 1 && (
+            <ShardControls
+              state={shardState}
+              onChange={setShardState}
+              shardSizes={shards.map((shard) => shard.length)}
+            />
+          )}
+          {openShardIds && (
+            <p role="status" className="text-[11px] text-gray-600 dark:text-gray-300">
+              Showing {visibleRoundDebates.length} of {roundDebates.length} rooms. Auto-allocation and conflict
+              checks still cover the whole round.
+            </p>
+          )}
+
           <div className="space-y-4">
-            {sortedRoundDebates.map((debate, dIdx) => {
+            {visibleRoundDebates.map((debate, dIdx) => {
               const debateTeams: Team[] = Object.values(debate.teams || {})
                 .map((t) => (t?.teamId ? teamsMap.get(t.teamId) : undefined))
                 .filter((t): t is Team => t !== undefined);
@@ -863,7 +904,7 @@ export default function AllocationPage() {
                   <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center space-x-3">
                       <span className="font-bold text-gray-900 text-xs mr-1">
-                        {debate.venueName || `Room ${dIdx + 1}`}
+                        {debate.venueName || `Room ${debate.roomRank || dIdx + 1}`}
                       </span>
 
                       {showPriorityPanel && priority && (
