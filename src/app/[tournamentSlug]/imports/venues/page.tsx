@@ -14,11 +14,16 @@ import {
   FileSpreadsheet,
   X,
   Pencil,
+  ExternalLink,
 } from "lucide-react";
 import { Venue } from "@/types";
+import { isVenueAvailableForRound, safeVenueUrl, setVenueRoundAvailability, venueTooltip } from "@/lib/venues/venues";
+import { VenueCategoriesEditor } from "@/features/tournament/components/VenueCategoriesEditor";
 
 export default function VenuesPage() {
-  const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue } = useTournament();
+  const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue, activeRound, saveTournament } = useTournament();
+  const [newUrl, setNewUrl] = useState("");
+  const [urlError, setUrlError] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingVenue, setEditingVenue] = useState<Venue | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -42,6 +47,12 @@ export default function VenuesPage() {
   const handleCreateVenue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    const url = safeVenueUrl(newUrl);
+    if (newUrl.trim() && !url) {
+      setUrlError("Enter a full http:// or https:// link.");
+      return;
+    }
+    setUrlError("");
 
     const venueFields = {
       name: newName.trim(),
@@ -50,6 +61,7 @@ export default function VenuesPage() {
       capacity: newCapacity ? Number(newCapacity) : undefined,
       accessible: newAccessible,
       online: newOnline,
+      url,
     };
     if (editingVenue) {
       await updateVenue({ ...editingVenue, ...venueFields });
@@ -75,6 +87,8 @@ export default function VenuesPage() {
     setNewCapacity(venue.capacity === undefined ? "" : String(venue.capacity));
     setNewAccessible(venue.accessible === true);
     setNewOnline(venue.online === true);
+    setNewUrl(venue.url ?? "");
+    setUrlError("");
     setShowAddModal(true);
   };
 
@@ -86,11 +100,19 @@ export default function VenuesPage() {
     setNewCapacity("");
     setNewAccessible(false);
     setNewOnline(false);
+    setNewUrl("");
+    setUrlError("");
     setShowAddModal(true);
   };
 
   const toggleAvailability = async (venue: Venue) => {
     await updateVenue({ ...venue, available: venue.available === false });
+  };
+
+  /** Availability in the selected round only (Tabbycat round availability for rooms). */
+  const toggleRoundAvailability = async (venue: Venue) => {
+    if (!activeRound) return;
+    await updateVenue(setVenueRoundAvailability(venue, activeRound.id, !isVenueAvailableForRound(venue, activeRound.id)));
   };
 
   // ─── CSV Import Handlers ───
@@ -207,6 +229,7 @@ export default function VenuesPage() {
                 <th className="w-24 text-center">Capabilities</th>
                 <th className="w-24 text-center">Priority</th>
                 <th className="w-28 text-center">Availability</th>
+                {activeRound && <th className="w-28 text-center">In {activeRound.abbreviation || activeRound.name}</th>}
                 <th className="w-20 text-right">Actions</th>
               </tr>
             </thead>
@@ -214,7 +237,23 @@ export default function VenuesPage() {
               {filteredVenues.map((venue, idx) => (
                 <tr key={venue.id} className="hover:bg-gray-50">
                   <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
-                  <td className="font-bold text-gray-900 text-xs">{venue.name}</td>
+                  <td
+                    className="font-bold text-gray-900 text-xs"
+                    title={venueTooltip(venue, tournament?.preferences?.venueCategories, "admin")}
+                  >
+                    {venue.name}
+                    {safeVenueUrl(venue.url) && (
+                      <a
+                        href={safeVenueUrl(venue.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-1.5 inline-flex items-center text-blue-600 hover:text-blue-800"
+                        aria-label={`Open the link for ${venue.name}`}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </td>
                   <td className="text-xs text-gray-500">
                     <input
                       aria-label={`${venue.name} category`}
@@ -281,6 +320,24 @@ export default function VenuesPage() {
                       {venue.available !== false ? "Available" : "Unavailable"}
                     </button>
                   </td>
+                  {activeRound && (
+                    <td className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleRoundAvailability(venue)}
+                        aria-pressed={isVenueAvailableForRound(venue, activeRound.id)}
+                        title={venue.roundAvailability?.[activeRound.id] === undefined ? "Follows the default availability" : "Set for this round"}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase transition ${
+                          isVenueAvailableForRound(venue, activeRound.id)
+                            ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                            : "bg-red-100 text-red-800 hover:bg-red-200"
+                        }`}
+                      >
+                        {isVenueAvailableForRound(venue, activeRound.id) ? "In use" : "Not in use"}
+                        {venue.roundAvailability?.[activeRound.id] === undefined ? "" : " *"}
+                      </button>
+                    </td>
+                  )}
                   <td className="text-right">
                     <button
                       type="button"
@@ -309,6 +366,16 @@ export default function VenuesPage() {
           </table>
         </div>
       </div>
+
+      {tournament && (
+        <VenueCategoriesEditor
+          venues={venues}
+          categories={tournament.preferences?.venueCategories}
+          onSave={(venueCategories) =>
+            saveTournament({ ...tournament, preferences: { ...tournament.preferences, venueCategories } })
+          }
+        />
+      )}
 
       {/* Add Venue Modal */}
       {showAddModal && (
@@ -368,6 +435,23 @@ export default function VenuesPage() {
                   onChange={(e) => setNewCapacity(e.target.value)}
                   className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="venue-url" className="block text-xs font-semibold text-gray-700 mb-1">
+                  Room link (map or meeting link; shown in the draw, private URLs and emails)
+                </label>
+                <input
+                  id="venue-url"
+                  type="url"
+                  placeholder="https://"
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  aria-invalid={Boolean(urlError)}
+                  aria-describedby={urlError ? "venue-url-error" : undefined}
+                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
+                />
+                {urlError && <p id="venue-url-error" role="alert" className="mt-1 text-[11px] text-red-700">{urlError}</p>}
               </div>
 
               <div className="flex gap-4 text-xs">
@@ -464,6 +548,7 @@ export default function VenuesPage() {
                   <li><strong>capacity</strong> — Maximum seating capacity</li>
                   <li><strong>accessible</strong> — Whether the venue is accessible (yes/no)</li>
                   <li><strong>online</strong> — Whether the venue supports online debates (yes/no)</li>
+                  <li><strong>url</strong> — Map or meeting link (http or https)</li>
                 </ul>
               </div>
 

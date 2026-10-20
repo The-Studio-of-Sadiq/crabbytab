@@ -76,6 +76,34 @@ function source(overrides: Partial<PublicSourceData> = {}): PublicSourceData {
 }
 
 describe("buildPublicProjection", () => {
+  it("publishes safe room links and only public room category descriptions", () => {
+    const projection = buildPublicProjection(
+      {
+        ...tournament,
+        preferences: {
+          ...(tournament.preferences as object),
+          venueCategories: [
+            { name: "Purple", description: "is near the hall", publicTooltip: true, displayInName: "prefix" },
+            { name: "Lift", description: "is next to the staff room", displayInName: "none" },
+          ],
+        },
+      },
+      source({
+        venues: [
+          { id: "v1", name: "Online 1", url: "https://meet.example.org/a", priority: 1 },
+          { id: "v2", name: "Bad", url: "javascript:alert(1)", priority: 1 },
+        ],
+      })
+    );
+    const venues = projection.collections.venues as Array<Record<string, unknown>>;
+    expect(venues.find((venue) => venue.id === "v1")?.url).toBe("https://meet.example.org/a");
+    expect(venues.find((venue) => venue.id === "v2")).not.toHaveProperty("url");
+    expect(projection.tournament.preferences.venueCategories).toEqual([
+      { name: "Purple", description: "is near the hall", publicTooltip: true, displayInName: "prefix" },
+      { name: "Lift", displayInName: "none" },
+    ]);
+  });
+
   it("removes private fields and unreleased data", () => {
     const projection = buildPublicProjection(tournament, source());
     expect(projection.tournament).not.toHaveProperty("ownerEmail");
