@@ -1,6 +1,9 @@
 /**
  * Kuhn-Munkres (Hungarian) algorithm implementation for optimal weighted bipartite matching.
  * Solves the minimum weight matching problem for an N x M cost matrix in O(n^3) time.
+ *
+ * The matrix and potentials live in flat Float64Arrays (wave 4 speed work); the arithmetic and
+ * the order of every comparison are unchanged, so ties resolve exactly as before.
  */
 
 export function solveHungarian(costMatrix: number[][]): number[] {
@@ -9,32 +12,39 @@ export function solveHungarian(costMatrix: number[][]): number[] {
   const m = costMatrix[0].length;
   if (m === 0) return [];
 
-  // If rectangular with n > m, pad columns with 0
+  // Rectangular matrices are padded with 0 to a square of side dim.
   const dim = Math.max(n, m);
-  const matrix: number[][] = Array.from({ length: dim }, (_, r) =>
-    Array.from({ length: dim }, (_, c) => (r < n && c < m ? costMatrix[r][c] : 0))
-  );
+  const matrix = new Float64Array(dim * dim);
+  for (let r = 0; r < n; r++) {
+    const source = costMatrix[r];
+    const offset = r * dim;
+    for (let c = 0; c < m; c++) matrix[offset + c] = source[c];
+  }
 
-  const u = new Array(dim + 1).fill(0);
-  const v = new Array(dim + 1).fill(0);
-  const p = new Array(dim + 1).fill(0);
-  const way = new Array(dim + 1).fill(0);
+  const u = new Float64Array(dim + 1);
+  const v = new Float64Array(dim + 1);
+  const p = new Int32Array(dim + 1);
+  const way = new Int32Array(dim + 1);
+  const minv = new Float64Array(dim + 1);
+  const used = new Uint8Array(dim + 1);
 
   for (let i = 1; i <= dim; i++) {
     p[0] = i;
     let j0 = 0;
-    const minv = new Array(dim + 1).fill(Infinity);
-    const used = new Array(dim + 1).fill(false);
+    minv.fill(Infinity);
+    used.fill(0);
 
     do {
-      used[j0] = true;
+      used[j0] = 1;
       const i0 = p[j0];
+      const rowOffset = (i0 - 1) * dim - 1;
+      const ui0 = u[i0];
       let delta = Infinity;
       let j1 = 0;
 
       for (let j = 1; j <= dim; j++) {
         if (!used[j]) {
-          const cur = matrix[i0 - 1][j - 1] - u[i0] - v[j];
+          const cur = matrix[rowOffset + j] - ui0 - v[j];
           if (cur < minv[j]) {
             minv[j] = cur;
             way[j] = j0;
@@ -65,7 +75,7 @@ export function solveHungarian(costMatrix: number[][]): number[] {
     } while (j0 !== 0);
   }
 
-  const result = new Array(n).fill(-1);
+  const result = new Array<number>(n).fill(-1);
   for (let j = 1; j <= dim; j++) {
     if (p[j] <= n && j <= m) {
       result[p[j] - 1] = j - 1;
