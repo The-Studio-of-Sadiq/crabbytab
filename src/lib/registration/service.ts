@@ -146,7 +146,7 @@ export async function submitRegistration(input: {
   representativeToken?: unknown;
   sourceHash?: string;
   now: number;
-}): Promise<{ id: string; kind: RegistrationEntry["kind"] }> {
+}): Promise<{ id: string; kind: RegistrationEntry["kind"]; entry: RegistrationEntry; tournamentName: string }> {
   const refs = registrationRefs(input.tournamentRef);
   const settings = readSettings((await refs.settingsRef.get()).data());
   if (!settings) throw new RegistrationError("This tournament is not taking registrations.", 403);
@@ -179,7 +179,7 @@ export async function submitRegistration(input: {
     transaction.create(reference, stripUndefined(submission));
     transaction.set(refs.countersRef, adjustCounters(counters, entry.kind, key, 1));
   });
-  return { id: reference.id, kind: entry.kind };
+  return { id: reference.id, kind: entry.kind, entry, tournamentName: settings.tournamentName };
 }
 
 /** Firestore rejects undefined values; registration records never need them. */
@@ -364,26 +364,4 @@ export function issueRepresentative(
 
 export function representativeLink(origin: string, slug: string, token: string): string {
   return `${origin}/register/${encodeURIComponent(slug)}#${token}`;
-}
-
-export function buildRepresentativeEmail(input: {
-  tournamentName: string;
-  institutionName: string;
-  name: string;
-  link: string;
-  closesAt?: string;
-}): { subject: string; text: string } {
-  return {
-    subject: `Register ${input.institutionName} for ${input.tournamentName}`,
-    text: [
-      input.name ? `Hello ${input.name},` : "Hello,",
-      "",
-      `You have been named as the representative of ${input.institutionName} for ${input.tournamentName}.`,
-      "Use this personal link to register your institution's teams and adjudicators:",
-      input.link,
-      "",
-      input.closesAt ? `Registration closes on ${new Date(input.closesAt).toUTCString()}.` : "",
-      "Keep the link private: anyone with it can register entries for your institution.",
-    ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n"),
-  };
 }

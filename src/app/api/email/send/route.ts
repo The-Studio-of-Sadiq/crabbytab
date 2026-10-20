@@ -21,6 +21,8 @@ import {
 } from "@/lib/email/provider";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { createEmailCampaign } from "@/lib/email/history";
+import { deliveryRef } from "@/lib/email/deliveryStatus";
+import { loadEmailSettings, replyToHeader } from "@/lib/email/settings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -138,13 +140,15 @@ export async function POST(request: NextRequest) {
       bodyTemplate: messageBody,
       recipients,
     });
+    const settings = await loadEmailSettings(firestore.collection("tournaments").doc(tournamentId));
     const result = await sendEmailCampaign(
       provider,
       recipients,
       tournament.name,
       round?.name,
       subject,
-      messageBody
+      messageBody,
+      { replyTo: replyToHeader(settings), ref: deliveryRef(tournamentId, campaign.id) }
     );
     await campaign.update(result);
     return NextResponse.json({

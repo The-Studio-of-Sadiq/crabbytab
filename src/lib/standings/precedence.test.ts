@@ -270,8 +270,8 @@ describe("calculateStandings: pullups metric", () => {
     expect(result.teams.find((r) => r.teamId === "t2")!.metrics.pullups).toBe(0);
   });
 
-  it("ranks the team with fewer pull-ups higher when pullups breaks a tie", () => {
-    expect(TEAM_METRIC_DIRECTION.pullups).toBe(-1);
+  it("ranks the team with more pull-ups higher when pullups breaks a tie, as Tabbycat's npullups", () => {
+    expect(TEAM_METRIC_DIRECTION.pullups).toBe(1);
     const t = tournament("bp", { teamStandingsPrecedence: ["points", "pullups"] });
     const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"].map((id) => team(id, id.toUpperCase()));
     const pulled = bpDebate("d1", 1, { OG: "t1", OO: "t2", CG: "t3", CO: "t4" });
@@ -283,7 +283,7 @@ describe("calculateStandings: pullups metric", () => {
       bpBallot("b2", "d2", { OG: 3, OO: 2, CG: 1, CO: 0 }, speaks),
     ]);
     const rankOf = (id: string) => result.teams.find((r) => r.teamId === id)!.rank;
-    expect(rankOf("t5")).toBeLessThan(rankOf("t1"));
+    expect(rankOf("t1")).toBeLessThan(rankOf("t5"));
   });
 });
 

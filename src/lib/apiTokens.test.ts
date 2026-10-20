@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createApiToken, hashApiToken, isApiTokenScope, readBearerToken } from "./apiTokens";
+import {
+  createApiToken,
+  hashApiToken,
+  isApiTokenScope,
+  isPublicOnlyToken,
+  parseRequestedScopes,
+  readBearerToken,
+  scopesAllow,
+  storedTokenScopes,
+} from "./apiTokens";
 
 describe("API token helpers", () => {
   it("creates random credentials with a stable non-reversible digest", () => {
@@ -20,9 +29,33 @@ describe("API token helpers", () => {
     expect(readBearerToken(token)).toBeNull();
   });
 
-  it("recognizes supported read-only scopes", () => {
+  it("recognizes supported scopes", () => {
     expect(isApiTokenScope("read:public")).toBe(true);
     expect(isApiTokenScope("read:draws")).toBe(true);
+    expect(isApiTokenScope("write:results")).toBe(true);
+    expect(isApiTokenScope("write:standings")).toBe(false);
     expect(isApiTokenScope("write:everything")).toBe(false);
+  });
+
+  it("reads legacy single-scope and current multi-scope tokens", () => {
+    expect(storedTokenScopes({ scope: "read:draws" })).toEqual(["read:draws"]);
+    expect(storedTokenScopes({ scopes: ["read:rounds", "bogus", "read:rounds"] })).toEqual(["read:rounds"]);
+    expect(storedTokenScopes({})).toEqual([]);
+  });
+
+  it("validates requested scopes", () => {
+    expect(parseRequestedScopes("read:public")).toEqual(["read:public"]);
+    expect(parseRequestedScopes(["write:draws", "read:teams"])).toBeNull();
+    expect(parseRequestedScopes([])).toBeNull();
+    expect(parseRequestedScopes(["read:public", "read:draws"])).toBeNull();
+    expect(parseRequestedScopes(["write:draws", "write:draws"])).toEqual(["write:draws"]);
+  });
+
+  it("lets write imply read, never the reverse", () => {
+    expect(scopesAllow(["write:draws"], "draws", "read")).toBe(true);
+    expect(scopesAllow(["read:draws"], "draws", "write")).toBe(false);
+    expect(scopesAllow(["write:draws"], "results", "read")).toBe(false);
+    expect(isPublicOnlyToken(["read:public"])).toBe(true);
+    expect(isPublicOnlyToken(["read:draws"])).toBe(false);
   });
 });

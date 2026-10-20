@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
+import { resolveAssistantAccess, resolveStaffPermissions } from "@/lib/staffPermissions";
 
 export const runtime = "nodejs";
 
@@ -50,8 +51,20 @@ export async function GET(
       staffSnapshot.data()?.role,
       false
     );
+    // Data-entry staff also learn their effective permissions (docs/staff-access.md), so the app
+    // can hide what the server would refuse anyway.
+    const preferences = data.preferences as { assistantAccess?: unknown } | undefined;
     return NextResponse.json(
-      { role, globalAdmin: false },
+      {
+        role,
+        globalAdmin: false,
+        ...(role === "dataEntry"
+          ? {
+              permissions: resolveStaffPermissions(staffSnapshot.data(), preferences?.assistantAccess),
+              assistantAccess: resolveAssistantAccess(preferences?.assistantAccess),
+            }
+          : {}),
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {

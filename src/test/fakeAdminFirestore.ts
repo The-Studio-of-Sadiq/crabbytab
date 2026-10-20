@@ -8,6 +8,8 @@ import type { Firestore } from "firebase-admin/firestore";
  */
 
 type Data = Record<string, unknown>;
+/** Field, value and operator: "==" (the default) or "array-contains". */
+type Filter = [string, unknown, string?];
 
 export interface FakeAdminFirestore {
   firestore: Firestore;
@@ -52,21 +54,24 @@ export function createFakeAdminFirestore(initial: Record<string, Data> = {}): Fa
     store.set(path, structuredClone({ ...store.get(path), ...data }));
   };
 
-  function querySnapshot(path: string, filters: Array<[string, unknown]>, max?: number) {
+  function querySnapshot(path: string, filters: Filter[], max?: number) {
     const prefix = `${path}/`;
     const docs = [...store.keys()]
       .filter((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes("/"))
       .sort()
-      .filter((key) => filters.every(([field, value]) => store.get(key)?.[field] === value))
+      .filter((key) => filters.every(([field, value, operator]) => {
+        const stored = store.get(key)?.[field];
+        return operator === "array-contains" ? Array.isArray(stored) && stored.includes(value) : stored === value;
+      }))
       .slice(0, max)
       .map((key) => snapshot(key));
     if (docs.length === 0) reads += 1;
     return { docs, empty: docs.length === 0, size: docs.length };
   }
 
-  function query(path: string, filters: Array<[string, unknown]>, max?: number): unknown {
+  function query(path: string, filters: Filter[], max?: number): unknown {
     return {
-      where: (field: string, _operator: string, value: unknown) => query(path, [...filters, [field, value]], max),
+      where: (field: string, operator: string, value: unknown) => query(path, [...filters, [field, value, operator]], max),
       limit: (next: number) => query(path, filters, next),
       get: async () => querySnapshot(path, filters, max),
     };
@@ -101,7 +106,9 @@ export function createFakeAdminFirestore(initial: Record<string, Data> = {}): Fa
     runTransaction: async <T>(callback: (transaction: unknown) => Promise<T>): Promise<T> => {
       const writes: Array<() => void> = [];
       const transaction = {
-        get: async (ref: Ref) => snapshot(ref.path),
+        // A document reference, or a query (no path) read inside the transaction.
+        get: async (ref: Ref | { get: () => Promise<unknown> }) =>
+          "path" in ref ? snapshot(ref.path) : ref.get(),
         set: (ref: Ref, data: Data, options?: { merge?: boolean }) => {
           writes.push(() => applySet(ref.path, data, options));
           return transaction;

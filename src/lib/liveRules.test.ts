@@ -46,6 +46,13 @@ describe("live collection rules", () => {
     ]) {
       expect(ballotRule).toContain(condition);
     }
-    expect(rules).toMatch(/match \/ballots\/\{ballotId\} \{\s*allow create: if isAssignedAssistant\(\) && isAssistantBallot\(ballotId\);\s*\}/);
+    expect(rules).toMatch(/match \/ballots\/\{ballotId\} \{\s*allow create: if isAssignedAssistant\(\) && isAssistantBallot\(ballotId\) && assistantMay\("results\.enter"\);\s*\}/);
+  });
+
+  it("check staff permissions on assistants' direct live writes", () => {
+    expect(rules).toContain('allow update: if isAssignedAssistant() && isAssistantCheckIn() && assistantMay("checkins.edit");');
+    const helper = rules.slice(rules.indexOf("function assistantMay"), rules.indexOf("allow read: if isTournamentAdmin() || isAssignedAssistant();"));
+    expect(helper).toContain('preferences.get("assistantAccess", "all_areas") != "none"');
+    expect(helper).toContain('staff.get("permissions", null) == null || permission in staff.permissions');
   });
 });
