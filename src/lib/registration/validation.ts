@@ -1,7 +1,7 @@
 import type { FeedbackAnswer, FeedbackQuestion, FeedbackQuestionType } from "@/types";
 import { isFeedbackAnswerRecord, validateFeedbackAnswers, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { normalizeEmail } from "@/lib/emailAddress";
-import { normalizePhoneNumber } from "@/lib/sms/provider";
+import { normalizePhoneNumber } from "@/lib/phone";
 import { CODE_NAME_GENERATORS, TEAM_NAME_GENERATORS, type CodeNameGenerator, type TeamNameGenerator } from "@/lib/registration/names";
 import type {
   AdjudicatorRegistrationData,
