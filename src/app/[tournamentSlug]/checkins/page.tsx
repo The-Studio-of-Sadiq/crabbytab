@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Code39Barcode } from "@/components/ui/Code39Barcode";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   availabilityFromPreviousRound,
@@ -300,6 +301,7 @@ export default function CheckinsPage() {
   return (
     <>
     <div className="space-y-6 screen-only">
+      <CurrentRoundsBar what="availability" />
       {/* Header */}
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

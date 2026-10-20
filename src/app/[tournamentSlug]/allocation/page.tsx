@@ -38,6 +38,7 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/feedback/scores";
 import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
 import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 import { DEFAULT_SHARD_STATE, ShardControls, type ShardState } from "@/features/tournament/components/ShardControls";
 import { buildShards } from "@/lib/draw/sharding";
 
@@ -612,6 +613,7 @@ export default function AllocationPage() {
 
   return (
     <div className="space-y-6">
+      <CurrentRoundsBar />
       {/* Header */}
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

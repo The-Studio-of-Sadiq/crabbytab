@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { Motion } from "@/types";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
+import { RoundMotionsPanel } from "@/features/tournament/components/RoundMotionsPanel";
+import { MotionSettingsCard } from "@/features/tournament/components/MotionSettingsCard";
 
 export default function MotionsPage() {
   const { tournament, motions, rounds, addMotion, addMotions, updateMotion, deleteMotion } = useTournament();
@@ -198,10 +200,14 @@ export default function MotionsPage() {
         </div>
       </div>
 
+      {filterRoundId && rounds.some((round) => round.id === filterRoundId) && (
+        <RoundMotionsPanel round={rounds.find((round) => round.id === filterRoundId)!} />
+      )}
+
       {/* Motions List */}
       <div className="space-y-4">
         {filteredMotions.map((motion, idx) => {
-          const assignedRound = rounds.find((r) => motion.rounds && motion.rounds.includes(r.id));
+          const assignedRounds = rounds.filter((r) => motion.rounds && motion.rounds.includes(r.id));
 
           return (
             <div
@@ -213,9 +219,9 @@ export default function MotionsPage() {
                   <span className="font-bold text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
                     {motion.reference || `Motion ${idx + 1}`}
                   </span>
-                  {assignedRound ? (
+                  {assignedRounds.length > 0 ? (
                     <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
-                      Allocated to: {assignedRound.name}
+                      Allocated to: {assignedRounds.map((round) => round.name).join(", ")}
                     </span>
                   ) : (
                     <span className="text-[11px] text-gray-400 italic">Unassigned round</span>
@@ -446,27 +452,29 @@ export default function MotionsPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Assign to Round</label>
-                <select
-                  value={editingMotion.rounds?.[0] || ""}
-                  onChange={(e) => {
-                    const rId = e.target.value;
-                    setEditingMotion({
-                      ...editingMotion,
-                      rounds: rId ? [rId] : [],
-                    });
-                  }}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white"
-                >
-                  <option value="">-- No specific round --</option>
+              <fieldset>
+                <legend className="block text-xs font-semibold text-gray-700 mb-1">Assigned rounds</legend>
+                <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto rounded border border-gray-200 p-2">
                   {rounds.map((r) => (
-                    <option key={r.id} value={r.id}>
+                    <label key={r.id} className="flex items-center gap-2 text-xs text-gray-800">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingMotion.rounds?.includes(r.id))}
+                        onChange={(e) => {
+                          const current = editingMotion.rounds || [];
+                          const next = e.target.checked ? [...current, r.id] : current.filter((id) => id !== r.id);
+                          const roundSeq = { ...editingMotion.roundSeq };
+                          if (!e.target.checked) delete roundSeq[r.id];
+                          setEditingMotion({ ...editingMotion, rounds: next, roundSeq });
+                        }}
+                        className="rounded border-gray-300"
+                      />
                       {r.name}
-                    </option>
+                    </label>
                   ))}
-                </select>
-              </div>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">A motion can be reused in several rounds (for example parallel panels).</p>
+              </fieldset>
 
               <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
                 <button
@@ -571,6 +579,8 @@ export default function MotionsPage() {
           </div>
         </div>
       )}
+      <MotionSettingsCard />
+
       {motionPendingRelease && (
         <ReleaseActionDialog
           title={motionPendingRelease.released ? "Unpublish this motion?" : "Publish this motion?"}

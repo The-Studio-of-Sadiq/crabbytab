@@ -36,14 +36,21 @@ export function liveScopeKey(scope: LiveScope): string {
 /**
  * The listeners for an administrator's device: check-ins (teams and adjudicators, whole
  * collections, since availability is per round on each record) and the active round's debates
- * (draw and allocation) and ballots. Earlier rounds are not listened to: their records change
- * rarely and arrive with the next load or download, which keeps reads proportional to the work of
- * the current round.
+ * (draw and allocation) and ballots, plus those of the rounds running at the same time
+ * (`concurrentRoundIds`, the same schedule slot), whose draws decide who is free. Earlier rounds
+ * are not listened to: their records change rarely and arrive with the next load or download,
+ * which keeps reads proportional to the work of the current rounds.
  */
-export function liveListenerScopes(activeRoundId: string | null | undefined): LiveScope[] {
+export function liveListenerScopes(
+  activeRoundId: string | null | undefined,
+  concurrentRoundIds: readonly string[] = []
+): LiveScope[] {
   const scopes: LiveScope[] = [{ collection: "teams" }, { collection: "adjudicators" }];
   if (activeRoundId) {
-    scopes.push({ collection: "debates", roundId: activeRoundId }, { collection: "ballots", roundId: activeRoundId });
+    const roundIds = [activeRoundId, ...concurrentRoundIds.filter((id) => id && id !== activeRoundId)];
+    for (const roundId of [...new Set(roundIds)]) {
+      scopes.push({ collection: "debates", roundId }, { collection: "ballots", roundId });
+    }
   }
   return scopes;
 }

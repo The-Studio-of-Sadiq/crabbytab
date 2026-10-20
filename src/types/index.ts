@@ -322,8 +322,8 @@ export interface TournamentPreferences {
   maxAllowedSideImbalance?: number; // default 0
   pullupPenalty?: number; // default 0
   /**
-   * @deprecated Never implemented: stored by older versions but read by nothing. Concurrent
-   * rounds / schedule slots are tracked as a wave 5 roadmap item. Kept so saved settings still load.
+   * @deprecated Never read: replaced by `preliminaryPanels`, into which normalizePreferences
+   * moves a stored value (see src/features/tournament/application/schedule.ts).
    */
   preliminaryPanelsPerScheduleSlot?: number;
 
@@ -488,6 +488,45 @@ export interface TournamentPreferences {
   venueCategories?: VenueCategoryInfo[];
   /** Hours a room check-in stays valid (Tabbycat checkin_window_venues). Absent or 0 = never expires. */
   venueCheckInExpiresAfterHours?: number;
+
+  /** Rounds, schedule and motions (w45). See docs/rounds-schedule-and-motions.md. */
+  /**
+   * Tabbycat's prelim_panels: preliminary rounds per schedule slot (parallel panels A/B). Used when
+   * grouping preliminary rounds into slots; absent = 1 (every round its own slot).
+   */
+  preliminaryPanels?: number;
+  /** Minutes from motion release to the round's start (Tabbycat preparation_time). Absent or negative = off. */
+  preparationTime?: number;
+  /** Public schedule page and iCalendar feed. Absent = hidden. */
+  publicSchedule?: boolean;
+  /** Tournament schedule (Tabbycat ScheduleEvent), oldest first. */
+  scheduleEvents?: ScheduleEvent[];
+  /** Ballots record each team's ranked motion preferences (Tabbycat DebateTeamMotionPreference). */
+  enableMotionPreferences?: boolean;
+}
+
+/** Tabbycat's ScheduleEvent types. */
+export type ScheduleEventType =
+  | "check_in"
+  | "briefing"
+  | "draw"
+  | "preparation"
+  | "debate"
+  | "adjudication"
+  | "rest"
+  | "break_announcement"
+  | "awards"
+  | "other";
+
+export interface ScheduleEvent {
+  id: string;
+  type: ScheduleEventType;
+  /** Optional custom title; without one the round name and event type are shown. */
+  title?: string;
+  /** ISO date-time. */
+  startTime: string;
+  endTime?: string;
+  roundId?: string;
 }
 
 /** Display options of a room category (matched to Venue.category by name, ignoring case). */
@@ -591,6 +630,8 @@ export type RoundStage = "preliminary" | "elimination";
 /** "seeded": two-team only; one bracket ordered by Team.seed (higher is stronger), as Tabbycat. */
 export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual" | "seeded";
 export type DrawStatus = "none" | "draft" | "confirmed" | "released";
+/** Tabbycat's Round.motions_status: info slides can be shown before the motions themselves. */
+export type MotionsStatus = "not_released" | "info_slides_released" | "motions_released";
 
 export interface Round {
   id: string;
@@ -604,7 +645,20 @@ export interface Round {
   adjudicatorsRevealed?: boolean;
   feedbackWeight: number;
   silent: boolean;
+  /**
+   * Derived: true exactly when the round's motions are released (motionsStatusOf(round) is
+   * "motions_released"). Portals, assistants and the public projection read this flag.
+   */
   motionsReleased: boolean;
+  /** Absent on older rounds: read through motionsStatusOf() in motionRelease.ts. */
+  motionsStatus?: MotionsStatus;
+  /**
+   * Rounds sharing a schedule group run at the same time (parallel panels, Tabbycat
+   * schedule_group). Absent = seq. Read through scheduleGroupOf() in schedule.ts.
+   */
+  scheduleGroup?: number;
+  /** When the round starts (ISO date-time); set by hand or by preparation time on motion release. */
+  startsAt?: string;
   resultsReleased: boolean;
   teamSpeaksReleased?: boolean;
   breakCategoryIds?: string[];
@@ -864,6 +918,8 @@ export interface Debate {
   motionText?: string;
   postponed?: boolean;
   postponedReason?: string;
+  /** When this debate is scheduled to start (ISO date-time), if it differs from the round's start. */
+  scheduledTime?: string;
 }
 
 export interface SpeakerScoreEntry {
@@ -936,6 +992,8 @@ export interface BallotSubmission {
   sheets?: AdjudicatorSheet[];
   /** Motion id vetoed by each side. */
   vetoes?: Partial<Record<DebateSide, string>>;
+  /** Each side's ranked motion preferences, most preferred first (enableMotionPreferences). */
+  motionPreferences?: Partial<Record<DebateSide, string[]>>;
   /** Side that forfeited; a forfeit ballot carries no speaker scores. */
   forfeitSide?: DebateSide;
   /**
@@ -963,6 +1021,8 @@ export interface Motion {
   infoSlide?: string;
   rounds: string[]; // IDs of rounds this motion is allocated to
   seq?: number;
+  /** Order within each assigned round (Tabbycat RoundMotion.seq), keyed by round id; absent -> seq. */
+  roundSeq?: Record<string, number>;
   released: boolean;
 }
 

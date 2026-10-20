@@ -64,7 +64,7 @@ export async function GET(
         "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
         "adjudicatorsRevealed", "feedbackWeight", "silent", "motionsReleased", "resultsReleased",
         "teamSpeaksReleased", "breakCategoryIds", "eliminationAdvanced", "cancelled", "completed", "createdAt",
-        "weight",
+        "weight", "motionsStatus", "scheduleGroup", "startsAt",
       ])),
       teams: records.teams.map((team) => ({
         ...pickFields(team, [
@@ -86,7 +86,7 @@ export async function GET(
         "checkedIn", "checkedInAt", "checkInHistory",
       ])),
       motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
-        "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released",
+        "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "roundSeq", "released",
       ])),
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",

@@ -37,6 +37,7 @@ import {
   getRoundCompletionBlockers,
   setRoundCompletion,
 } from "@/features/tournament/application/roundAdministration";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 
 const BP_SIDES: readonly DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
@@ -185,6 +186,7 @@ export default function ResultsOverviewPage() {
           </Link>
         }
       />
+      <CurrentRoundsBar what="results" />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div role="group" aria-label="Select round" className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">

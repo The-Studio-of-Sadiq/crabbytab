@@ -139,6 +139,54 @@ export async function updateRoundCommand(
   });
 }
 
+/**
+ * Saves several changed rounds at once (e.g. grouping preliminary rounds into schedule slots), so
+ * no change is lost to a stale round list. Every round is checked like updateRoundCommand, and
+ * nothing is saved unless all of them pass.
+ */
+export async function updateRoundsCommand(
+  changed: Round[],
+  rounds: Round[],
+  activeRound: Round | null,
+  dependencies: RoundManagementDependencies & {
+    cloudRepository?: RoundCloudRepository;
+    guards: RoundGuardContext;
+  },
+  summary: string,
+  override?: RuleOverride
+): Promise<void> {
+  if (changed.length === 0) return;
+  const byId = new Map(changed.map((round) => [round.id, round]));
+  const updatedRounds = rounds.map((item) => byId.get(item.id) ?? item);
+  const { debates, ballots, drawIssues } = dependencies.guards;
+  const violations = changed.flatMap((round) => {
+    const previous = rounds.find((item) => item.id === round.id);
+    if (!previous) throw new Error(`Cannot update round ${round.id}: it no longer exists.`);
+    return checkRoundUpdate(previous, round, { rounds: updatedRounds, debates, ballots }, () => drawIssues(round));
+  });
+  await applyGuards(violations, override, {
+    action: "rounds.updated",
+    category: "tournament",
+    record: dependencies.recordAuditEvent,
+  });
+  if (dependencies.cloudRepository) {
+    for (const round of changed) await dependencies.cloudRepository.saveRound(round);
+  }
+  const active = activeRound ? byId.get(activeRound.id) : undefined;
+  dependencies.localRepository.saveRounds(updatedRounds, active);
+  await dependencies.recordAuditEvent({
+    action: "rounds.updated",
+    category: "tournament",
+    summary,
+    details: {
+      rounds: changed.map((round) => ({
+        roundId: round.id,
+        changes: getRoundChangeSummary(rounds.find((item) => item.id === round.id)!, round),
+      })),
+    },
+  });
+}
+
 export function getRoundChangeSummary(previous: Round, next: Round) {
   const trackedFields = [
     "drawStatus",
@@ -147,6 +195,11 @@ export function getRoundChangeSummary(previous: Round, next: Round) {
     "resultsReleased",
     "teamSpeaksReleased",
     "motionsReleased",
+    "motionsStatus",
+    "scheduleGroup",
+    "startsAt",
+    "name",
+    "abbreviation",
     "silent",
     "cancelled",
     "weight",

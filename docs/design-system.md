@@ -48,6 +48,7 @@ Other tokens:
 | `Input`, `Select`, `Textarea` | Pass `label`, `help` and `error`. They wire up `htmlFor`, `aria-describedby` and `aria-invalid`. Without a visible label, pass `aria-label`. `Input` takes an optional `leadingIcon`. |
 | `Checkbox`, `Switch` | Both have a visible label and an optional description. `Switch` uses `role="switch"`; use it for settings that apply immediately. |
 | `Card`, `CardHeader`, `CardBody`, `Section` | Framed region / unframed titled region. |
+| `SegmentedControl` | A few mutually exclusive options side by side (WAI-ARIA radio group): arrow keys, Home/End, roving tab stop; the selected option is marked by fill and border. Used for the three-state motion release. |
 | `Badge`, `StatusPill` | `Badge` is a neutral or toned label. `StatusPill` always renders an icon *and* text. Use it for any state (draft/confirmed, online/offline). |
 | `TableContainer`, `Table`, `THead`, `TR`, `TH`, `TD`, `TableEmpty` | Dense rows separated by hairlines, no zebra striping. Rows are highlighted on hover. Pass `numeric` to `TD` for right-aligned mono figures. For a sticky header, give the `TableContainer` a max height (e.g. `max-h-[calc(100vh-16rem)]`). Without one the header scrolls with the page. Show `TableEmpty` when a table has no rows. |
 | `Tabs`, `TabPanel` | WAI-ARIA tabs with arrow/Home/End keys. Use the same `id` on both. |

@@ -21,6 +21,8 @@ import {
   redactUnreleasedBreak,
 } from "@/lib/publicRelease";
 import { resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
+import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
+import { publicScheduleEvents } from "@/lib/schedule/events";
 import { currentDrawRoundId, getPublicSiteSettings, isRoundDrawPublic, type PublicSiteSettings } from "@/lib/publicFeatures";
 import { sheetOutcome } from "@/lib/ballots/result";
 import { createPublicNamer, renamePanel, type PublicNamer } from "@/lib/publicView/names";
@@ -222,9 +224,14 @@ export function buildPublicProjection(
     ownerId: "",
     admins: {},
   } as Tournament;
+  const allRounds = active(source.rounds) as unknown as Round[];
   if (tournament.preferences) {
+    // The schedule is public only once released, with titles resolved (it may name rounds whose
+    // draw is not out yet, which the projection does not carry).
+    const { scheduleEvents: _scheduleEvents, ...publicPreferences } = tournament.preferences;
+    void _scheduleEvents;
     tournament.preferences = {
-      ...tournament.preferences,
+      ...publicPreferences,
       speakerCategories: publicSpeakerCategories,
       // Room category descriptions leave the server only when marked for the public tooltip.
       ...(Array.isArray(preferences.venueCategories)
@@ -234,10 +241,12 @@ export function buildPublicProjection(
             ),
           }
         : {}),
-    };
+      ...(preferences.publicSchedule === true
+        ? { scheduleEvents: publicScheduleEvents(preferences.scheduleEvents, allRounds.filter((round) => !round.cancelled)) }
+        : {}),
+    } as Tournament["preferences"];
   }
 
-  const allRounds = active(source.rounds) as unknown as Round[];
   const currentRoundId = currentDrawRoundId(allRounds);
   const isDrawPublished = (round: Round) => isRoundDrawPublic(round, settings.drawMode, currentRoundId);
   const areResultsPublished = (round: Round) =>
@@ -262,6 +271,13 @@ export function buildPublicProjection(
   const visibleMotionIds = new Set(
     preferences.publicMotions !== false
       ? motionRecords.filter((motion) => motion.released === true).map((motion) => motion.id)
+      : []
+  );
+  // Info slides of rounds whose info slides (but not motions) are released: the slide only, never
+  // the motion text (Tabbycat's "info slides released").
+  const infoSlideRoundIds = new Set(
+    preferences.publicMotions !== false
+      ? allRounds.filter((round) => !round.cancelled && motionsStatusOf(round) === "info_slides_released").map((round) => round.id)
       : []
   );
 
@@ -468,6 +484,8 @@ export function buildPublicProjection(
         "silent",
         "weight",
         "motionsReleased",
+        "scheduleGroup",
+        "startsAt",
         "resultsReleased",
         "teamSpeaksReleased",
         "breakCategoryIds",
@@ -480,17 +498,40 @@ export function buildPublicProjection(
       drawPublic: isDrawPublished(round),
       adjudicatorsRevealed: revealsPanel(round),
       motionsReleased: preferences.publicMotions !== false && round.motionsReleased === true,
+      motionsStatus: preferences.publicMotions !== false ? motionsStatusOf(round) : "not_released",
       resultsReleased: publishedResults,
       teamSpeaksReleased: publishedResults && round.teamSpeaksReleased === true,
     };
   });
 
-  const motions = motionRecords
-    .filter((motion) => visibleMotionIds.has(motion.id))
-    .map((motion) => ({
-      ...pick(motion, ["tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released"]),
-      id: motion.id,
-    }));
+  const motions = [
+    ...motionRecords
+      .filter((motion) => visibleMotionIds.has(motion.id))
+      .map((motion) => ({
+        ...pick(motion, ["tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "roundSeq", "released"]),
+        id: motion.id,
+      })),
+    ...motionRecords
+      .filter((motion) =>
+        !visibleMotionIds.has(motion.id) &&
+        Boolean(motion.infoSlide?.trim()) &&
+        (motion.rounds || []).some((roundId) => infoSlideRoundIds.has(roundId))
+      )
+      .map((motion) => {
+        const rounds = (motion.rounds || []).filter((roundId) => infoSlideRoundIds.has(roundId));
+        const roundSeq = Object.fromEntries(
+          Object.entries(motion.roundSeq || {}).filter(([roundId]) => infoSlideRoundIds.has(roundId))
+        );
+        return {
+          ...pick(motion, ["tournamentId", "infoSlide", "seq"]),
+          ...(Object.keys(roundSeq).length > 0 ? { roundSeq } : {}),
+          id: motion.id,
+          text: "",
+          rounds,
+          released: false,
+        };
+      }),
+  ];
   const breakCategories = breakCategoryRecords.map((category) => ({
     ...(release.breakCategoryIds.has(category.id) ? pick(category, ["generatedBreak"]) : {}),
     ...pick(category, ["tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority"]),
