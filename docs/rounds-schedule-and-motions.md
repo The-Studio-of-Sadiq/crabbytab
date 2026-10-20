@@ -84,8 +84,7 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
   or same break category).
 - A reused motion that is already public makes the new round's motions count as released too:
   the motion is not secret any more.
-- `publicMotionsOrder` (`reverse` = latest first, Tabbycat's default): the public page should sort
-  rounds with `orderMotionRoundsForPublic` (`lib/motions/roundMotions.ts`).
+- The public motions order is the public-site setting `publicMotionsOrder` (`lib/publicFeatures.ts`).
 - `enableMotionPreferences`: ballots record each side's ranked preferences
   (`BallotSubmission.motionPreferences`, most preferred first) alongside vetoes. A ranking may not
   repeat a motion or put the vetoed motion first. `computeMotionPreferenceStatistics` counts them.

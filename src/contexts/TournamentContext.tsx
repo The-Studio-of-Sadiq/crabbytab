@@ -51,12 +51,20 @@ import { createRoundCommand, updateRoundCommand, updateRoundsCommand } from "@/f
 import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
+import { createSeededRng } from "@/lib/draw/rng";
 import {
   applyMotionReleaseSync,
   roundsNeedingMotionReleaseSync,
   setMotionsStatusCommand,
 } from "@/features/tournament/application/motionRelease";
 import { migrateSchedulePreferences, roundsInSameSlot } from "@/features/tournament/application/schedule";
+import {
+  addFeedbackInSequence,
+  planSimulatedBallots,
+  planSimulatedFeedback,
+  submitBallotsInSequence,
+  type SkippedDebate,
+} from "@/features/tournament/application/rehearsal";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { withRuleOverride } from "@/features/tournament/application/ruleOverridePrompt";
@@ -106,6 +114,7 @@ import {
   replaceRoundRecords,
   PUBLIC_VIEW_POLL_MILLISECONDS,
   publishPublicViewCommand,
+  type PublicProjectionExtras,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
 import {
@@ -176,6 +185,8 @@ export interface TournamentContextType {
   breakResults: BreakCategoryResult[];
   isOwnerOrAdmin: boolean;
     isDataEntryAssistant: boolean;
+  /** Data-entry staff: effective permissions from the server (lib/staffPermissions.ts); empty for administrators. */
+  staffPermissions: string[];
   staffAccessLoading: boolean;
   staffAccessError: string;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
@@ -185,6 +196,8 @@ export interface TournamentContextType {
   localSaveError: string;
   /** Shared views: earlier rounds' public debates and ballots are still loading. */
   publicRoundsLoading: boolean;
+  /** Shared views: publish-time tabs and aggregates from the public projection (null until loaded / without a cloud copy). */
+  publicExtras: PublicProjectionExtras | null;
   /** A draw or auto-allocation running in the background, if any. */
   computeJob: { kind: ComputeKind; startedAt: number } | null;
   /** Stops the running draw or allocation; it then fails with ComputeCancelledError and saves nothing. */
@@ -255,7 +268,8 @@ export interface TournamentContextType {
   setRoundMotionsStatus: (roundId: string, status: MotionsStatus) => Promise<void>;
   /** Throws DrawHasResultsError when the round has ballots, unless discardExistingResults is set. */
   generateDraw: (roundId: string, options?: { discardExistingResults?: boolean }) => Promise<void>;
-  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
+  /** Resolves to the allocator's non-fatal warnings. */
+  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<string[]>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
@@ -304,6 +318,10 @@ export interface TournamentContextType {
     privateUrlKey?: string
   ) => Promise<void>;
   reviewFeedback: (feedbackId: string, change: FeedbackReviewChange) => Promise<void>;
+  /** Rehearsal tools: random valid confirmed ballots for a round's unresulted debates (seeded). */
+  simulateRoundResults: (roundId: string, seed: number) => Promise<RehearsalOutcome>;
+  /** Rehearsal tools: random valid feedback along the feedback paths for a round (seeded). */
+  simulateRoundFeedback: (roundId: string, seed: number) => Promise<RehearsalOutcome>;
   /** Records that a paper ballot sheet arrived; returns false when it was already recorded. */
   recordBallotIntake: (sheet: BallotSheet) => Promise<boolean>;
   recordAuditEvent: (event: {
@@ -316,6 +334,10 @@ export interface TournamentContextType {
   }) => Promise<void>;
   releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
+}
+export interface RehearsalOutcome {
+  created: number;
+  skipped: SkippedDebate[];
 }
 export interface UploadOutcome {
   /** Records archived as sync conflicts instead of being written. */
@@ -378,6 +400,7 @@ export function TournamentProvider({
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
+  const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [liveAdminVerified, setLiveAdminVerified] = useState(false);
   const [staffAccessError, setStaffAccessError] = useState("");
   const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
@@ -686,6 +709,7 @@ export function TournamentProvider({
   });
   const [publicViewVersion, setPublicViewVersion] = useState<string | null>(null);
   const [publicRoundsLoading, setPublicRoundsLoading] = useState(false);
+  const [publicExtras, setPublicExtras] = useState<PublicProjectionExtras | null>(null);
   const applyPublicProjection = useCallback(
     (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
       const publicRounds = (result.collections.rounds || []) as Round[];
@@ -732,6 +756,7 @@ export function TournamentProvider({
       setBallotIntake([]);
       auditEventsRef.current = [];
       setAuditEvents([]);
+      setPublicExtras({ tabs: result.tabs ?? undefined, derived: result.derived ?? {} });
       setPublicViewVersion(result.version ?? null);
     },
     []
@@ -1277,6 +1302,8 @@ export function TournamentProvider({
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
+        /** Rooms of running debates (name, category, link) for the portal's room links. */
+        venues?: Array<Pick<Venue, "id" | "name" | "category" | "url">>;
         selfCheckIn?: SelfCheckInStatus | null;
       };
 
@@ -1352,6 +1379,17 @@ export function TournamentProvider({
           ...result.debates!,
         ]);
       }
+      if (result.venues) {
+        const portalVenues = result.venues.map((venue) => ({
+          ...venue,
+          tournamentId: result.tournament?.id ?? "",
+          priority: 0,
+        }));
+        setVenues((current) => [
+          ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+          ...portalVenues,
+        ]);
+      }
       setBallots(mergedBallots);
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
@@ -1406,7 +1444,17 @@ export function TournamentProvider({
     setFeedback((current) => [
       ...current.filter((item) => !result.feedback.some((remote: FeedbackSubmission) => remote.id === item.id)),
       ...(result.feedback as FeedbackSubmission[]),
-    ]);
+    ]);    if (Array.isArray(result.venues)) {
+      const portalVenues = (result.venues as Array<Pick<Venue, "id" | "name" | "category" | "url">>).map((venue) => ({
+        ...venue,
+        tournamentId: result.tournament.id as string,
+        priority: 0,
+      }));
+      setVenues((current) => [
+        ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+        ...portalVenues,
+      ]);
+    }
   };
 
   const queuePrivateRecord = async (
@@ -1474,6 +1522,7 @@ export function TournamentProvider({
         const result = await response.json().catch(() => ({})) as {
           error?: string;
           role?: "admin" | "dataEntry" | null;
+          permissions?: unknown;
         };
         if (!response.ok) {
           throw new Error(result.error || `Access verification failed (${response.status}).`);
@@ -1492,7 +1541,11 @@ export function TournamentProvider({
           persistLocal("meta", safeTournament);
         }
         if (active) {
-          persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null });
+          const permissions = Array.isArray(result.permissions)
+            ? result.permissions.filter((item): item is string => typeof item === "string")
+            : [];
+          setStaffPermissions(permissions);
+          persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null, permissions });
           setLiveAdminVerified(result.role === "admin");
           setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
           setStaffAccessError(
@@ -1504,7 +1557,7 @@ export function TournamentProvider({
       } catch (error) {
         // Offline, the role last verified for this account on this device still applies, so the
         // tab room keeps working; Firestore rules enforce access whenever writes reach the cloud.
-        const cached = safeJsonParse<{ uid?: unknown; role?: unknown } | null>(
+        const cached = safeJsonParse<{ uid?: unknown; role?: unknown; permissions?: unknown } | null>(
           typeof window === "undefined" ? null : getLocalStore().getItem(`${storagePrefix}_verifiedRole`),
           null
         );
@@ -1516,6 +1569,9 @@ export function TournamentProvider({
         ) {
           setLiveAdminVerified(cached.role === "admin");
           setCloudStaffRole(cached.role);
+          setStaffPermissions(Array.isArray(cached.permissions)
+            ? cached.permissions.filter((item): item is string => typeof item === "string")
+            : []);
           setStaffAccessError("");
           return;
         }
@@ -1913,7 +1969,7 @@ export function TournamentProvider({
         debates,
         ballots,
         drawIssues: (target) => tournament
-          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues })
+          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues, institutions })
           : [],
       },
     }, override));
@@ -2001,6 +2057,7 @@ export function TournamentProvider({
     breakCategories,
     feedback,
     venues,
+    institutions,
     repository: {
       saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
     },
@@ -2143,11 +2200,10 @@ export function TournamentProvider({
     }, { ...options, override }));
   };
 
-  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
-    await guarded((override) =>
+  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) =>
+    guarded((override) =>
       autoAllocateCommand(roundId, panelSize, allocationDependencies, settings, override)
     );
-  };
 
   const updateDebate = async (debate: Debate) => {
     await guarded((override) => updateDebateCommand(debate, debates, allocationDependencies, override));
@@ -2164,8 +2220,65 @@ export function TournamentProvider({
     }, override));
   };
 
+  /**
+   * Data-entry staff confirm ballots on the server (docs/staff-access.md); the changed ballots and
+   * debate come back and are stored as synced, so they are not sent back as local edits.
+   */
+  const confirmBallotAsStaff = async (
+    request: { action: "confirm" | "check"; ballotId: string; version: number; entry?: BallotSubmission }
+  ) => {
+    if (!user || !tournament) throw new Error("Sign in to confirm ballots.");
+    const token = await user.getIdToken();
+    const response = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/assistant-ballots`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      differences?: Array<{ field: string; first: string; second: string }>;
+      ballots?: BallotSubmission[];
+      debate?: Debate;
+    };
+    if (!response.ok || !result.ballots || !result.debate) {
+      const details = result.differences?.length
+        ? ` ${result.differences.map((difference) => `${difference.field}: ${difference.first} / ${difference.second}`).join("; ")}`
+        : "";
+      throw new Error(`${result.error || "Could not confirm the ballot."}${details}`);
+    }
+    const changedBallots = new Map(result.ballots.map((item) => [item.id, item]));
+    const nextBallots = [
+      ...ballots.map((item) => changedBallots.get(item.id) ?? item),
+      ...result.ballots.filter((item) => !ballots.some((existing) => existing.id === item.id)),
+    ];
+    const serverDebate = result.debate;
+    const nextDebates = debates.map((item) => item.id === serverDebate.id ? serverDebate : item);
+    setBallots(nextBallots);
+    persistLocal("ballots", nextBallots);
+    setDebates(nextDebates);
+    persistLocal("debates", nextDebates);
+    saveSyncState(baselineAfterDataEntrySync({
+      baseline: readSyncBaseline(),
+      sentCollections: {
+        ballots: result.ballots as unknown as CloudRecord[],
+        debates: [serverDebate] as unknown as CloudRecord[],
+      },
+      rejected: [],
+    }));
+  };
+
   const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
+    // A data-entry assistant's blind check of someone else's entry is confirmed on the server.
+    if (isDataEntryAssistant && ballot.confirmed && ballot.checksVersion !== undefined) {
+      const pending = ballots.find((item) =>
+        item.debateId === ballot.debateId && item.version === ballot.checksVersion && !item.discarded && !item.confirmed
+      );
+      if (!pending) throw new Error("The ballot being checked is no longer waiting for a check. Sync and reload.");
+      await confirmBallotAsStaff({ action: "check", ballotId: pending.id, version: pending.version, entry: ballot });
+      return;
+    }
     await guarded((override) => submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies, override));
+    if (ballot.confirmed) notifyBallotConfirmed();
   };
 
   const confirmBallot = async (
@@ -2173,8 +2286,32 @@ export function TournamentProvider({
     debateId: string,
     submittedBallot?: BallotSubmission
   ) => {
+    if (isDataEntryAssistant) {
+      const pending = ballots.find((item) => item.id === ballotId);
+      if (!pending) throw new Error("That ballot could not be found. Sync and reload.");
+      await confirmBallotAsStaff({ action: "confirm", ballotId, version: pending.version });
+      return;
+    }
     await guarded((override) =>
       confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies, override)
+    );
+    notifyBallotConfirmed();
+  };
+
+  /**
+   * "Ballot confirmed" emails (docs/email-notifications.md): confirmations of a live cloud
+   * tournament reach Firestore through live writes, not uploads, so the server is asked to send
+   * them once the writes are flushed. A failure only delays them to the next trigger.
+   */
+  const notifyBallotConfirmed = () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin || tournament.preferences?.notifyBallotConfirmed !== true) return;
+    const currentUser = user;
+    const tournamentId = tournament.id;
+    void (async () => {
+      await flushLiveWrites();
+      await sendDueNotificationsCommand({ tournamentId, idToken: await currentUser.getIdToken() });
+    })().catch((error: unknown) =>
+      console.warn("Could not send ballot-confirmed emails:", error instanceof Error ? error.message : error)
     );
   };
 
@@ -2320,6 +2457,75 @@ export function TournamentProvider({
         queuePrivateRecord({ collection: "feedback", record }, urlKey, passcode),
       recordAuditEvent,
     });
+  };
+
+  // Rehearsal tools. Ballots and feedback go through their commands one after another (see
+  // application/rehearsal.ts); the result is saved once, like any other batch of changes.
+  const simulateRoundResults = async (roundId: string, seed: number): Promise<RehearsalOutcome> => {
+    const round = rounds.find((item) => item.id === roundId);
+    if (!tournament || !round) throw new Error("That round no longer exists.");
+    const plan = planSimulatedBallots({
+      tournament,
+      round,
+      debates,
+      teams,
+      motions,
+      ballots,
+      rng: createSeededRng(seed),
+      submitter: { id: user?.uid, name: user?.displayName || user?.email || undefined },
+    });
+    if (plan.ballots.length > 0) {
+      const state = await guarded((override) => submitBallotsInSequence(plan.ballots, { ballots, debates, rounds }, {
+        adjudicators,
+        recordAuditEvent,
+        checkPolicy: ballotWorkflowDependencies.checkPolicy,
+        // A confirmed ballot withdraws released results; the changed rounds are saved below.
+        updateRound: async () => undefined,
+      }, override));
+      saveLiveRecords("ballots", ballots, state.ballots);
+      saveLiveRecords("debates", debates, state.debates);
+      if (state.rounds.some((item, index) => item !== rounds[index])) saveRoundsLocally(state.rounds);
+    }
+    await recordAuditEvent({
+      action: "rehearsal.results_simulated",
+      category: "ballot",
+      roundId,
+      summary: `Rehearsal: simulated ${plan.ballots.length} ballot(s) for ${round.name}`,
+      details: { seed, ballotIds: plan.ballots.map((ballot) => ballot.id), skipped: plan.skipped },
+    });
+    return { created: plan.ballots.length, skipped: plan.skipped };
+  };
+
+  const simulateRoundFeedback = async (roundId: string, seed: number): Promise<RehearsalOutcome> => {
+    const round = rounds.find((item) => item.id === roundId);
+    if (!tournament || !round) throw new Error("That round no longer exists.");
+    const plan = planSimulatedFeedback({
+      tournament,
+      round,
+      debates,
+      teams,
+      adjudicators,
+      feedback,
+      rng: createSeededRng(seed),
+    });
+    if (plan.feedback.length > 0) {
+      const saved = await addFeedbackInSequence(plan.feedback, {
+        tournament,
+        feedback,
+        createId: () => createEntityId("fb"),
+        recordAuditEvent,
+      });
+      setFeedback(saved);
+      persistLocal("feedback", saved);
+    }
+    await recordAuditEvent({
+      action: "rehearsal.feedback_simulated",
+      category: "feedback",
+      roundId,
+      summary: `Rehearsal: simulated ${plan.feedback.length} feedback submission(s) for ${round.name}`,
+      details: { seed, skipped: plan.skipped },
+    });
+    return { created: plan.feedback.length, skipped: plan.skipped };
   };
 
   const reviewFeedback = async (feedbackId: string, change: FeedbackReviewChange) => {
@@ -2937,6 +3143,7 @@ export function TournamentProvider({
         breakResults,
         isOwnerOrAdmin,
           isDataEntryAssistant,
+        staffPermissions,
         staffAccessLoading,
           staffAccessError,
         cloudSyncState,
@@ -2945,6 +3152,7 @@ export function TournamentProvider({
         privateSyncMessage,
         localSaveError,
         publicRoundsLoading,
+        publicExtras,
         computeJob,
         cancelCompute,
         uploadToCloud,
@@ -3012,6 +3220,8 @@ export function TournamentProvider({
         proceedToNextEliminationRound,
         addFeedback,
         reviewFeedback,
+        simulateRoundResults,
+        simulateRoundFeedback,
         recordBallotIntake,
         recordAuditEvent,
         releaseAuditLog,

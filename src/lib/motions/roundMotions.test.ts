@@ -5,7 +5,6 @@ import {
   copyPreviousRoundMotions,
   mergeMotions,
   moveRoundMotion,
-  orderMotionRoundsForPublic,
   orderRoundMotions,
   previousRoundForMotions,
   removeMotionFromRound,
@@ -70,11 +69,5 @@ describe("round motions", () => {
     const removed = removeMotionFromRound(motion("m", ["r1", "r2"], 1, { r1: 1 }), "r1");
     expect(removed.rounds).toEqual(["r2"]);
     expect("roundSeq" in removed).toBe(false);
-  });
-
-  it("lists public motion rounds latest first by default", () => {
-    const rounds = [{ seq: 2 }, { seq: 1 }, { seq: 3 }];
-    expect(orderMotionRoundsForPublic(rounds, undefined).map((item) => item.seq)).toEqual([3, 2, 1]);
-    expect(orderMotionRoundsForPublic(rounds, "forward").map((item) => item.seq)).toEqual([1, 2, 3]);
   });
 });

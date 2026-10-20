@@ -148,7 +148,7 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       ballotMode: "voting",
       eliminationBallotMode: "voting",
       enableMotionVetoes: true,
-      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"],
       standingsMissedDebates: 2,
       sideAllocationRule: "manual_ballot",
     });
@@ -159,7 +159,7 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       sideAllocationRule: "preallocated",
       oddBracketMethod: "intermediate2",
       enableMotionVetoes: false,
-      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"],
+      teamStandingsPrecedence: ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"],
     });
     expect(rulesPresetPreferences(getRulesPreset("canadian")!)).toMatchObject({
       teamsInDebate: 2,
@@ -207,5 +207,25 @@ describe("Tabbycat rule presets (tabbycat/options/presets.py, v2.12.1)", () => {
       if (preset.format === "bp") expect(preset.preferences.ballotMode ?? "consensus").toBe("consensus");
     }
     expect(new Set(RULES_PRESETS.map((preset) => preset.id)).size).toBe(RULES_PRESETS.length);
+  });
+});
+
+describe("wave 5 results settings in presets", () => {
+  it("applies Tabbycat's side names, motions, margins, criteria and APDA ballots", async () => {
+    const { getRulesPreset, rulesPresetPreferences } = await import("./presets");
+    const { validateScoreCriteria } = await import("@/lib/ballots/ballotRules");
+    const wsdc = rulesPresetPreferences(getRulesPreset("wsdc")!);
+    expect(wsdc).toMatchObject({ sideNames: "prop-opp", enableMotions: false, stepReplyScore: 0.5 });
+    expect(wsdc.scoreCriteria?.map((criterion) => criterion.name)).toEqual(["Style", "Content", "Strategy", "POIs", "Style", "Content", "Strategy"]);
+    expect(validateScoreCriteria(wsdc.scoreCriteria ?? [])).toEqual([]);
+    expect(rulesPresetPreferences(getRulesPreset("australian_easters")!).maximumMargin).toBe(15);
+    expect(rulesPresetPreferences(getRulesPreset("bp")!)).toMatchObject({ speakersInBallots: "prelim", enableMotions: false });
+    expect(rulesPresetPreferences(getRulesPreset("apda")!)).toMatchObject({
+      winnersInBallots: "tied-points",
+      speakerRanks: "any",
+      speakersInBallots: "prelim",
+      sideNames: "gov-opp",
+      speakerStandingsPrecedence: ["speaks_avg", "srank", "speaks_trimmed_mean"],
+    });
   });
 });

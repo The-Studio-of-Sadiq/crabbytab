@@ -20,7 +20,10 @@ import {
   EmailProviderConfigError,
 } from "@/lib/email/provider";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { loadPortalVenues } from "@/lib/privateParticipantData";
 import { createEmailCampaign } from "@/lib/email/history";
+import { deliveryRef } from "@/lib/email/deliveryStatus";
+import { loadEmailSettings, replyToHeader } from "@/lib/email/settings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -92,6 +95,7 @@ export async function POST(request: NextRequest) {
 
     let round: Round | undefined;
     let debates: Debate[] = [];
+    let venues: Awaited<ReturnType<typeof loadPortalVenues>> = [];
     if (typeof roundId === "string" && roundId) {
       const roundSnapshot = await firestore
         .collection("tournaments")
@@ -110,6 +114,10 @@ export async function POST(request: NextRequest) {
         .where("roundId", "==", roundId)
         .get();
       debates = debateSnapshot.docs.map((document) => document.data() as Debate);
+      // Room links for {{venue_url}}, read only when the template uses them.
+      if (`${subject}${messageBody}`.includes("{{venue_url}}")) {
+        venues = await loadPortalVenues(firestore.collection("tournaments").doc(tournamentId), debates);
+      }
     }
 
     const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round, {
@@ -117,6 +125,7 @@ export async function POST(request: NextRequest) {
       privateUrlOrigin: request.nextUrl.origin,
       tournamentSlug: tournament.slug,
       preserveDuplicateEmails: includesPrivateCredentials,
+      venues,
     });
     const conflictingEmail = includesPrivateCredentials ? findCredentialEmailConflict(recipients) : null;
     if (conflictingEmail) {
@@ -138,13 +147,15 @@ export async function POST(request: NextRequest) {
       bodyTemplate: messageBody,
       recipients,
     });
+    const settings = await loadEmailSettings(firestore.collection("tournaments").doc(tournamentId));
     const result = await sendEmailCampaign(
       provider,
       recipients,
       tournament.name,
       round?.name,
       subject,
-      messageBody
+      messageBody,
+      { replyTo: replyToHeader(settings), ref: deliveryRef(tournamentId, campaign.id) }
     );
     await campaign.update(result);
     return NextResponse.json({

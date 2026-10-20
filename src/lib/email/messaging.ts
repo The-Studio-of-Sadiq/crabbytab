@@ -1,6 +1,10 @@
-import { Adjudicator, Debate, Round, Team } from "@/types";
+import { Adjudicator, Debate, Round, Team, Venue } from "@/types";
+import { safeVenueUrl } from "@/lib/venues/venues";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
 import { getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
+
+/** Header naming the tournament and campaign of a message, echoed by delivery webhooks. */
+export const DELIVERY_REF_HEADER = "X-CrabbyTab-Ref";
 
 export const MAX_CAMPAIGN_RECIPIENTS = 100;
 
@@ -31,6 +35,8 @@ export interface EmailRecipient {
   round?: string;
   debate?: string;
   venue?: string;
+  /** The room's http(s) link (online meeting or map), for {{venue_url}}. */
+  venueUrl?: string;
   chair?: string;
   panellists?: string;
   privateUrl?: string;
@@ -40,6 +46,21 @@ export interface EmailRecipient {
   result?: string;
   points?: string;
   ballot?: string;
+  /** Motions released (motions_released). */
+  motions?: string;
+  /** Registration emails: the registered team or adjudicator, a link, and allocated places. */
+  entry?: string;
+  url?: string;
+  teamsAllocated?: string;
+  adjudicatorsAllocated?: string;
+}
+
+/** Headers added to every message of a send (docs/email-notifications.md). */
+export interface EmailSendOptions {
+  /** Reply-To header value, from the tournament's email settings. */
+  replyTo?: string;
+  /** Delivery reference `{tournamentId}/{campaignId}`, sent as X-CrabbyTab-Ref for delivery webhooks. */
+  ref?: string;
 }
 
 export interface EmailCampaignResult {
@@ -72,6 +93,8 @@ export interface StoredEmailCampaign {
   retryInProgress?: boolean;
   /** Set when the campaign was sent automatically (draw release, results, ballot receipt). */
   notificationKey?: string;
+  /** Latest provider delivery status per address (delivery webhook), keyed by `deliveryKey(email)`. */
+  delivery?: Record<string, { event: string; at: string; reason?: string }>;
 }
 
 function describeSendError(error: unknown): string {
@@ -81,9 +104,11 @@ function describeSendError(error: unknown): string {
 
 function debateVariables(
   debate: Debate | undefined,
-  adjudicators: Adjudicator[]
-): Pick<EmailRecipient, "debate" | "venue" | "chair" | "panellists"> {
+  adjudicators: Adjudicator[],
+  venues: Array<Pick<Venue, "id" | "url">> = []
+): Pick<EmailRecipient, "debate" | "venue" | "venueUrl" | "chair" | "panellists"> {
   if (!debate) return {};
+  const venueUrl = safeVenueUrl(venues.find((venue) => venue.id === debate.venueId)?.url);
   const adjudicatorMap = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
   return {
     debate: Object.values(debate.teams)
@@ -91,6 +116,7 @@ function debateVariables(
       .filter(Boolean)
       .join(" vs "),
     venue: debate.venueName,
+    ...(venueUrl ? { venueUrl } : {}),
     chair: debate.adjudicators.chairName ||
       adjudicatorMap.get(debate.adjudicators.chairId || "")?.name,
     panellists: debate.adjudicators.panellistNames
@@ -114,6 +140,8 @@ export function resolveEmailRecipients(
     privateUrlOrigin?: string;
     tournamentSlug?: string;
     preserveDuplicateEmails?: boolean;
+    /** Rooms, so {{venue_url}} can carry each debate's room link. */
+    venues?: Array<Pick<Venue, "id" | "url">>;
   } = {}
 ): EmailRecipient[] {
   const roundDebates = round ? debates.filter((debate) => debate.roundId === round.id) : [];
@@ -179,7 +207,7 @@ export function resolveEmailRecipients(
           team: team.name,
           institution: team.institutionName,
           round: round?.name,
-          ...debateVariables(teamDebate, adjudicators),
+          ...debateVariables(teamDebate, adjudicators, options.venues),
           ...(assignedTeamSlot?.pulledUp ? { team: `${team.name} (pulled up)` } : {}),
           ...(options.includePrivateCredentials
             ? privateCredentials("team", team.privateUrlKey, team.privatePasscode, options)
@@ -220,7 +248,7 @@ export function resolveEmailRecipients(
         adjudicatorId: adjudicator.id,
         institution: adjudicator.institutionName,
         round: round?.name,
-        ...debateVariables(assignedDebate, adjudicators),
+        ...debateVariables(assignedDebate, adjudicators, options.venues),
         ...(options.includePrivateCredentials
           ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, options)
           : {}),
@@ -298,6 +326,7 @@ export function renderEmailTemplate(
     round: recipient.round || roundName || "",
     debate: recipient.debate || "",
     venue: recipient.venue || "",
+    venue_url: recipient.venueUrl || "",
     chair: recipient.chair || "",
     panellists: recipient.panellists || "",
     private_url: recipient.privateUrl || "",
@@ -306,6 +335,11 @@ export function renderEmailTemplate(
     result: recipient.result || "",
     points: recipient.points || "",
     ballot: recipient.ballot || "",
+    motions: recipient.motions || "",
+    entry: recipient.entry || "",
+    url: recipient.url || "",
+    teams_allocated: recipient.teamsAllocated || "",
+    adjudicators_allocated: recipient.adjudicatorsAllocated || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {
@@ -321,7 +355,8 @@ export function prepareEmailMessages(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): EmailMessage[] {
   if (recipients.length === 0) {
     throw new EmailCampaignInputError("No recipients with email addresses were found.");
@@ -381,6 +416,8 @@ export function prepareEmailMessages(
       to: recipient.email,
       subject,
       text: renderEmailTemplate(bodyTemplate, recipient, tournamentName, roundName),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+      ...(options.ref ? { headers: { [DELIVERY_REF_HEADER]: options.ref } } : {}),
     };
   });
 }
@@ -391,14 +428,16 @@ export async function sendEmailCampaign(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): Promise<EmailCampaignResult> {
   const messages = prepareEmailMessages(
     recipients,
     tournamentName,
     roundName,
     subjectTemplate,
-    bodyTemplate
+    bodyTemplate,
+    options
   );
 
   const results: EmailCampaignResult["results"] = [];

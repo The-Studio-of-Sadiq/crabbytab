@@ -1,4 +1,5 @@
-import type { BallotSubmission, Debate, Team } from "@/types";
+import type { BallotSubmission, Debate, Team, Venue } from "@/types";
+import { safeVenueUrl } from "@/lib/venues/venues";
 import {
   PARTICIPANT_IDS_FIELD,
   PARTICIPANT_INDEX_DOCUMENT,
@@ -90,6 +91,33 @@ export async function loadTeamsById(
     if (isLive(data)) teams.set(snapshot.id, { ...data, id: snapshot.id } as unknown as Team);
   }
   return teams;
+}
+
+/** What a portal shows about a room: its name, category and (safe) link. */
+export type PortalVenue = Pick<Venue, "id" | "name" | "category" | "url">;
+
+/**
+ * Rooms of the given debates, for room links in the portals. Callers pass only the debates of
+ * rounds still running, so a portal load costs about one read per current round.
+ */
+export async function loadPortalVenues(
+  tournamentRef: TournamentReferenceLike,
+  debates: Array<Pick<Debate, "venueId">>
+): Promise<PortalVenue[]> {
+  const ids = [...new Set(debates.map((debate) => debate.venueId).filter((id): id is string => Boolean(id)))];
+  const venuesRef = tournamentRef.collection("venues");
+  const snapshots = await Promise.all(ids.map((id) => venuesRef.doc(id).get()));
+  return snapshots.flatMap((snapshot) => {
+    const data = snapshot.exists ? snapshot.data() : undefined;
+    if (!isLive(data)) return [];
+    const url = safeVenueUrl(typeof data!.url === "string" ? data!.url : undefined);
+    return [{
+      id: snapshot.id,
+      name: typeof data!.name === "string" ? data!.name : "",
+      ...(typeof data!.category === "string" ? { category: data!.category } : {}),
+      ...(url ? { url } : {}),
+    }];
+  });
 }
 
 /** The live ballots of these debates. */

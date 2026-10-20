@@ -202,6 +202,7 @@ export function getRoundChangeSummary(previous: Round, next: Round) {
     "abbreviation",
     "silent",
     "cancelled",
+    "weight",
   ] as const;
 
   return Object.fromEntries(

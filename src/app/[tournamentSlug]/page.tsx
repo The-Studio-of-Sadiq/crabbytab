@@ -12,7 +12,8 @@ import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui
 import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
 import { describeRoundStatus } from "@/components/layout/roundStatus";
-import type { Debate } from "@/types";
+import type { Debate, DebateSide } from "@/types";
+import { sideLabel } from "@/lib/sideNames";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -93,17 +94,8 @@ export default function TournamentDashboardPage() {
   const isBP = tournament?.format === "bp";
   const base = `/${tournament?.slug}`;
   const roundStatus = activeRound ? describeRoundStatus(activeRound) : null;
-  const sides = isBP
-    ? ([
-        ["OG", "Opening Gov"],
-        ["OO", "Opening Opp"],
-        ["CG", "Closing Gov"],
-        ["CO", "Closing Opp"],
-      ] as const)
-    : ([
-        ["AFF", "Affirmative"],
-        ["NEG", "Negative"],
-      ] as const);
+  const sides = ((isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[])
+    .map((side) => [side, sideLabel(side, tournament?.preferences, "full")] as const);
 
   const workflow = [
     { t: "Availability", h: `${base}/checkins` },
@@ -268,7 +260,7 @@ export default function TournamentDashboardPage() {
                   <TH className="w-28">Venue</TH>
                   {sides.map(([side, label]) => (
                     <TH key={side}>
-                      {label} <span className="text-fg-subtle">({side})</span>
+                      {label} <span className="text-fg-subtle">({sideLabel(side, tournament?.preferences)})</span>
                     </TH>
                   ))}
                   <TH>Chair</TH>

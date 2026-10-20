@@ -884,6 +884,8 @@ export const BALLOT_SHAPE_PREFERENCES = [
   "substantiveSpeakers",
   "replyScoresEnabled",
   "ballotMode",
+  "speakersInBallots",
+  "scoreCriteria",
 ] as const satisfies readonly (keyof TournamentPreferences)[];
 
 /** Settings that change how existing scores are validated or totalled. */
@@ -898,6 +900,12 @@ export const SCORING_PREFERENCES = [
   "allowLowPointWins",
   "enableForfeits",
   "byeTeamResults",
+  "winnersInBallots",
+  "scoreAggregation",
+  "speakerRanks",
+  "maximumMargin",
+  "stepReplyScore",
+  "requireSubstantiveForReply",
 ] as const satisfies readonly (keyof TournamentPreferences)[];
 
 const PREFERENCE_LABELS: Partial<Record<keyof TournamentPreferences, string>> = {
@@ -915,6 +923,14 @@ const PREFERENCE_LABELS: Partial<Record<keyof TournamentPreferences, string>> = 
   allowLowPointWins: "low-point wins",
   enableForfeits: "forfeits",
   byeTeamResults: "bye results",
+  speakersInBallots: "when ballots ask for speaker scores",
+  scoreCriteria: "score criteria",
+  winnersInBallots: "winner declaration",
+  scoreAggregation: "panel score aggregation",
+  speakerRanks: "speech ranks",
+  maximumMargin: "maximum margin",
+  stepReplyScore: "reply score step",
+  requireSubstantiveForReply: "the reply-speaker rule",
 };
 
 function changedPreferences(

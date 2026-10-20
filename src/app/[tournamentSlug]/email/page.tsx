@@ -5,6 +5,7 @@ import { Mail, Send, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTournament } from "@/contexts/TournamentContext";
 import { AutomaticNotificationsPanel } from "@/features/tournament/components/AutomaticNotificationsPanel";
+import { EmailSettingsPanel } from "@/features/tournament/components/EmailSettingsPanel";
 import {
   EMAIL_RECIPIENT_GROUPS,
   findCredentialEmailConflict,
@@ -81,6 +82,7 @@ export default function EmailSettingsPage() {
     teams,
     adjudicators,
     debates,
+    venues,
   } = useTournament();
   const { user } = useAuth();
   const [testSending, setTestSending] = useState(false);
@@ -142,6 +144,7 @@ export default function EmailSettingsPage() {
           privateUrlOrigin: typeof window === "undefined" ? undefined : window.location.origin,
           tournamentSlug: tournament?.slug,
           preserveDuplicateEmails: includesPrivateCredentials,
+          venues,
         }
       ),
     [
@@ -153,6 +156,7 @@ export default function EmailSettingsPage() {
       roundId,
       includesPrivateCredentials,
       tournament?.slug,
+      venues,
     ]
   );
 
@@ -449,7 +453,7 @@ export default function EmailSettingsPage() {
         <div className="rounded-md bg-gray-50 p-3 text-xs text-gray-700">
           <p className="font-semibold">Template variables</p>
           <p className="mt-1 font-mono">
-            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
+            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
           </p>
           <p className="mt-1 text-gray-500">
             Round, debate, and adjudicator details are populated when a round is selected and assignments exist.
@@ -522,6 +526,19 @@ export default function EmailSettingsPage() {
 
       <AutomaticNotificationsPanel onSent={() => void refreshCampaignHistory()} />
 
+      {user && tournament && (
+        <EmailSettingsPanel
+          tournamentId={tournament.id}
+          user={user}
+          onUseTemplate={(template) => {
+            setTemplateId("custom");
+            setSubject(template.subject);
+            setBody(template.body);
+            clearCampaignResult();
+          }}
+        />
+      )}
+
       <section className="space-y-4 rounded-lg border border-[#d0d7de] bg-white p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -564,6 +581,14 @@ export default function EmailSettingsPage() {
                   </p>
                   <p className="text-xs font-medium text-gray-700">
                     {campaign.sent} sent · {campaign.failed} failed
+                    {campaign.delivery && Object.keys(campaign.delivery).length > 0 && (
+                      <> · delivery: {Object.entries(
+                        Object.values(campaign.delivery).reduce<Record<string, number>>((counts, status) => {
+                          counts[status.event] = (counts[status.event] ?? 0) + 1;
+                          return counts;
+                        }, {})
+                      ).map(([event, count]) => `${count} ${event}`).join(", ")}</>
+                    )}
                   </p>
                 </div>
                 {campaign.failedRecipients.length > 0 &&

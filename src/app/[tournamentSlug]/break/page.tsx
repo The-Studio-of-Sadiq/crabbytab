@@ -706,9 +706,10 @@ export default function BreakPage() {
                   <option value="aida_1996">AIDA 1996 — maximum three teams per institution</option>
                   <option value="aida_2016_australs">AIDA 2016 Australs</option>
                   <option value="aida_2016_easters">AIDA 2016 Easters</option>
+                  <option value="aida_2019_australs_open">AIDA 2019 Australs (open, dynamic cap)</option>
                 </select>
                 <p className="mt-1 text-[11px] text-gray-500">
-                  AIDA 2016 rules use wins and institution ranking; Easters gives capped teams inside the natural break priority when reinserting teams. The institution limit below applies only to the standard rule.
+                  AIDA 2016 rules use wins and institution ranking; Easters gives capped teams inside the natural break priority when reinserting teams. AIDA 2019 Australs follows AIDA 2016 Australs with a cap of 3 teams per institution, plus one for every 8 teams the break exceeds 16. The institution limit below applies only to the standard rule.
                 </p>
               </div>
 

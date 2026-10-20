@@ -23,10 +23,15 @@ function displayAnswer(answer: unknown): string {
 
 export default function FeedbackSubmissionsPage() {
   const { tournament, feedback, rounds, debates, adjudicators, reviewFeedback, isOwnerOrAdmin } = useTournament();
+  const baseScores = useMemo(() => new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator.baseScore])), [adjudicators]);
+  const importantThreshold = tournament?.preferences?.feedbackImportantThreshold ?? 2;
   const [activeKind, setActiveKind] = useState<FeedbackKind>("team");
   const [filters, setFilters] = useState<FeedbackFilters>({});
   const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
-  const filteredFeedback = useMemo(() => filterFeedbackSubmissions(feedback, filters), [feedback, filters]);
+  const filteredFeedback = useMemo(
+    () => filterFeedbackSubmissions(feedback, filters, { baseScores, importantThreshold }),
+    [feedback, filters, baseScores, importantThreshold]
+  );
   const teamFeedback = filteredFeedback
     .filter(isTeamFeedback)
     .sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
@@ -184,6 +189,14 @@ export default function FeedbackSubmissionsPage() {
             <option value="unconfirmed">Unconfirmed</option>
             <option value="ignored">Ignored</option>
           </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600" title={`Score more than ${importantThreshold} away from the adjudicator's base score (Tabbycat's important feedback)`}>
+          <input
+            type="checkbox"
+            checked={filters.important === true}
+            onChange={(event) => setFilters({ ...filters, important: event.target.checked || undefined })}
+          />
+          Important only (±{importantThreshold} from base score)
         </label>
         {Object.values(filters).some(Boolean) && (
           <button type="button" onClick={() => setFilters({})} className="text-xs font-semibold text-blue-700 underline">

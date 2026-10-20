@@ -5,12 +5,15 @@ import Link from "next/link";
 import { BarChart3, Settings2 } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Select, Switch } from "@/components/ui/Field";
+import { Switch } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { buttonClasses } from "@/components/ui/Button";
 import type { TournamentPreferences } from "@/types";
 
-/** Motion preferences that are not about scoring: public order and ranked motion preferences. */
+/**
+ * Motion preferences that are not about scoring: ranked motion preferences. (The public motions
+ * order is a public-site setting, `publicMotionsOrder`.)
+ */
 export function MotionSettingsCard() {
   const { tournament, isOwnerOrAdmin, saveTournament } = useTournament();
   const [error, setError] = useState("");
@@ -40,15 +43,6 @@ export function MotionSettingsCard() {
       />
       <CardBody className="grid gap-4 sm:grid-cols-2">
         {error && <Alert tone="danger" role="alert" className="sm:col-span-2">{error}</Alert>}
-        <Select
-          label="Public motions order"
-          help="Order of rounds on the public motions tab."
-          value={preferences.publicMotionsOrder ?? "reverse"}
-          onChange={(event) => void save({ publicMotionsOrder: event.target.value as "forward" | "reverse" })}
-        >
-          <option value="reverse">Latest round first</option>
-          <option value="forward">Earliest round first</option>
-        </Select>
         <Switch
           id="motion-preferences"
           checked={preferences.enableMotionPreferences === true}

@@ -163,6 +163,25 @@ describe("draw recipients", () => {
       ).map((recipient) => recipient.email)
     ).toEqual(["judge@example.com"]);
   });
+
+  it("fills {{venue_url}} with the room's link", () => {
+    const [recipient] = buildDrawAdjudicatorRecipients(
+      round("r1", 1, { drawStatus: "released", adjudicatorsRevealed: true }),
+      [{ ...debate, venueId: "v1" }],
+      teams,
+      adjudicators,
+      [{ id: "v1", url: "https://meet.example.org/room" }]
+    );
+    expect(recipient.venueUrl).toBe("https://meet.example.org/room");
+    const [message] = prepareEmailMessages(
+      [recipient],
+      "Open",
+      "Round 1",
+      NOTIFICATION_TEMPLATES.draw_adjudicators.subject,
+      NOTIFICATION_TEMPLATES.draw_adjudicators.body
+    );
+    expect(message.text).toContain("https://meet.example.org/room");
+  });
 });
 
 describe("team points recipients", () => {

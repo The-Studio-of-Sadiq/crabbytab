@@ -33,8 +33,8 @@ at random. Two-team brackets group teams by wins; BP brackets group them by team
 
 A room's `pulledUp` teams are those with fewer wins (BP: points) than the best team in the
 room. The generator stores this on each debate slot. Standings count it as the `pullups`
-metric, where fewer pull-ups rank higher. The draw history counts pull-ups and pull-up
-debates for later rounds.
+metric (more ranks higher, as Tabbycat's `npullups`) and every team in such a room in the
+`pullup_debates` metric. The draw history counts pull-ups and pull-up debates for later rounds.
 
 ## BP power pairing
 
@@ -53,10 +53,15 @@ Tabbycat's `BPHungarianDrawGenerator`:
      this round, n its number of rounds, and entropy in bits (α = 1 Shannon, α = 0 Hartley).
    - Sum of squared deviations: Σ (count − mean)² after this round. This is 4 × Tabbycat's
      "variance" option, which only rescales it.
+   - Simple (`simple`): the number of times the team has already held that position
+     (Tabbycat's `_position_cost_simple`, before this round).
 3. **Assignment.** One Hungarian assignment over all teams and slots. The cost matrix is
-   shuffled first (Tabbycat's `hungarian_preshuffled`), so equally good draws are chosen
-   at random. With `bpAssignmentMethod: "random"` or random sides, position costs are
-   dropped and teams are placed at random within their brackets.
+   shuffled first (`bpAssignmentMethod: "hungarian"`, Tabbycat's `hungarian_preshuffled`), so
+   equally good draws are chosen at random. `hungarian_unshuffled` (Tabbycat's `hungarian`, not
+   WUDC-compliant) skips the shuffle: rows are teams in standings order and columns rooms then
+   positions, so ties are settled by that order and the draw is the same for every seed. With
+   `bpAssignmentMethod: "random"` or random sides, position costs are dropped and teams are
+   placed at random within their brackets.
 
 The result is a minimum-cost assignment for these costs. BP power pairing does not consider
 institution or history clashes, as in Tabbycat and the WUDC rules.
@@ -67,7 +72,10 @@ institution or history clashes, as in Tabbycat and the WUDC rules.
    - `pullup_top` / `pullup_bottom` / `pullup_middle` / `pullup_random`: an odd bracket
      takes one team from the next bracket down. Middle is the exact middle, or one of
      the two middle teams at random. `pullupRestriction` first narrows the candidates to
-     the teams with the fewest pull-ups, or the lowest draw strength by wins or speaks.
+     the teams with the fewest pull-ups, or the lowest draw strength by wins or speaks
+     ("wins" reads `draw_strength`, opponents' points, as Tabbycat's `lowest_ds_wins` does).
+   - `pullup_lowest_ds_rank` / `pullup_lowest_ds_rank_npulls`: only with
+     `min_cost_with_pullups` (below); any other conflict avoidance refuses them, as in Tabbycat.
    - `intermediate`: the bottom team of an odd bracket and the top team of the next
      bracket form an intermediate bracket between them.
    - `intermediate_bubble`: intermediate brackets, then each intermediate debate with a
@@ -87,7 +95,34 @@ institution or history clashes, as in Tabbycat and the WUDC rules.
      + Tabbycat's side penalty × `sideBalancePenalty` when both teams lean to the same
      side, + max(pull-up debates) × `previouslySawPullupPenalty` when the room mixes
      brackets, + Tabbycat's pairing-deviation cost × `pairingDeviationPenalty`.
-4. **Sides.** Balanced: the team that has been affirmative more often (relative to
+   - `min_cost_with_pullups`: Tabbycat's `graph_one` (`SingleGraphPowerPairedDrawGenerator`,
+     `singleGraphPairing.ts`). Steps 1–3 become one minimum-cost perfect matching over the whole
+     field. Teams may meet within a bracket or across adjacent brackets (no non-empty bracket
+     between). A cross-bracket room costs, besides the `min_cost` costs, the pulled-up team's
+     place in its bracket's odd-bracket order × `pullupPenalty` (Tabbycat's `pullup_magnitude`,
+     including its quirk that the count lags by one when the first key is 0, as with
+     `pullup_middle` and `pullup_random`), and its pairing deviation as one place below the
+     higher bracket. Odd-bracket orders: top (subrank), bottom, middle, random (all equal),
+     `pullup_lowest_ds_rank` (teams with no opponents first, then the highest mean opponent
+     rank, i.e. the weakest opponents) and `..._npulls` (fewest pull-ups first, then the same).
+     Intermediate brackets are refused and `pullupRestriction` is not used, as in Tabbycat.
+     With preallocated sides it is the per-bracket `min_cost`, as in Tabbycat.
+     Ties Tabbycat leaves to NetworkX are broken deterministically, below every Tabbycat cost
+     (so the draw is always one of Tabbycat's optimal draws): fewest cross-bracket rooms, then
+     (pull-up penalty 0) the odd-bracket order, then (pairing deviation penalty 0) the pairing
+     method, applied by re-pairing each resulting bracket with `min_cost` while pulled-up teams
+     may not meet each other. As in Tabbycat, `fold_top_adjacent_rest` is scored as adjacent
+     everywhere here (graph_one passes no bracket index).
+4. **Side limits as a pairing constraint.** Pairing methods and one-up-one-down pair before
+   sides are known. `repairSideLimits` checks every room; if two teams cannot take opposite
+   sides within `maxTimesPerSide` / `maxAllowedSideImbalance`, the bracket is re-paired by a
+   minimum-cost matching that forbids such rooms, widening to the neighbouring bracket(s) (below
+   first) when the bracket alone cannot fit. Within the window a room costs, in strict order:
+   the win gap between its teams, its clashes, then whether it differs from the rooms already
+   chosen. Brackets that fit are untouched. (Tabbycat enforces the cap only in graph conflict
+   avoidance and otherwise silently breaks it; the harness's `twoteam-odd-ties` round 5 shows
+   this.)
+5. **Sides.** Balanced: the team that has been affirmative more often (relative to
    negative) goes negative, and equal records are decided at random. `maxTimesPerSide`
    and `maxAllowedSideImbalance` are hard limits. A side that breaks one is never used,
    and the draw fails with an error naming the room if neither side fits.
@@ -214,8 +249,9 @@ details; a team moved to another room loses its pull-up mark.
   two-team only.
 - Swing teams are excluded from standings and breaks automatically (Tabbycat leaves it to
   the tab director).
-- Tabbycat's whole-draw "minimum cost matching including pull-ups" generator, which chooses
-  pull-ups by cost, is not implemented. `pullupPenalty` applies to BP only.
+- `min_cost_with_pullups` breaks Tabbycat's arbitrary ties deterministically (see above) and,
+  like `min_cost`, treats history as a penalty and side limits as hard.
+- Side limits are hard for every two-team conflict avoidance method (Tabbycat: graph only).
 
 ## Known limitations
 

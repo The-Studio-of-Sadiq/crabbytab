@@ -1,4 +1,5 @@
 import type {
+  ScoreCriterion,
   BreakCategory,
   DrawType,
   Round,
@@ -137,10 +138,37 @@ const AUSTRALS_BUNDLE: Partial<TournamentPreferences> = {
   teamStandingsPrecedence: ["wins", "speaks_sum"],
   speakerStandingsPrecedence: ["speaks_avg"],
   speakerStandingsExtra: ["speaks_stddev", "speeches_count"],
+  stepReplyScore: 0.5,
+  maximumMargin: 0,
+  sideNames: "aff-neg",
+  enableMotions: true,
 };
 
+/** Tabbycat's WSDC score criteria (WSDCPreferences.score_criteria): weight 1, step 0.5. */
+const WSDC_SCORE_CRITERIA: ScoreCriterion[] = (
+  [
+    ["Style", "substantive", 24, 32, true],
+    ["Content", "substantive", 24, 32, true],
+    ["Strategy", "substantive", 12, 16, true],
+    ["POIs", "substantive", -2, 2, false],
+    ["Style", "reply", 12, 16, true],
+    ["Content", "reply", 12, 16, true],
+    ["Strategy", "reply", 6, 8, true],
+  ] as const
+).map(([name, speechType, minScore, maxScore, required], index) => ({
+  id: `wsdc-${speechType}-${name.toLowerCase()}`,
+  name,
+  seq: index + 1,
+  speechType,
+  weight: 1,
+  minScore,
+  maxScore,
+  step: 0.5,
+  required,
+}));
+
 /** Tabbycat's NZ Easters and Joynt Scroll team precedence, with who-beat-whom after each metric. */
-const WBW_PRECEDENCE: TeamMetricId[] = ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"];
+const WBW_PRECEDENCE: TeamMetricId[] = ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"];
 
 export const RULES_PRESETS: RulesPreset[] = [
   {
@@ -153,7 +181,7 @@ export const RULES_PRESETS: RulesPreset[] = [
     replyScoresEnabled: true,
     scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
     preferences: { ...AUSTRALS_BUNDLE },
-    unsupported: ["Reply score step of 0.5", "Hiding team institutions"],
+    unsupported: ["Hiding team institutions"],
   },
   {
     id: "bp",
@@ -168,6 +196,8 @@ export const RULES_PRESETS: RulesPreset[] = [
       teamScoreIncludesGhosts: true,
       ballotMode: "consensus",
       eliminationBallotMode: "consensus",
+      speakersInBallots: "prelim",
+      enableMotions: false,
       enableMotionVetoes: false,
       avoidSameInstitution: false,
       avoidTeamHistory: false,
@@ -175,17 +205,14 @@ export const RULES_PRESETS: RulesPreset[] = [
       bpPositionCost: "renyi_entropy",
       renyiOrder: 1,
       bpPositionCostExponent: 4,
-      // Tabbycat's chain ends with draw strength by opponents' points, which CrabbyTab does not
-      // compute for BP (its draw strength counts opponents' wins), so it is left out.
-      teamStandingsPrecedence: ["points", "speaks_sum", "firsts", "seconds"],
+      bpAssignmentMethod: "hungarian",
+      pullupPenalty: 100000,
+      teamStandingsPrecedence: ["points", "speaks_sum", "firsts", "seconds", "draw_strength"],
       speakerStandingsPrecedence: ["speaks_sum"],
       speakerStandingsExtra: ["speaks_avg", "speaks_stddev"],
     },
     unsupported: [
-      "Draw strength by opponents' points at the end of the team precedence",
-      "Speaker scores only in preliminary rounds",
       "15-minute preparation time",
-      "Pre-shuffled Hungarian position assignment",
     ],
   },
   {
@@ -200,6 +227,8 @@ export const RULES_PRESETS: RulesPreset[] = [
     preferences: {
       ballotMode: "consensus",
       eliminationBallotMode: "consensus",
+      sideNames: "gov-opp",
+      enableMotions: false,
       enableMotionVetoes: false,
       avoidSameInstitution: false,
       avoidTeamHistory: false,
@@ -208,7 +237,7 @@ export const RULES_PRESETS: RulesPreset[] = [
       pairingMethod: "fold",
       conflictAvoidance: "off",
     },
-    unsupported: ["Government/Opposition side names"],
+    unsupported: [],
   },
   {
     id: "australian_easters",
@@ -219,8 +248,8 @@ export const RULES_PRESETS: RulesPreset[] = [
     substantiveSpeakers: 3,
     replyScoresEnabled: false,
     scores: { minSpeakerScore: 70, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 35, maxReplyScore: 40 },
-    preferences: { ...AUSTRALS_BUNDLE, ballotMode: "consensus", eliminationBallotMode: "voting" },
-    unsupported: ["Maximum margin of 15"],
+    preferences: { ...AUSTRALS_BUNDLE, ballotMode: "consensus", eliminationBallotMode: "voting", maximumMargin: 15 },
+    unsupported: [],
   },
   {
     id: "nz_easters",
@@ -254,6 +283,7 @@ export const RULES_PRESETS: RulesPreset[] = [
     scores: { minSpeakerScore: 60, maxSpeakerScore: 80, stepSpeakerScore: 1, minReplyScore: 30, maxReplyScore: 40 },
     preferences: {
       ...AUSTRALS_BUNDLE,
+      enableMotions: false,
       enableMotionVetoes: false,
       sideAllocationRule: "preallocated",
       oddBracketMethod: "intermediate2",
@@ -263,7 +293,7 @@ export const RULES_PRESETS: RulesPreset[] = [
       avoidTeamHistory: false,
       teamStandingsPrecedence: WBW_PRECEDENCE,
     },
-    unsupported: ["Turning motions off", "Public side-allocations page"],
+    unsupported: ["Public side-allocations page"],
   },
   {
     id: "uadc",
@@ -278,13 +308,14 @@ export const RULES_PRESETS: RulesPreset[] = [
     preferences: {
       ...AUSTRALS_BUNDLE,
       marginIncludesDissenters: false,
+      sideNames: "gov-opp",
       avoidSameInstitution: false,
       avoidTeamHistory: true,
       teamStandingsPrecedence: ["wins", "speaks_sum", "margin_avg"],
       feedbackMinScore: 1,
       feedbackMaxScore: 10,
     },
-    unsupported: ["Government/Opposition side names", "Feedback from teams on every adjudicator", "Public feedback progress"],
+    unsupported: ["Feedback from teams on every adjudicator", "Public feedback progress"],
   },
   {
     id: "wsdc",
@@ -298,21 +329,58 @@ export const RULES_PRESETS: RulesPreset[] = [
     preferences: {
       ...AUSTRALS_BUNDLE,
       marginIncludesDissenters: true,
+      enableMotions: false,
       enableMotionVetoes: false,
+      sideNames: "prop-opp",
+      scoreCriteria: WSDC_SCORE_CRITERIA,
       avoidSameInstitution: false,
       avoidTeamHistory: true,
       pairingMethod: "random",
       oddBracketMethod: "pullup_top",
       maxTimesPerSide: 5,
       sideAllocationRule: "balanced",
+      conflictAvoidance: "min_cost_with_pullups",
       pullupRestriction: "lowest_draw_strength_wins",
       teamStandingsPrecedence: ["wins", "num_adjs", "speaks_avg"],
       speakerStandingsPrecedence: ["speaks_avg"],
     },
+    unsupported: [],
+  },
+  {
+    id: "apda",
+    label: "APDA",
+    tabbycatName: "APDA Rules",
+    blurb: "2 vs 2 with speech ranks, declared winners and byes.",
+    format: "custom_2team",
+    substantiveSpeakers: 2,
+    replyScoresEnabled: false,
+    // Reply scores are unused; the range only keeps the settings valid.
+    scores: { minSpeakerScore: 15, maxSpeakerScore: 40, stepSpeakerScore: 1, minReplyScore: 15, maxReplyScore: 40 },
+    preferences: {
+      enableMotions: false,
+      enableMotionVetoes: false,
+      oddBracketMethod: "pullup_bottom",
+      teamInstitutionPenalty: 1000,
+      teamHistoryPenalty: 100000,
+      pairingMethod: "fold",
+      pullupRestriction: "least_pulled",
+      byeTeamResults: "win",
+      byeTeamSelectionMethod: "lowest_ranked",
+      conflictAvoidance: "min_cost",
+      previouslySawPullupPenalty: 10000,
+      sideBalancePenalty: 100,
+      pairingDeviationPenalty: 1,
+      ballotMode: "consensus",
+      eliminationBallotMode: "consensus",
+      winnersInBallots: "tied-points",
+      speakersInBallots: "prelim",
+      sideNames: "gov-opp",
+      speakerRanks: "any",
+      speakerStandingsPrecedence: ["speaks_avg", "srank", "speaks_trimmed_mean"],
+    },
     unsupported: [
-      "Style/Content/Strategy score criteria",
-      "Graph-based conflict avoidance (one-up-one-down is used)",
-      "Proposition/Opposition side names",
+      "Seeded first preliminary draw (set round 1's draw type to Seeded)",
+      "Seeds shown in the importer",
     ],
   },
 ];
@@ -322,7 +390,6 @@ export const RULES_PRESETS: RulesPreset[] = [
  * Japanese BP tournaments use the British Parliamentary preset.
  */
 export const UNSUPPORTED_TABBYCAT_PRESETS: Record<string, string> = {
-  "APDA Rules": "needs speech ranks and separate winner selection on ballots",
   "Public Speaking": "needs six teams per room with one speaker each",
   "Karl Popper (Czechia)": "needs median score aggregation and self-split ballots",
 };

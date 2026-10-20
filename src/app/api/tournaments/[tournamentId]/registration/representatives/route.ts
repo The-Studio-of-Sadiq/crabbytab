@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deliverMessages } from "@/lib/email/deliver";
+import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
 import { isValidRecordId, linkOrigin } from "@/lib/linkTokens";
 import {
-  buildRepresentativeEmail,
   issueRepresentative,
   parseRepresentativeInput,
   readSettings,
@@ -31,21 +30,24 @@ async function sendLink(
   authorization: TournamentAdministratorAuthorization,
   record: RegistrationRepresentative,
   token: string,
-  context: { slug: string; tournamentName: string; closesAt?: string }
+  context: { slug: string; tournamentName: string; teamQuota: number; adjudicatorQuota: number }
 ) {
   const link = representativeLink(linkOrigin(request.nextUrl.origin), context.slug, token);
-  const [outcome] = await deliverMessages([
-    {
-      to: record.email,
-      ...buildRepresentativeEmail({
-        tournamentName: context.tournamentName,
-        institutionName: record.institution.name,
-        name: record.name,
-        link,
-        closesAt: context.closesAt,
-      }),
+  // Places allocated (Tabbycat "slots allocated"): the tournament's saved template, with the link.
+  const places = (value: number) => (value > 0 ? String(value) : "unlimited");
+  const outcome = (await sendTemplatedEmail({
+    tournamentRef: authorization.tournamentRef,
+    tournamentName: context.tournamentName,
+    event: "slots_allocated",
+    recipient: {
+      email: record.email,
+      name: record.name || record.institution.name,
+      institution: record.institution.name,
+      url: link,
+      teamsAllocated: places(record.teamQuota ?? context.teamQuota),
+      adjudicatorsAllocated: places(record.adjudicatorQuota ?? context.adjudicatorQuota),
     },
-  ]);
+  }))!;
   const reference = registrationRefs(authorization.tournamentRef).representatives.doc(record.id);
   await authorization.firestore.runTransaction(async (transaction) => {
     const current = (await transaction.get(reference)).data() as RegistrationRepresentative | undefined;
@@ -90,7 +92,8 @@ async function issueAndSend(
       token,
       slug,
       tournamentName: typeof tournament.name === "string" ? tournament.name : "the tournament",
-      closesAt: settings?.closesAt,
+      teamQuota: settings?.teamQuotaPerInstitution ?? 0,
+      adjudicatorQuota: settings?.adjudicatorQuotaPerInstitution ?? 0,
     };
   });
   return sendLink(request, authorization, issued.record, issued.token, issued);

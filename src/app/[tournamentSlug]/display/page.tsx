@@ -61,11 +61,15 @@ export default function DisplayPage() {
     };
   }, [isOwnerOrAdmin, tournamentSlug]);
 
-  // For non-staff viewers, require publicDraw to be enabled AND the round draw to be released.
+  // For non-staff viewers, the round's draw must be on the public draw page: the projection marks
+  // it under the draw mode (current round only / every released draw); older views fall back to
+  // the legacy switch and the draw status.
+  const publicDrawFlag = (activeRound as (typeof activeRound & { drawPublic?: boolean }) | null)?.drawPublic;
   const showDraw =
     isOwnerOrAdmin ||
-    (prefs?.publicDraw !== false &&
-      (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released"));
+    (publicDrawFlag ??
+      (prefs?.publicDraw !== false &&
+        (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released")));
   const showAdjudicators = isOwnerOrAdmin || activeRound?.adjudicatorsRevealed === true;
   const showMotions = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
@@ -304,7 +308,7 @@ export default function DisplayPage() {
                   {alphabeticalRows.map((row) => (
                     <tr key={row.teamId} className="bg-[#22272e]">
                       <th scope="row" className="px-4 py-2 font-semibold">{row.teamName}</th>
-                      <td className="px-4 py-2">{row.side ? <SideBadge side={row.side} /> : row.bye ? "Bye" : "Sides at the debate"}</td>
+                      <td className="px-4 py-2">{row.side ? <SideBadge side={row.side} preferences={prefs} /> : row.bye ? "Bye" : "Sides at the debate"}</td>
                       <td className="px-4 py-2 text-blue-300">{row.bye ? "—" : row.venueName || "TBA"}</td>
                       <td className="px-4 py-2 text-gray-300">{row.opponents.join(", ") || "—"}</td>
                     </tr>
@@ -345,7 +349,7 @@ export default function DisplayPage() {
                           <div key={side} className="bg-[#22272e] rounded p-3">
                             {sidesPending(debate)
                               ? <span className="text-[11px] font-semibold uppercase text-gray-400">Sides at the debate</span>
-                              : <SideBadge side={side} />}
+                              : <SideBadge side={side} preferences={prefs} />}
                             <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
                           </div>
                         ))}

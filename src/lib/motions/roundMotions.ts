@@ -113,18 +113,6 @@ export function copyPreviousRoundMotions(motions: readonly Motion[], round: Roun
   return copyMotionsToRound(motions, source.map((motion) => motion.id), round.id, previous.id);
 }
 
-/**
- * Rounds in the order the public motions tab lists them: "reverse" (latest first, Tabbycat's
- * default) or "forward". Ties on seq keep the input order.
- */
-export function orderMotionRoundsForPublic<T extends Pick<Round, "seq">>(
-  rounds: readonly T[],
-  order: "forward" | "reverse" | undefined
-): T[] {
-  const direction = order === "forward" ? 1 : -1;
-  return [...rounds].sort((left, right) => direction * (left.seq - right.seq));
-}
-
 /** Merges changed motions into a list (for applying a planned change locally). */
 export function mergeMotions(motions: readonly Motion[], changed: readonly Motion[]): Motion[] {
   const byId = new Map(changed.map((motion) => [motion.id, motion]));

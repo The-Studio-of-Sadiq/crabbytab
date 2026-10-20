@@ -5,6 +5,7 @@ import type {
   BreakCategory,
   Debate,
   FeedbackSubmission,
+  Institution,
   PanelSizingMode,
   Round,
   Team,
@@ -44,6 +45,8 @@ export interface AllocationDependencies {
   breakCategories: BreakCategory[];
   feedback: FeedbackSubmission[];
   venues: Venue[];
+  /** Institutions carry soft room constraints; optional for callers that have none. */
+  institutions?: Institution[];
   repository: { saveDebates(debates: Debate[]): void };
   cloudRepository?: { saveDebates(debates: Debate[]): Promise<void> };
   hideRevealedAdjudicators(roundIds: Set<string>): Promise<void>;
@@ -57,7 +60,7 @@ export interface AllocationDependencies {
 /** The data auto-allocation reads: plain records only, so it can run in a Web Worker. */
 export type AutoAllocationInput = Pick<
   AllocationDependencies,
-  "tournament" | "rounds" | "teams" | "debates" | "adjudicators" | "standings" | "breakCategories" | "feedback" | "venues"
+  "tournament" | "rounds" | "teams" | "debates" | "adjudicators" | "standings" | "breakCategories" | "feedback" | "venues" | "institutions"
 > & {
   roundId: string;
   panelSize: number;
@@ -73,6 +76,8 @@ export interface AutoAllocationResult {
     panelSize: number;
     panelSizing: PanelSizingMode;
     preformedPanelCount: number;
+    /** Non-fatal allocator warnings (e.g. Tabbycat's "too few voting adjudicators"). */
+    warnings: string[];
     assignments: Array<{
       debateId: string;
       chairId?: string;
@@ -138,6 +143,7 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
     feedbackWeight: round?.feedbackWeight,
     venuePriorities: new Map(input.venues.map((venue) => [venue.id, venue.priority])),
     preformedPanels: tournament.preferences?.usePreformedPanels ? round?.preformedPanels : undefined,
+    warnings: [],
   };
   const effectivePanelSize = tournament.preferences?.noPanellistAdjs ? 1 : panelSize;
   const panelSizing = settings.panelSizing ?? tournament.preferences?.panelSizingMode ?? "fixed";
@@ -176,9 +182,12 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
       },
     };
   });
+  // Rooms are re-allocated after the panels are known when adjudicators have hard room
+  // requirements or soft room constraints (Tabbycat allocates rooms after adjudicators too).
   const hasAdjudicatorVenueRequirements = input.adjudicators.some(
-    (adjudicator) => adjudicator.venueRequirements &&
-      Object.values(adjudicator.venueRequirements).some((value) => value !== undefined && value !== false)
+    (adjudicator) => (adjudicator.venueRequirements &&
+      Object.values(adjudicator.venueRequirements).some((value) => value !== undefined && value !== false)) ||
+      (adjudicator.venueConstraints?.length ?? 0) > 0
   );
   const finalRoundDebates = hasAdjudicatorVenueRequirements
     ? (() => {
@@ -186,7 +195,11 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
           updatedRoundDebates,
           adjudicators
         );
-        const venueAssignments = allocateVenuesToDebates(withRequirements, venues);
+        const venueAssignments = allocateVenuesToDebates(withRequirements, venues, {
+          teams: input.teams,
+          adjudicators: input.adjudicators,
+          institutions: input.institutions,
+        });
         return withRequirements.map((debate) => {
           const venue = venueAssignments.get(debate.id);
           return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
@@ -200,6 +213,7 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
       panelSize: effectivePanelSize,
       panelSizing,
       preformedPanelCount: intelligentContext.preformedPanels?.length ?? 0,
+      warnings: intelligentContext.warnings ?? [],
       assignments: allocations.map((allocation) => ({
         debateId: allocation.debateId,
         chairId: allocation.chairId,
@@ -217,7 +231,7 @@ export async function autoAllocateCommand(
   dependencies: AllocationDependencies,
   settings: AutoAllocateSettings = {},
   override?: RuleOverride
-): Promise<void> {
+): Promise<string[]> {
   const guardedRound = dependencies.rounds.find((item) => item.id === roundId);
   if (
     guardedRound &&
@@ -244,11 +258,12 @@ export async function autoAllocateCommand(
     breakCategories: dependencies.breakCategories,
     feedback: dependencies.feedback,
     venues: dependencies.venues,
+    institutions: dependencies.institutions,
   };
   const result = dependencies.computeAllocation
     ? await dependencies.computeAllocation(input)
     : computeAutoAllocation(input);
-  if (!result) return;
+  if (!result) return [];
   const round = dependencies.rounds.find((item) => item.id === roundId);
   const currentDebates = dependencies.latestDebates?.() ?? dependencies.debates;
   if (roundChangedBetween(roundId, { debates: dependencies.debates }, { debates: currentDebates })) {
@@ -276,11 +291,13 @@ export async function autoAllocateCommand(
       panelSizing: result.details.panelSizing,
       feedbackWeight: round?.feedbackWeight,
       preformedPanelCount: result.details.preformedPanelCount,
+      ...(result.details.warnings.length > 0 ? { warnings: result.details.warnings } : {}),
       debateCount: finalRoundDebates.length,
       adjudicatorCount: dependencies.adjudicators.length,
       assignments: result.details.assignments,
     },
   });
+  return result.details.warnings;
 }
 
 export async function updateDebateCommand(

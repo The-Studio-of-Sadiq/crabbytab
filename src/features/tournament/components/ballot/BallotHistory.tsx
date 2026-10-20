@@ -2,7 +2,9 @@
 
 import React from "react";
 import { History } from "lucide-react";
-import type { BallotSubmission } from "@/types";
+import type { BallotSubmission, DebateSide, TournamentPreferences } from "@/types";
+import { sideLabel } from "@/lib/sideNames";
+import { formatScore } from "@/lib/scoreDisplay";
 
 interface BallotHistoryProps {
   ballots: BallotSubmission[];
@@ -13,6 +15,8 @@ interface BallotHistoryProps {
   onConfirm: (ballot: BallotSubmission) => void;
   onDiscard: (ballot: BallotSubmission) => void;
   busy?: boolean;
+  /** For the tournament's side names. */
+  preferences?: Partial<TournamentPreferences>;
 }
 
 function status(ballot: BallotSubmission): { label: string; className: string } {
@@ -21,8 +25,9 @@ function status(ballot: BallotSubmission): { label: string; className: string } 
   return { label: "Awaiting check", className: "bg-amber-100 text-amber-800" };
 }
 
-function describeResult(ballot: BallotSubmission): string {
-  if (ballot.forfeitSide) return `${ballot.forfeitSide} forfeited`;
+function describeResult(ballot: BallotSubmission, preferences?: Partial<TournamentPreferences>): string {
+  const label = (side: DebateSide) => sideLabel(side, preferences);
+  if (ballot.forfeitSide) return `${label(ballot.forfeitSide)} forfeited`;
   const sides = Object.values(ballot.teamScores || {});
   const winner = sides.find((score) => score.rank === 1);
   if (!winner) return "—";
@@ -30,14 +35,15 @@ function describeResult(ballot: BallotSubmission): string {
     return sides
       .slice()
       .sort((left, right) => (left.rank ?? 9) - (right.rank ?? 9))
-      .map((score) => score.side)
+      .map((score) => label(score.side))
       .join(" › ");
   }
   const votes = winner.votes !== undefined ? ` (${winner.votes} vote${winner.votes === 1 ? "" : "s"})` : "";
-  return `${winner.side} won by ${winner.margin ?? 0}${votes}`;
+  if (ballot.noSpeakerScores || winner.margin === undefined) return `${label(winner.side)} won${votes}`;
+  return `${label(winner.side)} won by ${formatScore(winner.margin)}${votes}`;
 }
 
-export function BallotHistory({ ballots, hideScores, canConfirm, onLoad, onConfirm, onDiscard, busy }: BallotHistoryProps) {
+export function BallotHistory({ ballots, hideScores, canConfirm, onLoad, onConfirm, onDiscard, busy, preferences }: BallotHistoryProps) {
   if (ballots.length === 0) return null;
   const ordered = [...ballots].sort((left, right) => (right.version || 0) - (left.version || 0));
   return (
@@ -53,7 +59,7 @@ export function BallotHistory({ ballots, hideScores, canConfirm, onLoad, onConfi
             <li key={ballot.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-xs">
               <span className="font-mono font-bold text-gray-900">v{ballot.version}</span>
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${badge.className}`}>{badge.label}</span>
-              <span className="text-gray-700">{hideScores ? "Hidden during blind check" : describeResult(ballot)}</span>
+              <span className="text-gray-700">{hideScores ? "Hidden during blind check" : describeResult(ballot, preferences)}</span>
               <span className="text-gray-500">
                 {ballot.submitterName || ballot.submitterType}
                 {ballot.sheets?.length ? ` · ${ballot.sheets.length} scoresheets` : ""}

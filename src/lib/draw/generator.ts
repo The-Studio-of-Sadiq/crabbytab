@@ -19,6 +19,7 @@ import { eliminationRoomCount, planEliminationRound, resolveBracketPositions } f
 import { createSeededRng, randomInt, randomSeed, Rng, shuffle } from "./rng";
 import { sameInstitution } from "./history";
 import { allocateVenuesToDebates } from "./venueAllocator";
+import { isVenueAvailableForRound, type VenueConstraintContext } from "@/lib/venues/venues";
 import { MANUAL_SIDES_FLAG, sidesPending } from "./manualSides";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 
@@ -194,7 +195,9 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const institutionsById = new Map(institutions.map((institution) => [institution.id, institution]));
   const isBP = tournament.format === "bp";
   const teamsPerDebate = isBP ? 4 : 2;
-  const availableVenues = venues.filter((venue) => venue.available !== false);
+  const availableVenues = venues.filter((venue) => isVenueAvailableForRound(venue, round.id));
+  // Soft room constraints of teams and their institutions (adjudicators are not allocated yet).
+  const venueContext: VenueConstraintContext = { teams, institutions };
   const rng = createSeededRng(params.seed ?? randomSeed());
   const requiredVenues = getRequiredVenueCount(tournament, round, teams);
   if (availableVenues.length < requiredVenues) {
@@ -223,7 +226,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         generated.push(debate);
       });
     }
-    return assignVenues(generated, availableVenues);
+    return assignVenues(generated, availableVenues, venueContext);
   }
 
   // Filter checked-in teams (or all active if checkins aren't used)
@@ -310,6 +313,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     sideBalancePenalty: sidesOnBallot ? 0 : preferences?.sideBalancePenalty,
     pairingDeviationPenalty: preferences?.pairingDeviationPenalty,
     previouslySawPullupPenalty: preferences?.previouslySawPullupPenalty,
+    pullupPenalty: preferences?.pullupPenalty,
     ...sideLimits,
   };
   const markSidesOnBallot = (debates: Debate[]): Debate[] =>
@@ -359,7 +363,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
 
     return [
-      ...markSidesOnBallot(assignVenues(debates, availableVenues)),
+      ...markSidesOnBallot(assignVenues(debates, availableVenues, venueContext)),
       ...createByeDebates(byeTeams, debates.length, tournament, round, isBP),
     ];
   }
@@ -526,7 +530,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     return debateObj;
   });
   return [
-    ...markSidesOnBallot(assignVenues(generatedDebates, availableVenues)),
+    ...markSidesOnBallot(assignVenues(generatedDebates, availableVenues, venueContext)),
     ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
     ...createEliminationByeDebates(eliminationByes, generatedDebates.length, tournament, round, isBP),
   ];
@@ -558,8 +562,8 @@ export function getTeamVenueRequirements(
   };
 }
 
-function assignVenues(debates: Debate[], venues: Venue[]): Debate[] {
-  const allocation = allocateVenuesToDebates(debates, venues);
+function assignVenues(debates: Debate[], venues: Venue[], context?: VenueConstraintContext): Debate[] {
+  const allocation = allocateVenuesToDebates(debates, venues, context);
   return debates.map((debate) => {
     const venue = allocation.get(debate.id);
     return venue

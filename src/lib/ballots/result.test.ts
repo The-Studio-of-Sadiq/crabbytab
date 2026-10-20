@@ -136,9 +136,13 @@ describe("validation", () => {
 
   it("rejects low-point wins unless allowed", () => {
     const entry = { ...valid, ranks: { AFF: 2, NEG: 1 } };
-    expect(validateBallotEntry(entry, context).join(" ")).toMatch(/Low-point wins/);
+    const declared = { ...context, preferences: { ...context.preferences, winnersInBallots: "high-points" as const } };
+    expect(validateBallotEntry(entry, declared).join(" ")).toMatch(/Low-point wins/);
     const allowed = { ...context, preferences: { ...context.preferences, allowLowPointWins: true } };
     expect(validateBallotEntry(entry, allowed)).toEqual([]);
+    // Without declared winners the result is read from the totals, whatever ranks were entered.
+    expect(validateBallotEntry(entry, context)).toEqual([]);
+    expect(buildBallotResult(entry, teamIds, undefined, twoTeam).teamScores.AFF.win).toBe(true);
   });
 
   it("requires the reply to come from an earlier speaker and rejects unmarked double speeches", () => {

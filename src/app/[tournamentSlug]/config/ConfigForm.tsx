@@ -39,8 +39,11 @@ import {
   TEAM_METRIC_LABELS,
   SPEAKER_METRIC_LABELS,
   BP_ONLY_TEAM_METRICS,
+  BP_ONLY_SPEAKER_METRICS,
+  EXTRA_ONLY_TEAM_METRICS,
   RANKING_ONLY_TEAM_METRICS,
   REPEATABLE_TEAM_METRICS,
+  TWO_TEAM_ONLY_SPEAKER_METRICS,
   TWO_TEAM_ONLY_TEAM_METRICS,
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
@@ -48,7 +51,12 @@ import { lockedSettingsFields } from "@/features/tournament/application/stateGua
 import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
 import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
+import { FeedbackOptionsFields } from "@/components/feedback/FeedbackOptionsFields";
 import { LOCALES } from "@/lib/i18n/config";
+import { RoundWeightsEditor } from "@/features/tournament/components/RoundWeightsEditor";
+import { ResultsRulesSettings } from "@/features/tournament/components/ballot/ResultsRulesSettings";
+import { validateScoreCriteria } from "@/lib/ballots/ballotRules";
+import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -225,6 +233,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     }
     setFeedbackQuestionError("");
     setSaveError("");
+    const criteriaErrors = validateScoreCriteria(prefs.scoreCriteria ?? []);
+    if (criteriaErrors.length > 0) {
+      setSaveError(`Score criteria: ${criteriaErrors.join(" ")}`);
+      return;
+    }
 
     try {
       await saveTournament({
@@ -339,11 +352,14 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   >
                     <option value="crabbytab_v1">Preset 1 — Current CrabbyTab allocation</option>
                     <option value="panel_average">Panel average — match each panel to debate priority</option>
+                    <option value="tabbycat_voting">Tabbycat voting — solo chairs in top rooms, panels of three below</option>
+                    <option value="tabbycat_consensus">Tabbycat consensus — spread every voter evenly across rooms</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     Preset 1 preserves the existing strength-ranking behavior. Panel average instead matches the
                     average strength of each complete voting panel to its debate priority; the strongest eligible
-                    panel member is still promoted to chair.
+                    panel member is still promoted to chair. The two Tabbycat strategies reproduce Tabbycat&apos;s
+                    Hungarian allocators (voting and consensus) and ignore the panel size setting.
                   </p>
                 </div>
                 <div className="sm:col-span-2">
@@ -713,11 +729,12 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
                   >
                     <option value="one_up_one_down">One-up-one-down (swap with the room above or below)</option>
-                    <option value="min_cost">Minimum-cost matching (whole bracket)</option>
+                    <option value="min_cost">Minimum-cost matching (pull-ups chosen first)</option>
+                    <option value="min_cost_with_pullups">Minimum-cost matching (including pull-ups)</option>
                     <option value="off">Off</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    One-up-one-down swaps opponents between adjacent rooms where that removes a clash. Minimum-cost matching pairs each bracket to minimise clashes plus the penalties above, keeping to the pairing method where it can. Random rounds avoid clashes unless this is off.
+                    One-up-one-down swaps opponents between adjacent rooms where that removes a clash. Minimum-cost matching pairs each bracket to minimise clashes plus the penalties above, keeping to the pairing method where it can. &quot;Including pull-ups&quot; matches the whole field at once, so it also chooses who is pulled up (only between adjacent brackets), weighing the odd bracket method by the pull-up penalty; it does not use intermediate brackets or the pull-up restriction. Random rounds avoid clashes unless this is off.
                   </p>
                 </div>
 
@@ -736,9 +753,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <option value="pullup_bottom">Pull up the bottom team from below</option>
                     <option value="pullup_middle">Pull up the middle team from below</option>
                     <option value="pullup_random">Pull up a random team from below</option>
+                    <option value="pullup_lowest_ds_rank">Pull up the team with the lowest draw strength by rank</option>
+                    <option value="pullup_lowest_ds_rank_npulls">Pull up the least pulled-up team, then the lowest draw strength by rank</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Pull-ups move a team from the bracket below into an odd bracket. Intermediate brackets pair the bottom team of an odd bracket with the top team below; bubble-up-bubble-down swaps them with a neighbour if they clash. With preallocated sides, use pull-up top/bottom/random or intermediate brackets 1/2.
+                    Pull-ups move a team from the bracket below into an odd bracket. Intermediate brackets pair the bottom team of an odd bracket with the top team below; bubble-up-bubble-down swaps them with a neighbour if they clash. With preallocated sides, use pull-up top/bottom/random or intermediate brackets 1/2. The draw strength by rank methods (the team whose opponents ranked lowest goes first) need minimum-cost matching including pull-ups.
                   </p>
                 </div>
 
@@ -755,7 +774,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Restricts which teams the pull-up methods may choose. Two-team formats only; has no effect on intermediate brackets or BP.
+                    Restricts which teams the pull-up methods may choose. Two-team formats only; has no effect on intermediate brackets, minimum-cost matching including pull-ups, or BP. Draw strength (wins) uses opponents&apos; points, as Tabbycat does.
                   </p>
                 </div>
 
@@ -771,7 +790,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     className="w-full sm:w-64 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    BP only: added once per previous pull-up when a team is placed above its points bracket, so teams pulled up less often are preferred. Set high enough to outweigh position costs (e.g. 100000 with the default exponent). Leave 0 for no preference.
+                    BP: added once per previous pull-up when a team is placed above its points bracket, so teams pulled up less often are preferred. Set high enough to outweigh position costs (e.g. 100000 with the default exponent). Two-team minimum-cost matching including pull-ups: multiplied by a team&apos;s place in the odd bracket order when it is pulled up, so it is weighed against clashes; at 0 the order only breaks ties. Leave 0 for no preference.
                   </p>
                 </div>
               </div>
@@ -821,6 +840,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   >
                     <option value="renyi_entropy">Rényi entropy</option>
                     <option value="sum_squared_deviations">Sum of squared deviations</option>
+                    <option value="simple">Simple (times already in the position)</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     In BP, which position cost function to use (see documentation for details)
@@ -877,10 +897,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     }
                   >
                     <option value="hungarian">Hungarian algorithm with preshuffling (WUDC-compliant)</option>
+                    <option value="hungarian_unshuffled">Hungarian algorithm without preshuffling (not WUDC-compliant)</option>
                     <option value="random">Random positions within brackets</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Hungarian minimises total position cost, choosing at random among equally good draws. Random keeps the brackets but ignores position history.
+                    Hungarian minimises total position cost, choosing at random among equally good draws. Without preshuffling, ties are settled by standings order, so the draw is the same for every seed. Random keeps the brackets but ignores position history.
                   </p>
                 </div>
 
@@ -1009,6 +1030,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   </div>
                   {roundFeedbackError && <p role="alert" className="mt-2 text-xs text-red-600">{roundFeedbackError}</p>}
                 </div>
+                <RoundWeightsEditor rounds={rounds} updateRound={updateRound} />
               </div>
 
               <div className="border-t border-gray-100 pt-4 space-y-2">
@@ -1373,12 +1395,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
                 {(
                   [
-                    ["allowLowPointWins", "Allow low-point wins", "A team with the lower total speaker score may be given the win (consensus ballots only)."],
                     ["enableMotionVetoes", "Record motion vetoes", "Ballots record which motion each team vetoed; vetoes appear in motion statistics."],
                     ...(tournament?.format !== "bp"
                       ? [["enableForfeits", "Allow forfeits", "A debate can be recorded as a forfeit: the other team wins and no speaker scores are recorded."]]
                       : []),
-                  ] as Array<["allowLowPointWins" | "enableMotionVetoes" | "enableForfeits", string, string]>
+                  ] as Array<["enableMotionVetoes" | "enableForfeits", string, string]>
                 ).map(([key, label, help]) => (
                   <label key={key} className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                     <input
@@ -1393,6 +1414,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     </div>
                   </label>
                 ))}
+
+                <ResultsRulesSettings
+                  prefs={prefs}
+                  onChange={(patch) => setPrefs((p) => ({ ...p, ...patch }))}
+                  format={format}
+                  shapeLocked={ballotShapeLocked}
+                />
               </div>
             </div>
 
@@ -1445,6 +1473,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         />
                       </div>
                     </div>
+                    <FeedbackOptionsFields value={prefs} onChange={(change) => setPrefs((p) => ({ ...p, ...change }))} />
                     </div>
                   )}
                 </div>
@@ -1667,7 +1696,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 value={prefs.teamStandingsPrecedence ?? []}
                 onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
                 labels={TEAM_METRIC_LABELS}
-                disabledIds={format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS}
+                disabledIds={[...(format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS), ...EXTRA_ONLY_TEAM_METRICS]}
                 repeatableIds={REPEATABLE_TEAM_METRICS}
               />
               <p className="text-[11px] text-gray-500 mt-1">
@@ -1695,7 +1724,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 value={prefs.speakerStandingsPrecedence ?? []}
                 onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
                 labels={SPEAKER_METRIC_LABELS}
+                disabledIds={format === "bp" ? TWO_TEAM_ONLY_SPEAKER_METRICS : BP_ONLY_SPEAKER_METRICS}
               />
+              <p className="text-[11px] text-gray-500 mt-1">
+                Team metrics (team points, wins, 1sts-3rds, votes carried) count every debate of the speaker&apos;s team, whether or not the speaker spoke in it, as in Tabbycat.
+              </p>
               <p className="text-[11px] text-gray-500 mt-1">
                 Default: {resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" \u2192 ")}
               </p>
@@ -1774,19 +1807,6 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={prefs.publicDraw !== false}
-                  onChange={(e) => setPrefs((p) => ({ ...p, publicDraw: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Draw Display</span>
-                  <span className="text-[11px] text-gray-500">Allow public viewers to see confirmed round pairings and room allocations.</span>
-                </div>
-              </label>
-
               <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1872,6 +1892,25 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
             </label>
 
             <label className="block max-w-xs text-xs font-semibold text-gray-700">
+              Room check-in expiry (hours; 0 means never)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={prefs.venueCheckInExpiresAfterHours ?? 0}
+                onChange={(event) => setPrefs((current) => ({
+                  ...current,
+                  venueCheckInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                }))}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                A room checked in longer ago than this shows as expired on the check-ins page (Tabbycat&apos;s room
+                check-in window).
+              </span>
+            </label>
+
+            <label className="block max-w-xs text-xs font-semibold text-gray-700">
               Public pages and portals language
               <select
                 value={prefs.publicLanguage ?? ""}
@@ -1896,6 +1935,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 Default for public pages, team and adjudicator portals. Viewers can still pick their own language.
               </span>
             </label>
+
+            <PublicSiteSettingsFields prefs={prefs} setPrefs={setPrefs} />
           </div>
         )}
 
