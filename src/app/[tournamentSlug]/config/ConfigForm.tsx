@@ -51,6 +51,7 @@ import { lockedSettingsFields } from "@/features/tournament/application/stateGua
 import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
 import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
+import { FeedbackOptionsFields } from "@/components/feedback/FeedbackOptionsFields";
 import { LOCALES } from "@/lib/i18n/config";
 import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
 
@@ -1457,6 +1458,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         />
                       </div>
                     </div>
+                    <FeedbackOptionsFields value={prefs} onChange={(change) => setPrefs((p) => ({ ...p, ...change }))} />
                     </div>
                   )}
                 </div>

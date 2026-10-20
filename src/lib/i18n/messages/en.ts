@@ -292,6 +292,7 @@ export const en = {
   "teamPortal.modalTeamTitle": "Opponent Team Feedback",
   "teamPortal.targetAdjudicator": "Target Adjudicator",
   "teamPortal.targetTeam": "Target Opponent Team",
+  "teamPortal.orallistPrompt": "If a panellist gave the oral adjudication (the chair dissented), rate that panellist instead of the chair.",
   "teamPortal.agreeQuestion": "Did you agree with this adjudicator’s decision/call?",
   "teamPortal.adjudicatorComments": "Constructive Feedback & Justification",
   "teamPortal.adjudicatorPlaceholder": "Explain constructive points: quality of oral adjudication, tracking of clash, fairness…",

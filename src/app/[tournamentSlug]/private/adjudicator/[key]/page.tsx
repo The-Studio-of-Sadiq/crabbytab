@@ -28,7 +28,7 @@ import {
 import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
 import { consensusTeamScores } from "@/lib/ballots/result";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
-import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
+import { validateFeedbackScore, validateSpeakerScore, validateReplyScore, defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
   isFeedbackEnabledForRound,
@@ -163,7 +163,7 @@ export default function AdjudicatorPrivatePortalPage() {
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
-    Math.round((minFeedbackScore + maxFeedbackScore) / 2)
+    defaultFeedbackScore(tournament?.preferences)
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
@@ -283,7 +283,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetAdjName(targetAdj.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -297,7 +297,7 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -1109,6 +1109,11 @@ export default function AdjudicatorPrivatePortalPage() {
             )}
 
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
+              {tournament?.preferences?.feedbackIntroduction?.trim() && (
+                <p className="whitespace-pre-line rounded border border-gray-200 bg-gray-50 p-2.5 text-gray-700">
+                  {tournament.preferences.feedbackIntroduction}
+                </p>
+              )}
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200">
                 <span className="text-[10px] text-gray-500 font-bold uppercase block">
                   {feedbackTargetType === "adjudicator" ? t("adjPortal.targetAdjudicator") : t("adjPortal.targetTeam")}
@@ -1129,9 +1134,9 @@ export default function AdjudicatorPrivatePortalPage() {
                   type="range"
                   min={minFeedbackScore}
                   max={maxFeedbackScore}
-                  step={1}
+                  step={feedbackScoreStep(tournament?.preferences)}
                   value={feedbackScore}
-                  onChange={(e) => setFeedbackScore(parseInt(e.target.value, 10))}
+                  onChange={(e) => setFeedbackScore(parseFloat(e.target.value))}
                   className="w-full accent-blue-600 cursor-pointer"
                 />
               </div>

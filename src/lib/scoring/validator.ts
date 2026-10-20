@@ -116,5 +116,29 @@ export function validateFeedbackScore(
     };
   }
 
+  // Tabbycat's adj_score_step: scores are min + a whole number of steps.
+  const step = feedbackScoreStep(preferences);
+  const steps = (score - min) / step;
+  if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+    return { valid: false, error: `Feedback scores go in steps of ${step} from ${min}.` };
+  }
+
   return { valid: true };
+}
+
+/** The starting score of a feedback form: the middle of the scale, on a step. */
+export function defaultFeedbackScore(
+  preferences?: Partial<Pick<TournamentPreferences, "feedbackMinScore" | "feedbackMaxScore" | "feedbackScoreStep">>
+): number {
+  const min = preferences?.feedbackMinScore ?? 1;
+  const max = preferences?.feedbackMaxScore ?? 10;
+  const step = feedbackScoreStep(preferences);
+  const middle = min + Math.round((max - min) / 2 / step) * step;
+  return Math.round(Math.min(max, middle) * 1e9) / 1e9;
+}
+
+/** The feedback score step; anything not a positive number counts as 1. */
+export function feedbackScoreStep(preferences?: Partial<Pick<TournamentPreferences, "feedbackScoreStep">>): number {
+  const step = preferences?.feedbackScoreStep;
+  return typeof step === "number" && Number.isFinite(step) && step > 0 ? step : 1;
 }
