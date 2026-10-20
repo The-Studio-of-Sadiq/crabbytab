@@ -1,4 +1,5 @@
 import { MANUAL_SIDES_FLAG } from "@/lib/draw/manualSides";
+import { safeVenueUrl } from "@/lib/venues/venues";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -222,7 +223,18 @@ export function buildPublicProjection(
     admins: {},
   } as Tournament;
   if (tournament.preferences) {
-    tournament.preferences = { ...tournament.preferences, speakerCategories: publicSpeakerCategories };
+    tournament.preferences = {
+      ...tournament.preferences,
+      speakerCategories: publicSpeakerCategories,
+      // Room category descriptions leave the server only when marked for the public tooltip.
+      ...(Array.isArray(preferences.venueCategories)
+        ? {
+            venueCategories: preferences.venueCategories.map(({ description, publicTooltip, ...category }) =>
+              publicTooltip ? { ...category, description, publicTooltip } : category
+            ),
+          }
+        : {}),
+    };
   }
 
   const allRounds = active(source.rounds) as unknown as Round[];
@@ -489,6 +501,8 @@ export function buildPublicProjection(
   }));
   const venues = (active(source.venues) as unknown as Venue[]).map((venue) => ({
     ...pick(venue, ["tournamentId", "name", "category", "capacity", "accessible", "online", "available"]),
+    // Room links appear with the public draw, as in Tabbycat; only http(s) links are published.
+    ...(safeVenueUrl(venue.url) ? { url: safeVenueUrl(venue.url) } : {}),
     id: venue.id,
   }));
 

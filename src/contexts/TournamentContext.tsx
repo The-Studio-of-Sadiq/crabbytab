@@ -258,7 +258,8 @@ export interface TournamentContextType {
   updateRound: (round: Round) => Promise<void>;
   /** Throws DrawHasResultsError when the round has ballots, unless discardExistingResults is set. */
   generateDraw: (roundId: string, options?: { discardExistingResults?: boolean }) => Promise<void>;
-  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
+  /** Resolves to the allocator's non-fatal warnings. */
+  autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<string[]>;
   updateDebate: (debate: Debate) => Promise<void>;
   updateDebates: (debates: Debate[]) => Promise<void>;
   submitBallot: (ballot: BallotSubmission, privatePasscode?: string) => Promise<void>;
@@ -1289,6 +1290,8 @@ export function TournamentProvider({
         teams?: Team[];
         rounds?: Round[];
         debates?: Debate[];
+        /** Rooms of running debates (name, category, link) for the portal's room links. */
+        venues?: Array<Pick<Venue, "id" | "name" | "category" | "url">>;
         selfCheckIn?: SelfCheckInStatus | null;
       };
 
@@ -1364,6 +1367,17 @@ export function TournamentProvider({
           ...result.debates!,
         ]);
       }
+      if (result.venues) {
+        const portalVenues = result.venues.map((venue) => ({
+          ...venue,
+          tournamentId: result.tournament?.id ?? "",
+          priority: 0,
+        }));
+        setVenues((current) => [
+          ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+          ...portalVenues,
+        ]);
+      }
       setBallots(mergedBallots);
       setFeedback(mergedFeedback);
       persistLocal("ballots", mergedBallots);
@@ -1418,7 +1432,17 @@ export function TournamentProvider({
     setFeedback((current) => [
       ...current.filter((item) => !result.feedback.some((remote: FeedbackSubmission) => remote.id === item.id)),
       ...(result.feedback as FeedbackSubmission[]),
-    ]);
+    ]);    if (Array.isArray(result.venues)) {
+      const portalVenues = (result.venues as Array<Pick<Venue, "id" | "name" | "category" | "url">>).map((venue) => ({
+        ...venue,
+        tournamentId: result.tournament.id as string,
+        priority: 0,
+      }));
+      setVenues((current) => [
+        ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
+        ...portalVenues,
+      ]);
+    }
   };
 
   const queuePrivateRecord = async (
@@ -1915,7 +1939,7 @@ export function TournamentProvider({
         debates,
         ballots,
         drawIssues: (target) => tournament
-          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues })
+          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues, institutions })
           : [],
       },
     }, override));
@@ -1974,6 +1998,7 @@ export function TournamentProvider({
     breakCategories,
     feedback,
     venues,
+    institutions,
     repository: {
       saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
     },
@@ -2116,11 +2141,10 @@ export function TournamentProvider({
     }, { ...options, override }));
   };
 
-  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) => {
-    await guarded((override) =>
+  const autoAllocate = async (roundId: string, panelSize: number = 1, settings?: AutoAllocateSettings) =>
+    guarded((override) =>
       autoAllocateCommand(roundId, panelSize, allocationDependencies, settings, override)
     );
-  };
 
   const updateDebate = async (debate: Debate) => {
     await guarded((override) => updateDebateCommand(debate, debates, allocationDependencies, override));

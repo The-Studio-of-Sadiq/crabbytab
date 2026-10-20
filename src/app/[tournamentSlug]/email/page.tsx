@@ -82,6 +82,7 @@ export default function EmailSettingsPage() {
     teams,
     adjudicators,
     debates,
+    venues,
   } = useTournament();
   const { user } = useAuth();
   const [testSending, setTestSending] = useState(false);
@@ -143,6 +144,7 @@ export default function EmailSettingsPage() {
           privateUrlOrigin: typeof window === "undefined" ? undefined : window.location.origin,
           tournamentSlug: tournament?.slug,
           preserveDuplicateEmails: includesPrivateCredentials,
+          venues,
         }
       ),
     [
@@ -154,6 +156,7 @@ export default function EmailSettingsPage() {
       roundId,
       includesPrivateCredentials,
       tournament?.slug,
+      venues,
     ]
   );
 
@@ -450,7 +453,7 @@ export default function EmailSettingsPage() {
         <div className="rounded-md bg-gray-50 p-3 text-xs text-gray-700">
           <p className="font-semibold">Template variables</p>
           <p className="mt-1 font-mono">
-            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
+            {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}}"}
           </p>
           <p className="mt-1 text-gray-500">
             Round, debate, and adjudicator details are populated when a round is selected and assignments exist.

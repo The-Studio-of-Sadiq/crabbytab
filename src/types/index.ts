@@ -88,7 +88,11 @@ export type BPPositionCost = "simple" | "renyi_entropy" | "sum_squared_deviation
 export type BPAssignmentMethod = "hungarian" | "hungarian_unshuffled" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
-export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
+/**
+ * "tabbycat_voting" / "tabbycat_consensus": Tabbycat's Hungarian allocators (see
+ * lib/draw/tabbycatHungarian.ts); they ignore panel size and panel sizing.
+ */
+export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average" | "tabbycat_voting" | "tabbycat_consensus";
 /**
  * Tabbycat's answer types: text (t), long text (tl), integer box (i), float box (f), integer
  * scale (is), yes/no dropdown (bs), checkbox (bc), select one (ss), select many (ms).
@@ -385,6 +389,35 @@ export interface TournamentPreferences {
    * (`serverOnly/publicForms`), never in these preferences, which are public.
    */
   publicFormsUsePassword?: boolean;
+
+  /**
+   * Room categories with display options (Tabbycat VenueCategory). A room belongs to the category
+   * named by Venue.category; categories without an entry here display with defaults.
+   */
+  venueCategories?: VenueCategoryInfo[];
+  /** Hours a room check-in stays valid (Tabbycat checkin_window_venues). Absent or 0 = never expires. */
+  venueCheckInExpiresAfterHours?: number;
+}
+
+/** Display options of a room category (matched to Venue.category by name, ignoring case). */
+export interface VenueCategoryInfo {
+  name: string;
+  /** Predicate after "This room", e.g. "has step-free access". Always shown on admin pages. */
+  description?: string;
+  /** Show the category name before ("prefix") or after ("suffix") room names in the draw. */
+  displayInName?: "none" | "prefix" | "suffix";
+  /** Show the description in the room's tooltip on public pages. */
+  publicTooltip?: boolean;
+}
+
+/**
+ * A soft, ranked room preference (Tabbycat VenueConstraint): the subject's debates should be in a
+ * room of this category. Higher priority wins over lower; unmet constraints are reported, never
+ * enforced. Hard needs (step-free access, capacity) belong in VenueRequirements instead.
+ */
+export interface VenueConstraint {
+  category: string;
+  priority: number;
 }
 
 export type PublicDrawMode = "off" | "current" | "all";
@@ -505,6 +538,14 @@ export interface PreformedPanel {
   traineeIds: string[];
   /** 0-10, like Debate.importance: higher panels go to higher-priority debates. */
   importance: number;
+  /** Anticipated-draw annotations (Tabbycat PreformedPanel); informational, set by "create from anticipated draw". */
+  roomRank?: number;
+  /** Lowest bracket this panel's room might be. */
+  bracketMin?: number;
+  /** Highest bracket this panel's room might be. */
+  bracketMax?: number;
+  /** Teams in the room that may still be live for the open break. */
+  liveness?: number;
 }
 
 export interface Institution {
@@ -514,6 +555,8 @@ export interface Institution {
   code: string;
   region?: string;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences for every team of this institution. */
+  venueConstraints?: VenueConstraint[];
 }
 
 export interface VenueRequirements {
@@ -569,6 +612,8 @@ export interface Team {
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences (Tabbycat venue constraints). */
+  venueConstraints?: VenueConstraint[];
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
   /**
@@ -618,6 +663,8 @@ export interface Adjudicator {
   /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
   codeName?: string;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences (Tabbycat venue constraints). */
+  venueConstraints?: VenueConstraint[];
   privateUrlKey?: string; // Secret key for adjudicator's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
 }
@@ -632,8 +679,15 @@ export interface Venue {
   accessible?: boolean;
   online?: boolean;
   nearTabRoom?: boolean;
+  /** Default availability; a per-round entry in roundAvailability overrides it. */
   available?: boolean;
+  /** Round id -> available in that round (Tabbycat round availability for rooms). */
+  roundAvailability?: Record<string, boolean>;
   checkedIn?: boolean;
+  /** When the room was last checked in; with venueCheckInExpiresAfterHours the check-in lapses. */
+  checkedInAt?: string;
+  /** Map or meeting link (online rooms), shown with the room in the draw, portals and emails. */
+  url?: string;
 }
 
 // BP Debate Sides: OG (Opening Gov), OO (Opening Opp), CG (Closing Gov), CO (Closing Opp)

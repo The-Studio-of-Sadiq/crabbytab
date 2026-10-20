@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { sidesPending } from "@/lib/draw/manualSides";
+import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
@@ -51,6 +52,7 @@ export default function TeamPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    venues,
     ballots,
     feedback,
     addFeedback,
@@ -643,7 +645,12 @@ export default function TeamPrivatePortalPage() {
                       <span className="text-gray-400">&bull;</span>
                       <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{debate.venueName}</span>
+                        <VenueLabel
+                          debate={debate}
+                          venues={venues}
+                          categories={tournament?.preferences?.venueCategories}
+                          audience="public"
+                        />
                       </div>
                     </div>
 

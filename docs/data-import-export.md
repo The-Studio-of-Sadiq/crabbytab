@@ -113,8 +113,20 @@ name that matches two records is an error (use the email or code). Unknown names
 paired with themselves and rows with the wrong columns are errors; conflicts that already exist
 (including an adjudicator's own institution) or repeat in the file are shown and skipped. The
 preview works like the participant imports: nothing is saved until confirmed, and rows with errors
-block the import unless the valid rows only are imported. Team–institution conflicts are not yet
-editable outside this import.
+block the import unless the valid rows only are imported.
+
+The same page lists every recorded conflict, removes one (from both sides for
+adjudicator–adjudicator conflicts) and adds team–institution conflicts
+(`src/lib/csv/conflictsExport.ts`); its *Export conflicts CSV* button downloads the same file as
+the Data exports page.
+
+## Room preferences CSV
+
+Setup → Room preferences (`src/lib/venues/constraintEdits.ts`). One row per preference: exactly
+one of `team` (name or code), `adjudicator` (name or email) or `institution` (name or code), plus
+`category` and a whole-number `priority`. A row for a category the subject already has updates
+its priority; ambiguous or unknown names and duplicate rows are errors. The venues CSV also
+accepts a `url` column (http or https links only).
 
 ## Speaker categories
 

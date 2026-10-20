@@ -8,6 +8,7 @@ import type {
   Team,
   TeamStandingRow,
   TournamentPreferences,
+  Venue,
 } from "@/types";
 import { MAX_CAMPAIGN_RECIPIENTS, resolveEmailRecipients, type EmailRecipient } from "@/lib/email/messaging";
 import { isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
@@ -134,11 +135,12 @@ export function buildDrawTeamRecipients(
   round: Round,
   debates: Debate[],
   teams: Team[],
-  adjudicators: Adjudicator[]
+  adjudicators: Adjudicator[],
+  venues: Array<Pick<Venue, "id" | "url">> = []
 ): EmailRecipient[] {
   if (!isDrawVisibleToTeams(round)) return [];
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
-  return resolveEmailRecipients("round_participants", teams, adjudicators, roundDebates, round).map((recipient) => {
+  return resolveEmailRecipients("round_participants", teams, adjudicators, roundDebates, round, { venues }).map((recipient) => {
     const side = teamSide(roundDebates, recipient.teamId);
     const isBye = roundDebates.some((debate) => debate.byeTeamId && debate.byeTeamId === recipient.teamId);
     return {
@@ -155,11 +157,12 @@ export function buildDrawAdjudicatorRecipients(
   round: Round,
   debates: Debate[],
   teams: Team[],
-  adjudicators: Adjudicator[]
+  adjudicators: Adjudicator[],
+  venues: Array<Pick<Venue, "id" | "url">> = []
 ): EmailRecipient[] {
   if (!isDrawVisibleToTeams(round) || round.adjudicatorsRevealed !== true) return [];
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
-  return resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round);
+  return resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round, { venues });
 }
 
 function ordinal(rank: number): string {
