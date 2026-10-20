@@ -97,6 +97,7 @@ export function entryFromBallot(ballot: BallotSubmission, blank: BallotEntry, ru
     ),
     motionId: ballot.motionId || blank.motionId || "",
     vetoes: { ...(ballot.vetoes || {}) },
+    ...(ballot.motionPreferences ? { motionPreferences: { ...ballot.motionPreferences } } : {}),
     ...(ballot.forfeitSide ? { forfeitSide: ballot.forfeitSide } : {}),
     ...(usesVotingBallots(rules)
       ? {
@@ -129,7 +130,10 @@ export function sheetsFromPortalBallots(
       .sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0];
     if (!submitted) return sheet;
     filled += 1;
-    return { ...sheet, speakerScores: submitted.speakerScores };
+    // The adjudicator's own result becomes their declared winner (used when winners are declared).
+    const declaredWinner = (Object.entries(submitted.teamScores || {}) as [DebateSide, { rank?: number }][])
+      .find(([, score]) => score?.rank === 1)?.[0];
+    return { ...sheet, speakerScores: submitted.speakerScores, ...(declaredWinner ? { declaredWinner } : {}) };
   });
   return { sheets: next, filled };
 }

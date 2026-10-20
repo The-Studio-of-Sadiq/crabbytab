@@ -1,5 +1,6 @@
 "use client";
 
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -23,7 +24,7 @@ import {
   Award,
 } from "lucide-react";
 import { Debate, DebateSide, FeedbackAnswer } from "@/types";
-import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { validateFeedbackScore, defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import {
   isFeedbackEnabledForRound,
@@ -163,7 +164,7 @@ export default function TeamPrivatePortalPage() {
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
-    Math.round((minFeedbackScore + maxFeedbackScore) / 2)
+    defaultFeedbackScore(tournament?.preferences)
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
@@ -254,7 +255,7 @@ export default function TeamPrivatePortalPage() {
     setFeedbackTargetAdjRole(targetAdj.role);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -268,7 +269,7 @@ export default function TeamPrivatePortalPage() {
     setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
     setFeedbackAnswers({});
@@ -743,7 +744,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>AFF &bull; {t("side.AFF")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>{sideLabel("AFF", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "AFF", tournament?.preferences)}</>}</span>
                               <span className="text-gray-900">{debate.teams.AFF?.teamName || t("common.tbd")}</span>
                               {mySide === "AFF" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
@@ -754,7 +755,7 @@ export default function TeamPrivatePortalPage() {
                                   : "bg-gray-50 border-gray-200"
                               }`}
                             >
-                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>NEG &bull; {t("side.NEG")}</>}</span>
+                              <span className="text-[10px] font-bold text-gray-500 block">{sidesTbc ? t("common.sidesTbc") : <>{sideLabel("NEG", tournament?.preferences).toUpperCase()} &bull; {translatedSideName(t, "NEG", tournament?.preferences)}</>}</span>
                               <span className="text-gray-900">{debate.teams.NEG?.teamName || t("common.tbd")}</span>
                               {mySide === "NEG" && <span className="text-[10px] text-emerald-700 block font-bold mt-0.5">{t("teamPortal.you")}</span>}
                             </div>
@@ -785,6 +786,10 @@ export default function TeamPrivatePortalPage() {
                             {t("teamPortal.noAdjudicators")}
                           </p>
                         ) : (
+                          <>
+                          {feedbackPaths.teams === "orallist" && (
+                            <p className="mb-2 text-[11px] text-gray-600">{t("teamPortal.orallistPrompt")}</p>
+                          )}
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                             {ratedPanel.map((adj) => {
                               const submitted = hasSubmittedFeedback(adj.id, debate.id);
@@ -818,6 +823,7 @@ export default function TeamPrivatePortalPage() {
                               );
                             })}
                           </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -935,6 +941,11 @@ export default function TeamPrivatePortalPage() {
             )}
 
             <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
+              {tournament?.preferences?.feedbackIntroduction?.trim() && (
+                <p className="whitespace-pre-line rounded border border-gray-200 bg-gray-50 p-2.5 text-gray-700">
+                  {tournament.preferences.feedbackIntroduction}
+                </p>
+              )}
               <div className="p-2.5 rounded bg-gray-50 border border-gray-200 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold uppercase block">
@@ -962,9 +973,9 @@ export default function TeamPrivatePortalPage() {
                   type="range"
                   min={minFeedbackScore}
                   max={maxFeedbackScore}
-                  step={1}
+                  step={feedbackScoreStep(tournament?.preferences)}
                   value={feedbackScore}
-                  onChange={(e) => setFeedbackScore(parseInt(e.target.value, 10))}
+                  onChange={(e) => setFeedbackScore(parseFloat(e.target.value))}
                   className="w-full accent-emerald-600 cursor-pointer"
                 />
               </div>

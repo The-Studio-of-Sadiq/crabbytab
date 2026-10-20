@@ -64,26 +64,29 @@ export async function GET(
         "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
         "adjudicatorsRevealed", "feedbackWeight", "silent", "motionsReleased", "resultsReleased",
         "teamSpeaksReleased", "breakCategoryIds", "eliminationAdvanced", "cancelled", "completed", "createdAt",
+        "weight", "motionsStatus", "scheduleGroup", "startsAt",
       ])),
       teams: records.teams.map((team) => ({
         ...pickFields(team, [
           "id", "tournamentId", "name", "breakStatus", "breakCategoryIds", "eliminatedInRoundId",
           "codeName", "institutionId", "institutionName", "breakCategories", "speakerCategories",
-          "seed", "emoji", "checkedIn", "roundAvailability",
+          "seed", "emoji", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
         ]),
         speakers: Array.isArray(team.speakers)
-          ? team.speakers.map((speaker: Record<string, unknown>) => pickFields(speaker, ["id", "name", "categories"]))
+          ? team.speakers.map((speaker: Record<string, unknown>) =>
+              pickFields(speaker, ["id", "name", "categories", "roundAvailability", "checkInHistory"]))
           : [],
       })),
       adjudicators: records.adjudicators.map((adjudicator) => pickFields(adjudicator, [
         "id", "tournamentId", "name", "institutionId", "institutionName",
-        "trainee", "independent", "checkedIn", "roundAvailability", "gender",
+        "trainee", "independent", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
       ])),
       venues: records.venues.map((venue) => pickFields(venue, [
         "id", "tournamentId", "name", "priority", "category", "capacity", "accessible", "online", "available",
+        "checkedIn", "checkedInAt", "checkInHistory",
       ])),
       motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
-        "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released",
+        "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "roundSeq", "released",
       ])),
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",
@@ -101,7 +104,7 @@ export async function GET(
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
         "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "checksVersion",
-        "singleAdjudicator", "mergedFromIds",
+        "singleAdjudicator", "mergedFromIds", "noSpeakerScores",
       ])),
       feedback: records.feedback.map((submission) => pickFields(submission, [
         "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",

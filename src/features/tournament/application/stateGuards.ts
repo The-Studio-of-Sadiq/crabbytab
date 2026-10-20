@@ -13,6 +13,12 @@ import type {
 } from "@/types";
 import type { BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { ballotModeFor } from "@/lib/ballots/result";
+import {
+  concurrentRoundClashes,
+  describeConcurrentClashes,
+  isEarlierScheduleSlot,
+  scheduleGroupOf,
+} from "./schedule";
 
 /**
  * Tournament state rules. Every rule here is checked by the command that performs the action (so
@@ -49,7 +55,9 @@ export type GuardRule =
   | "break_cutoff_tie"
   | "reserve_cutoff_tie"
   | "break_category_in_use"
-  | "same_person_check";
+  | "same_person_check"
+  /** A team, adjudicator or venue is in two rounds of the same schedule slot. */
+  | "concurrent_round_clash";
 
 export interface GuardViolation {
   rule: GuardRule;
@@ -214,10 +222,12 @@ function debateLabel(debate: Debate): string {
   return debate.venueName || teamNames || debate.id;
 }
 
+/** Drawn rounds in later schedule slots (concurrent rounds are not drawn from this one). */
 function laterDrawnRounds(round: Round, rounds: Round[], debates: Debate[]): Round[] {
   const drawnRoundIds = new Set(debates.map((debate) => debate.roundId));
+  const slot = scheduleGroupOf(round);
   return rounds.filter(
-    (item) => !item.cancelled && item.seq > round.seq && item.id !== round.id && drawnRoundIds.has(item.id)
+    (item) => !item.cancelled && scheduleGroupOf(item) > slot && item.id !== round.id && drawnRoundIds.has(item.id)
   );
 }
 
@@ -320,9 +330,10 @@ export function checkDrawGeneration(round: Round, state: RoundGuardState): Guard
   }
 
   if (round.stage === "preliminary") {
-    // Power pairing reads the standings, so every earlier preliminary round should be finished.
+    // Power pairing reads the standings, so every preliminary round in an earlier schedule slot
+    // should be finished. Concurrent rounds (same slot) run at the same time and are not waited for.
     const unfinished = rounds
-      .filter((item) => item.stage === "preliminary" && !item.cancelled && item.seq < round.seq)
+      .filter((item) => item.stage === "preliminary" && !item.cancelled && isEarlierScheduleSlot(item, round))
       .sort((left, right) => left.seq - right.seq)
       .flatMap((item) => {
         const blockers = getRoundCompletionBlockers(item, debates, ballots);
@@ -412,6 +423,18 @@ export function checkDrawRelease(
   )];
 }
 
+/**
+ * Rounds in one schedule slot run at the same time, so none of their teams, adjudicators or
+ * venues may appear in two of them. Overridable: Tabbycat itself does not check this.
+ */
+export function checkConcurrentRoundClashes(round: Round, state: RoundGuardState): GuardViolation[] {
+  if (round.cancelled) return [];
+  const clashes = concurrentRoundClashes(round, state.rounds, state.debates);
+  return clashes.length === 0
+    ? []
+    : [soft("concurrent_round_clash", describeConcurrentClashes(round, clashes), { roundId: round.id })];
+}
+
 /** Rules for publishing a round's results or team speaker scores. */
 export function checkResultsRelease(round: Round, state: RoundGuardState): GuardViolation[] {
   const roundId = round.id;
@@ -481,6 +504,7 @@ export function checkRoundUpdate(
   const violations: GuardViolation[] = [];
   if (!isDrawReleased(previous) && isDrawReleased(next)) {
     violations.push(...checkDrawRelease(next, state, drawIssues()));
+    violations.push(...checkConcurrentRoundClashes(next, state));
   }
   if (
     (!previous.resultsReleased && next.resultsReleased) ||
@@ -860,6 +884,8 @@ export const BALLOT_SHAPE_PREFERENCES = [
   "substantiveSpeakers",
   "replyScoresEnabled",
   "ballotMode",
+  "speakersInBallots",
+  "scoreCriteria",
 ] as const satisfies readonly (keyof TournamentPreferences)[];
 
 /** Settings that change how existing scores are validated or totalled. */
@@ -874,6 +900,12 @@ export const SCORING_PREFERENCES = [
   "allowLowPointWins",
   "enableForfeits",
   "byeTeamResults",
+  "winnersInBallots",
+  "scoreAggregation",
+  "speakerRanks",
+  "maximumMargin",
+  "stepReplyScore",
+  "requireSubstantiveForReply",
 ] as const satisfies readonly (keyof TournamentPreferences)[];
 
 const PREFERENCE_LABELS: Partial<Record<keyof TournamentPreferences, string>> = {
@@ -891,6 +923,14 @@ const PREFERENCE_LABELS: Partial<Record<keyof TournamentPreferences, string>> = 
   allowLowPointWins: "low-point wins",
   enableForfeits: "forfeits",
   byeTeamResults: "bye results",
+  speakersInBallots: "when ballots ask for speaker scores",
+  scoreCriteria: "score criteria",
+  winnersInBallots: "winner declaration",
+  scoreAggregation: "panel score aggregation",
+  speakerRanks: "speech ranks",
+  maximumMargin: "maximum margin",
+  stepReplyScore: "reply score step",
+  requireSubstantiveForReply: "the reply-speaker rule",
 };
 
 function changedPreferences(

@@ -7,6 +7,7 @@ const ADJUDICATOR_PATHS: Array<{ key: keyof Omit<FeedbackPathConfig, "teams" | "
   { key: "chairOnTrainees", label: "Chair on trainees" },
   { key: "panellistsOnChair", label: "Panellists on chair" },
   { key: "traineesOnChair", label: "Trainees on chair" },
+  { key: "panellistsOnEachOther", label: "Panellists on each other (not trainees)" },
   { key: "adjudicatorsOnEachOther", label: "Every adjudicator on every other (trainees included)" },
 ];
 
@@ -34,6 +35,10 @@ export function FeedbackPathsEditor({
           className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
         >
           <option value="chair">The chair only</option>
+          <option value="orallist">The orallist (voting adjudicators allowed, teams asked to pick the orallist)</option>
+          <option value="voting_allowed">Any voting adjudicator allowed, only the orallist expected</option>
+          <option value="all_allowed">Any adjudicator (trainees too) allowed, only the orallist expected</option>
+          <option value="all_voting">Every voting adjudicator (not trainees)</option>
           <option value="all_adjudicators">Every adjudicator on the panel</option>
           <option value="none">Nobody (no team feedback)</option>
         </select>
@@ -43,7 +48,7 @@ export function FeedbackPathsEditor({
           <label key={key} className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
             <input
               type="checkbox"
-              checked={value[key]}
+              checked={value[key] === true}
               disabled={key !== "adjudicatorsOnEachOther" && value.adjudicatorsOnEachOther}
               onChange={(event) => onChange({ ...value, [key]: event.target.checked })}
               className="mt-0.5"

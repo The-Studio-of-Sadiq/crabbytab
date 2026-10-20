@@ -54,7 +54,7 @@ means the sync/publish hardening PR that added this section.
 | 1.9 availability mismatch (editors vs generator) | PARTIAL | #23 | generator, allocator and `validateDraw` use per-round availability; draw and allocation editor pools still filter global `checkedIn` |
 | 1.10 breaks (AIDA reserves, per-category, ties, non-power-of-two) | FIXED | #11, wave 2 #8 | reserves, per-category status and partial elims; cutoff ties at the break and reserve cutoff reported (`BreakCategoryResult.cutoffTies`) and block generation until resolved with overrides (docs/standings-and-breaks.md) |
 | 1.11 venue re-allocation not persisted | OPEN | — | `application/allocation.ts` cloud save still passes `updatedRoundDebates` (latent while `AUTOMATIC_CLOUD_WRITES=false`; local save is correct) |
-| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` still unused |
+| 1.12 dead/no-op prefs | PARTIAL | #10, #12, #15 | draw penalties, `marginIncludesDissenters`, `usePreformedPanels` wired; `*StandingsExtra` shown on the admin and public tabs (wave 2 #8); `preliminaryPanelsPerScheduleSlot` replaced by `preliminaryPanels` (stored values migrated, w45 rounds/motions PR) |
 | 2 BP draw (Hungarian, position cost, pullups) | FIXED | #15, wave 2 #10 | `draw/powerPaired.ts`; same pull-up counts and Tabbycat position cost as recorded Tabbycat v2.12.1 draws (`tools/tabbycat-diff`) |
 | 2 two-team draw (intermediate, bubble, min_cost, seeded, preallocated) | FIXED | #15 | `twoTeamDraw.ts`, `oddBrackets.ts`, `minCostPairing.ts`, `weightedMatching.ts`, `rng.ts` |
 | 2 allocator: importance-weighted cost, soft history, user weights | FIXED | #12 | `draw/allocator.ts`; `prioritizeClashAvoidance` removed |
@@ -222,7 +222,9 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
   adjudicator's sheet as a one-sheet voting ballot. `twoteam-odd-ties` standings now 2644/2644.
 - **`preliminaryPanelsPerScheduleSlot` did nothing** but its help text claimed behaviour: removed
   from the config UI; the stored field is kept (deprecated) so saved settings load. The real
-  feature is wave 5 "concurrent rounds and schedule".
+  feature is wave 5 "concurrent rounds and schedule". *Done (w45 rounds/motions PR): replaced by
+  `preliminaryPanels`, read from the old key and migrated on save; see
+  [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md).*
 - **Verified NOT a defect: public toggles default on.** `publicDraw/Results/Standings/Motions`
   default to on (Tabbycat: off), but every public item is double-gated by an explicit per-round or
   per-item release (draw release, `resultsReleased`, team-speaks release, per-motion release), so
@@ -248,16 +250,16 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
-1. Round weights (points multiplied per round; Tabbycat `Round.weight`, `standings/teams.py:76`).
-2. Median score aggregation across adjudicators (`score_aggregation_function`).
-3. Ballots without speaker scores — prelim-only / never (`speakers_in_ballots`).
-4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`).
-5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`).
+1. Round weights (points multiplied per round; Tabbycat `Round.weight`, `standings/teams.py:76`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+2. Median score aggregation across adjudicators (`score_aggregation_function`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+3. Ballots without speaker scores — prelim-only / never (`speakers_in_ballots`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
+5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 6. Speaker-tab metrics: team points, team wins, 1sts/2nds/3rds, num_adjs, srank, replies count/stddev.
    *Done except `srank` (ranked ballots).*
 7. Odd-bracket methods `pullup_lowest_ds_rank(_npulls)`; `graph_one` conflict avoidance; two-team pull-up penalty.
    *Done: `min_cost_with_pullups` (draw-generation.md).*
-8. Score criteria (weighted per-criterion speaker scores).
+8. Score criteria (weighted per-criterion speaker scores). **Done** (wave 5 results; `docs/results-and-ballots.md`).
 9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins). *Done.*
 10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
 
@@ -276,10 +278,15 @@ fields); feedback score step, full team-feedback modes, intro text, unexpected a
 feedback views; venue room URL and category descriptions (*done*).
 
 **Low (polish):** custom side names (Gov/Opp…); toggles for the reply-speaker rule and for
-motions altogether; ~~reverse public motion order~~ *(done)*; copy motions between rounds; cross-tournament
-motion statistics; ~~team emoji and speakers in the draw~~ *(done)*; team references and institution prefixes;
+motions altogether; ~~reverse public motion order~~ *(done)*; ~~copy motions between rounds~~ *(done)*; ~~cross-tournament
+motion statistics~~ *(done)*; ~~team emoji and speakers in the draw~~ *(done)*; team references and institution prefixes;
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
+
+*Wave 5 results status:* maximum margin, independent reply-score step, custom side names, the
+reply-speaker toggle and turning motions off are **done**, with the APDA preset and the WSDC
+score criteria, Canadian/UADC/WSDC side names, BP prelim-only speaker scores and the Easters
+maximum margin in the presets (`docs/results-and-ballots.md`).
 
 ### Ops breadth (waves 4/5): email, registration, feedback, staff access, check-ins
 
@@ -301,6 +308,19 @@ limitations.
 Not done here: Tabbycat's Equity and Adjudication Core permission groups (they need
 administrator-only data), web push, showing unexpected feedback on public participant pages
 (public-site work).
+
+**Done in the w45 rounds/motions PR** (see [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md)):
+concurrent current rounds (`Round.scheduleGroup`, Tabbycat `current_rounds`) with a slot bar on the
+draw, allocation, results and availability pages, clash checks, allocation/venue exclusion and live
+listeners for the whole slot; `preliminaryPanels` (prelim_panels) grouping; round start times,
+debate times and `preparationTime`; schedule events, public schedule page and cached iCalendar feed;
+three-state motion release (`Round.motionsStatus`, info slides first) honoured by the projection and
+projector; per-round motion order (`Motion.roundSeq`), copy motions between rounds / from the
+previous round;
+ranked motion preferences on ballots; cross-tournament motion statistics (`/tournaments/motions`).
+The public motions order is the public-site PR's `publicMotionsOrder` (#49) and the motion-release
+email is the email PR's (#50; `setMotionsStatusCommand` also offers an `onMotionsStatusChanged`
+hook). Not done here: private portals do not show start times yet.
 
 ### D. Not gaps (different design or not applicable)
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"

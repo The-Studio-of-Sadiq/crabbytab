@@ -216,3 +216,29 @@ describe("planIndividualBallotWrites", () => {
     expect(plan.merged).toEqual([]);
   });
 });
+
+describe("individual ballots with declared winners", () => {
+  it("carries each adjudicator's own result into the merged sheets", async () => {
+    const { mergeIndividualBallots } = await import("./individualBallots");
+    const speeches = (prefix: string) => [1, 2].map((position) => ({ speakerId: `${prefix}${position}`, speakerName: `${prefix}${position}`, position, score: 70 }));
+    const ballot = (adjudicatorId: string, winner: "AFF" | "NEG") => ({
+      id: `b-${adjudicatorId}`, tournamentId: "t", roundId: "r", debateId: "d", version: 1, confirmed: false, discarded: false,
+      submitterType: "judge" as const, submitterId: adjudicatorId, singleAdjudicator: true, timestamp: "2026-01-01",
+      speakerScores: { AFF: speeches("a"), NEG: speeches("n") } as never,
+      teamScores: {
+        AFF: { side: "AFF" as const, teamId: "ta", points: winner === "AFF" ? 1 : 0, totalSpeakerScore: 140, rank: winner === "AFF" ? 1 : 2 },
+        NEG: { side: "NEG" as const, teamId: "tn", points: winner === "NEG" ? 1 : 0, totalSpeakerScore: 140, rank: winner === "NEG" ? 1 : 2 },
+      } as never,
+    });
+    const debate = {
+      id: "d",
+      teams: { AFF: { teamId: "ta", teamName: "A", side: "AFF" }, NEG: { teamId: "tn", teamName: "N", side: "NEG" } } as never,
+      adjudicators: { chairId: "c", panellistIds: ["p"], panellistNames: [], traineeIds: [], traineeNames: [] },
+    };
+    const rules = { format: "custom_2team" as const, preferences: { substantiveSpeakers: 2, ballotMode: "voting" as const, winnersInBallots: "tied-points" as const } };
+    const merge = mergeIndividualBallots(debate, [ballot("c", "NEG"), ballot("p", "NEG")], rules);
+    expect(merge.errors).toEqual([]);
+    expect(merge.result?.sheets?.map((sheet) => sheet.declaredWinner)).toEqual(["NEG", "NEG"]);
+    expect(merge.result?.teamScores.NEG).toMatchObject({ win: true, votes: 2 });
+  });
+});

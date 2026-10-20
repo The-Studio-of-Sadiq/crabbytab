@@ -14,6 +14,7 @@ import {
   nextRevealStep,
 } from "@/lib/display";
 import { safeJsonParse } from "@/lib/safeJson";
+import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
 import { getLocalStore } from "@/lib/offline/localStore";
 
 type DisplayView = "rooms" | "teams" | "motions";
@@ -73,10 +74,13 @@ export default function DisplayPage() {
   const showMotions = isOwnerOrAdmin || prefs?.publicMotions !== false;
 
   const roundDebates = activeRound && showDraw ? debates.filter((d) => d.roundId === activeRound.id) : [];
-  const roundMotions = showMotions
-    ? motionsForDisplay(isOwnerOrAdmin && staffMotions ? staffMotions : motions, activeRound?.id, isOwnerOrAdmin)
+  // Three-state release: viewers see nothing, the info slides only, or the motions (motionRelease.ts).
+  const motionsStatus = motionsStatusOf(activeRound ?? undefined);
+  const infoSlidesOnly = !isOwnerOrAdmin && motionsStatus === "info_slides_released";
+  const roundMotions = showMotions && (isOwnerOrAdmin || motionsStatus !== "not_released")
+    ? motionsForDisplay(isOwnerOrAdmin && staffMotions ? staffMotions : motions, activeRound?.id, isOwnerOrAdmin, motionsStatus)
     : [];
-  const revealSteps = buildMotionRevealSteps(roundMotions);
+  const revealSteps = buildMotionRevealSteps(roundMotions, { roundId: activeRound?.id, infoSlidesOnly });
   const revealStep = revealSteps[Math.min(revealIndex, revealSteps.length - 1)];
   const releasedHeaderMotion = roundMotions.find((motion) => motion.released === true);
   const alphabeticalRows = view === "teams" ? buildAlphabeticalDraw(roundDebates, isBP) : [];
@@ -219,7 +223,9 @@ export default function DisplayPage() {
               <>
                 <p className="text-sm font-bold uppercase tracking-widest text-amber-300">{activeRound?.name}</p>
                 <p className="text-4xl font-bold sm:text-6xl">
-                  {roundMotions.length === 1 ? "The motion" : `${roundMotions.length} motions`}
+                  {infoSlidesOnly
+                    ? roundMotions.length === 1 ? "Information slide" : "Information slides"
+                    : roundMotions.length === 1 ? "The motion" : `${roundMotions.length} motions`}
                 </p>
                 <p className="text-sm text-gray-400">Press → or Space to reveal.</p>
               </>
@@ -244,9 +250,13 @@ export default function DisplayPage() {
                 <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">{revealStep.motion.text}</p>
               </>
             )}
-            {isOwnerOrAdmin && revealStep && revealStep.kind !== "cover" && revealStep.motion.released !== true && (
+            {isOwnerOrAdmin && revealStep && revealStep.kind !== "cover" && (
+              revealStep.kind === "info" ? motionsStatus === "not_released" : revealStep.motion.released !== true
+            ) && (
               <p className="rounded border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs font-semibold text-amber-200">
-                Staff preview: this motion is not released publicly yet.
+                {revealStep.kind === "info"
+                  ? "Staff preview: this round's info slides are not released yet."
+                  : "Staff preview: this motion is not released publicly yet."}
               </p>
             )}
           </div>
@@ -298,7 +308,7 @@ export default function DisplayPage() {
                   {alphabeticalRows.map((row) => (
                     <tr key={row.teamId} className="bg-[#22272e]">
                       <th scope="row" className="px-4 py-2 font-semibold">{row.teamName}</th>
-                      <td className="px-4 py-2">{row.side ? <SideBadge side={row.side} /> : row.bye ? "Bye" : "Sides at the debate"}</td>
+                      <td className="px-4 py-2">{row.side ? <SideBadge side={row.side} preferences={prefs} /> : row.bye ? "Bye" : "Sides at the debate"}</td>
                       <td className="px-4 py-2 text-blue-300">{row.bye ? "—" : row.venueName || "TBA"}</td>
                       <td className="px-4 py-2 text-gray-300">{row.opponents.join(", ") || "—"}</td>
                     </tr>
@@ -339,7 +349,7 @@ export default function DisplayPage() {
                           <div key={side} className="bg-[#22272e] rounded p-3">
                             {sidesPending(debate)
                               ? <span className="text-[11px] font-semibold uppercase text-gray-400">Sides at the debate</span>
-                              : <SideBadge side={side} />}
+                              : <SideBadge side={side} preferences={prefs} />}
                             <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
                           </div>
                         ))}

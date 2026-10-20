@@ -81,11 +81,12 @@ service cloud.firestore {
       function assistantLiveBallotFields() {
         return ["id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText",
           "speakerScores", "teamScores", "timestamp", "confirmed", "discarded", "submitterType",
-          "submitterId", "submitterName", "chairId", "syncVersion"];
+          "submitterId", "submitterName", "chairId", "syncVersion", "sheets", "vetoes", "forfeitSide",
+          "noSpeakerScores"];
       }
 
       function assistantLiveCheckInFields() {
-        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion"];
+        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion"];
       }
 
       function isAssistantBallot(ballotId) {
@@ -117,6 +118,7 @@ service cloud.firestore {
           next.get("checkedIn", false) is bool &&
           next.get("roundAvailability", {}) is map &&
           next.get("roundAvailabilityAt", {}) is map &&
+          next.get("checkInHistory", []) is list && next.get("checkInHistory", []).size() <= 50 &&
           next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1;
       }
 

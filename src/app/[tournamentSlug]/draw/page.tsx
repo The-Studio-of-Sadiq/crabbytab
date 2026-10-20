@@ -36,6 +36,7 @@ import { roundResults } from "@/features/tournament/application/draws";
 import { buildDrawDetails, computeDrawFlags, type DebateFlags } from "@/lib/draw/drawFlags";
 import { moveTeam, type PickedTeam, type TeamLocation } from "@/lib/draw/drawEditing";
 import { MANUAL_SIDES_FLAG, sidesPending } from "@/lib/draw/manualSides";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 
 export default function DrawPage() {
   const {
@@ -421,6 +422,7 @@ export default function DrawPage() {
 
   return (
     <div className="space-y-6">
+      <CurrentRoundsBar />
       {/* Header & Action Controls */}
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

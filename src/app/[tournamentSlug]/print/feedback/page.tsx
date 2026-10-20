@@ -1,5 +1,7 @@
 "use client";
 
+import { PrintOptionsCard } from "@/features/tournament/components/PrintOptionsCard";
+import { returnLocation } from "@/lib/printOptions";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import type { FeedbackQuestion } from "@/types";
@@ -38,7 +40,7 @@ function PrintedAnswer({ question }: { question: FeedbackQuestion }) {
 }
 
 export default function PrintableFeedbackPage() {
-  const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
+  const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
   const preferences = tournament?.preferences;
   const paths = feedbackPathsForRound(preferences, activeRound ?? undefined);
   const roundOpen = Boolean(activeRound) && preferences?.feedbackEnabled !== false &&
@@ -95,6 +97,7 @@ export default function PrintableFeedbackPage() {
           </button>
         </div>
         {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
+        {tournament && <PrintOptionsCard tournament={tournament} onSave={saveTournament} kind="feedback" />}
         {activeRound && !roundOpen && (
           <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Feedback is not collected in this round.</p>
         )}
@@ -133,6 +136,9 @@ export default function PrintableFeedbackPage() {
               <strong>Comments</strong>
               <div className="feedback-print-writing feedback-print-writing-tall" />
             </section>
+            {returnLocation(preferences?.feedbackReturnLocation) && (
+              <p><strong>Return this form to: {returnLocation(preferences?.feedbackReturnLocation)}</strong></p>
+            )}
             <p className="feedback-print-confidential">Feedback is confidential to tournament organizers.</p>
           </article>
         ))}

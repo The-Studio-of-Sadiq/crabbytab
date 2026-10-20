@@ -1,5 +1,6 @@
 "use client";
 
+import { sideLabel } from "@/lib/sideNames";
 import { formatScore } from "@/lib/scoreDisplay";
 import React, { useState } from "react";
 import Link from "next/link";
@@ -36,17 +37,10 @@ import {
   getRoundCompletionBlockers,
   setRoundCompletion,
 } from "@/features/tournament/application/roundAdministration";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 
-const BP_SIDES: readonly [DebateSide, string][] = [
-  ["OG", "Opening Gov"],
-  ["OO", "Opening Opp"],
-  ["CG", "Closing Gov"],
-  ["CO", "Closing Opp"],
-];
-const TWO_TEAM_SIDES: readonly [DebateSide, string][] = [
-  ["AFF", "Affirmative"],
-  ["NEG", "Negative"],
-];
+const BP_SIDES: readonly DebateSide[] = ["OG", "OO", "CG", "CO"];
+const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
 
 /** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
 function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
@@ -114,7 +108,8 @@ export default function ResultsOverviewPage() {
   } = useTournament();
 
   const isBP = tournament?.format === "bp";
-  const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
+  // [side, full name] in the tournament's side names (sideNames).
+  const sides = (isBP ? BP_SIDES : TWO_TEAM_SIDES).map((side) => [side, sideLabel(side, tournament?.preferences, "full")] as const);
   const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
@@ -191,6 +186,7 @@ export default function ResultsOverviewPage() {
           </Link>
         }
       />
+      <CurrentRoundsBar what="results" />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div role="group" aria-label="Select round" className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
@@ -272,7 +268,7 @@ export default function ResultsOverviewPage() {
                 <TH className="w-28">Venue</TH>
                 {sides.map(([side, label]) => (
                   <TH key={side}>
-                    {label} <span className="text-fg-subtle">({side})</span>
+                    {label} <span className="text-fg-subtle">({sideLabel(side, tournament?.preferences)})</span>
                   </TH>
                 ))}
                 <TH>Adjudicators</TH>

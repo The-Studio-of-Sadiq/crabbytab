@@ -1,4 +1,5 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
+import { roundWeight as configuredRoundWeight } from "@/lib/ballots/ballotRules";
 import { applyBallotSides } from "@/lib/draw/manualSides";
 import {
   Tournament,
@@ -60,8 +61,7 @@ function countedSubstantiveSpeeches(entries: SpeakerScoreEntry[], replyEnabled: 
  * since older rounds (and rounds created before weights existed) have none.
  */
 function roundWeightOf(round: Round | undefined): number {
-  const weight = (round as (Round & { weight?: unknown }) | undefined)?.weight;
-  return typeof weight === "number" && Number.isFinite(weight) && weight >= 0 ? weight : 1;
+  return configuredRoundWeight(round);
 }
 
 /** BP places a team's points onto a 1st-4th finish; two-team formats have no such notion. */
@@ -162,7 +162,7 @@ export function calculateStandings(
       const byePoints = isBP ? 3 : 1;
       const side = (Object.entries(debate.teams).find(([, slot]) => slot?.teamId === team.id)?.[0]
         ?? (isBP ? "OG" : "AFF")) as DebateSide;
-      teamRow.points += byePoints;
+      teamRow.points += byePoints * roundWeightOf(roundById.get(debate.roundId));
       if (isBP) {
         teamRow.firstPlaces!++;
       } else {
@@ -218,8 +218,9 @@ export function calculateStandings(
       const totalSpeakersScore = teamScore?.totalSpeakerScore !== undefined
         ? teamScore.totalSpeakerScore
         : substantiveList.reduce((sum, sc) => sum + (sc.score || 0), 0);
-      // A forfeit has a result but no speeches; it is excluded from speaker-score averages.
-      const isForfeit = Boolean(ballot.forfeitSide);
+      // A forfeit or results-only ballot has a result but no speaker scores: its team score is
+      // absent (not zero), so it is left out of every speaks and margin metric, as in Tabbycat.
+      const isForfeit = Boolean(ballot.forfeitSide) || Boolean(ballot.noSpeakerScores);
       const substantiveEntries = speakerScores.filter((sc) => !(isReplyPosition && sc.position === 4));
       // Voting ballots record each side's votes; consensus ballots record none (and carry none).
       const votesPossible = teamScore?.votes !== undefined
@@ -233,7 +234,7 @@ export function calculateStandings(
       const win = isBP ? false : Boolean(teamScore?.win) || pts === 1;
       const margin = isBP ? 0 : teamScore?.margin || 0;
 
-      teamRow.points += pts;
+      teamRow.points += pts * roundWeight;
       if (!isForfeit) teamRow.totalSpeakerScore += totalSpeakersScore;
 
       if (isBP) {
@@ -244,7 +245,7 @@ export function calculateStandings(
       } else {
         if (win) teamRow.wins!++;
         else teamRow.losses!++;
-        teamRow.margins! += margin;
+        if (!isForfeit) teamRow.margins! += margin;
       }
 
       const opponentTeamIds = slotsInDebate
@@ -347,6 +348,7 @@ export function calculateStandings(
   const speakerRowsMap = new Map<string, SpeakerStandingRow>();
   const replyRowsMap = new Map<string, SpeakerStandingRow>();
   const speakerScoresByRound = new Map<string, { substantive: number[]; reply: number[] }>();
+  const speechRanksBySpeaker = new Map<string, number[]>();
 
   for (const team of teams) {
     if (team.isSwing) continue;
@@ -440,6 +442,9 @@ export function calculateStandings(
           spkRow.speechesCount++;
           spkRow.scoresByRound.push({ roundSeq: debate.roundSeq, score: entry.score, position: entry.position });
           speakerScoresByRound.get(entry.speakerId)!.substantive.push(entry.score);
+          if (typeof entry.rank === "number") {
+            speechRanksBySpeaker.set(entry.speakerId, [...(speechRanksBySpeaker.get(entry.speakerId) ?? []), entry.rank]);
+          }
         }
       }
     }
@@ -451,10 +456,14 @@ export function calculateStandings(
 
   // Standings eligibility (Tabbycat's "speeches missable"): a speaker must have given at least
   // (preliminary rounds with results so far − missable) speeches to be ranked. Only rounds that
-  // have results count, so a round in progress never makes anyone ineligible.
+  // have results count, so a round in progress never makes anyone ineligible. Rounds whose
+  // ballots carry no speaker scores (speakersInBallots) are not counted either: Tabbycat counts
+  // every preliminary round, which makes every speaker ineligible once such a round exists.
+  const hasSpeakerScores = (ballot: BallotSubmission | undefined) =>
+    Boolean(ballot && !ballot.noSpeakerScores && !ballot.forfeitSide);
   const roundsWithResults = new Set(
     debates
-      .filter((debate) => !debate.postponed && (ballotMap.has(debate.id) || (debate.byeTeamId && debate.byeResult === "win")))
+      .filter((debate) => !debate.postponed && (hasSpeakerScores(ballotMap.get(debate.id)) || (debate.byeTeamId && debate.byeResult === "win")))
       .map((debate) => debate.roundId)
   ).size;
   const minimumSpeeches = (missable: number | undefined) =>
@@ -469,7 +478,7 @@ export function calculateStandings(
       row.averageScore = row.speechesCount > 0 ? Number((row.totalScore / row.speechesCount).toFixed(2)) : 0;
       row.metrics = isReplyList
         ? computeSpeakerMetrics(scores.reply, scores.reply, trim, team)
-        : computeSpeakerMetrics(scores.substantive, scores.reply, trim, team);
+        : computeSpeakerMetrics(scores.substantive, scores.reply, trim, team, speechRanksBySpeaker.get(row.speakerId) ?? []);
     }
     const minimum = minimumSpeeches(
       isReplyList ? tournament.preferences?.standingsMissedReplies : tournament.preferences?.standingsMissedDebates

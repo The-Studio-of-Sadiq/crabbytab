@@ -44,7 +44,9 @@ export type SpeakerMetricId =
   | "firsts"
   | "seconds"
   | "thirds"
-  | "num_adjs";
+  | "num_adjs"
+  /** Sum of the speaker's speech ranks within debates (speakerRanks). Lower ranks higher. */
+  | "srank";
 
 export type OddBracketMethod =
   | "pullup_top"
@@ -87,6 +89,39 @@ export type BPPositionCost = "simple" | "renyi_entropy" | "sum_squared_deviation
  */
 export type BPAssignmentMethod = "hungarian" | "hungarian_unshuffled" | "random";
 export type ByeTeamResults = "absent" | "win";
+/** Tabbycat's score_aggregation_function: how a panel's scores for one speech are combined. */
+export type ScoreAggregation = "mean" | "median";
+/** Tabbycat's speakers_in_ballots: when ballots ask for speaker scores. */
+export type SpeakersInBallots = "always" | "prelim" | "never";
+/** Tabbycat's speaker_ranks: whether ballots rank the speeches in a debate. */
+export type SpeakerRanksMode = "none" | "any" | "high-points";
+/**
+ * Tabbycat's winners_in_ballots: "none" = the higher total wins; "high-points" = the winner is
+ * declared but must have the higher total; "tied-points" = declared, may also break a tie;
+ * "low-points" = declared, overrides the scores.
+ */
+export type WinnerDeclaration = "none" | "high-points" | "tied-points" | "low-points";
+/** Tabbycat's side_names for two-team formats. */
+export type SideNames = "aff-neg" | "gov-opp" | "prop-opp" | "pro-con" | "appellant-respondent" | "1-2" | "pl-def";
+/** Which speeches a score criterion applies to (Tabbycat ScoreCriterion.speech_type). */
+export type ScoreCriterionSpeechType = "all" | "substantive" | "reply";
+
+/**
+ * A weighted part of a speaker score (Tabbycat ScoreCriterion). When a tournament defines
+ * criteria, adjudicators score each criterion and the speaker score is Σ weight × criterion score.
+ */
+export interface ScoreCriterion {
+  id: string;
+  name: string;
+  seq: number;
+  speechType: ScoreCriterionSpeechType;
+  weight: number;
+  minScore: number;
+  maxScore: number;
+  step: number;
+  /** Optional criteria may be left blank; a blank counts as 0. */
+  required: boolean;
+}
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
 /**
  * "tabbycat_voting" / "tabbycat_consensus": Tabbycat's Hungarian allocators (see
@@ -112,8 +147,24 @@ export type FeedbackQuestionType =
 export type FeedbackAnswer = string | number | boolean | string[] | null;
 /** Pre-wave-3 preset; see FeedbackPathConfig and src/lib/feedback/paths.ts for how it maps. */
 export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
-/** Which adjudicators a team gives feedback on: the chair only, or every adjudicator on the panel. */
-export type TeamFeedbackTargets = "chair" | "all_adjudicators" | "none";
+/**
+ * Which adjudicators a team gives feedback on (Tabbycat `feedback_from_teams`), as allowed / expected:
+ * - "chair": the chair / the chair (CrabbyTab's original "orallist" approximation);
+ * - "orallist": voting adjudicators, with a prompt to pick the orallist / one submission;
+ * - "voting_allowed": voting adjudicators / one submission (the orallist);
+ * - "all_allowed": every adjudicator incl. trainees / one submission (the orallist);
+ * - "all_voting": voting adjudicators / each of them;
+ * - "all_adjudicators": every adjudicator / each of them;
+ * - "none".
+ */
+export type TeamFeedbackTargets =
+  | "chair"
+  | "orallist"
+  | "voting_allowed"
+  | "all_allowed"
+  | "all_voting"
+  | "all_adjudicators"
+  | "none";
 /** Who gives feedback on whom (Tabbycat's feedback_from_teams and feedback_paths, made explicit). */
 export interface FeedbackPathConfig {
   teams: TeamFeedbackTargets;
@@ -123,6 +174,8 @@ export interface FeedbackPathConfig {
   traineesOnChair: boolean;
   /** Every adjudicator (trainees included) on every other adjudicator; implies the four above. */
   adjudicatorsOnEachOther: boolean;
+  /** Panellists on each other, trainees excluded (Tabbycat "with-p-on-p"). Absent = false. */
+  panellistsOnEachOther?: boolean;
   /** Teams and adjudicators may also rate teams. Never expected, never counted in adjudicator scores. */
   onTeams: boolean;
 }
@@ -198,6 +251,14 @@ export interface TournamentPreferences {
   /** Paths in elimination rounds; absent -> same as feedbackPaths. */
   eliminationFeedbackPaths?: FeedbackPathConfig;
   feedbackInEliminationRounds?: boolean;
+  /** Feedback (w45): score step, e.g. 0.5 (Tabbycat `adj_score_step`). Absent = 1. */
+  feedbackScoreStep?: number;
+  /** Shown above every feedback form (Tabbycat `feedback_introduction`). Plain text. */
+  feedbackIntroduction?: string;
+  /** Count and show feedback no path expected (Tabbycat `show_unexpected_feedback`). Absent = true. */
+  showUnexpectedFeedback?: boolean;
+  /** "Important" feedback differs from the adjudicator's base score by more than this. Absent = 2. */
+  feedbackImportantThreshold?: number;
   checkInExpiresAfterHours?: number;
   publicCheckInStatus?: boolean;
   /**
@@ -261,8 +322,8 @@ export interface TournamentPreferences {
   maxAllowedSideImbalance?: number; // default 0
   pullupPenalty?: number; // default 0
   /**
-   * @deprecated Never implemented: stored by older versions but read by nothing. Concurrent
-   * rounds / schedule slots are tracked as a wave 5 roadmap item. Kept so saved settings still load.
+   * @deprecated Never read: replaced by `preliminaryPanels`, into which normalizePreferences
+   * moves a stored value (see src/features/tournament/application/schedule.ts).
    */
   preliminaryPanelsPerScheduleSlot?: number;
 
@@ -294,8 +355,31 @@ export interface TournamentPreferences {
   individualBallots?: boolean;
   /** Absent = "chair". See PrivateBallotConfirmation. */
   privateBallotConfirmation?: PrivateBallotConfirmation;
-  /** Allow a team with the lower total speaker score to be awarded the win (consensus ballots only). */
+  /**
+   * @deprecated Superseded by winnersInBallots ("low-points"). Still read when winnersInBallots is
+   * absent, and kept in step with it on save, so older settings and clients behave the same.
+   */
   allowLowPointWins?: boolean;
+  /** How a debate's winner is decided; absent = from allowLowPointWins. See ballots/ballotRules. */
+  winnersInBallots?: WinnerDeclaration;
+  /** How a voting panel's scores for one speech are combined. Absent = "mean". */
+  scoreAggregation?: ScoreAggregation;
+  /** When ballots ask for speaker scores. Absent = "always". */
+  speakersInBallots?: SpeakersInBallots;
+  /** Speech ranks on consensus ballots. Absent = "none". */
+  speakerRanks?: SpeakerRanksMode;
+  /** Weighted score criteria; empty or absent = speakers get a single score. */
+  scoreCriteria?: ScoreCriterion[];
+  /** Largest allowed winning margin on one scoresheet; 0 or absent = no limit. */
+  maximumMargin?: number;
+  /** Step for reply scores. Absent = half the substantive step (CrabbyTab's earlier rule). */
+  stepReplyScore?: number;
+  /** The reply speaker must have given a substantive speech in the debate. Absent = true. */
+  requireSubstantiveForReply?: boolean;
+  /** Names for the two sides in two-team formats. Absent = "aff-neg". */
+  sideNames?: SideNames;
+  /** Ballots record the motion debated, and motions are managed per round. Absent = true. */
+  enableMotions?: boolean;
   /** Record which motion each team vetoed. */
   enableMotionVetoes?: boolean;
   /** Allow two-team debates to be recorded as forfeits. */
@@ -326,6 +410,13 @@ export interface TournamentPreferences {
   notifyBallotConfirmed?: boolean;
   /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
   allowSelfCheckIn?: boolean;
+  /** Printed ballots (w45): where to return scoresheets / feedback forms (Tabbycat score_return_location); empty or "TBA" hides. */
+  ballotReturnLocation?: string;
+  feedbackReturnLocation?: string;
+  /** Printed scoresheets ask adjudicators to circle the digits of each score (Tabbycat ballots_confirm_digits). */
+  ballotsConfirmDigits?: boolean;
+  /** Printed scoresheets leave the motion blank (Tabbycat ballots_hide_motions). */
+  ballotsHideMotions?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
   speakerCategories?: SpeakerCategory[];
 
@@ -397,6 +488,45 @@ export interface TournamentPreferences {
   venueCategories?: VenueCategoryInfo[];
   /** Hours a room check-in stays valid (Tabbycat checkin_window_venues). Absent or 0 = never expires. */
   venueCheckInExpiresAfterHours?: number;
+
+  /** Rounds, schedule and motions (w45). See docs/rounds-schedule-and-motions.md. */
+  /**
+   * Tabbycat's prelim_panels: preliminary rounds per schedule slot (parallel panels A/B). Used when
+   * grouping preliminary rounds into slots; absent = 1 (every round its own slot).
+   */
+  preliminaryPanels?: number;
+  /** Minutes from motion release to the round's start (Tabbycat preparation_time). Absent or negative = off. */
+  preparationTime?: number;
+  /** Public schedule page and iCalendar feed. Absent = hidden. */
+  publicSchedule?: boolean;
+  /** Tournament schedule (Tabbycat ScheduleEvent), oldest first. */
+  scheduleEvents?: ScheduleEvent[];
+  /** Ballots record each team's ranked motion preferences (Tabbycat DebateTeamMotionPreference). */
+  enableMotionPreferences?: boolean;
+}
+
+/** Tabbycat's ScheduleEvent types. */
+export type ScheduleEventType =
+  | "check_in"
+  | "briefing"
+  | "draw"
+  | "preparation"
+  | "debate"
+  | "adjudication"
+  | "rest"
+  | "break_announcement"
+  | "awards"
+  | "other";
+
+export interface ScheduleEvent {
+  id: string;
+  type: ScheduleEventType;
+  /** Optional custom title; without one the round name and event type are shown. */
+  title?: string;
+  /** ISO date-time. */
+  startTime: string;
+  endTime?: string;
+  roundId?: string;
 }
 
 /** Display options of a room category (matched to Venue.category by name, ignoring case). */
@@ -500,6 +630,8 @@ export type RoundStage = "preliminary" | "elimination";
 /** "seeded": two-team only; one bracket ordered by Team.seed (higher is stronger), as Tabbycat. */
 export type DrawType = "random" | "power_paired" | "round_robin" | "elimination" | "manual" | "seeded";
 export type DrawStatus = "none" | "draft" | "confirmed" | "released";
+/** Tabbycat's Round.motions_status: info slides can be shown before the motions themselves. */
+export type MotionsStatus = "not_released" | "info_slides_released" | "motions_released";
 
 export interface Round {
   id: string;
@@ -513,7 +645,20 @@ export interface Round {
   adjudicatorsRevealed?: boolean;
   feedbackWeight: number;
   silent: boolean;
+  /**
+   * Derived: true exactly when the round's motions are released (motionsStatusOf(round) is
+   * "motions_released"). Portals, assistants and the public projection read this flag.
+   */
   motionsReleased: boolean;
+  /** Absent on older rounds: read through motionsStatusOf() in motionRelease.ts. */
+  motionsStatus?: MotionsStatus;
+  /**
+   * Rounds sharing a schedule group run at the same time (parallel panels, Tabbycat
+   * schedule_group). Absent = seq. Read through scheduleGroupOf() in schedule.ts.
+   */
+  scheduleGroup?: number;
+  /** When the round starts (ISO date-time); set by hand or by preparation time on motion release. */
+  startsAt?: string;
   resultsReleased: boolean;
   teamSpeaksReleased?: boolean;
   breakCategoryIds?: string[];
@@ -529,6 +674,8 @@ export interface Round {
   preallocatedSides?: Record<string, TwoTeamSide>;
   /** Seed of the draw generator's random source for the current draw; regenerating with it reproduces the draw. */
   drawSeed?: number;
+  /** Tabbycat Round.weight: team points earned in this round count this many times. Absent = 1. */
+  weight?: number;
 }
 
 export interface PreformedPanel {
@@ -546,6 +693,20 @@ export interface PreformedPanel {
   bracketMax?: number;
   /** Teams in the room that may still be live for the open break. */
   liveness?: number;
+}
+
+/** How a check-in was made (check-in history; lib/checkins/history.ts). */
+export type CheckInSource = "tab" | "scan" | "bulk" | "self";
+
+/** One change of availability or check-in, newest last on the record. */
+export interface CheckInEvent {
+  at: string;
+  /** Absent for rooms, which are checked in without a round. */
+  roundId?: string;
+  available: boolean;
+  source: CheckInSource;
+  /** Who made it (staff name or email); absent for self check-in. */
+  by?: string;
 }
 
 export interface Institution {
@@ -581,6 +742,9 @@ export interface Speaker {
   categories?: string[];
   /** Contact phone (international format), from registration. Organiser-only. */
   phone?: string;
+  /** Speaker-level check-in per round (Tabbycat checks speakers in individually). */
+  roundAvailability?: Record<string, boolean>;
+  checkInHistory?: CheckInEvent[];
   /** Tabbycat Person.anonymous: name (and team) redacted on public pages. */
   anonymous?: boolean;
   /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
@@ -613,6 +777,7 @@ export interface Team {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   venueRequirements?: VenueRequirements;
   /** Soft room preferences (Tabbycat venue constraints). */
   venueConstraints?: VenueConstraint[];
@@ -651,6 +816,7 @@ export interface Adjudicator {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   conflicts: AdjudicatorConflict[];
   gender?: string;
   /** Overrides the institution region for diversity displays. */
@@ -688,6 +854,7 @@ export interface Venue {
   /** Round id -> available in that round (Tabbycat round availability for rooms). */
   roundAvailability?: Record<string, boolean>;
   checkedIn?: boolean;
+  checkInHistory?: CheckInEvent[];
   /** When the room was last checked in; with venueCheckInExpiresAfterHours the check-in lapses. */
   checkedInAt?: string;
   /** Map or meeting link (online rooms), shown with the room in the draw, portals and emails. */
@@ -755,6 +922,8 @@ export interface Debate {
   motionText?: string;
   postponed?: boolean;
   postponedReason?: string;
+  /** When this debate is scheduled to start (ISO date-time), if it differs from the round's start. */
+  scheduledTime?: string;
 }
 
 export interface SpeakerScoreEntry {
@@ -764,6 +933,10 @@ export interface SpeakerScoreEntry {
   score: number;
   /** A duplicate (iron-person) speech: excluded from speaker standings, and from team totals unless teamScoreIncludesGhosts. */
   ghost?: boolean;
+  /** Speech rank within the debate (1 = best), when the tournament ranks speeches. */
+  rank?: number;
+  /** Score per criterion id, when the tournament uses score criteria; `score` is their weighted sum. */
+  criteria?: Record<string, number>;
 }
 
 export interface TeamScoreEntry {
@@ -796,6 +969,8 @@ export interface AdjudicatorSheet {
   adjudicatorId: string;
   adjudicatorName?: string;
   speakerScores: Record<DebateSide, SpeakerScoreEntry[]>;
+  /** The side this adjudicator declared the winner, when winnersInBallots is not "none" or the ballot has no scores. */
+  declaredWinner?: DebateSide;
 }
 
 export interface BallotSubmission {
@@ -821,8 +996,15 @@ export interface BallotSubmission {
   sheets?: AdjudicatorSheet[];
   /** Motion id vetoed by each side. */
   vetoes?: Partial<Record<DebateSide, string>>;
+  /** Each side's ranked motion preferences, most preferred first (enableMotionPreferences). */
+  motionPreferences?: Partial<Record<DebateSide, string[]>>;
   /** Side that forfeited; a forfeit ballot carries no speaker scores. */
   forfeitSide?: DebateSide;
+  /**
+   * A results-only ballot (speakersInBallots): ranks or winners without speaker scores. Team
+   * totals are recorded as 0 but mean "no score", and standings leave them out.
+   */
+  noSpeakerScores?: boolean;
   /** Individual ballots: one voting adjudicator's own scoresheet, submitted through their private URL. */
   singleAdjudicator?: boolean;
   /** A voting ballot merged from these individual ballots (ids). */
@@ -843,6 +1025,8 @@ export interface Motion {
   infoSlide?: string;
   rounds: string[]; // IDs of rounds this motion is allocated to
   seq?: number;
+  /** Order within each assigned round (Tabbycat RoundMotion.seq), keyed by round id; absent -> seq. */
+  roundSeq?: Record<string, number>;
   released: boolean;
 }
 

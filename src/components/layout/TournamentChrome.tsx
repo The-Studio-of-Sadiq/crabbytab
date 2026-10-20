@@ -18,7 +18,7 @@ import { RuleOverrideHost } from "@/features/tournament/components/RuleOverrideH
  * light colours stay legible when the shell is in dark mode. Add a route here
  * once it has been migrated.
  */
-const THEMED_SUBPATHS = new Set(["", "/results", "/results/intake", "/standings"]);
+const THEMED_SUBPATHS = new Set(["", "/results", "/results/intake", "/standings", "/schedule"]);
 
 function isThemedRoute(pathname: string | null, tournamentSlug: string) {
   if (!pathname) return false;

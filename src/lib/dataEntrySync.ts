@@ -11,16 +11,16 @@ import type { StaffPermission } from "@/lib/staffPermissions";
 export const DATA_ENTRY_FIELDS = {
   teams: [
     "id", "tournamentId", "name", "codeName", "institutionId", "institutionName", "speakers",
-    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt",
+    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
   ],
   adjudicators: [
     "id", "tournamentId", "name", "institutionId", "institutionName", "trainee", "independent",
-    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "gender",
+    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
   ],
   institutions: ["id", "tournamentId", "name", "code", "region"],
   ballots: [
     "id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText", "speakerScores",
-    "teamScores", "timestamp",
+    "teamScores", "timestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores",
   ],
   feedback: [
     "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
@@ -42,7 +42,7 @@ export const ASSISTANT_LIVE_BALLOT_FIELDS = [
   "confirmed", "discarded", "submitterType", "submitterId", "submitterName", "chairId", "syncVersion",
 ] as const;
 export const ASSISTANT_LIVE_CHECK_IN_FIELDS = [
-  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion",
+  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion",
 ] as const;
 
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */
@@ -113,7 +113,8 @@ export function sanitizeDataEntryRecord(
   const createOnly = pickFields(value, DATA_ENTRY_CREATE_ONLY_FIELDS[collectionName] ?? []);
   if (collectionName === "teams") {
     record.speakers = Array.isArray(value.speakers)
-      ? value.speakers.filter(isRecord).map((speaker) => pickFields(speaker, ["id", "name", "categories"]))
+      ? value.speakers.filter(isRecord).map((speaker) =>
+          pickFields(speaker, ["id", "name", "categories", "roundAvailability", "checkInHistory"]))
       : [];
   }
   if (collectionName === "adjudicators") {
@@ -208,7 +209,11 @@ export function prepareAssistantBallot(
       ) {
         throw new Error(`Ballot ${String(record.id)} contains invalid speaker scores.`);
       }
-      const isReply = entry.position === 4 && preferences?.replyScoresEnabled === true;
+      const substantive = preferences?.substantiveSpeakers ?? (sides.length === 4 ? 2 : 3);
+      const isReply = entry.position > substantive && preferences?.replyScoresEnabled === true;
+      // With score criteria a speech score is a weighted sum, not a score on the scale; the
+      // tab room re-validates the criteria when it confirms the ballot.
+      if ((preferences?.scoreCriteria?.length ?? 0) > 0) continue;
       const check = isReply
         ? validateReplyScore(entry.score, preferences)
         : validateSpeakerScore(entry.score, preferences);

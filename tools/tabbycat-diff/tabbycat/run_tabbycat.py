@@ -380,6 +380,11 @@ class FixtureRun:
                             "feedback__adj_min_score", "feedback__adj_max_score",
                             "draw_rules__adj_conflict_penalty", "draw_rules__adj_history_penalty",
                             "draw_rules__adj_min_voting_score",
+                            "scoring__score_aggregation_function", "scoring__maximum_margin",
+                            "scoring__reply_score_step", "debate_rules__winners_in_ballots",
+                            "debate_rules__speakers_in_ballots", "debate_rules__speaker_ranks",
+                            "debate_rules__require_substantive_for_reply", "debate_rules__side_names",
+                            "motions__enable_motions",
                         ]
                     },
                     "standings": self.standings(),

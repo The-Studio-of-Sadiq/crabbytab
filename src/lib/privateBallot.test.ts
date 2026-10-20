@@ -84,9 +84,10 @@ function ballotInput() {
     discarded: true,
     roundId: "forged-round",
     speakerScores: Object.fromEntries(
-      ["OG", "OO", "CG", "CO"].map((side) => [
+      ["OG", "OO", "CG", "CO"].map((side, index) => [
         side,
-        [{ speakerId: `speaker-${side}`, speakerName: "Forged name", position: 1, score: 75 }],
+        // BP totals may not tie (Tabbycat), so each team scores one point less than the one above.
+        [{ speakerId: `speaker-${side}`, speakerName: "Forged name", position: 1, score: 78 - index }],
       ])
     ),
     teamScores: Object.fromEntries(
@@ -125,8 +126,8 @@ describe("buildPrivateBallot", () => {
       confirmed: true,
       discarded: false,
       submitterName: "Chair",
-      speakerScores: { OG: [{ speakerId: "speaker-OG", speakerName: "OG Speaker", score: 75 }] },
-      teamScores: { OG: { teamId: "team-OG", points: 3, totalSpeakerScore: 75, rank: 1 } },
+      speakerScores: { OG: [{ speakerId: "speaker-OG", speakerName: "OG Speaker", score: 78 }] },
+      teamScores: { OG: { teamId: "team-OG", points: 3, totalSpeakerScore: 78, rank: 1 } },
     });
 
   });
@@ -251,5 +252,25 @@ describe("two-team private ballots", () => {
   it("rejects a reply from the last speaker or an unknown speaker", () => {
     expect(() => buildPrivateBallot(input("AFF-3"), context)).toThrow(/reply score is invalid/);
     expect(() => buildPrivateBallot(input("reply-AFF"), context)).toThrow(/reply score is invalid/);
+  });
+
+  it("keeps speech ranks and checks them like the tab room", () => {
+    const ranked = { ...context, tournament: { ...twoTeamTournament, preferences: { ...twoTeamTournament.preferences, speakerRanks: "high-points" as const } } };
+    const withRanks = input("AFF-1");
+    const order = { AFF: [1, 2, 3], NEG: [4, 5, 6] } as Record<string, number[]>;
+    for (const side of ["AFF", "NEG"]) {
+      (withRanks.speakerScores[side] as { rank?: number }[]).slice(0, 3).forEach((speech, index) => (speech.rank = order[side][index]));
+    }
+    expect(buildPrivateBallot(withRanks, ranked).speakerScores.AFF[0].rank).toBe(1);
+    (withRanks.speakerScores.NEG as { rank?: number }[])[0].rank = 1;
+    expect(() => buildPrivateBallot(withRanks, ranked)).toThrow(/tied/);
+  });
+
+  it("records only the result in rounds without speaker scores", () => {
+    const never = { ...context, tournament: { ...twoTeamTournament, preferences: { ...twoTeamTournament.preferences, speakersInBallots: "prelim" as const } }, round: { stage: "elimination" as const } };
+    const ballot = buildPrivateBallot({ ...input("AFF-1"), teamScores: { AFF: { rank: 2 }, NEG: { rank: 1 } } }, never);
+    expect(ballot.noSpeakerScores).toBe(true);
+    expect(ballot.speakerScores).toEqual({ AFF: [], NEG: [] });
+    expect(ballot.teamScores.NEG).toMatchObject({ win: true, totalSpeakerScore: 0 });
   });
 });

@@ -42,13 +42,14 @@ is postponed (`getRoundCompletionBlockers`). "Published" draw means `drawStatus`
 
 | Action | Rule | Kind | Enforced in |
 | --- | --- | --- | --- |
-| Generate a preliminary draw | Every earlier preliminary round is finished (`previous_round_incomplete`). Unfinished results do not count towards power pairing. | Overridable | `generateDrawCommand` |
+| Generate a preliminary draw | Every preliminary round in an earlier schedule slot is finished (`previous_round_incomplete`). Unfinished results do not count towards power pairing. Rounds in the same slot (parallel panels) are not waited for. | Overridable | `generateDrawCommand` |
 | Generate an elimination draw | The round has a generated break (`break_not_generated`) and every earlier elimination round of the same category has advanced (`previous_elimination_not_advanced`). | Hard | `generateDrawCommand` |
 | Regenerate a draw | Not in a cancelled (`round_cancelled`), completed (`round_completed`) or advanced (`elimination_advanced`) round. | Hard | `generateDrawCommand` |
 | Regenerate a draw | Not a published draw (`draw_released`), and no later round was drawn after it (`later_round_drawn`). | Overridable | `generateDrawCommand` |
 | Regenerate a draw with ballots | The existing explicit "discard these results" confirmation; the ballots are kept as discarded versions. | Confirmation | `generateDrawCommand` (`DrawHasResultsError`) |
 | Publish a draw | The round has debates (`draw_empty`). | Hard | `updateRoundCommand` |
 | Publish a draw | The draw check (`validateDraw`) finds no errors (`draw_invalid`). Warnings never block. | Overridable | `updateRoundCommand` |
+| Publish a draw | No team, adjudicator or venue is also in a round of the same schedule slot (`concurrent_round_clash`, see [rounds-schedule-and-motions.md](./rounds-schedule-and-motions.md)). | Overridable | `updateRoundCommand`, `updateRoundsCommand` |
 
 The overview page no longer generates a draw directly: its button opens the draw page, which
 runs the venue check and the regeneration confirmations first.
@@ -113,8 +114,8 @@ category schedule changes. Before, it reset every elimination round.
 
 | Change after any live ballot exists | Rule | Kind |
 | --- | --- | --- |
-| Format, teams per debate, speakers per team, reply speeches, ballot mode | `settings_locked` | Hard (existing ballots would no longer match) |
-| Speaker and reply score ranges and step, ghost speeches in team scores, margins including dissenters, low-point wins, forfeits, bye results | `scoring_changed_after_ballots` | Overridable |
+| Format, teams per debate, speakers per team, reply speeches, ballot mode, when ballots ask for speaker scores, score criteria | `settings_locked` | Hard (existing ballots would no longer match) |
+| Speaker and reply score ranges and steps, ghost speeches in team scores, margins including dissenters, low-point wins / winner declaration, panel score aggregation, speech ranks, maximum margin, the reply-speaker rule, forfeits, bye results | `scoring_changed_after_ballots` | Overridable |
 
 Enforced in `saveTournamentCommand`. The settings form disables the locked fields and says why.
 Discarded ballots do not lock anything.
