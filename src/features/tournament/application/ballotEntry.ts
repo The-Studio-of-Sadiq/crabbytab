@@ -97,6 +97,7 @@ export function entryFromBallot(ballot: BallotSubmission, blank: BallotEntry, ru
     ),
     motionId: ballot.motionId || blank.motionId || "",
     vetoes: { ...(ballot.vetoes || {}) },
+    ...(ballot.motionPreferences ? { motionPreferences: { ...ballot.motionPreferences } } : {}),
     ...(ballot.forfeitSide ? { forfeitSide: ballot.forfeitSide } : {}),
     ...(usesVotingBallots(rules)
       ? {

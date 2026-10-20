@@ -32,6 +32,11 @@ export interface GenerateDrawParams {
   standings: TeamStandingRow[];
   /** Seed for every random choice the draw makes; the same inputs and seed give the same draw. */
   seed?: number;
+  /**
+   * Round-robin rounds: the round's index in the schedule (parallel panels in one schedule slot
+   * share it; see roundRobinIndex in schedule.ts). Absent = round.seq.
+   */
+  roundRobinIndex?: number;
 }
 
 export function getEligibleTeamsForRound(teams: Team[], round: Round | null): Team[] {
@@ -421,7 +426,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
     }
     debateDrafts = generateRoundRobinDraw(
       activeTeams,
-      round.seq,
+      params.roundRobinIndex ?? round.seq,
       history.sides,
       tournament.format,
       nonPreallocatedSideRule,

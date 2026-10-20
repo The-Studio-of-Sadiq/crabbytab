@@ -19,6 +19,7 @@ import {
   TeamStandingRow,
   SpeakerStandingRow,
   Institution,
+  MotionsStatus,
 } from "@/types";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,11 +47,16 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
-import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
+import { createRoundCommand, updateRoundCommand, updateRoundsCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
-import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
+import {
+  applyMotionReleaseSync,
+  roundsNeedingMotionReleaseSync,
+  setMotionsStatusCommand,
+} from "@/features/tournament/application/motionRelease";
+import { migrateSchedulePreferences, roundsInSameSlot } from "@/features/tournament/application/schedule";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { withRuleOverride } from "@/features/tournament/application/ruleOverridePrompt";
@@ -243,6 +249,10 @@ export interface TournamentContextType {
   setPreliminaryRoundCount: (count: number) => Promise<void>;
   deleteRound: (roundId: string) => Promise<void>;
   updateRound: (round: Round) => Promise<void>;
+  /** Saves several changed rounds in one write (schedule slots, start times). */
+  updateRounds: (rounds: Round[], summary: string) => Promise<void>;
+  /** Three-state motion release (motionRelease.ts); releasing motions applies preparation time. */
+  setRoundMotionsStatus: (roundId: string, status: MotionsStatus) => Promise<void>;
   /** Throws DrawHasResultsError when the round has ballots, unless discardExistingResults is set. */
   generateDraw: (roundId: string, options?: { discardExistingResults?: boolean }) => Promise<void>;
   autoAllocate: (roundId: string, panelSize?: number, settings?: AutoAllocateSettings) => Promise<void>;
@@ -282,6 +292,8 @@ export interface TournamentContextType {
   addMotion: (motion: Omit<Motion, "id" | "tournamentId">) => Promise<void>;
   addMotions: (motions: Omit<Motion, "id" | "tournamentId">[]) => Promise<void>;
   updateMotion: (motion: Motion) => Promise<void>;
+  /** Saves several changed motions in one write (copying, reordering, round release). */
+  updateMotions: (motions: Motion[], summary?: string) => Promise<void>;
   deleteMotion: (motionId: string) => Promise<void>;
   saveBreakCategories: (categories: BreakCategory[]) => Promise<void>;
   generateBreak: (categoryId: string) => Promise<Round | null>;
@@ -1538,6 +1550,15 @@ export function TournamentProvider({
       !loading &&
       liveSyncEnabled
   );
+  // Rounds in the active round's schedule slot are listened to as well: their draws decide who
+  // is free. Kept as a JSON string so the effect below only re-runs when that set changes.
+  const concurrentRoundKey = JSON.stringify(
+    roundsInSameSlot(activeRound, rounds)
+      .filter((round) => round.id !== activeRound?.id)
+      .map((round) => round.id)
+  );
+  const concurrentRoundKeyRef = useRef(concurrentRoundKey);
+  concurrentRoundKeyRef.current = concurrentRoundKey;
   const activeRoundIdRef = useRef(activeRound?.id);
   activeRoundIdRef.current = activeRound?.id;
   useEffect(() => {
@@ -1563,7 +1584,10 @@ export function TournamentProvider({
       { online: typeof navigator === "undefined" ? true : navigator.onLine }
     );
     liveSessionRef.current = session;
-    session.setActiveRound(activeRoundIdRef.current);
+    session.setActiveRound(
+      activeRoundIdRef.current,
+      JSON.parse(concurrentRoundKeyRef.current) as string[]
+    );
     const updateOnline = () => session.setOnline(navigator.onLine);
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOnline);
@@ -1576,8 +1600,11 @@ export function TournamentProvider({
     };
   }, [liveTournamentId, liveResyncCount]);
   useEffect(() => {
-    liveSessionRef.current?.setActiveRound(activeRound?.id);
-  }, [activeRound?.id, liveTournamentId, liveResyncCount]);
+    liveSessionRef.current?.setActiveRound(
+      activeRound?.id,
+      JSON.parse(concurrentRoundKey) as string[]
+    );
+  }, [activeRound?.id, concurrentRoundKey, liveTournamentId, liveResyncCount]);
 
   const setLiveSyncEnabled = (enabled: boolean) => {
     if (typeof window !== "undefined") {
@@ -1690,6 +1717,7 @@ export function TournamentProvider({
     deleteVenue: deleteVenueCommand,
     addMotions: addMotionsCommand,
     updateMotion: updateMotionCommand,
+    updateMotions,
     deleteMotion: deleteMotionCommand,
   } = entityCommands;
 
@@ -1827,7 +1855,9 @@ export function TournamentProvider({
   const guarded = <T,>(action: (override?: RuleOverride) => Promise<T>) =>
     withRuleOverride(action, isOwnerOrAdmin);
 
-  const saveTournament = async (t: Tournament) => {
+  const saveTournament = async (input: Tournament) => {
+    // Settings saved by older versions carry the deprecated preliminaryPanelsPerScheduleSlot.
+    const t = input.preferences ? { ...input, preferences: migrateSchedulePreferences(input.preferences) } : input;
     await guarded((override) => saveTournamentCommand(t, tournament, {
       ballots,
       rounds,
@@ -1887,6 +1917,35 @@ export function TournamentProvider({
           : [],
       },
     }, override));
+  };
+
+  const updateRounds = async (changed: Round[], summary: string) => {
+    const cloudRepository =
+      AUTOMATIC_CLOUD_WRITES && db && tournament?.id
+        ? createFirestoreRoundRepository(tournament.id)
+        : undefined;
+    await guarded((override) => updateRoundsCommand(changed, rounds, activeRound, {
+      localRepository: { saveRounds: saveRoundsLocally },
+      recordAuditEvent,
+      cloudRepository,
+      guards: {
+        debates,
+        ballots,
+        drawIssues: (target) => tournament
+          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues })
+          : [],
+      },
+    }, summary, override));
+  };
+
+  const setRoundMotionsStatus = async (roundId: string, status: MotionsStatus) => {
+    await setMotionsStatusCommand(roundId, status, {
+      rounds,
+      motions,
+      preferences: tournament?.preferences,
+      saveMotions: (changed) => updateMotions(changed, "Round motions release changed"),
+      saveRound: updateRound,
+    });
   };
 
   const ballotWorkflowDependencies = {
@@ -2915,6 +2974,8 @@ export function TournamentProvider({
         setPreliminaryRoundCount,
         deleteRound,
         updateRound,
+        updateRounds,
+        setRoundMotionsStatus,
         generateDraw,
         autoAllocate,
         updateDebate,
@@ -2944,6 +3005,7 @@ export function TournamentProvider({
         addMotion,
         addMotions,
         updateMotion,
+        updateMotions,
         deleteMotion,
         saveBreakCategories,
         generateBreak,

@@ -414,6 +414,35 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     });
   };
 
+  /**
+   * Saves several changed motions in one write (copying motions to a round, reordering a round's
+   * motions, releasing a round's motions) and records one audit event. Every motion must exist.
+   */
+  const updateMotions = async (changed: Motion[], summary = "Motions updated") => {
+    if (changed.length === 0) return;
+    const ids = new Set(motions.map((item) => item.id));
+    const missing = changed.find((item) => !ids.has(item.id));
+    if (missing) throw new Error(`Cannot update motion ${missing.id}: it no longer exists.`);
+    if (dependencies.cloudRepository) {
+      for (const motion of changed) await dependencies.cloudRepository.saveMotion(motion);
+    }
+    const byId = new Map(changed.map((item) => [item.id, item]));
+    repositories.motions.save(motions.map((item) => byId.get(item.id) ?? item));
+    await recordAuditEvent({
+      action: "motions.updated",
+      category: "tournament",
+      summary,
+      details: {
+        motions: changed.map((motion) => ({
+          motionId: motion.id,
+          rounds: motion.rounds,
+          roundSeq: motion.roundSeq,
+          released: motion.released,
+        })),
+      },
+    });
+  };
+
   const deleteMotion = async (motionId: string) => {
     const deleted = motions.find((item) => item.id === motionId);
     repositories.motions.save(motions.filter((item) => item.id !== motionId));
@@ -515,6 +544,7 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     deleteVenue,
     addMotions,
     updateMotion,
+    updateMotions,
     deleteMotion,
   };
 }

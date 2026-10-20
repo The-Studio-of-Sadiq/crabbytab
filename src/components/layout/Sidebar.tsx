@@ -15,6 +15,7 @@ import {
   BarChart3,
   Building2,
   CheckCircle2,
+  CalendarDays,
   ChevronRight,
   ClipboardList,
   Clock,
@@ -176,6 +177,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
             <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label="Conflicts" />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label="Venues" />
             <NavLink href={`${base}/imports/motions`} icon={Lightbulb} label="Motions" />
+            <NavLink href={`${base}/schedule`} icon={CalendarDays} label="Schedule" />
           </>
         )}
       </NavGroup>

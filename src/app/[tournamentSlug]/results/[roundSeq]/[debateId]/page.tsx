@@ -31,6 +31,8 @@ import {
 } from "@/lib/ballots/result";
 import type { AdjudicatorSheet, BallotSubmission, DebateSide, SpeakerScoreEntry } from "@/types";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
+import { MotionPreferencesFields } from "@/features/tournament/components/ballot/MotionPreferencesFields";
+import { normalizeMotionPreferences, validateMotionPreferences } from "@/lib/motions/preferences";
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -143,12 +145,19 @@ export default function BallotEntryPage() {
     loadEntry(base ? entryFromBallot(base, blank, rules) : blank);
   }, [blank, checkState, confirmedBallot, debateId, loadEntry, rules, choosesSides, affTeamId]);
 
+  const recordsMotionPreferences = preferences?.enableMotionPreferences === true && availableMotions.length > 1;
   const errors = useMemo(
     () =>
       entry
-        ? validateBallotEntry(entry, { ...rules, rosters, roundMotionIds: availableMotions.map((motion) => motion.id) })
+        ? [
+            ...validateBallotEntry(entry, { ...rules, rosters, roundMotionIds: availableMotions.map((motion) => motion.id) }),
+            ...(recordsMotionPreferences
+              ? validateMotionPreferences(entry.motionPreferences, availableMotions.map((motion) => motion.id), entry.vetoes)
+                  .map((problem) => problem.message)
+              : []),
+          ]
         : [],
-    [entry, rules, rosters, availableMotions]
+    [entry, rules, rosters, availableMotions, recordsMotionPreferences]
   );
   const preview = useMemo(() => {
     if (!entry || errors.length > 0) return null;
@@ -257,6 +266,9 @@ export default function BallotEntryPage() {
     const version = nextBallotVersion(ballots, debate.id);
     const motion = motions.find((item) => item.id === entry.motionId);
     const vetoes = Object.fromEntries(Object.entries(entry.vetoes || {}).filter(([, motionId]) => Boolean(motionId)));
+    const motionPreferences = recordsMotionPreferences
+      ? normalizeMotionPreferences(entry.motionPreferences, availableMotions.map((item) => item.id))
+      : {};
     const now = new Date().toISOString();
     return {
       id: `ballot-${debate.id}-v${version}-${Date.now()}`,
@@ -274,6 +286,7 @@ export default function BallotEntryPage() {
       teamScores: result.teamScores,
       ...(result.sheets ? { sheets: result.sheets } : {}),
       ...(Object.keys(vetoes).length > 0 ? { vetoes } : {}),
+      ...(Object.keys(motionPreferences).length > 0 ? { motionPreferences } : {}),
       ...(entry.forfeitSide ? { forfeitSide: entry.forfeitSide } : {}),
       ...(chairId ? { chairId } : {}),
       timestamp: now,
@@ -422,6 +435,16 @@ export default function BallotEntryPage() {
                 </label>
               ))}
             </fieldset>
+          )}
+
+          {recordsMotionPreferences && (
+            <MotionPreferencesFields
+              sides={sides}
+              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))}
+              motions={availableMotions}
+              value={entry.motionPreferences || {}}
+              onChange={(motionPreferences) => updateEntry({ motionPreferences })}
+            />
           )}
 
           {!entry.forfeitSide && voting && entry.sheets && (

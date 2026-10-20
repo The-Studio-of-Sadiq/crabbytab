@@ -37,6 +37,7 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/feedback/scores";
 import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
 import { AvailableAdjudicatorsPanel, type JudgeDragPayload } from "@/features/tournament/components/AvailableAdjudicatorsPanel";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
 
 function describeError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -575,6 +576,7 @@ export default function AllocationPage() {
 
   return (
     <div className="space-y-6">
+      <CurrentRoundsBar />
       {/* Header */}
       <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

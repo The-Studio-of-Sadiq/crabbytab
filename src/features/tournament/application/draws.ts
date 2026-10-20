@@ -14,6 +14,8 @@ import type { GenerateDrawParams } from "@/lib/draw/generator";
 import { randomSeed } from "@/lib/draw/rng";
 import { resolveRecordedSides } from "@/lib/draw/manualSides";
 import { applyGuards, checkDrawGeneration, type RuleOverride } from "./stateGuards";
+import { concurrentBookings, isEarlierScheduleSlot, roundRobinIndex } from "./schedule";
+import { orderRoundMotions } from "@/lib/motions/roundMotions";
 
 export interface DrawAuditEvent {
   action: string;
@@ -156,11 +158,14 @@ export async function generateDrawCommand(
     );
   }
 
+  // Rounds in earlier schedule slots; concurrent rounds (parallel panels) are not history.
   const previousRoundIds = new Set(
     rounds
-      .filter((item) => !item.cancelled && item.seq < round.seq)
+      .filter((item) => !item.cancelled && isEarlierScheduleSlot(item, round))
       .map((item) => item.id)
   );
+  // Venues already used by a concurrent round are not free for this one.
+  const booked = concurrentBookings(round, rounds, debates);
   // Sides recorded on confirmed ballots (manual-ballot sides) count in the side history.
   const pastDebates = resolveRecordedSides(debates.filter((debate) => previousRoundIds.has(debate.roundId)), ballots);
   // Recorded on the round so this exact draw can be reproduced from the same inputs.
@@ -170,10 +175,11 @@ export async function generateDrawCommand(
     round,
     teams,
     institutions,
-    venues,
+    venues: booked.size > 0 ? venues.filter((venue) => !booked.has(`venue:${venue.id}`)) : venues,
     pastDebates,
     standings,
     seed,
+    roundRobinIndex: roundRobinIndex(round, rounds),
   }), seed);
 
   const current = dependencies.latest?.() ?? { rounds, debates, ballots };
@@ -181,7 +187,7 @@ export async function generateDrawCommand(
     throw new RoundChangedDuringComputeError(round.name);
   }
 
-  const roundMotion = motions.find((motion) => motion.rounds?.includes(round.id));
+  const roundMotion = orderRoundMotions(motions, round.id)[0];
   if (roundMotion) {
     generated.forEach((debate) => {
       debate.motionId = roundMotion.id;

@@ -1,5 +1,6 @@
-import type { Debate, DebateSide, Motion } from "@/types";
+import type { Debate, DebateSide, Motion, MotionsStatus } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
+import { motionSeqInRound } from "@/lib/motions/roundMotions";
 
 /** Pure helpers for the projector display (`/[slug]/display`). */
 
@@ -64,17 +65,22 @@ export type MotionRevealStep =
   | { kind: "motion"; motion: Motion; index: number };
 
 /**
- * The reveal sequence for a round: a cover slide, then for each motion (in `seq` order) its
- * information slide, if it has one, followed by the motion itself.
+ * The reveal sequence for a round: a cover slide, then for each motion (in its order within the
+ * round, `roundSeq`, falling back to `seq`) its information slide, if it has one, followed by the
+ * motion itself. With `infoSlidesOnly` (the round's info slides are released but its motions are
+ * not) the motions themselves are left out.
  */
-export function buildMotionRevealSteps(motions: Motion[]): MotionRevealStep[] {
-  const ordered = [...motions].sort(
-    (left, right) => (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER) || left.id.localeCompare(right.id)
-  );
+export function buildMotionRevealSteps(
+  motions: Motion[],
+  options: { roundId?: string; infoSlidesOnly?: boolean } = {}
+): MotionRevealStep[] {
+  const order = (motion: Motion) =>
+    (options.roundId ? motionSeqInRound(motion, options.roundId) : motion.seq) ?? Number.MAX_SAFE_INTEGER;
+  const ordered = [...motions].sort((left, right) => order(left) - order(right) || left.id.localeCompare(right.id));
   const steps: MotionRevealStep[] = [{ kind: "cover" }];
   ordered.forEach((motion, index) => {
     if (motion.infoSlide?.trim()) steps.push({ kind: "info", motion, index });
-    steps.push({ kind: "motion", motion, index });
+    if (!options.infoSlidesOnly) steps.push({ kind: "motion", motion, index });
   });
   return steps;
 }
@@ -89,8 +95,22 @@ export function nextRevealStep(current: number, key: string, stepCount: number):
   return Math.min(Math.max(current, 0), last);
 }
 
-/** Motions assigned to a round that the viewer may see: released ones, or all of them for staff. */
-export function motionsForDisplay(motions: Motion[], roundId: string | undefined, includeUnreleased: boolean): Motion[] {
+/**
+ * Motions assigned to a round that the viewer may see: released ones, or all of them for staff.
+ * When only the round's info slides are released (`status`), viewers get the motions that have an
+ * info slide (the public projection carries them without their text).
+ */
+export function motionsForDisplay(
+  motions: Motion[],
+  roundId: string | undefined,
+  includeUnreleased: boolean,
+  status?: MotionsStatus
+): Motion[] {
   if (!roundId) return [];
-  return motions.filter((motion) => motion.rounds?.includes(roundId) && (includeUnreleased || motion.released === true));
+  return motions.filter((motion) =>
+    motion.rounds?.includes(roundId) &&
+    (includeUnreleased ||
+      motion.released === true ||
+      (status === "info_slides_released" && Boolean(motion.infoSlide?.trim())))
+  );
 }

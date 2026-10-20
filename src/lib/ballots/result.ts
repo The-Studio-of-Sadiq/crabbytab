@@ -314,6 +314,8 @@ export interface BallotEntry {
   forfeitSide?: DebateSide;
   motionId?: string;
   vetoes?: SideRecord<string>;
+  /** Ranked motion preferences per side, most preferred first (see lib/motions/preferences). */
+  motionPreferences?: SideRecord<string[]>;
 }
 
 export interface BallotValidationContext extends BallotRules {

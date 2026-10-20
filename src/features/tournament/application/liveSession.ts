@@ -39,8 +39,11 @@ export interface LiveSessionHost {
 }
 
 export interface LiveSession {
-  /** Listens to the scopes for this round (teams and adjudicators always). */
-  setActiveRound(roundId: string | null | undefined): void;
+  /**
+   * Listens to the scopes for this round and the rounds concurrent with it (teams and
+   * adjudicators always).
+   */
+  setActiveRound(roundId: string | null | undefined, concurrentRoundIds?: readonly string[]): void;
   /** Queues writes; writes queued in the same tick commit together. */
   write(writes: LiveWrite[]): void;
   /** Resolves once the cloud has every write queued so far (call while online). */
@@ -159,9 +162,11 @@ export function createLiveSession(port: LivePort, host: LiveSessionHost, options
   };
 
   return {
-    setActiveRound(roundId) {
+    setActiveRound(roundId, concurrentRoundIds) {
       if (disposed) return;
-      const wanted = new Map(liveListenerScopes(roundId).map((scope) => [liveScopeKey(scope), scope]));
+      const wanted = new Map(
+        liveListenerScopes(roundId, concurrentRoundIds).map((scope) => [liveScopeKey(scope), scope])
+      );
       for (const key of [...listeners.keys()]) if (!wanted.has(key)) stopListening(key);
       for (const [key, scope] of wanted) if (!listeners.has(key)) subscribe(scope);
       report();

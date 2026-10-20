@@ -21,6 +21,7 @@ import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
 import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
 import { RoundChangedDuringComputeError, roundChangedBetween } from "./draws";
 import { applyGuards, checkAutoAllocation, checkDebateEdits, type RuleOverride } from "./stateGuards";
+import { concurrentBookings, isEarlierScheduleSlot } from "./schedule";
 
 export interface AllocationAuditEvent {
   action: string;
@@ -86,7 +87,7 @@ function getPriorDebates(round: Round | undefined, input: Pick<AutoAllocationInp
   if (!round) return [];
   const earlierRoundIds = new Set(
     input.rounds
-      .filter((item) => !item.cancelled && item.seq < round.seq)
+      .filter((item) => !item.cancelled && isEarlierScheduleSlot(item, round))
       .map((item) => item.id)
   );
   return input.debates.filter((debate) => earlierRoundIds.has(debate.roundId));
@@ -110,6 +111,12 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
   const round = input.rounds.find((item) => item.id === roundId);
   const teamsById = new Map(input.teams.map((team) => [team.id, team]));
   const pastDebates = getPriorDebates(round, input);
+  // Adjudicators and venues already used by a concurrent round (same schedule slot) are busy.
+  const booked = round ? concurrentBookings(round, input.rounds, input.debates) : new Map();
+  const adjudicators = booked.size > 0
+    ? input.adjudicators.filter((adjudicator) => !booked.has(`adjudicator:${adjudicator.id}`))
+    : input.adjudicators;
+  const venues = booked.size > 0 ? input.venues.filter((venue) => !booked.has(`venue:${venue.id}`)) : input.venues;
   const completedPrelimRounds = input.rounds.filter(
     (item) => item.stage === "preliminary" && !item.cancelled && item.completed
   ).length;
@@ -140,7 +147,7 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
   const allocations = autoAllocateAdjudicators(
     roundDebates,
     teamsById,
-    input.adjudicators,
+    adjudicators,
     buildPastAdjTeams(pastDebates),
     {
       panelSize: effectivePanelSize,
@@ -177,9 +184,9 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
     ? (() => {
         const withRequirements = applyAdjudicatorVenueRequirements(
           updatedRoundDebates,
-          input.adjudicators
+          adjudicators
         );
-        const venueAssignments = allocateVenuesToDebates(withRequirements, input.venues);
+        const venueAssignments = allocateVenuesToDebates(withRequirements, venues);
         return withRequirements.map((debate) => {
           const venue = venueAssignments.get(debate.id);
           return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
