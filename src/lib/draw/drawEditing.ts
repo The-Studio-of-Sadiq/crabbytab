@@ -4,7 +4,7 @@ import { sidesPending } from "./manualSides";
 /**
  * Moving teams in the draw editor, shared by drag-and-drop and the keyboard/touch "pick, then
  * place" flow. Pure: returns the full debate list to save through the existing draw commands
- * (so live sync and the state rules apply) plus a sentence to announce.
+ * (so live sync and the state rules apply) plus a sentence to announce (and the same event as data, for translation).
  */
 
 export type TeamLocation = { kind: "pool" } | { kind: "slot"; debateId: string; side: DebateSide };
@@ -20,6 +20,36 @@ export interface TeamMove {
   debates: Debate[];
   /** What happened, for an ARIA live region; empty when nothing changed. */
   announcement: string;
+  /** The same event as structured data, so the UI can announce it in the viewer's language; absent when nothing changed. */
+  event?: TeamMoveEvent;
+}
+
+/** A room as named to the user: its venue name, else "Room {roomRank}". */
+export interface RoomRef {
+  venueName?: string;
+  roomRank: number;
+}
+
+/** A slot as named to the user; `side` is absent while sides are chosen on the ballot. */
+export interface SlotRef extends RoomRef {
+  side?: DebateSide;
+}
+
+export type TeamMoveEvent =
+  | { kind: "returned_to_pool"; team: string; from: SlotRef }
+  | { kind: "placed"; team: string; to: SlotRef; displaced?: string }
+  | { kind: "swapped_sides"; team: string; other: string; room: RoomRef }
+  | { kind: "moved_side"; team: string; side: DebateSide; room: RoomRef }
+  | { kind: "swapped"; team: string; other: string; teamNow: SlotRef; otherNow: SlotRef }
+  | { kind: "moved"; team: string; from: SlotRef; to: SlotRef };
+
+function roomRef(debate: Debate): RoomRef {
+  return { venueName: debate.venueName || undefined, roomRank: debate.roomRank };
+}
+
+/** Structured counterpart of `slotName`. */
+export function slotRef(debate: Debate, side: DebateSide): SlotRef {
+  return sidesPending(debate) ? roomRef(debate) : { ...roomRef(debate), side };
 }
 
 function roomName(debate: Debate | undefined): string {
@@ -61,6 +91,7 @@ export function moveTeam(debates: Debate[], pick: PickedTeam, target: TeamLocati
         debate.id === debateId ? { ...debate, teams: { ...debate.teams, [side]: emptySlot(side) } } : debate
       ),
       announcement: `${pick.teamName} removed from ${slotName(source, side)} and returned to the unassigned pool.`,
+      event: { kind: "returned_to_pool", team: pick.teamName, from: slotRef(source, side) },
     };
   }
 
@@ -79,6 +110,12 @@ export function moveTeam(debates: Debate[], pick: PickedTeam, target: TeamLocati
       ),
       announcement: `${pick.teamName} placed in ${slotName(targetDebate, target.side)}` +
         (occupantId ? `; ${occupantName} returned to the unassigned pool.` : "."),
+      event: {
+        kind: "placed",
+        team: pick.teamName,
+        to: slotRef(targetDebate, target.side),
+        ...(occupantId ? { displaced: occupantName } : {}),
+      },
     };
   }
 
@@ -97,6 +134,9 @@ export function moveTeam(debates: Debate[], pick: PickedTeam, target: TeamLocati
       announcement: occupantId
         ? `${pick.teamName} and ${occupantName} swapped sides in ${roomName(targetDebate)}.`
         : `${pick.teamName} moved to ${target.side} in ${roomName(targetDebate)}.`,
+      event: occupantId
+        ? { kind: "swapped_sides", team: pick.teamName, other: occupantName, room: roomRef(targetDebate) }
+        : { kind: "moved_side", team: pick.teamName, side: target.side, room: roomRef(targetDebate) },
     };
   }
 
@@ -113,5 +153,14 @@ export function moveTeam(debates: Debate[], pick: PickedTeam, target: TeamLocati
     announcement: occupantId
       ? `${pick.teamName} (now ${slotName(targetDebate, target.side)}) swapped with ${occupantName} (now ${slotName(sourceDebate, from.side)}).`
       : `${pick.teamName} moved from ${slotName(sourceDebate, from.side)} to ${slotName(targetDebate, target.side)}.`,
+    event: occupantId
+      ? {
+          kind: "swapped",
+          team: pick.teamName,
+          other: occupantName,
+          teamNow: slotRef(targetDebate, target.side),
+          otherNow: slotRef(sourceDebate, from.side),
+        }
+      : { kind: "moved", team: pick.teamName, from: slotRef(sourceDebate, from.side), to: slotRef(targetDebate, target.side) },
   };
 }

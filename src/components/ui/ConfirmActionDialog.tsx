@@ -18,6 +18,9 @@ export function ConfirmActionDialog({
   variant = "primary",
   isBusy = false,
   error,
+  cancelLabel = "No, cancel",
+  busyLabel = "Saving...",
+  closeLabel,
 }: {
   title: string;
   description: string;
@@ -27,6 +30,10 @@ export function ConfirmActionDialog({
   variant?: "primary" | "danger";
   isBusy?: boolean;
   error?: string;
+  /** Translated button labels; English defaults. */
+  cancelLabel?: string;
+  busyLabel?: string;
+  closeLabel?: string;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
@@ -37,18 +44,19 @@ export function ConfirmActionDialog({
       dismissible={!isBusy}
       initialFocusRef={cancelRef}
       title={title}
+      closeLabel={closeLabel}
       description={description}
       icon={<AlertTriangle className={variant === "danger" ? "text-danger" : "text-warning"} aria-hidden="true" />}
       footer={
         <>
           <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={isBusy}>
-            No, cancel
+            {cancelLabel}
           </Button>
           <Button
             variant={variant === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
             loading={isBusy}
-            loadingText="Saving..."
+            loadingText={busyLabel}
           >
             {confirmLabel}
           </Button>

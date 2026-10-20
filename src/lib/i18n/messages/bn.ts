@@ -1,4 +1,8 @@
 import type { Catalogue } from "@/lib/i18n/messages";
+import { bnPublic } from "@/lib/i18n/messages/areas/bn-public";
+import { bnResults } from "@/lib/i18n/messages/areas/bn-results";
+import { bnSetup } from "@/lib/i18n/messages/areas/bn-setup";
+import { bnTabroom } from "@/lib/i18n/messages/areas/bn-tabroom";
 import { publicSiteBn } from "@/lib/i18n/messages/publicSite.bn";
 
 /**
@@ -8,6 +12,10 @@ import { publicSiteBn } from "@/lib/i18n/messages/publicSite.bn";
  * docs/internationalization.md for how to review and mark a catalogue as reviewed.
  */
 export const bn: Catalogue = {
+  ...bnSetup,
+  ...bnTabroom,
+  ...bnResults,
+  ...bnPublic,
   "common.tournament": "টুর্নামেন্ট",
   "common.cancel": "বাতিল",
   "common.close": "বন্ধ করুন",

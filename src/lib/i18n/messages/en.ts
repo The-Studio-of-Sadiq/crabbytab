@@ -9,7 +9,17 @@
  */
 import { publicSiteEn } from "@/lib/i18n/messages/publicSite.en";
 
+import { enPublic } from "@/lib/i18n/messages/areas/en-public";
+import { enResults } from "@/lib/i18n/messages/areas/en-results";
+import { enSetup } from "@/lib/i18n/messages/areas/en-setup";
+import { enTabroom } from "@/lib/i18n/messages/areas/en-tabroom";
+
 export const en = {
+  // Per-area catalogues (areas/en-*.ts), so parallel work on different page areas never conflicts.
+  ...enSetup,
+  ...enTabroom,
+  ...enResults,
+  ...enPublic,
   "common.tournament": "Tournament",
   "common.cancel": "Cancel",
   "common.close": "Close",

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowLeft, Printer } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Code39Barcode } from "@/components/ui/Code39Barcode";
 import {
@@ -17,12 +18,20 @@ import {
   speakerRanksFor,
   winnerDeclarationFor,
 } from "@/lib/ballots/ballotRules";
-import { sideLabel } from "@/lib/sideNames";
-import { PrintOptionsCard } from "@/features/tournament/components/PrintOptionsCard";
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
+import { PrintOptionsCard, usePrintTranslator } from "@/features/tournament/components/PrintOptionsCard";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Alert } from "@/components/ui/Feedback";
 import { returnLocation } from "@/lib/printOptions";
 
 export default function PrintableBallotsPage() {
   const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
+  const { t, rich } = useI18n();
+  // The printed sheets use the tournament's language; the on-screen controls the viewer's.
+  const sheetText = usePrintTranslator(tournament);
+  const pt = sheetText.t;
   const hideMotions = tournament?.preferences?.ballotsHideMotions === true;
   const confirmDigits = tournament?.preferences?.ballotsConfirmDigits === true;
   const returnTo = returnLocation(tournament?.preferences?.ballotReturnLocation);
@@ -50,7 +59,8 @@ export default function PrintableBallotsPage() {
   const criteria = scored ? scoreCriteriaFor(preferences) : [];
   const ranked = scored && !perAdjudicator && speakerRanksFor(preferences) !== "none";
   const declaresWinner = !isBP && (!scored || winnerDeclarationFor(preferences) !== "none");
-  const label = (side: DebateSide) => sideLabel(side, preferences);
+  // BP positions keep their (language-neutral) abbreviations; two-team sides use the translated name.
+  const label = (side: DebateSide) => (isBP ? sideLabel(side, preferences) : translatedSideName(pt, side, preferences));
   const sheets = roundDebates.flatMap((debate) =>
     expectedBallotSheets(debate, adjudicators, perAdjudicator).map((sheet, index, all) => ({
       debate,
@@ -63,45 +73,55 @@ export default function PrintableBallotsPage() {
   return (
     <>
       <main className="space-y-6 screen-only">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4">
-          <div>
-            <Link href={`/${tournament?.slug}/results`} className="text-xs font-semibold text-blue-700 hover:underline">
-              Back to results
-            </Link>
-            <h1 className="mt-2 text-2xl font-bold text-gray-900">Print ballot sheets</h1>
-            <p className="mt-1 text-sm text-gray-600">
-              {activeRound?.name ?? "No active round"} · {roundDebates.length} debates · {sheets.length} sheets
-              {perAdjudicator ? " (one per voting adjudicator)" : " (one per debate)"}
-            </p>
-            <p className="mt-1 text-xs text-gray-600">
-              Each sheet carries a barcode. Scan returned sheets on{" "}
-              <Link href={`/${tournament?.slug}/results/intake`} className="font-semibold text-blue-700 hover:underline">
-                Ballot intake
-              </Link>
-              . Reprint after changing the draw or panels: sheets of changed debates get new ids.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            disabled={sheets.length === 0}
-            className="rounded bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
-          >
-            Print / Save as PDF
-          </button>
-        </div>
-        {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
+        <Link
+          href={`/${tournament?.slug}/results`}
+          className={buttonClasses({ variant: "ghost", size: "sm", className: "-ml-2" })}
+        >
+          <ArrowLeft aria-hidden="true" />
+          {t("tabroom.ops.print.backToResults")}
+        </Link>
+        <PageHeader
+          title={t("tabroom.ops.print.ballotsTitle")}
+          description={
+            <>
+              <span className="block">
+                {t("tabroom.ops.print.ballotsSummary", {
+                  round: activeRound?.name ?? t("tabroom.ops.print.noActiveRound"),
+                  debates: roundDebates.length,
+                  sheets: sheets.length,
+                })}{" "}
+                {perAdjudicator ? t("tabroom.ops.print.perAdjudicator") : t("tabroom.ops.print.perDebate")}
+              </span>
+              <span className="mt-1 block text-xs">
+                {rich("tabroom.ops.print.ballotsIntake", {
+                  link: (text) => (
+                    <Link href={`/${tournament?.slug}/results/intake`} className="font-medium text-accent-text hover:underline">
+                      {text}
+                    </Link>
+                  ),
+                })}
+              </span>
+            </>
+          }
+          actions={
+            <Button onClick={() => window.print()} disabled={sheets.length === 0}>
+              <Printer aria-hidden="true" />
+              {t("tabroom.ops.print.printButton")}
+            </Button>
+          }
+        />
+        {!activeRound && <Alert tone="warning">{t("tabroom.ops.print.selectRound")}</Alert>}
         {tournament && <PrintOptionsCard tournament={tournament} onSave={saveTournament} kind="ballots" />}
       </main>
 
-      <section className="print-only printable-ballots">
+      <section className="print-only printable-ballots" lang={sheetText.locale}>
         {sheets.map(({ debate, sheet, position, of }) => {
           const panelIds = [
             debate.adjudicators?.chairId,
             ...(debate.adjudicators?.panellistIds ?? []),
           ].filter((id): id is string => Boolean(id));
           const panelNames = panelIds.map((id) => adjudicatorMap.get(id)?.name ?? id);
-          const room = debate.venueName || `Room ${debate.roomRank}`;
+          const room = debate.venueName || pt("tabroom.ops.sheet.room", { number: debate.roomRank });
           // Sides chosen at the debate: the adjudicator ticks each team's side on the sheet.
           const sideChoice = sidesPending(debate) ? sides : undefined;
 
@@ -110,36 +130,44 @@ export default function PrintableBallotsPage() {
               <header className="ballot-header">
                 <div>
                   <h1>{tournament?.name}</h1>
-                  <p>{activeRound?.name} · Debate {debate.roomRank}</p>
+                  <p>{pt("tabroom.ops.sheet.debateLine", { round: activeRound?.name ?? "", number: debate.roomRank })}</p>
                   {sheet.adjudicatorId && (
                     <p>
-                      <strong>Adjudicator: {sheet.adjudicatorName}</strong> (sheet {position} of {of})
+                      {sheetText.rich(
+                        "tabroom.ops.sheet.adjudicatorLine",
+                        { b: (text) => <strong>{text}</strong> },
+                        { name: sheet.adjudicatorName ?? "", position, total: of }
+                      )}
                     </p>
                   )}
                 </div>
                 <div className="ballot-room">
                   <strong>{room}</strong>
                   {motionsEnabled(preferences) && (
-                    <span>Motion: {(!hideMotions && debate.motionText) || "________________________________"}</span>
+                    <span>{pt("tabroom.ops.sheet.motion", { motion: (!hideMotions && debate.motionText) || "________________________________" })}</span>
                   )}
                 </div>
               </header>
               <div className="ballot-sheet-id">
-                <Code39Barcode value={sheet.sheetId} label={`Ballot sheet for ${room}`} />
+                <Code39Barcode value={sheet.sheetId} label={pt("tabroom.ops.sheet.barcodeLabel", { room })} />
                 <span>
-                  Sheet <strong>{sheet.sheetId}</strong>
+                  {sheetText.rich("tabroom.ops.sheet.sheetId", { b: (text) => <strong>{text}</strong> }, { id: sheet.sheetId })}
                   <br />
                   {activeRound?.abbreviation || activeRound?.name} · {room}
                 </span>
               </div>
               {sideChoice && (
                 <p className="ballot-intro">
-                  <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.map(label).join(" or ")}).
+                  {sheetText.rich(
+                    "tabroom.ops.sheet.sidesNotSet",
+                    { b: (text) => <strong>{text}</strong> },
+                    { sides: sides.map(label).join(" / ") }
+                  )}
                 </p>
               )}
               {confirmDigits && (
                 <p className="ballot-intro">
-                  After writing each score, circle its digits in the strip next to it, so the tab room can read it unambiguously.
+                  {pt("tabroom.ops.sheet.confirmDigits")}
                 </p>
               )}
               {tournament?.preferences?.ballotIntroExplanation && (
@@ -148,12 +176,18 @@ export default function PrintableBallotsPage() {
               <table className="ballot-score-table">
                 <thead>
                   <tr>
-                    <th>Side</th>
-                    <th>Team / speaker</th>
+                    <th>{pt("tabroom.ops.sheet.colSide")}</th>
+                    <th>{pt("tabroom.ops.sheet.colTeamSpeaker")}</th>
                     {criteria.map((criterion) => <th key={criterion.id}>{criterion.name} ({criterion.minScore}–{criterion.maxScore})</th>)}
-                    {scored && <th>Speaker score</th>}
-                    {ranked && <th>Speech rank</th>}
-                    <th>{isBP ? "Rank" : declaresWinner ? "Winner" : "Team total"}</th>
+                    {scored && <th>{pt("tabroom.ops.sheet.colSpeakerScore")}</th>}
+                    {ranked && <th>{pt("tabroom.ops.sheet.colSpeechRank")}</th>}
+                    <th>
+                      {isBP
+                        ? pt("tabroom.ops.sheet.colRank")
+                        : declaresWinner
+                          ? pt("tabroom.ops.sheet.colWinner")
+                          : pt("tabroom.ops.sheet.colTeamTotal")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -173,11 +207,11 @@ export default function PrintableBallotsPage() {
                         replyIndex={replyEnabled && scored ? speakerCount : -1}
                         sideChoice={sideChoice}
                         confirmDigits={confirmDigits}
-                        teamName={slot?.teamName ?? team?.name ?? "Unassigned"}
+                        teamName={slot?.teamName ?? team?.name ?? pt("tabroom.ops.sheet.unassigned")}
                         speakerNames={scored
                           ? Array.from({ length: speakerCount }, (_, index) =>
-                              speakers[index]?.name || `Speaker ${index + 1}`
-                            ).concat(replyEnabled ? ["Reply: ____________"] : [])
+                              speakers[index]?.name || pt("tabroom.ops.sheet.speakerN", { number: index + 1 })
+                            ).concat(replyEnabled ? [pt("tabroom.ops.sheet.reply")] : [])
                           : [""]}
                       />
                     );
@@ -185,17 +219,19 @@ export default function PrintableBallotsPage() {
                 </tbody>
               </table>
               <section className="ballot-notes">
-                <strong>Decision / notes</strong>
+                <strong>{pt("tabroom.ops.sheet.notes")}</strong>
                 <div />
                 <div />
               </section>
               <footer className="ballot-footer">
-                <span>Chair: {panelNames[0] || "________________________"}</span>
-                <span>Panel: {panelNames.slice(1).join(", ") || "________________________"}</span>
+                <span>{pt("tabroom.ops.sheet.chair", { name: panelNames[0] || "________________________" })}</span>
+                <span>{pt("tabroom.ops.sheet.panel", { names: panelNames.slice(1).join(", ") || "________________________" })}</span>
                 <span>
-                  {sheet.adjudicatorId ? `${sheet.adjudicatorName}'s signature` : "Chair signature"}: ________________________
+                  {sheet.adjudicatorId
+                    ? pt("tabroom.ops.sheet.adjudicatorSignature", { name: sheet.adjudicatorName ?? "", blank: "________________________" })
+                    : pt("tabroom.ops.sheet.chairSignature", { blank: "________________________" })}
                 </span>
-                {returnTo && <span><strong>Return this sheet to: {returnTo}</strong></span>}
+                {returnTo && <span><strong>{pt("tabroom.ops.sheet.returnSheet", { place: returnTo })}</strong></span>}
               </footer>
             </article>
           );

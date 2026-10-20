@@ -30,6 +30,30 @@ export interface TeamFlag {
   label: string;
   /** The full explanation, for hover, focus and screen readers. */
   detail: string;
+  /** The values behind `label` and `detail`, so the UI can word them in the viewer's language. */
+  params?: TeamFlagParams;
+}
+
+/** Structured values of a flag; which fields are set depends on `kind`. */
+export interface TeamFlagParams {
+  /** The flagged team's name. */
+  team: string;
+  /** rematch / institution: the other team's name. */
+  opponent?: string;
+  /** rematch: labels of the rounds they met in, oldest first. */
+  rounds?: string[];
+  /** institution: the shared institution's name, when known. */
+  institution?: string;
+  /** side_imbalance: the side this round. */
+  side?: DebateSide;
+  /** side_imbalance: times on `side` after this round; pullup_history: earlier pull-ups. */
+  count?: number;
+  /** side_imbalance: how many more than the least-used side. */
+  gap?: number;
+  /** pulled_up: the debate's bracket. */
+  bracket?: number;
+  /** side_history: counts per side, in the format's side order. */
+  sideCounts?: { side: DebateSide; count: number }[];
 }
 
 export interface DebateFlags {
@@ -145,7 +169,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
       const flags: TeamFlag[] = [];
       const team = teamsById.get(slot.teamId);
       if (team?.isSwing) {
-        flags.push({ kind: "swing", severity: "info", label: "Swing", detail: `${team.name} is a swing team: it is not ranked in the tab.` });
+        flags.push({ kind: "swing", severity: "info", label: "Swing", detail: `${team.name} is a swing team: it is not ranked in the tab.`, params: { team: team.name } });
       }
       for (const [, other] of slots) {
         if (other.teamId === slot.teamId) continue;
@@ -156,6 +180,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
             severity: "warning",
             label: `Met ${met.join(", ")}`,
             detail: `${name(slot.teamId)} already met ${name(other.teamId)} in ${list(met)}.`,
+            params: { team: name(slot.teamId), opponent: name(other.teamId), rounds: [...met] },
           });
         }
         const otherTeam = teamsById.get(other.teamId);
@@ -165,16 +190,19 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
             severity: "warning",
             label: "Same institution",
             detail: `${team.name} and ${otherTeam.name} are both from ${team.institutionName || "the same institution"}.`,
+            params: { team: team.name, opponent: otherTeam.name, institution: team.institutionName || undefined },
           });
         }
       }
       const pastSides = history.sides.get(slot.teamId) ?? [];
       if (pastSides.length > 0) {
+        const counts = sideCounts(pastSides, sides);
         flags.push({
           kind: "side_history",
           severity: "info",
           label: formatCounts(sideCounts(pastSides, sides), sides),
           detail: `${name(slot.teamId)}'s sides so far: ${formatCounts(sideCounts(pastSides, sides), sides)}.`,
+          params: { team: name(slot.teamId), sideCounts: sides.map((item) => ({ side: item, count: counts[item] })) },
         });
       }
       const imbalance = pending || round.stage !== "preliminary"
@@ -187,6 +215,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
           label: `${side} ×${imbalance.count}`,
           detail: `${name(slot.teamId)} would be ${side} for the ${ordinal(imbalance.count)} time, ` +
             `${imbalance.gap} more than its least-used side.`,
+          params: { team: name(slot.teamId), side, count: imbalance.count, gap: imbalance.gap },
         });
       }
       if (slot.pulledUp) {
@@ -195,6 +224,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
           severity: "warning",
           label: "Pulled up",
           detail: `${name(slot.teamId)} was pulled up into this ${debate.bracket}-point bracket.`,
+          params: { team: name(slot.teamId), bracket: debate.bracket },
         });
       }
       const pullups = history.pullups?.get(slot.teamId) ?? 0;
@@ -204,6 +234,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
           severity: "info",
           label: `Pulled up ×${pullups} before`,
           detail: `${name(slot.teamId)} was pulled up in ${pullups} earlier round${pullups === 1 ? "" : "s"}.`,
+          params: { team: name(slot.teamId), count: pullups },
         });
       }
       entry.teams[slot.teamId] = flags;

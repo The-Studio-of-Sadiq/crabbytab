@@ -1,7 +1,15 @@
-import { Building2, GripVertical, Search, X } from "lucide-react";
+"use client";
+
+import { Building2, GripVertical, Hand, Search, Undo2 } from "lucide-react";
 import type { DragEvent } from "react";
 import type { Adjudicator, Institution } from "@/types";
 import { effectiveAdjScore } from "@/lib/draw/allocator";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Badge, type Tone } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Field";
+import { cn } from "@/components/ui/cn";
 import { DiversityBadges } from "./DiversityBadges";
 
 export interface JudgeDragPayload {
@@ -12,6 +20,14 @@ export interface JudgeDragPayload {
   sourceDebateId?: string;
 }
 
+/**
+ * `data-pick-key` of a judge's Move button. One key per adjudicator (a judge sits in one place at a
+ * time), so focus can return to the judge's new chip after a pick-then-place move.
+ */
+export function judgePickKey(adjId: string): string {
+  return `judge:${adjId}`;
+}
+
 interface AvailableAdjudicatorsPanelProps {
   adjudicators: Adjudicator[];
   availableCount: number;
@@ -19,17 +35,26 @@ interface AvailableAdjudicatorsPanelProps {
   feedbackWeight?: number;
   showDiversity?: boolean;
   institutionsById?: Map<string, Pick<Institution, "region">>;
-  selectedAdjudicator: Adjudicator | null;
+  /** The judge picked for pick-then-place, if any. */
+  picked: JudgeDragPayload | null;
   searchQuery: string;
   dragOverTarget: string | null;
   onSearchChange(value: string): void;
-  onClearSelection(): void;
-  onSelect(adjudicator: Adjudicator): void;
-  onDragStart(event: DragEvent<HTMLDivElement>, payload: JudgeDragPayload): void;
+  /** Picks a pool judge (picking the picked judge again cancels). */
+  onPick(payload: JudgeDragPayload): void;
+  /** Place target: returns the picked (placed) judge to the pool. */
+  onReturnToPool(): void;
+  onDragStart(event: DragEvent<HTMLElement>, payload: JudgeDragPayload): void;
   onDragEnd(): void;
-  onDragOver(event: DragEvent<HTMLDivElement>, target: string): void;
-  onDragLeave(event: DragEvent<HTMLDivElement>, target: string): void;
-  onDrop(event: DragEvent<HTMLDivElement>): void;
+  onDragOver(event: DragEvent<HTMLElement>, target: string): void;
+  onDragLeave(event: DragEvent<HTMLElement>, target: string): void;
+  onDrop(event: DragEvent<HTMLElement>): void;
+}
+
+function scoreTone(score: number): Tone {
+  if (score >= 7) return "success";
+  if (score >= 4) return "info";
+  return "neutral";
 }
 
 export function AvailableAdjudicatorsPanel({
@@ -39,106 +64,103 @@ export function AvailableAdjudicatorsPanel({
   feedbackWeight,
   showDiversity = false,
   institutionsById = new Map(),
-  selectedAdjudicator,
+  picked,
   searchQuery,
   dragOverTarget,
   onSearchChange,
-  onClearSelection,
-  onSelect,
+  onPick,
+  onReturnToPool,
   onDragStart,
   onDragEnd,
   onDragOver,
   onDragLeave,
   onDrop,
 }: AvailableAdjudicatorsPanelProps) {
+  const { t, formatDecimal, formatNumber } = useI18n();
+  const isDragOver = dragOverTarget === "available-drawer";
+  const pickActive = Boolean(picked);
   return (
-    <div className="lg:col-span-4 space-y-4">
-      <div
+    <section className="space-y-4 lg:col-span-4" aria-labelledby="available-adjudicators-heading">
+      <Card
         onDragOver={(event) => onDragOver(event, "available-drawer")}
         onDragLeave={(event) => onDragLeave(event, "available-drawer")}
         onDrop={onDrop}
-        className={`bg-white border rounded-lg p-4 shadow-xs transition ${
-          dragOverTarget === "available-drawer"
-            ? "border-amber-500 bg-amber-50/50 border-dashed ring-2 ring-amber-300"
-            : "border-[#d0d7de]"
-        }`}
+        className={cn(
+          "p-3 transition-colors",
+          isDragOver && "border-dashed border-accent bg-accent-subtle ring-2 ring-accent"
+        )}
       >
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-            <span>Available Adjudicators</span>
-            <span className="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.2 rounded-full font-bold">
-              {availableCount}
-            </span>
-          </h3>
-          <span className="text-[11px] text-gray-500">(Drag into rooms)</span>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 id="available-adjudicators-heading" className="flex items-center gap-1.5 text-[15px] font-semibold text-fg">
+            {t("tabroom.allocation.availableHeading")}
+            <Badge tone="accent">{formatNumber(availableCount)}</Badge>
+          </h2>
+          <span className="text-[11px] text-fg-muted">
+            {isDragOver ? t("tabroom.allocation.dropToPool") : t("tabroom.allocation.availableHint")}
+          </span>
         </div>
 
-        <div className="relative mb-3">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Filter judges or institution..."
-            value={searchQuery}
-            onChange={(event) => onSearchChange(event.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        {picked?.sourceDebateId && (
+          <Button
+            size="sm"
+            variant="primary"
+            className="mb-2 w-full"
+            data-place-target=""
+            aria-label={t("tabroom.allocation.returnToPoolAria", { name: picked.adjName })}
+            onClick={onReturnToPool}
+          >
+            <Undo2 aria-hidden="true" />
+            {t("tabroom.allocation.returnToPool")}
+          </Button>
+        )}
+
+        <div className="mb-2">
+          <Input
+          type="text"
+          aria-label={t("tabroom.allocation.searchAria")}
+          placeholder={t("tabroom.allocation.searchPlaceholder")}
+          value={searchQuery}
+          onChange={(event) => onSearchChange(event.target.value)}
+          leadingIcon={<Search />}
           />
         </div>
 
-        {selectedAdjudicator && (
-          <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-900 flex items-center justify-between">
-            <div>
-              <span className="font-bold">Selected: </span>
-              <span>{selectedAdjudicator.name}</span>
-              <span className="text-[10px] text-indigo-700 block">Click on any room to assign as Chair or Panellist</span>
-            </div>
-            <button
-              onClick={onClearSelection}
-              className="p-1 hover:bg-indigo-100 rounded text-indigo-700"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+        <ul className="max-h-[600px] space-y-1.5 overflow-y-auto pr-1">
           {adjudicators.map((adjudicator) => {
-            const selected = selectedAdjudicator?.id === adjudicator.id;
+            const selected = picked?.adjId === adjudicator.id;
             const score = effectiveAdjScore(adjudicator, feedbackScores, feedbackWeight);
+            const payload: JudgeDragPayload = {
+              type: "judge",
+              sourceType: "available",
+              adjId: adjudicator.id,
+              adjName: adjudicator.name,
+            };
 
             return (
-              <div
+              <li
                 key={adjudicator.id}
                 draggable
                 onDragEnd={onDragEnd}
-                onDragStart={(event) =>
-                  onDragStart(event, {
-                    type: "judge",
-                    sourceType: "available",
-                    adjId: adjudicator.id,
-                    adjName: adjudicator.name,
-                  })
-                }
-                onClick={() => onSelect(adjudicator)}
-                className={`p-2.5 rounded-lg border text-xs cursor-grab active:cursor-grabbing transition flex items-center justify-between ${
+                onDragStart={(event) => onDragStart(event, payload)}
+                onClick={() => onPick(payload)}
+                className={cn(
+                  "flex cursor-grab items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors active:cursor-grabbing",
                   selected
-                    ? "bg-indigo-50 border-indigo-500 shadow-xs ring-1 ring-indigo-400"
-                    : "bg-gray-50/70 border-gray-200 hover:border-indigo-300 hover:bg-white"
-                }`}
+                    ? "border-accent bg-accent-subtle ring-2 ring-accent"
+                    : "border-border bg-background hover:border-border-strong hover:bg-surface"
+                )}
               >
-                <div className="flex items-center space-x-2">
-                  <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                  <div>
-                    <div className="font-bold text-gray-900 flex items-center space-x-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <GripVertical className="h-3.5 w-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 font-semibold text-fg">
                       <span>{adjudicator.name}</span>
-                      {adjudicator.trainee && (
-                        <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-semibold uppercase">
-                          Trainee
-                        </span>
-                      )}
+                      {adjudicator.trainee && <Badge tone="warning">{t("role.trainee")}</Badge>}
+                      {selected && <Badge tone="accent">{t("tabroom.allocation.pickedBadge")}</Badge>}
                     </div>
-                    <div className="text-[11px] text-gray-500 flex items-center space-x-1">
-                      <Building2 className="w-3 h-3 text-gray-400" />
-                      <span>{adjudicator.institutionName || "Independent / Unaffiliated"}</span>
+                    <div className="flex items-center gap-1 text-[11px] text-fg-muted">
+                      <Building2 className="h-3 w-3 shrink-0 text-fg-subtle" aria-hidden="true" />
+                      <span>{adjudicator.institutionName || t("tabroom.allocation.independentLong")}</span>
                     </div>
                     {showDiversity && (
                       <DiversityBadges participant={adjudicator} institutionsById={institutionsById} />
@@ -146,25 +168,35 @@ export function AvailableAdjudicatorsPanel({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                    score >= 7 ? "bg-emerald-100 text-emerald-800" :
-                    score >= 4 ? "bg-blue-100 text-blue-800" :
-                    "bg-gray-200 text-gray-800"
-                  }`}>
-                    {score.toFixed(1)}
-                  </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Badge tone={scoreTone(score)} className="font-mono" title={t("tabroom.allocation.scoreTitle")}>
+                    {formatDecimal(score, 1)}
+                  </Badge>
+                  {!pickActive && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-1.5"
+                      data-pick-key={judgePickKey(adjudicator.id)}
+                      aria-label={t("tabroom.allocation.pickPoolAria", { name: adjudicator.name })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onPick(payload);
+                      }}
+                    >
+                      <Hand aria-hidden="true" />
+                      {t("tabroom.allocation.move")}
+                    </Button>
+                  )}
                 </div>
-              </div>
+              </li>
             );
           })}
           {adjudicators.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-6">
-              No available adjudicators matching query.
-            </p>
+            <li className="py-6 text-center text-xs text-fg-muted">{t("tabroom.allocation.noAvailable")}</li>
           )}
-        </div>
-      </div>
-    </div>
+        </ul>
+      </Card>
+    </section>
   );
 }

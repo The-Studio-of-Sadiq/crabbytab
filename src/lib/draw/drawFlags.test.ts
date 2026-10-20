@@ -111,6 +111,22 @@ describe("computeDrawFlags", () => {
     expect(flags.get("now-2")).toMatchObject({ bracket: 1, roomRank: 2, sidesPending: false });
   });
 
+  it("carries each flag's values for translated wording", () => {
+    const t1Flags = flags.get("now-1")!.teams[t1.id];
+    expect(t1Flags.find((flag) => flag.kind === "rematch")!.params).toEqual({
+      team: "Team 01", opponent: "Team 03", rounds: ["R1", "R3"],
+    });
+    expect(t1Flags.find((flag) => flag.kind === "side_history")!.params).toEqual({
+      team: "Team 01", sideCounts: [{ side: "AFF", count: 3 }, { side: "NEG", count: 0 }],
+    });
+    expect(t1Flags.find((flag) => flag.kind === "side_imbalance")!.params).toEqual({ team: "Team 01", side: "AFF", count: 4, gap: 4 });
+    expect(t1Flags.find((flag) => flag.kind === "pulled_up")!.params).toEqual({ team: "Team 01", bracket: 2 });
+    expect(t1Flags.find((flag) => flag.kind === "pullup_history")!.params).toEqual({ team: "Team 01", count: 1 });
+    expect(flags.get("now-2")!.teams[t2.id].find((flag) => flag.kind === "institution")!.params).toEqual({
+      team: "Team 02", opponent: "Team 04", institution: "X University",
+    });
+  });
+
   it("attaches the draw check's issues to their debates", () => {
     const codes = flags.get("now-1")!.issues.map((issue) => issue.code);
     expect(codes).toContain("repeat_matchup");
@@ -169,6 +185,29 @@ describe("moveTeam (keyboard, touch and drag placement)", () => {
     expect(one.teams.AFF).toEqual({ teamId: t4.id, teamName: t4.name, side: "AFF" });
     expect(two.teams.NEG).toEqual({ teamId: t1.id, teamName: t1.name, side: "NEG" });
     expect(move.announcement).toBe("Team 01 (now Room team-2 NEG) swapped with Team 04 (now Room team-1 AFF).");
+    expect(move.event).toEqual({
+      kind: "swapped",
+      team: "Team 01",
+      other: "Team 04",
+      teamNow: { venueName: "Room team-2", roomRank: 2, side: "NEG" },
+      otherNow: { venueName: "Room team-1", roomRank: 1, side: "AFF" },
+    });
+  });
+
+  it("moves a team to an empty slot in another room or the other side of its room", () => {
+    const emptied = draw.map((debate) =>
+      debate.id === "now-2" ? { ...debate, teams: { ...debate.teams, NEG: { teamId: "", teamName: "", side: "NEG" as const } } } : debate
+    );
+    const across = moveTeam(emptied, { teamId: t1.id, teamName: t1.name, from: slot("now-1", "AFF") }, slot("now-2", "NEG"));
+    expect(across.event).toEqual({
+      kind: "moved",
+      team: "Team 01",
+      from: { venueName: "Room team-1", roomRank: 1, side: "AFF" },
+      to: { venueName: "Room team-2", roomRank: 2, side: "NEG" },
+    });
+    const sameRoom = moveTeam(emptied, { teamId: t2.id, teamName: t2.name, from: slot("now-2", "AFF") }, slot("now-2", "NEG"));
+    expect(sameRoom.announcement).toBe("Team 02 moved to NEG in Room team-2.");
+    expect(sameRoom.event).toEqual({ kind: "moved_side", team: "Team 02", side: "NEG", room: { venueName: "Room team-2", roomRank: 2 } });
   });
 
   it("swaps sides within a room and keeps each team's slot details", () => {
@@ -176,6 +215,7 @@ describe("moveTeam (keyboard, touch and drag placement)", () => {
     expect(move.debates[0].teams.NEG).toEqual({ teamId: t1.id, teamName: t1.name, side: "NEG", pulledUp: true });
     expect(move.debates[0].teams.AFF.teamId).toBe(t3.id);
     expect(move.announcement).toBe("Team 01 and Team 03 swapped sides in Room team-1.");
+    expect(move.event).toEqual({ kind: "swapped_sides", team: "Team 01", other: "Team 03", room: { venueName: "Room team-1", roomRank: 1 } });
   });
 
   it("places a pool team (the occupant returns to the pool) and returns a team to the pool", () => {
@@ -184,8 +224,12 @@ describe("moveTeam (keyboard, touch and drag placement)", () => {
     const placed = moveTeam(draw, extra, slot("now-2", "AFF"));
     expect(placed.debates[1].teams.AFF.teamId).toBe("spare");
     expect(placed.announcement).toBe("Spare placed in Room team-2 AFF; Team 02 returned to the unassigned pool.");
+    expect(placed.event).toEqual({
+      kind: "placed", team: "Spare", to: { venueName: "Room team-2", roomRank: 2, side: "AFF" }, displaced: "Team 02",
+    });
     const removed = moveTeam(draw, { teamId: t2.id, teamName: t2.name, from: slot("now-2", "AFF") }, pool);
     expect(removed.debates[1].teams.AFF.teamId).toBe("");
+    expect(removed.event).toEqual({ kind: "returned_to_pool", team: "Team 02", from: { venueName: "Room team-2", roomRank: 2, side: "AFF" } });
     expect(moveTeam(draw, extra, pool)).toEqual({ debates: draw, announcement: "" });
   });
 
@@ -193,5 +237,7 @@ describe("moveTeam (keyboard, touch and drag placement)", () => {
     const pending = draw.map((debate) => ({ ...debate, flags: [MANUAL_SIDES_FLAG], sidesConfirmed: false }));
     const move = moveTeam(pending, { teamId: t1.id, teamName: t1.name, from: slot("now-1", "AFF") }, slot("now-2", "NEG"));
     expect(move.announcement).toBe("Team 01 (now Room team-2) swapped with Team 04 (now Room team-1).");
+    expect(move.event).toMatchObject({ teamNow: { venueName: "Room team-2", roomRank: 2 }, otherNow: { venueName: "Room team-1", roomRank: 1 } });
+    expect(move.event && "teamNow" in move.event && move.event.teamNow.side).toBeUndefined();
   });
 });

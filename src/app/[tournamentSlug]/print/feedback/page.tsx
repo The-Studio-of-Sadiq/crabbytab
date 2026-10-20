@@ -1,38 +1,65 @@
 "use client";
 
-import { PrintOptionsCard } from "@/features/tournament/components/PrintOptionsCard";
+import { ArrowLeft, Printer } from "lucide-react";
+import { PrintOptionsCard, usePrintTranslator, type PrintTranslator } from "@/features/tournament/components/PrintOptionsCard";
 import { returnLocation } from "@/lib/printOptions";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Alert } from "@/components/ui/Feedback";
 import type { FeedbackQuestion } from "@/types";
 import {
   integerScaleChoices,
   isFeedbackEnabledForRound,
-  numericBoundsText,
   questionsForFeedbackSource,
 } from "@/lib/feedback/questions";
 import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
 import { expectedFeedbackForDebate } from "@/lib/feedback/progress";
 
-const ROLE_LABELS = { team: "Team", chair: "Chair", panellist: "Panellist", trainee: "Trainee" } as const;
+type PrintText = PrintTranslator["t"];
 
-function PrintedAnswer({ question }: { question: FeedbackQuestion }) {
+const ROLE_KEYS = {
+  team: "tabroom.ops.form.roleTeam",
+  chair: "role.chair",
+  panellist: "role.panellist",
+  trainee: "role.trainee",
+} as const;
+
+/** Translated counterpart of numericBoundsText (lib/feedback/questions), which returns English. */
+function boundsText(question: Pick<FeedbackQuestion, "min" | "max">, t: PrintText): string {
+  const hasMin = Number.isFinite(question.min);
+  const hasMax = Number.isFinite(question.max);
+  if (hasMin && hasMax) return t("tabroom.ops.form.boundsBetween", { min: question.min ?? "", max: question.max ?? "" });
+  if (hasMin) return t("tabroom.ops.form.boundsMin", { min: question.min ?? "" });
+  if (hasMax) return t("tabroom.ops.form.boundsMax", { max: question.max ?? "" });
+  return "";
+}
+
+function PrintedAnswer({ question, t }: { question: FeedbackQuestion; t: PrintText }) {
   switch (question.type) {
     case "select_one":
     case "select_many":
       return <p>{question.options?.map((option) => `□ ${option}`).join("     ")}</p>;
     case "yes_no":
-      return <p>[ ] Yes    [ ] No</p>;
+      return <p>{t("tabroom.ops.form.yesNo")}</p>;
     case "checkbox":
-      return <p>[ ] Tick if true</p>;
+      return <p>{t("tabroom.ops.form.tickIfTrue")}</p>;
     case "integer_scale":
-      return <p>Circle one: {integerScaleChoices(question).join("   ")}</p>;
+      return <p>{t("tabroom.ops.form.circleOne", { choices: integerScaleChoices(question).join("   ") })}</p>;
     case "scale":
     case "integer":
     case "float": {
-      const bounds = numericBoundsText(question);
-      const kind = question.type === "integer" ? "Whole number" : "Number";
-      return <p>{kind}{bounds ? ` ${bounds}` : ""}: ______________</p>;
+      const bounds = boundsText(question, t);
+      const whole = question.type === "integer";
+      return (
+        <p>
+          {bounds
+            ? t(whole ? "tabroom.ops.form.wholeNumberBounds" : "tabroom.ops.form.numberBounds", { bounds })
+            : t(whole ? "tabroom.ops.form.wholeNumber" : "tabroom.ops.form.number")}
+        </p>
+      );
     }
     default:
       return <div className={`feedback-print-writing${question.type === "textarea" ? " feedback-print-writing-tall" : ""}`} />;
@@ -41,6 +68,10 @@ function PrintedAnswer({ question }: { question: FeedbackQuestion }) {
 
 export default function PrintableFeedbackPage() {
   const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
+  const { t } = useI18n();
+  // The printed forms use the tournament's language; the on-screen controls the viewer's.
+  const formText = usePrintTranslator(tournament);
+  const pt = formText.t;
   const preferences = tournament?.preferences;
   const paths = feedbackPathsForRound(preferences, activeRound ?? undefined);
   const roundOpen = Boolean(activeRound) && preferences?.feedbackEnabled !== false &&
@@ -72,74 +103,83 @@ export default function PrintableFeedbackPage() {
   const teamForms = forms.filter((form) => form.item.sourceType === "team").length;
   const minScore = preferences?.feedbackMinScore ?? 1;
   const maxScore = preferences?.feedbackMaxScore ?? 10;
+  const returnTo = returnLocation(preferences?.feedbackReturnLocation);
 
   return (
     <>
       <main className="screen-only space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4">
-          <div>
-            <Link href={`/${tournament?.slug}/feedback`} className="text-xs font-semibold text-blue-700 hover:underline">
-              Back to feedback
-            </Link>
-            <h1 className="mt-2 text-2xl font-bold text-gray-900">Print feedback forms</h1>
-            <p className="mt-1 text-sm text-gray-600">
-              {activeRound?.name ?? "No active round"} · {teamForms} team and {forms.length - teamForms} adjudicator forms
-            </p>
-            <p className="mt-1 text-xs text-gray-500">Feedback paths: {describeFeedbackPaths(paths)}.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            disabled={forms.length === 0}
-            className="rounded bg-pink-700 px-4 py-2 text-sm font-bold text-white hover:bg-pink-800 disabled:opacity-50"
-          >
-            Print / Save as PDF
-          </button>
-        </div>
-        {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
+        <Link
+          href={`/${tournament?.slug}/feedback`}
+          className={buttonClasses({ variant: "ghost", size: "sm", className: "-ml-2" })}
+        >
+          <ArrowLeft aria-hidden="true" />
+          {t("tabroom.ops.print.backToFeedback")}
+        </Link>
+        <PageHeader
+          title={t("tabroom.ops.print.feedbackTitle")}
+          description={
+            <>
+              <span className="block">
+                {t("tabroom.ops.print.feedbackSummary", {
+                  round: activeRound?.name ?? t("tabroom.ops.print.noActiveRound"),
+                  team: teamForms,
+                  adjudicator: forms.length - teamForms,
+                })}
+              </span>
+              <span className="mt-1 block text-xs">
+                {t("tabroom.ops.print.feedbackPaths", { paths: describeFeedbackPaths(paths) })}
+              </span>
+            </>
+          }
+          actions={
+            <Button onClick={() => window.print()} disabled={forms.length === 0}>
+              <Printer aria-hidden="true" />
+              {t("tabroom.ops.print.printButton")}
+            </Button>
+          }
+        />
+        {!activeRound && <Alert tone="warning">{t("tabroom.ops.print.selectRound")}</Alert>}
         {tournament && <PrintOptionsCard tournament={tournament} onSave={saveTournament} kind="feedback" />}
-        {activeRound && !roundOpen && (
-          <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Feedback is not collected in this round.</p>
-        )}
+        {activeRound && !roundOpen && <Alert tone="warning">{t("tabroom.ops.print.feedbackNotCollected")}</Alert>}
         {roundOpen && roundDebates.length > 0 && forms.length === 0 && (
-          <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
-            Allocate adjudicators before printing feedback forms.
-          </p>
+          <Alert tone="warning">{t("tabroom.ops.print.allocateFirst")}</Alert>
         )}
       </main>
 
-      <section className="print-only printable-feedback">
+      <section className="print-only printable-feedback" lang={formText.locale}>
         {forms.map(({ debate, item, sourceName, targetName }) => (
           <article
             className="print-feedback-sheet"
             key={`${debate.id}-${item.sourceType}-${item.sourceId}-${item.targetAdjudicatorId}`}
           >
             <header>
-              <h1>{tournament?.name} · Adjudicator Feedback</h1>
-              <p>{activeRound?.name} · {debate.venueName || `Room ${debate.roomRank}`}</p>
+              <h1>{pt("tabroom.ops.form.title", { tournament: tournament?.name ?? "" })}</h1>
+              <p>{activeRound?.name} · {debate.venueName || pt("tabroom.ops.sheet.room", { number: debate.roomRank })}</p>
             </header>
             <dl>
-              <div><dt>From</dt><dd>{sourceName} ({ROLE_LABELS[item.sourceRole]})</dd></div>
-              <div><dt>Adjudicator</dt><dd>{targetName} ({ROLE_LABELS[item.targetRole]})</dd></div>
+              <div><dt>{pt("tabroom.ops.form.from")}</dt><dd>{sourceName} ({pt(ROLE_KEYS[item.sourceRole])})</dd></div>
+              <div><dt>{pt("tabroom.ops.form.adjudicator")}</dt><dd>{targetName} ({pt(ROLE_KEYS[item.targetRole])})</dd></div>
             </dl>
             <div className="feedback-print-score">
-              <strong>Overall rating ({minScore}–{maxScore})</strong>
-              <span>Circle one: {Array.from({ length: maxScore - minScore + 1 }, (_, index) => index + minScore).join("   ")}</span>
+              <strong>{pt("tabroom.ops.form.overall", { min: minScore, max: maxScore })}</strong>
+              <span>
+                {pt("tabroom.ops.form.circleOne", {
+                  choices: Array.from({ length: maxScore - minScore + 1 }, (_, index) => index + minScore).join("   "),
+                })}
+              </span>
             </div>
             {questionsBySource[item.sourceType].map((question) => (
               <section key={question.id} className="feedback-print-question">
                 <strong>{question.label}{question.required ? " *" : ""}</strong>
-                <PrintedAnswer question={question} />
+                <PrintedAnswer question={question} t={pt} />
               </section>
             ))}
             <section className="feedback-print-question">
-              <strong>Comments</strong>
+              <strong>{pt("tabroom.ops.form.comments")}</strong>
               <div className="feedback-print-writing feedback-print-writing-tall" />
             </section>
-            {returnLocation(preferences?.feedbackReturnLocation) && (
-              <p><strong>Return this form to: {returnLocation(preferences?.feedbackReturnLocation)}</strong></p>
-            )}
-            <p className="feedback-print-confidential">Feedback is confidential to tournament organizers.</p>
+            {returnTo && <p><strong>{pt("tabroom.ops.form.returnForm", { place: returnTo })}</strong></p>}
+            <p className="feedback-print-confidential">{pt("tabroom.ops.form.confidential")}</p>
           </article>
         ))}
       </section>
