@@ -181,7 +181,8 @@ export async function POST(request: NextRequest) {
         firestore,
         tournament,
         adjudicator: { id: actorDocument.id, name: actor.name, email: actor.email },
-        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true),
+        // Receipts cover what this adjudicator submitted, not a merge of the panel's sheets.
+        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true && ballot.submitterId === actorDocument.id),
         debates: assignedDebates,
         rounds: roundById,
       });

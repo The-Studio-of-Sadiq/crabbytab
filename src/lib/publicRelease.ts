@@ -63,6 +63,9 @@ export type BooleanReleaseKind =
   | "breakingAdjudicators"
   | PublicSiteReleaseKind;
 
+/** Release switches stored on PublicRelease (the tabs and participant lists). */
+export type PublicListReleaseKind = Exclude<BooleanReleaseKind, PublicSiteReleaseKind>;
+
 const RELEASE_PREFERENCE_KEYS = {
   teamTab: "releaseTeamTab",
   speakerTab: "releaseSpeakerTab",

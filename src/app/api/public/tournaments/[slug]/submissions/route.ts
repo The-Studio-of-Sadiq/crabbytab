@@ -37,9 +37,14 @@ function getFirestore(): Firestore | null {
   }
 }
 
-/** Public ballots wait for the tab room: anyone can pick a name on a public form. */
+/**
+ * Public ballots wait for the tab room: anyone can pick a name on a public form. They are also
+ * kept out of individual-ballot merging (no `singleAdjudicator`), because an adjudicator's new
+ * individual sheet replaces their earlier one, and a public form must never replace a sheet the
+ * adjudicator sent from their private URL.
+ */
 function asPublicBallot(ballot: BallotSubmission): BallotSubmission {
-  const { confirmedBy: _confirmedBy, confirmedTimestamp: _confirmedTimestamp, ...rest } = ballot;
+  const { confirmedBy: _confirmedBy, confirmedTimestamp: _confirmedTimestamp, singleAdjudicator: _single, ...rest } = ballot;
   return { ...rest, confirmed: false, submitterType: "public" };
 }
 
@@ -156,7 +161,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         firestore,
         tournament,
         adjudicator: { id: actorSnapshot.id, name: String(actor.name ?? ""), email: typeof actor.email === "string" ? actor.email : undefined },
-        ballots: result.writtenBallots.filter((ballot) => ballot.discarded !== true),
+        ballots: result.writtenBallots.filter((ballot) => ballot.discarded !== true && ballot.submitterId === actorSnapshot.id),
         debates: assignedDebates,
         rounds: assignments.roundById,
       }).catch((error) => console.warn("Could not send a public ballot receipt:", error instanceof Error ? error.message : error));

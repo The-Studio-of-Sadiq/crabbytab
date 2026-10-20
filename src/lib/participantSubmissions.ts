@@ -4,6 +4,7 @@ import { buildPrivateBallot } from "@/lib/privateBallot";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
 import { filterTeamVisibleDebates } from "@/lib/privatePortalBallots";
 import { loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import { applyPrivateBallotConfirmation, planIndividualBallotWrites } from "@/lib/privateIndividualBallots";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
@@ -154,7 +155,8 @@ export async function applyParticipantSubmissions(
       } catch (error) {
         return { ok: false, status: 400, error: error instanceof Error ? error.message : "The ballot is invalid." };
       }
-      ballotSubmissions.push(options.adjustBallot ? options.adjustBallot(ballot) : ballot);
+      const confirmed = applyPrivateBallotConfirmation(ballot, tournament, roundById.get(debate.roundId));
+      ballotSubmissions.push(options.adjustBallot ? options.adjustBallot(confirmed) : confirmed);
     } else {
       const debate = assignedDebates.get(debateId)!;
       const panel = debate.adjudicators;
@@ -299,20 +301,37 @@ export async function applyParticipantSubmissions(
         return false;
       }
 
-      const plan = planPrivateBallotWrites(
-        ballotSubmissions,
-        new Map(debateIds.map((debateId) => [
-          debateId,
-          existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
-            id: document.id,
-            data: document.data() as Partial<BallotSubmission>,
-          })),
-        ])),
-        // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
-        new Set(debateIds.filter((debateId) =>
-          isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
-        ))
-      );
+      const existingByDebate = new Map(debateIds.map((debateId) => [
+        debateId,
+        existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
+          id: document.id,
+          data: document.data() as Partial<BallotSubmission>,
+        })),
+      ]));
+      // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
+      const lockedDebateIds = new Set(debateIds.filter((debateId) =>
+        isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
+      ));
+      const individual = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator === true);
+      const consensus = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator !== true);
+      const consensusPlan = planPrivateBallotWrites(consensus, existingByDebate, lockedDebateIds);
+      const individualPlan = planIndividualBallotWrites({
+        submissions: individual,
+        existingByDebate,
+        lockedDebateIds,
+        debates: assignedDebates,
+        rulesFor: (debate) => ({
+          format: tournament.format,
+          preferences: tournament.preferences,
+          stage: roundById.get(debate.roundId)?.stage,
+        }),
+        autoConfirm: tournament.preferences?.privateBallotConfirmation !== "tab_room",
+        timestamp: new Date().toISOString(),
+      });
+      const plan = {
+        discardExistingIds: [...new Set([...consensusPlan.discardExistingIds, ...individualPlan.discardExistingIds])],
+        writes: [...consensusPlan.writes, ...individualPlan.writes],
+      };
       const existingById = new Map(
         [...existingBallotsByDebate.values()].flatMap((snapshot) =>
           snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)

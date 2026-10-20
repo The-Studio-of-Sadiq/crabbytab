@@ -140,7 +140,7 @@ const AUSTRALS_BUNDLE: Partial<TournamentPreferences> = {
 };
 
 /** Tabbycat's NZ Easters and Joynt Scroll team precedence, with who-beat-whom after each metric. */
-const WBW_PRECEDENCE: TeamMetricId[] = ["wins", "wbw", "speaks_sum", "wbw", "draw_strength_wins", "wbw"];
+const WBW_PRECEDENCE: TeamMetricId[] = ["wins", "wbw", "speaks_sum", "wbw", "draw_strength", "wbw"];
 
 export const RULES_PRESETS: RulesPreset[] = [
   {
@@ -175,17 +175,15 @@ export const RULES_PRESETS: RulesPreset[] = [
       bpPositionCost: "renyi_entropy",
       renyiOrder: 1,
       bpPositionCostExponent: 4,
-      // Tabbycat's chain ends with draw strength by opponents' points, which CrabbyTab does not
-      // compute for BP (its draw strength counts opponents' wins), so it is left out.
-      teamStandingsPrecedence: ["points", "speaks_sum", "firsts", "seconds"],
+      bpAssignmentMethod: "hungarian",
+      pullupPenalty: 100000,
+      teamStandingsPrecedence: ["points", "speaks_sum", "firsts", "seconds", "draw_strength"],
       speakerStandingsPrecedence: ["speaks_sum"],
       speakerStandingsExtra: ["speaks_avg", "speaks_stddev"],
     },
     unsupported: [
-      "Draw strength by opponents' points at the end of the team precedence",
       "Speaker scores only in preliminary rounds",
       "15-minute preparation time",
-      "Pre-shuffled Hungarian position assignment",
     ],
   },
   {
@@ -305,13 +303,13 @@ export const RULES_PRESETS: RulesPreset[] = [
       oddBracketMethod: "pullup_top",
       maxTimesPerSide: 5,
       sideAllocationRule: "balanced",
+      conflictAvoidance: "min_cost_with_pullups",
       pullupRestriction: "lowest_draw_strength_wins",
       teamStandingsPrecedence: ["wins", "num_adjs", "speaks_avg"],
       speakerStandingsPrecedence: ["speaks_avg"],
     },
     unsupported: [
       "Style/Content/Strategy score criteria",
-      "Graph-based conflict avoidance (one-up-one-down is used)",
       "Proposition/Opposition side names",
     ],
   },

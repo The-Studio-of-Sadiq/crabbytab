@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
-import type { Debate, Round, Tournament } from "@/types";
+import type { Debate, Round } from "@/types";
 import { checkBallotIntake, remoteBallotSubmissionBlocker } from "@/features/tournament/application/stateGuards";
-import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { authorizeDataEntryStaff, currentDataEntryPermissions } from "@/lib/staffAccessServer";
+import { hasStaffPermission } from "@/lib/staffPermissions";
 import {
   DATA_ENTRY_FIELDS,
+  requiredDataEntryPermission,
   type DataEntryCollection,
   canAssistantOverwriteBallot,
   isRecord,
@@ -46,41 +48,6 @@ function generatePrivateKey(prefix = "") {
   return key;
 }
 
-async function resolveStaffSync(request: NextRequest, tournamentId: string) {
-  const token = request.headers.get("authorization")?.match(/^Bearer ([^\s]+)$/)?.[1];
-  if (!token) return { error: "Sign in as a data-entry assistant.", status: 401 as const };
-  let auth;
-  let firestore;
-  try {
-    auth = getAdminAuth();
-    firestore = getAdminFirestore();
-  } catch {
-    return { error: "Server-side Firebase authorization is not configured.", status: 503 as const };
-  }
-  let user;
-  try {
-    user = await auth.verifyIdToken(token);
-  } catch {
-    return { error: "Your sign-in has expired. Please sign in again.", status: 401 as const };
-  }
-  const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
-  const staffRef = tournamentRef.collection("staff").doc(user.uid);
-  const [tournamentSnapshot, staffSnapshot] = await Promise.all([
-    tournamentRef.get(),
-    staffRef.get(),
-  ]);
-  if (!tournamentSnapshot.exists) return { error: "Tournament not found.", status: 404 as const };
-  if (staffSnapshot.data()?.role !== "dataEntry") {
-    return { error: "Data-entry access is not assigned to this account.", status: 403 as const };
-  }
-  const tournament = { ...tournamentSnapshot.data(), id: tournamentSnapshot.id } as Tournament;
-  const staffName = staffSnapshot.data()?.name;
-  const actorName = typeof staffName === "string" && staffName
-    ? staffName
-    : user.email || "Data-entry assistant";
-  return { firestore, tournamentRef, staffRef, user, tournament, actorName };
-}
-
 type SyncRecord = {
   collectionName: DataEntryCollection;
   record: Record<string, unknown>;
@@ -93,7 +60,7 @@ export async function POST(
 ) {
   const { tournamentId } = await params;
   if (!validId(tournamentId)) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
-  const authorization = await resolveStaffSync(request, tournamentId);
+  const authorization = await authorizeDataEntryStaff(request, tournamentId);
   if ("error" in authorization) {
     return NextResponse.json({ error: authorization.error }, { status: authorization.status });
   }
@@ -168,15 +135,19 @@ export async function POST(
       const recordRef = authorization.tournamentRef.collection(collectionName).doc(record.id as string);
       const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
       const outcome = await authorization.firestore.runTransaction(async (transaction): Promise<"unchanged" | "written" | "superseded" | "rejected"> => {
-        const staffSnapshot = await transaction.get(authorization.staffRef);
-        if (staffSnapshot.data()?.role !== "dataEntry") throw new Error("Data-entry access was revoked.");
+        const permissions = await currentDataEntryPermissions(transaction, authorization);
         const snapshot = await transaction.get(recordRef);
         const current: Record<string, unknown> | null = snapshot.exists
           ? { ...snapshot.data(), id: snapshot.id }
           : null;
         // Records the assistant did not change (including ones pulled from the cloud) are left alone.
-        if (current && Object.keys(record).every((key) => recordsEqual(current[key], record[key]))) {
+        const changedKeys = Object.keys(record).filter((key) => !current || !recordsEqual(current[key], record[key]));
+        if (current && changedKeys.length === 0) {
           return "unchanged";
+        }
+        // Outside the assistant's permissions: nothing is written, and the device keeps the edit.
+        if (!hasStaffPermission(permissions, requiredDataEntryPermission(collectionName, current === null, changedKeys))) {
+          return "rejected";
         }
         const archiveIncoming = (resolution: "deleted" | "rejected") => {
           transaction.create(conflictRef, {
@@ -273,8 +244,8 @@ export async function POST(
       const debateRef = authorization.tournamentRef.collection("debates").doc(debate.id as string);
       const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
       const archived = await authorization.firestore.runTransaction(async (transaction) => {
-        const staffSnapshot = await transaction.get(authorization.staffRef);
-        if (staffSnapshot.data()?.role !== "dataEntry") throw new Error("Data-entry access was revoked.");
+        const permissions = await currentDataEntryPermissions(transaction, authorization);
+        if (!hasStaffPermission(permissions, "results.enter")) return false;
         const snapshot = await transaction.get(debateRef);
         if (!snapshot.exists) return false;
         const current: Record<string, unknown> = { ...snapshot.data(), id: snapshot.id };
