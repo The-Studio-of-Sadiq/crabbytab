@@ -72,6 +72,7 @@ export const SPEAKER_METRIC_MAP: Record<string, SpeakerMetricId> = {
   stdev: "speaks_stddev",
   count: "speeches_count",
   trimmed_mean: "speaks_trimmed_mean",
+  srank: "srank",
 };
 
 /** Reply standings reuse the speaker metric ids, computed over reply scores. */
@@ -205,6 +206,32 @@ export function translatePreferences(
   if (Number.isFinite(historyPenalty)) preferences.adjHistoryPenalty = historyPenalty;
   preferences.marginIncludesDissenters = Boolean(value("scoring__margin_includes_dissenters"));
   preferences.teamScoreIncludesGhosts = Boolean(value("scoring__teamscore_includes_ghosts"));
+
+  // Results settings (wave 5). Goldens exported before these keys were added carry none of
+  // them, so each is mapped only when present.
+  const optional = <K extends keyof TournamentPreferences>(key: string, target: K, table: Record<string, TournamentPreferences[K]>) => {
+    if (value(key) === undefined) return;
+    const mapped = pick(key, table as Record<string, string>) as TournamentPreferences[K] | undefined;
+    if (mapped !== undefined) preferences[target] = mapped;
+  };
+  optional("scoring__score_aggregation_function", "scoreAggregation", { mean: "mean", median: "median" });
+  optional("debate_rules__winners_in_ballots", "winnersInBallots", {
+    none: "none", "high-points": "high-points", "tied-points": "tied-points", "low-points": "low-points",
+  });
+  optional("debate_rules__speakers_in_ballots", "speakersInBallots", { always: "always", prelim: "prelim", never: "never" });
+  optional("debate_rules__speaker_ranks", "speakerRanks", { none: "none", any: "any", "high-points": "high-points" });
+  optional("debate_rules__side_names", "sideNames", {
+    "aff-neg": "aff-neg", "gov-opp": "gov-opp", "prop-opp": "prop-opp", "pro-con": "pro-con",
+    "appellant-respondent": "appellant-respondent", "1-2": "1-2", "pl-def": "pl-def",
+  });
+  const maximumMargin = Number(value("scoring__maximum_margin"));
+  if (Number.isFinite(maximumMargin) && maximumMargin > 0) preferences.maximumMargin = maximumMargin;
+  const replyStep = Number(value("scoring__reply_score_step"));
+  if (Number.isFinite(replyStep) && replyStep > 0) preferences.stepReplyScore = replyStep;
+  if (value("debate_rules__require_substantive_for_reply") !== undefined) {
+    preferences.requireSubstantiveForReply = Boolean(value("debate_rules__require_substantive_for_reply"));
+  }
+  if (value("motions__enable_motions") !== undefined) preferences.enableMotions = Boolean(value("motions__enable_motions"));
   return { preferences, unmapped };
 }
 

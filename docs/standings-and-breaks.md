@@ -8,8 +8,10 @@ and `src/lib/breakqual/calculator.ts`.
 ## What counts
 
 Only confirmed, non-discarded ballots in non-cancelled **preliminary** rounds count. A bye awarded
-as a win counts as a win with no speeches. Forfeits count for the result but not for speaker-score
-averages. Ghost (iron-person) speeches never count on the speaker tab.
+as a win counts as a win with no speeches. Forfeits and results-only ballots (`speakersInBallots`)
+count for the result but not for speaks or margins. Ghost (iron-person) speeches never count on
+the speaker tab. Team points are multiplied by the round's weight (`Round.weight`, Tabbycat's
+`PointsMetricAnnotator`); wins and who-beat-whom are not. See `results-and-ballots.md`.
 
 ## Team precedence
 
@@ -43,7 +45,8 @@ ballots record no votes and carry none, as in Tabbycat.
 ## Speaker precedence
 
 Speaker metrics: total, average, std. dev. (lower is better), **trimmed mean**, speeches given,
-reply total and average. Default: total, then average.
+reply total and average, and **speech ranks** (`srank`: the sum of the speaker's speech ranks,
+lower is better; needs `speakerRanks`). Default: total, then average.
 
 **Trimmed mean (changed in wave 2).** Tabbycat's "trimmed mean (high-low drop)" leaves out a
 speaker's highest *and* lowest score when they have more than two, otherwise it is the plain
@@ -55,7 +58,8 @@ after upgrading; nothing stored changes.
 **Eligibility** (Tabbycat's `standings_missed_debates` / `standings_missed_replies`):
 `standingsMissedDebates` is the number of substantive speeches a speaker may miss and still be
 ranked; absent or negative means no limit (the default). A speaker needs at least
-*(preliminary rounds with results − limit)* speeches. Ineligible speakers stay on the tab, listed
+*(preliminary rounds with results − limit)* speeches; rounds whose ballots carry no speaker scores
+are not counted. Ineligible speakers stay on the tab, listed
 after everyone ranked, with no rank (`ineligible: true`, `rank: 0`; shown as "—"). Only rounds
 that have at least one result count, so a round in progress never makes anyone ineligible
 (Tabbycat counts every preliminary round up to the tab's round). `standingsMissedReplies` does
@@ -126,8 +130,9 @@ exists; `eliminationBallotMode` only once an elimination ballot exists.
 The tournament wizard offers Tabbycat's rule presets (`RULES_PRESETS` in
 `src/lib/setup/presets.ts`): Australs, British Parliamentary, Canadian Parliamentary, Australian
 Easters, NZ Easters (Tabbycat's "2 vs 2 Impromptu"), Joynt Scroll ("3 vs 3 Prepared"), UADC and
-WSDC. Each sets the team/speaker counts, score scale and the preferences the Tabbycat preset sets
-that CrabbyTab supports; what it cannot apply is listed in the wizard. Not offered: APDA (needs
-speech ranks and winner selection), Public Speaking (six teams per room), Karl Popper (median
-aggregation and self-split ballots). There is no Tabbycat "Japan BP" preset; use British
+WSDC (with its Style/Content/Strategy score criteria) and APDA. Each sets the team/speaker counts,
+score scale and the preferences the Tabbycat preset sets that CrabbyTab supports, including side
+names, motions on/off, maximum margin, reply step, speech ranks, declared winners and speaker
+scores only in preliminary rounds; what it cannot apply is listed in the wizard. Not offered:
+Public Speaking (six teams per room), Karl Popper (self-split ballots). There is no Tabbycat "Japan BP" preset; use British
 Parliamentary.
