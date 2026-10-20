@@ -19,12 +19,22 @@ import { RuleOverrideHost } from "@/features/tournament/components/RuleOverrideH
  * once it has been migrated.
  */
 const THEMED_SUBPATHS = new Set(["", "/results", "/results/intake", "/standings", "/schedule"]);
+THEMED_SUBPATHS.add("/feedback");
+THEMED_SUBPATHS.add("/feedback/submissions");
+THEMED_SUBPATHS.add("/break");
+THEMED_SUBPATHS.add("/analytics");
+
+/** Migrated route trees with dynamic segments: every path below the prefix is themed. */
+const THEMED_PREFIXES: string[] = [];
+THEMED_PREFIXES.push("/results/"); // ballot entry: /results/[roundSeq]/[debateId]
+THEMED_PREFIXES.push("/feedback/adjudicator/");
 
 function isThemedRoute(pathname: string | null, tournamentSlug: string) {
   if (!pathname) return false;
   const prefix = `/${tournamentSlug}`;
   if (!pathname.startsWith(prefix)) return false;
-  return THEMED_SUBPATHS.has(pathname.slice(prefix.length).replace(/\/$/, ""));
+  const subpath = pathname.slice(prefix.length).replace(/\/$/, "");
+  return THEMED_SUBPATHS.has(subpath) || THEMED_PREFIXES.some((themedPrefix) => subpath.startsWith(themedPrefix));
 }
 
 function ShellMessage({ children }: { children: React.ReactNode }) {
