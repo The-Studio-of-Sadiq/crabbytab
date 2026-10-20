@@ -2174,6 +2174,7 @@ export function TournamentProvider({
       return;
     }
     await guarded((override) => submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies, override));
+    if (ballot.confirmed) notifyBallotConfirmed();
   };
 
   const confirmBallot = async (
@@ -2189,6 +2190,24 @@ export function TournamentProvider({
     }
     await guarded((override) =>
       confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies, override)
+    );
+    notifyBallotConfirmed();
+  };
+
+  /**
+   * "Ballot confirmed" emails (docs/email-notifications.md): confirmations of a live cloud
+   * tournament reach Firestore through live writes, not uploads, so the server is asked to send
+   * them once the writes are flushed. A failure only delays them to the next trigger.
+   */
+  const notifyBallotConfirmed = () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin || tournament.preferences?.notifyBallotConfirmed !== true) return;
+    const currentUser = user;
+    const tournamentId = tournament.id;
+    void (async () => {
+      await flushLiveWrites();
+      await sendDueNotificationsCommand({ tournamentId, idToken: await currentUser.getIdToken() });
+    })().catch((error: unknown) =>
+      console.warn("Could not send ballot-confirmed emails:", error instanceof Error ? error.message : error)
     );
   };
 

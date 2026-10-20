@@ -8,14 +8,25 @@ import { useTournament } from "@/contexts/TournamentContext";
 import {
   baselineNotificationsCommand,
   describeNotificationSummary,
+  hasAutomaticRoundNotifications,
   sendDueNotificationsCommand,
 } from "@/features/tournament/application/notifications";
 import type { RoundNotificationEvent } from "@/lib/email/notifications";
 import type { TournamentPreferences } from "@/types";
 
-type NotificationPreference = "notifyDrawReleased" | "notifyTeamPoints" | "notifyBallotReceipt";
+type NotificationPreference =
+  | "notifyDrawReleased"
+  | "notifyTeamPoints"
+  | "notifyBallotReceipt"
+  | "notifyMotionsReleased"
+  | "notifyBallotConfirmed";
 
-const OPTIONS: { key: NotificationPreference; label: string; description: string; events: RoundNotificationEvent[] }[] = [
+const OPTIONS: {
+  key: NotificationPreference;
+  label: string;
+  description: string;
+  events: Array<RoundNotificationEvent | "ballot_confirmed">;
+}[] = [
   {
     key: "notifyDrawReleased",
     label: "Draw released",
@@ -29,6 +40,19 @@ const OPTIONS: { key: NotificationPreference; label: string; description: string
     description:
       "Each team's speakers get their result and running team points once a round's results are released (never for silent rounds).",
     events: ["team_points"],
+  },
+  {
+    key: "notifyMotionsReleased",
+    label: "Motions released",
+    description: "Speakers and adjudicators in the round get its motions (and info slides) once they are released.",
+    events: ["motions_released"],
+  },
+  {
+    key: "notifyBallotConfirmed",
+    label: "Ballot confirmed",
+    description:
+      "The debate's adjudicators get the confirmed result (and, with voting ballots, their own sheet as recorded) when the tab room confirms it.",
+    events: ["ballot_confirmed"],
   },
   {
     key: "notifyBallotReceipt",
@@ -139,7 +163,7 @@ export function AutomaticNotificationsPanel({ onSent }: { onSent?: () => void })
       <button
         type="button"
         onClick={() => void sendNow()}
-        disabled={sending || (!preferences.notifyDrawReleased && !preferences.notifyTeamPoints)}
+        disabled={sending || !hasAutomaticRoundNotifications(preferences)}
         className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
       >
         <Send className="h-3.5 w-3.5" aria-hidden="true" />

@@ -316,6 +316,10 @@ export interface TournamentPreferences {
   notifyDrawReleased?: boolean;
   notifyBallotReceipt?: boolean;
   notifyTeamPoints?: boolean;
+  /** Email (w45): motions of a round to its speakers and adjudicators once released. */
+  notifyMotionsReleased?: boolean;
+  /** Email (w45): a confirmed result to the debate's adjudicators (Tabbycat "ballot confirmed"). */
+  notifyBallotConfirmed?: boolean;
   /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
   allowSelfCheckIn?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
