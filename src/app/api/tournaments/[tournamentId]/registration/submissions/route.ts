@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidRecordId } from "@/lib/linkTokens";
-import { parseReviewAction, reviewSubmission } from "@/lib/registration/service";
+import { issueRepresentative, parseReviewAction, representativeIdFor, reviewSubmission } from "@/lib/registration/service";
+import { issueAndSend } from "../representativeLinks";
 import { entryName } from "@/lib/registration/validation";
 import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
 import { assertStillAdministrator } from "@/lib/tournamentAdminAuth";
@@ -35,8 +36,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       reason: body.reason,
       entityId: body.entityId,
       entityName: body.entityName,
+      teamsAllocated: body.teamsAllocated,
+      adjudicatorsAllocated: body.adjudicatorsAllocated,
       now: Date.now(),
     });
+    if (action === "allocate" && submission.institution) {
+      // The institution's coach becomes its representative, with the allocated places, and gets
+      // their link in the "places allocated" email.
+      const institution = submission.institution;
+      const link = await issueAndSend(
+        request,
+        authorization,
+        (previous) => issueRepresentative(
+          {
+            institution,
+            email: submission.contactEmail,
+            name: submission.contactName,
+            teamQuota: submission.teamsAllocated ?? 0,
+            adjudicatorQuota: submission.adjudicatorsAllocated ?? 0,
+          },
+          { tournamentId: authorization.tournamentRef.id, actorUid: authorization.user.uid, now: Date.now(), previous }
+        ),
+        representativeIdFor(institution, submission.contactEmail),
+        false
+      );
+      return NextResponse.json({ submission, link }, { headers: NO_STORE });
+    }
     if (action === "approve") {
       // Registration approved (docs/email-notifications.md): only when switched on in the email settings.
       const tournamentName = (await authorization.tournamentRef.get()).data()?.name;

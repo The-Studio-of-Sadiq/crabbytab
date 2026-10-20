@@ -7,8 +7,9 @@ import {
   recordIdForEmail,
 } from "@/lib/linkTokens";
 import { isValidPublicSlug } from "@/lib/publicView/store";
-import { adjustCounters, quotaLimits, quotaRefusal, readCounters, remainingPlaces } from "@/lib/registration/quota";
+import { adjustCounters, isOverAllocated, quotaLimits, quotaRefusal, readCounters, remainingPlaces } from "@/lib/registration/quota";
 import type {
+  SlotTransfer,
   RegistrationCounters,
   RegistrationEntry,
   RegistrationInstitution,
@@ -17,6 +18,7 @@ import type {
   RegistrationSubmission,
   RepresentativeSummary,
 } from "@/lib/registration/types";
+import { applyTransfer } from "@/lib/registration/transfers";
 import {
   cleanText,
   defaultRegistrationSettings,
@@ -54,6 +56,7 @@ export function registrationRefs(tournamentRef: DocumentReference) {
     countersRef: serverOnly.doc("registrationCounters"),
     submissions: settingsRef.collection("submissions"),
     representatives: settingsRef.collection("representatives"),
+    transfers: settingsRef.collection("transfers"),
   };
 }
 
@@ -115,6 +118,8 @@ export interface RepresentativeView {
   institutionName: string;
   name: string;
   remaining: { team: number | null; adjudicator: number | null };
+  /** With slot transfers on: the other institutions places can be given to. */
+  transferTargets?: Array<{ id: string; institutionName: string }>;
 }
 
 export async function describeRepresentative(
@@ -124,7 +129,7 @@ export async function describeRepresentative(
 ): Promise<RepresentativeView> {
   const counters = readCounters((await registrationRefs(tournamentRef).countersRef.get()).data());
   const key = representative.institution.key;
-  return {
+  const view: RepresentativeView = {
     institutionName: representative.institution.name,
     name: representative.name,
     remaining: {
@@ -132,6 +137,16 @@ export async function describeRepresentative(
       adjudicator: remainingPlaces(counters, "adjudicator", key, quotaLimits("adjudicator", settings, representative)),
     },
   };
+  if (settings.slotTransfers) {
+    const others = await registrationRefs(tournamentRef).representatives.where("status", "==", "active").get();
+    view.transferTargets = others.docs
+      .map((document) => document.data() as RegistrationRepresentative)
+      .filter((other) => other.id !== representative.id && other.institution.key !== representative.institution.key)
+      .map((other) => ({ id: other.id, institutionName: other.institution.name }))
+      .filter((other, index, all) => all.findIndex((item) => item.institutionName === other.institutionName) === index)
+      .sort((left, right) => left.institutionName.localeCompare(right.institutionName));
+  }
+  return view;
 }
 
 /**
@@ -146,7 +161,14 @@ export async function submitRegistration(input: {
   representativeToken?: unknown;
   sourceHash?: string;
   now: number;
-}): Promise<{ id: string; kind: RegistrationEntry["kind"]; entry: RegistrationEntry; tournamentName: string }> {
+}): Promise<{
+  id: string;
+  kind: RegistrationEntry["kind"];
+  entry: RegistrationEntry;
+  tournamentName: string;
+  settings: RegistrationSettings;
+  submission: RegistrationSubmission;
+}> {
   const refs = registrationRefs(input.tournamentRef);
   const settings = readSettings((await refs.settingsRef.get()).data());
   if (!settings) throw new RegistrationError("This tournament is not taking registrations.", 403);
@@ -161,12 +183,14 @@ export async function submitRegistration(input: {
   const reference = refs.submissions.doc();
   const timestamp = new Date(input.now).toISOString();
 
-  await input.firestore.runTransaction(async (transaction) => {
+  const submission = await input.firestore.runTransaction(async (transaction) => {
     const counters = readCounters((await transaction.get(refs.countersRef)).data());
     const key = entry.institution?.key ?? null;
-    const refusal = quotaRefusal(counters, entry.kind, key, quotaLimits(entry.kind, settings, representative));
+    const limits = quotaLimits(entry.kind, settings, representative);
+    const allowOver = settings.blockOverAllocation === false;
+    const refusal = quotaRefusal(counters, entry.kind, key, limits, allowOver);
     if (refusal) throw new RegistrationError(refusal, 409);
-    const submission: RegistrationSubmission = {
+    const created: RegistrationSubmission = {
       ...entry,
       id: reference.id,
       status: "pending",
@@ -174,12 +198,14 @@ export async function submitRegistration(input: {
       updatedAt: timestamp,
       revision: 1,
     };
-    if (representative) submission.representativeId = representative.id;
-    if (input.sourceHash) submission.sourceHash = input.sourceHash;
-    transaction.create(reference, stripUndefined(submission));
+    if (representative) created.representativeId = representative.id;
+    if (input.sourceHash) created.sourceHash = input.sourceHash;
+    if (allowOver && isOverAllocated(counters, entry.kind, key, limits)) created.overAllocated = true;
+    transaction.create(reference, stripUndefined(created));
     transaction.set(refs.countersRef, adjustCounters(counters, entry.kind, key, 1));
+    return stripUndefined(created);
   });
-  return { id: reference.id, kind: entry.kind, entry, tournamentName: settings.tournamentName };
+  return { id: reference.id, kind: entry.kind, entry, tournamentName: settings.tournamentName, settings, submission };
 }
 
 /** Firestore rejects undefined values; registration records never need them. */
@@ -187,10 +213,12 @@ function stripUndefined<T extends object>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export type ReviewAction = "edit" | "reject" | "reopen" | "claim" | "release" | "approve";
+export type ReviewAction = "edit" | "reject" | "reopen" | "claim" | "release" | "approve" | "allocate";
 
 export function parseReviewAction(value: unknown): ReviewAction | null {
-  return ["edit", "reject", "reopen", "claim", "release", "approve"].includes(value as string) ? (value as ReviewAction) : null;
+  return ["edit", "reject", "reopen", "claim", "release", "approve", "allocate"].includes(value as string)
+    ? (value as ReviewAction)
+    : null;
 }
 
 const ACTION_PAST: Record<ReviewAction, string> = {
@@ -200,6 +228,7 @@ const ACTION_PAST: Record<ReviewAction, string> = {
   claim: "claimed for approval",
   release: "released",
   approve: "approved",
+  allocate: "allocated places",
 };
 
 const ALLOWED_FROM: Record<ReviewAction, RegistrationSubmission["status"][]> = {
@@ -209,6 +238,7 @@ const ALLOWED_FROM: Record<ReviewAction, RegistrationSubmission["status"][]> = {
   claim: ["pending"],
   release: ["approving"],
   approve: ["approving"],
+  allocate: ["pending"],
 };
 
 /**
@@ -229,6 +259,9 @@ export async function reviewSubmission(input: {
   reason?: unknown;
   entityId?: unknown;
   entityName?: unknown;
+  /** "allocate": the places given to an institution registration. */
+  teamsAllocated?: unknown;
+  adjudicatorsAllocated?: unknown;
   now: number;
 }): Promise<RegistrationSubmission> {
   const refs = registrationRefs(input.tournamentRef);
@@ -242,6 +275,12 @@ export async function reviewSubmission(input: {
     ]);
     const current = snapshot.data() as RegistrationSubmission | undefined;
     if (!current) throw new RegistrationError("Submission not found.", 404);
+    if (input.action === "allocate" && current.kind !== "institution") {
+      throw new RegistrationError("Only institution registrations are given places.", 409);
+    }
+    if ((input.action === "claim" || input.action === "approve") && current.kind === "institution") {
+      throw new RegistrationError("Give an institution registration its places instead.", 409);
+    }
     if (current.revision !== input.revision) {
       throw new RegistrationError("This submission changed since you loaded it. Reload the queue and try again.", 409);
     }
@@ -286,6 +325,23 @@ export async function reviewSubmission(input: {
       next = { ...next, status: "pending" };
       delete next.claimedBy;
       delete next.claimedAt;
+    } else if (input.action === "allocate") {
+      const places = (value: unknown, label: string) => {
+        const number = typeof value === "string" ? Number(value) : value;
+        if (typeof number !== "number" || !Number.isInteger(number) || number < 0 || number > 1_000) {
+          throw new RegistrationValidationError(`${label} must be a whole number from 0 to 1000.`);
+        }
+        return number;
+      };
+      next = {
+        ...next,
+        status: "approved",
+        reviewedAt: timestamp,
+        reviewedBy: input.reviewerUid,
+        teamsAllocated: places(input.teamsAllocated, "Team places"),
+        adjudicatorsAllocated: places(input.adjudicatorsAllocated, "Adjudicator places"),
+        approvedEntityName: current.institution?.name ?? "",
+      };
     } else {
       const entityId = typeof input.entityId === "string" && /^[^/]{1,200}$/.test(input.entityId) ? input.entityId : null;
       const entityName = cleanText(input.entityName ?? "", 200);
@@ -364,4 +420,111 @@ export function issueRepresentative(
 
 export function representativeLink(origin: string, slug: string, token: string): string {
   return `${origin}/register/${encodeURIComponent(slug)}#${token}`;
+}
+
+/**
+ * Marks a submission approved by the server itself (automatic acceptance). Refused, leaving the
+ * submission for review, if anything changed it since it was stored.
+ */
+export async function markAutoApproved(input: {
+  firestore: Firestore;
+  tournamentRef: DocumentReference;
+  submission: RegistrationSubmission;
+  entity: { entityId: string; entityName: string };
+  now: number;
+}): Promise<RegistrationSubmission | null> {
+  const reference = registrationRefs(input.tournamentRef).submissions.doc(input.submission.id);
+  return input.firestore.runTransaction(async (transaction) => {
+    const current = (await transaction.get(reference)).data() as RegistrationSubmission | undefined;
+    if (!current || current.status !== "pending" || current.revision !== input.submission.revision) return null;
+    const timestamp = new Date(input.now).toISOString();
+    const next: RegistrationSubmission = {
+      ...current,
+      status: "approved",
+      autoApproved: true,
+      reviewedAt: timestamp,
+      reviewedBy: "automatic",
+      approvedEntityId: input.entity.entityId,
+      approvedEntityName: input.entity.entityName,
+      updatedAt: timestamp,
+      revision: current.revision + 1,
+    };
+    transaction.set(reference, next);
+    return next;
+  });
+}
+
+/** Stores a representative's request to give places to another institution, for review. */
+export async function requestSlotTransfer(input: {
+  tournamentRef: DocumentReference;
+  representative: RegistrationRepresentative;
+  toRepresentativeId: string;
+  teams: number;
+  adjudicators: number;
+  now: number;
+}): Promise<SlotTransfer> {
+  const refs = registrationRefs(input.tournamentRef);
+  const settings = readSettings((await refs.settingsRef.get()).data());
+  if (!settings?.slotTransfers) throw new RegistrationError("This tournament does not take place transfers.", 403);
+  const target = (await refs.representatives.doc(input.toRepresentativeId).get()).data() as RegistrationRepresentative | undefined;
+  if (!target || target.status !== "active" || target.institution.key === input.representative.institution.key) {
+    throw new RegistrationError("Choose another registered institution.", 400);
+  }
+  const reference = refs.transfers.doc();
+  const transfer: SlotTransfer = {
+    id: reference.id,
+    fromRepresentativeId: input.representative.id,
+    fromInstitution: input.representative.institution,
+    toRepresentativeId: target.id,
+    toInstitution: target.institution,
+    teams: input.teams,
+    adjudicators: input.adjudicators,
+    status: "pending",
+    requestedAt: new Date(input.now).toISOString(),
+  };
+  await reference.create(transfer);
+  return transfer;
+}
+
+/**
+ * Approves or rejects a pending transfer. Approval moves the places between the two
+ * representatives' limits in the same transaction (see applyTransfer).
+ */
+export async function reviewSlotTransfer(input: {
+  firestore: Firestore;
+  tournamentRef: DocumentReference;
+  assertAdministrator: (transaction: Transaction) => Promise<unknown>;
+  reviewerUid: string;
+  transferId: string;
+  approve: boolean;
+  now: number;
+}): Promise<SlotTransfer> {
+  const refs = registrationRefs(input.tournamentRef);
+  const reference = refs.transfers.doc(input.transferId);
+  return input.firestore.runTransaction(async (transaction) => {
+    await input.assertAdministrator(transaction);
+    const transfer = (await transaction.get(reference)).data() as SlotTransfer | undefined;
+    if (!transfer) throw new RegistrationError("Transfer not found.", 404);
+    if (transfer.status !== "pending") throw new RegistrationError("This transfer was already reviewed.", 409);
+    const timestamp = new Date(input.now).toISOString();
+    const reviewed: SlotTransfer = { ...transfer, status: input.approve ? "approved" : "rejected", reviewedAt: timestamp, reviewedBy: input.reviewerUid };
+    if (input.approve) {
+      const [fromSnapshot, toSnapshot, settingsSnapshot, countersSnapshot] = await Promise.all([
+        transaction.get(refs.representatives.doc(transfer.fromRepresentativeId)),
+        transaction.get(refs.representatives.doc(transfer.toRepresentativeId)),
+        transaction.get(refs.settingsRef),
+        transaction.get(refs.countersRef),
+      ]);
+      const from = fromSnapshot.data() as RegistrationRepresentative | undefined;
+      const to = toSnapshot.data() as RegistrationRepresentative | undefined;
+      if (!from || !to) throw new RegistrationError("One of the representatives no longer exists.", 409);
+      const settings = readSettings(settingsSnapshot.data()) ?? defaultRegistrationSettings("Tournament");
+      const used = readCounters(countersSnapshot.data()).institutions[from.institution.key] ?? { teams: 0, adjudicators: 0 };
+      const next = applyTransfer(transfer, from, to, settings, used);
+      transaction.set(refs.representatives.doc(from.id), next.from);
+      transaction.set(refs.representatives.doc(to.id), next.to);
+    }
+    transaction.set(reference, reviewed);
+    return reviewed;
+  });
 }

@@ -30,6 +30,11 @@ function field(kind: RegistrationKind): "teams" | "adjudicators" {
   return kind === "team" ? "teams" : "adjudicators";
 }
 
+/** Institution registrations ask for places; they are not counted against any. */
+function counted(kind: RegistrationKind): boolean {
+  return kind !== "institution";
+}
+
 export interface QuotaLimits {
   perInstitution: number;
   total: number;
@@ -63,23 +68,40 @@ export function remainingPlaces(
   return candidates.length === 0 ? null : Math.max(0, Math.min(...candidates));
 }
 
-/** The reason a new submission does not fit, or null. Independents only meet the total limit. */
+/**
+ * The reason a new submission does not fit, or null. Independents only meet the total limit. With
+ * `allowOverAllocation` an institution may go above its own places (the submission is flagged
+ * instead, see `isOverAllocated`); the tournament-wide limit always holds.
+ */
 export function quotaRefusal(
   counters: RegistrationCounters,
   kind: RegistrationKind,
   institution: string | null,
-  limits: QuotaLimits
+  limits: QuotaLimits,
+  allowOverAllocation = false
 ): string | null {
+  if (kind === "institution") return null;
   const name = field(kind);
   if (limits.total > 0 && counters[name] >= limits.total) {
     return kind === "team" ? "Team registration is full." : "Adjudicator registration is full.";
   }
-  if (institution && limits.perInstitution > 0 && (counters.institutions[institution]?.[name] ?? 0) >= limits.perInstitution) {
+  if (!allowOverAllocation && isOverAllocated(counters, kind, institution, limits)) {
     return kind === "team"
       ? `This institution has reached its limit of ${limits.perInstitution} team(s).`
       : `This institution has reached its limit of ${limits.perInstitution} adjudicator(s).`;
   }
   return null;
+}
+
+/** Whether one more submission of this kind takes the institution above its own places. */
+export function isOverAllocated(
+  counters: RegistrationCounters,
+  kind: RegistrationKind,
+  institution: string | null,
+  limits: QuotaLimits
+): boolean {
+  if (kind === "institution" || !institution || limits.perInstitution <= 0) return false;
+  return (counters.institutions[institution]?.[field(kind)] ?? 0) >= limits.perInstitution;
 }
 
 /** Counters after adding (+1) or removing (-1) one submission. Never below zero. */
@@ -89,6 +111,7 @@ export function adjustCounters(
   institution: string | null,
   delta: 1 | -1
 ): RegistrationCounters {
+  if (!counted(kind)) return counters;
   const name = field(kind);
   const next: RegistrationCounters = {
     ...counters,

@@ -1,5 +1,6 @@
 import type { User } from "firebase/auth";
 import type {
+  SlotTransfer,
   RegistrationCounters,
   RegistrationSettings,
   RegistrationSubmission,
@@ -14,6 +15,7 @@ export interface RegistrationOverview {
   counters: RegistrationCounters;
   submissions: RegistrationSubmission[];
   representatives: RepresentativeSummary[];
+  transfers?: SlotTransfer[];
 }
 
 export interface IssuedRepresentativeLink {
@@ -52,6 +54,16 @@ export function createRegistrationClient(user: User, tournamentId: string) {
           ...extra,
         })
       ).submission,
+    allocate: (submission: RegistrationSubmission, teamsAllocated: number, adjudicatorsAllocated: number) =>
+      call<{ submission: RegistrationSubmission; link?: IssuedRepresentativeLink }>("/submissions", "POST", {
+        action: "allocate",
+        submissionId: submission.id,
+        revision: submission.revision,
+        teamsAllocated,
+        adjudicatorsAllocated,
+      }),
+    reviewTransfer: (transferId: string, decision: "approve" | "reject") =>
+      call<{ transfer: SlotTransfer }>("/transfers", "POST", { transferId, decision }),
     addRepresentative: (input: Record<string, unknown>) =>
       call<{ representatives: RepresentativeSummary[]; link: IssuedRepresentativeLink }>("/representatives", "POST", input),
     resendRepresentative: (representativeId: string) =>

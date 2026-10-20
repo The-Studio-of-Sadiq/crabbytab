@@ -5,7 +5,8 @@ import {
   matchInstitution,
   suggestInstitutionCode,
 } from "@/lib/registration/review";
-import type { RegistrationSubmission } from "@/lib/registration/types";
+import type { RegistrationSettings, RegistrationSubmission } from "@/lib/registration/types";
+import { applyNameGenerators } from "@/lib/registration/names";
 
 /**
  * Approving a registration (docs/registration.md). The server cannot create teams or
@@ -32,13 +33,15 @@ export interface RegistrationReviewApi {
 export interface ApprovalDependencies {
   api: RegistrationReviewApi;
   institutions: Institution[];
-  teams: Pick<Team, "id" | "name">[];
+  teams: Pick<Team, "id" | "name" | "codeName" | "institutionId" | "institutionName">[];
   addInstitutions(institutions: Omit<Institution, "id" | "tournamentId">[]): Promise<Institution[]>;
   addTeams(teams: Omit<Team, "id" | "tournamentId">[]): Promise<Team[]>;
   addAdjudicators(adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]): Promise<Adjudicator[]>;
   createId(prefix: string): string;
   /** Starting base score for registered adjudicators. */
   adjudicatorBaseScore: number;
+  /** Team-name and code-name generators (absent: keep the registrant's name). */
+  settings?: Pick<RegistrationSettings, "teamNameGenerator" | "codeNameGenerator">;
 }
 
 export interface ApprovalResult {
@@ -87,6 +90,7 @@ export async function approveRegistration(
   dependencies: ApprovalDependencies
 ): Promise<ApprovalResult> {
   if (submission.status !== "pending") throw new Error("Only pending submissions can be approved.");
+  if (submission.kind === "institution") throw new Error("Give an institution registration its places instead.");
   const claimed = await dependencies.api.claim(submission);
 
   let entity: { id: string; name: string };
@@ -96,7 +100,12 @@ export async function approveRegistration(
     const { institution, created } = await resolveInstitution(claimed, dependencies);
     createdInstitution = created;
     if (claimed.kind === "team") {
-      const [team] = await dependencies.addTeams([buildTeamFromSubmission(claimed, institution, dependencies.createId)]);
+      const built = applyNameGenerators(buildTeamFromSubmission(claimed, institution, dependencies.createId), {
+        settings: dependencies.settings ?? {},
+        institutionName: institution?.name,
+        teams: dependencies.teams,
+      });
+      const [team] = await dependencies.addTeams([built]);
       if (!team) throw new Error("The team was not created.");
       entity = { id: team.id, name: team.name };
     } else {

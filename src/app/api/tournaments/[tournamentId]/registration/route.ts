@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readCounters } from "@/lib/registration/quota";
 import { readSettings, registrationRefs, summarizeRepresentative } from "@/lib/registration/service";
-import type { RegistrationRepresentative, RegistrationSubmission } from "@/lib/registration/types";
+import type { RegistrationRepresentative, RegistrationSubmission, SlotTransfer } from "@/lib/registration/types";
 import { defaultRegistrationSettings, parseRegistrationSettings } from "@/lib/registration/validation";
 import { assertStillAdministrator } from "@/lib/tournamentAdminAuth";
 import { authorizeRegistrationAdmin, NO_STORE, readJsonBody, registrationErrorResponse } from "./shared";
@@ -24,12 +24,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { tournamentRef } = result.authorization;
   const refs = registrationRefs(tournamentRef);
   try {
-    const [tournament, settings, counters, submissions, representatives] = await Promise.all([
+    const [tournament, settings, counters, submissions, representatives, transfers] = await Promise.all([
       tournamentRef.get(),
       refs.settingsRef.get(),
       refs.countersRef.get(),
       refs.submissions.get(),
       refs.representatives.get(),
+      refs.transfers.get(),
     ]);
     const data = tournament.data();
     return NextResponse.json(
@@ -44,6 +45,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         representatives: representatives.docs
           .map((document) => summarizeRepresentative(document.data() as RegistrationRepresentative))
           .sort((left, right) => left.institution.name.localeCompare(right.institution.name)),
+        transfers: transfers.docs
+          .map((document) => document.data() as SlotTransfer)
+          .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt)),
       },
       { headers: NO_STORE }
     );

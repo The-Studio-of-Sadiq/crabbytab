@@ -1,4 +1,5 @@
 import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
+import type { CodeNameGenerator, TeamNameGenerator } from "@/lib/registration/names";
 
 /**
  * Self-registration records (docs/registration.md). Everything here is stored under the
@@ -7,7 +8,14 @@ import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
  * `/api/public/tournaments/{slug}/registration` (the public form and nothing else).
  */
 
-export type RegistrationKind = "team" | "adjudicator";
+/** "institution": an institution (or its coach) asking for places, Tabbycat's institution registration. */
+export type RegistrationKind = "team" | "adjudicator" | "institution";
+
+/** Tabbycat `registration_confirmation`: which submissions wait for an administrator. */
+export type RegistrationConfirmation = "always" | "open" | "never";
+
+/** Optional person fields a form asks for (mapped to Speaker / Adjudicator fields on approval). */
+export type PersonField = "phone" | "gender";
 
 export interface RegistrationSettings {
   enabled: boolean;
@@ -32,6 +40,26 @@ export interface RegistrationSettings {
   adjudicatorQuestions: FeedbackQuestion[];
   /** Shown above the public form. Plain text. */
   instructions: string;
+  /** Wave 4/5 breadth (docs/registration.md); absent in older settings, read with defaults. */
+  institutionRegistration?: boolean;
+  confirmation?: RegistrationConfirmation;
+  /** Refuse team/adjudicator registrations above an institution's places (default) or accept and flag them. */
+  blockOverAllocation?: boolean;
+  /** Representatives may ask to give places to another institution. */
+  slotTransfers?: boolean;
+  teamNameGenerator?: TeamNameGenerator;
+  codeNameGenerator?: CodeNameGenerator;
+  speakerFields?: PersonField[];
+  adjudicatorFields?: PersonField[];
+  /** Ask institutions for their region. */
+  institutionRegion?: boolean;
+  /** Per-form messages shown above the team / adjudicator / institution form. Plain text. */
+  teamMessage?: string;
+  adjudicatorMessage?: string;
+  institutionMessage?: string;
+  institutionQuestions?: FeedbackQuestion[];
+  /** Asked once per speaker on the team form. */
+  speakerQuestions?: FeedbackQuestion[];
   /** Copied from the tournament when saved, so the public form needs no tournament read. */
   tournamentName: string;
   updatedAt?: string;
@@ -42,6 +70,9 @@ export interface RegisteredSpeaker {
   name: string;
   email?: string;
   categories: string[];
+  phone?: string;
+  gender?: string;
+  answers?: Record<string, FeedbackAnswer>;
 }
 
 export interface TeamRegistrationData {
@@ -56,6 +87,16 @@ export interface AdjudicatorRegistrationData {
   institutionConflicts: string[];
   /** Teams or people the adjudicator is conflicted with (free text; matched on approval). */
   teamConflicts: string[];
+  phone?: string;
+  gender?: string;
+}
+
+/** An institution (its coach is the submission's contact) asking for places. */
+export interface InstitutionRegistrationData {
+  code?: string;
+  region?: string;
+  teamsRequested: number;
+  adjudicatorsRequested: number;
 }
 
 export interface RegistrationInstitution {
@@ -71,6 +112,7 @@ export interface RegistrationEntry {
   institution: RegistrationInstitution | null;
   team?: TeamRegistrationData;
   adjudicator?: AdjudicatorRegistrationData;
+  institutionRequest?: InstitutionRegistrationData;
   contactName: string;
   contactEmail: string;
   answers: Record<string, FeedbackAnswer>;
@@ -95,6 +137,28 @@ export interface RegistrationSubmission extends RegistrationEntry {
   claimedAt?: string;
   approvedEntityId?: string;
   approvedEntityName?: string;
+  /** Accepted above the institution's places (when over-allocation is allowed). */
+  overAllocated?: boolean;
+  /** Approved automatically (no confirmation needed). */
+  autoApproved?: boolean;
+  /** Institution registrations: the places allocated on approval. */
+  teamsAllocated?: number;
+  adjudicatorsAllocated?: number;
+}
+
+/** A representative's request to give places to another institution (docs/registration.md). */
+export interface SlotTransfer {
+  id: string;
+  fromRepresentativeId: string;
+  fromInstitution: RegistrationInstitution;
+  toRepresentativeId: string;
+  toInstitution: RegistrationInstitution;
+  teams: number;
+  adjudicators: number;
+  status: "pending" | "approved" | "rejected";
+  requestedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export interface RegistrationRepresentative {
@@ -143,4 +207,14 @@ export interface PublicRegistrationForm {
   teamQuestions: FeedbackQuestion[];
   adjudicatorQuestions: FeedbackQuestion[];
   instructions: string;
+  institutionRegistration: boolean;
+  slotTransfers: boolean;
+  speakerFields: PersonField[];
+  adjudicatorFields: PersonField[];
+  institutionRegion: boolean;
+  teamMessage: string;
+  adjudicatorMessage: string;
+  institutionMessage: string;
+  institutionQuestions: FeedbackQuestion[];
+  speakerQuestions: FeedbackQuestion[];
 }

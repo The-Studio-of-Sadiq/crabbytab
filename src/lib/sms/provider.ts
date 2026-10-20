@@ -1,4 +1,5 @@
 import { signWebhookBody } from "@/lib/email/deliveryStatus";
+import { normalizePhoneNumber } from "@/lib/phone";
 
 /**
  * Optional SMS hook (docs/email-notifications.md, "SMS"). CrabbyTab has no SMS provider built in:
@@ -20,12 +21,7 @@ export interface SmsProvider {
 
 export class SmsProviderConfigError extends Error {}
 
-/** A plausible E.164 number (leading +, 8–15 digits), after removing spaces, dashes and brackets. */
-export function normalizePhoneNumber(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const compact = value.replace(/[\s().-]/g, "");
-  return /^\+[1-9]\d{7,14}$/.test(compact) ? compact : null;
-}
+export { normalizePhoneNumber };
 
 export function isSmsConfigured(env: Record<string, string | undefined> = process.env): boolean {
   return Boolean(env.SMS_WEBHOOK_URL?.trim());
