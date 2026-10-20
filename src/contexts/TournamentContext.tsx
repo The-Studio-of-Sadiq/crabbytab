@@ -1884,7 +1884,7 @@ export function TournamentProvider({
         debates,
         ballots,
         drawIssues: (target) => tournament
-          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues })
+          ? validateDraw({ tournament, round: target, rounds, debates, teams, adjudicators, venues, institutions })
           : [],
       },
     }, override));
@@ -1943,6 +1943,7 @@ export function TournamentProvider({
     breakCategories,
     feedback,
     venues,
+    institutions,
     repository: {
       saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
     },

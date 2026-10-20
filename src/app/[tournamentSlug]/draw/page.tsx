@@ -24,6 +24,7 @@ import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team, Venue } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
+import { isVenueAvailableForRound } from "@/lib/venues/venues";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
@@ -47,6 +48,7 @@ export default function DrawPage() {
     teams,
     adjudicators,
     venues,
+    institutions,
     generateDraw,
     updateRound,
     updateTeam,
@@ -157,7 +159,7 @@ export default function DrawPage() {
       return;
     }
     const requiredVenues = getRequiredVenueCount(tournament, activeRound, teams);
-    const availableVenueCount = venues.filter((venue) => venue.available !== false).length;
+    const availableVenueCount = venues.filter((venue) => isVenueAvailableForRound(venue, activeRound.id)).length;
     if (availableVenueCount < requiredVenues) {
       window.alert(
         `Not enough available venues for this draw. ${requiredVenues} venues are required for the checked-in teams, but only ${availableVenueCount} are available. Add or enable venues before generating the draw.`
@@ -251,8 +253,8 @@ export default function DrawPage() {
     const venue = venues.find((v) => v.id === venueId);
     setVenueAssignmentError("");
     if (venue) {
-      if (venue.available === false) {
-        setVenueAssignmentError(`${venue.name} is unavailable.`);
+      if (!isVenueAvailableForRound(venue, debate.roundId)) {
+        setVenueAssignmentError(`${venue.name} is unavailable in this round.`);
         return;
       }
       const occupiedBy = roundDebates.find(
@@ -300,7 +302,7 @@ export default function DrawPage() {
   const handleAutoAllocateVenues = async () => {
     setVenueAssignmentError("");
     try {
-      const assignedVenues = allocateVenuesToDebates(roundDebates, venues);
+      const assignedVenues = allocateVenuesToDebates(roundDebates, venues, { teams, adjudicators, institutions });
       const assignmentsByDebateId = new Map(
         [...assignedVenues].map(([debateId, venue]) => [debateId, venue])
       );
@@ -546,6 +548,7 @@ export default function DrawPage() {
           adjudicators={adjudicators}
           venues={venues}
           ballots={ballots}
+          institutions={institutions}
         />
       )}
 

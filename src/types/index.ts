@@ -279,6 +279,34 @@ export interface TournamentPreferences {
   allowSelfCheckIn?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
   speakerCategories?: SpeakerCategory[];
+  /**
+   * Room categories with display options (Tabbycat VenueCategory). A room belongs to the category
+   * named by Venue.category; categories without an entry here display with defaults.
+   */
+  venueCategories?: VenueCategoryInfo[];
+  /** Hours a room check-in stays valid (Tabbycat checkin_window_venues). Absent or 0 = never expires. */
+  venueCheckInExpiresAfterHours?: number;
+}
+
+/** Display options of a room category (matched to Venue.category by name, ignoring case). */
+export interface VenueCategoryInfo {
+  name: string;
+  /** Predicate after "This room", e.g. "has step-free access". Always shown on admin pages. */
+  description?: string;
+  /** Show the category name before ("prefix") or after ("suffix") room names in the draw. */
+  displayInName?: "none" | "prefix" | "suffix";
+  /** Show the description in the room's tooltip on public pages. */
+  publicTooltip?: boolean;
+}
+
+/**
+ * A soft, ranked room preference (Tabbycat VenueConstraint): the subject's debates should be in a
+ * room of this category. Higher priority wins over lower; unmet constraints are reported, never
+ * enforced. Hard needs (step-free access, capacity) belong in VenueRequirements instead.
+ */
+export interface VenueConstraint {
+  category: string;
+  priority: number;
 }
 
 export interface SpeakerCategory {
@@ -409,6 +437,8 @@ export interface Institution {
   code: string;
   region?: string;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences for every team of this institution. */
+  venueConstraints?: VenueConstraint[];
 }
 
 export interface VenueRequirements {
@@ -460,6 +490,8 @@ export interface Team {
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences (Tabbycat venue constraints). */
+  venueConstraints?: VenueConstraint[];
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
   /**
@@ -505,6 +537,8 @@ export interface Adjudicator {
   /** Breaking adjudicator (shown on the public breaking adjudicators list when released). */
   breaking?: boolean;
   venueRequirements?: VenueRequirements;
+  /** Soft room preferences (Tabbycat venue constraints). */
+  venueConstraints?: VenueConstraint[];
   privateUrlKey?: string; // Secret key for adjudicator's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
 }
@@ -519,8 +553,15 @@ export interface Venue {
   accessible?: boolean;
   online?: boolean;
   nearTabRoom?: boolean;
+  /** Default availability; a per-round entry in roundAvailability overrides it. */
   available?: boolean;
+  /** Round id -> available in that round (Tabbycat round availability for rooms). */
+  roundAvailability?: Record<string, boolean>;
   checkedIn?: boolean;
+  /** When the room was last checked in; with venueCheckInExpiresAfterHours the check-in lapses. */
+  checkedInAt?: string;
+  /** Map or meeting link (online rooms), shown with the room in the draw, portals and emails. */
+  url?: string;
 }
 
 // BP Debate Sides: OG (Opening Gov), OO (Opening Opp), CG (Closing Gov), CO (Closing Opp)
