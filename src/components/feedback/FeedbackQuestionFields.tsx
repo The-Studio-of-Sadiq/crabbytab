@@ -3,6 +3,17 @@
 import type { FeedbackAnswer, FeedbackQuestion } from "@/types";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { integerScaleChoices } from "@/lib/feedback/questions";
+import { controlClasses } from "@/components/ui/Field";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+
+const labelClasses = "block text-xs font-medium text-fg";
+const fieldClasses = cn(controlClasses, "h-8 px-2.5");
+const choiceInputClasses = "h-4 w-4 shrink-0 cursor-pointer accent-[rgb(var(--color-accent))]";
+
+function RequiredMark({ required }: { required?: boolean }) {
+  return required ? <span className="ms-0.5 text-fg-muted">*</span> : null;
+}
 
 /** An empty box clears the answer; anything else is kept as typed so validation can name the problem. */
 function numberAnswer(value: string): FeedbackAnswer {
@@ -22,30 +33,30 @@ export function FeedbackQuestionFields({
   if (questions.length === 0) return null;
 
   return (
-    <fieldset className="space-y-3 border-t border-gray-100 pt-3">
-      <legend className="text-xs font-bold text-gray-800">{t("feedbackQuestions.legend")}</legend>
+    <fieldset className="space-y-3 border-t border-border pt-3">
+      <legend className="text-[13px] font-semibold text-fg">{t("feedbackQuestions.legend")}</legend>
       {questions.map((question) => question.type === "checkbox" ? (
-        <label key={question.id} className="flex items-start gap-2 text-xs font-semibold text-gray-700">
+        <label key={question.id} className="flex items-start gap-2 text-[13px] font-medium text-fg">
           <input
             id={`feedback-question-${question.id}`}
             type="checkbox"
             required={question.required}
             checked={answers[question.id] === true}
             onChange={(event) => onChange(question.id, event.target.checked)}
-            className="mt-0.5"
+            className={cn(choiceInputClasses, "mt-0.5", focusRing)}
           />
-          <span>{question.label}{question.required ? " *" : ""}</span>
+          <span>{question.label}<RequiredMark required={question.required} /></span>
         </label>
       ) : question.type === "integer_scale" ? (
-        <fieldset key={question.id} className="space-y-1">
-          <legend className="block text-xs font-semibold text-gray-700">
-            {question.label}{question.required ? " *" : ""}
+        <fieldset key={question.id} className="space-y-1.5">
+          <legend className={labelClasses}>
+            {question.label}<RequiredMark required={question.required} />
           </legend>
           <div id={`feedback-question-${question.id}`} className="flex flex-wrap gap-1.5">
             {integerScaleChoices(question).map((value) => (
               <label
                 key={value}
-                className="flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs font-mono focus-within:ring-2 focus-within:ring-blue-500"
+                className="flex h-8 min-w-8 cursor-pointer items-center gap-1.5 rounded-md border border-border-strong bg-surface px-2.5 font-mono text-xs text-fg hover:bg-muted has-[:checked]:border-accent has-[:checked]:bg-accent-subtle focus-within:ring-2 focus-within:ring-accent"
               >
                 <input
                   type="radio"
@@ -54,6 +65,7 @@ export function FeedbackQuestionFields({
                   required={question.required}
                   checked={answers[question.id] === value}
                   onChange={() => onChange(question.id, value)}
+                  className={cn(choiceInputClasses, "focus:outline-none")}
                 />
                 {value}
               </label>
@@ -61,9 +73,9 @@ export function FeedbackQuestionFields({
           </div>
         </fieldset>
       ) : (
-        <div key={question.id} className="space-y-1">
-          <label htmlFor={`feedback-question-${question.id}`} className="block text-xs font-semibold text-gray-700">
-            {question.label}{question.required ? " *" : ""}
+        <div key={question.id} className="space-y-1.5">
+          <label htmlFor={`feedback-question-${question.id}`} className={labelClasses}>
+            {question.label}<RequiredMark required={question.required} />
           </label>
           {question.type === "text" && (
             <input
@@ -71,7 +83,7 @@ export function FeedbackQuestionFields({
               required={question.required}
               value={typeof answers[question.id] === "string" ? answers[question.id] as string : ""}
               onChange={(event) => onChange(question.id, event.target.value)}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-xs"
+              className={fieldClasses}
             />
           )}
           {question.type === "textarea" && (
@@ -81,7 +93,7 @@ export function FeedbackQuestionFields({
               value={typeof answers[question.id] === "string" ? answers[question.id] as string : ""}
               onChange={(event) => onChange(question.id, event.target.value)}
               rows={3}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-xs"
+              className={cn(controlClasses, "px-2.5 py-2")}
             />
           )}
           {question.type === "scale" && (
@@ -94,7 +106,7 @@ export function FeedbackQuestionFields({
               step="any"
               value={typeof answers[question.id] === "number" ? answers[question.id] as number : ""}
               onChange={(event) => onChange(question.id, numberAnswer(event.target.value))}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-xs"
+              className={fieldClasses}
             />
           )}
           {(question.type === "integer" || question.type === "float") && (
@@ -108,7 +120,7 @@ export function FeedbackQuestionFields({
               max={question.max}
               value={typeof answers[question.id] === "number" ? answers[question.id] as number : ""}
               onChange={(event) => onChange(question.id, numberAnswer(event.target.value))}
-              className="w-full rounded border border-gray-300 px-3 py-2 text-xs"
+              className={fieldClasses}
             />
           )}
           {question.type === "yes_no" && (
@@ -120,7 +132,7 @@ export function FeedbackQuestionFields({
                 question.id,
                 event.target.value === "" ? null : event.target.value === "true"
               )}
-              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
+              className={cn(controlClasses, "h-8 pe-8 ps-2.5")}
             >
               <option value="">{t("feedbackQuestions.choose")}</option>
               <option value="true">{t("feedbackQuestions.yes")}</option>
@@ -133,7 +145,7 @@ export function FeedbackQuestionFields({
               required={question.required}
               value={typeof answers[question.id] === "string" ? answers[question.id] as string : ""}
               onChange={(event) => onChange(question.id, event.target.value)}
-              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
+              className={cn(controlClasses, "h-8 pe-8 ps-2.5")}
             >
               <option value="">{t("feedbackQuestions.choose")}</option>
               {question.options?.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -144,7 +156,7 @@ export function FeedbackQuestionFields({
               {question.options?.map((option) => {
                 const selected = Array.isArray(answers[question.id]) ? answers[question.id] as string[] : [];
                 return (
-                  <label key={option} className="flex items-center gap-2 text-xs font-normal">
+                  <label key={option} className="flex items-center gap-2 text-[13px] text-fg">
                     <input
                       type="checkbox"
                       checked={selected.includes(option)}
@@ -152,6 +164,7 @@ export function FeedbackQuestionFields({
                         question.id,
                         event.target.checked ? [...selected, option] : selected.filter((value) => value !== option)
                       )}
+                      className={cn(choiceInputClasses, focusRing)}
                     />
                     {option}
                   </label>

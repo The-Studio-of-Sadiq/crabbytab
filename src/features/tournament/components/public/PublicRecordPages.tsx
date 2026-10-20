@@ -2,52 +2,45 @@
 
 import React from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { PublicShell } from "@/components/public/PublicShell";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { adjudicatorRecord, publicRecordPath, teamRecord } from "@/lib/publicRecords";
-import { PublicPersonName, PublicTeamName } from "@/features/tournament/components/public/PublicSitePanels";
+import { PublicPersonName, PublicTeamName, publicRecordLinkClass } from "@/features/tournament/components/public/PublicSitePanels";
 
 function RecordShell({ slug, title, children }: { slug: string; title: React.ReactNode; children: React.ReactNode }) {
   const { tournament, loading, cloudLoadError, publicRoundsLoading } = useTournament();
   const { t } = useI18n();
   return (
-    <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
-      <header className="bg-[#24292e] text-white py-4 px-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <Link href={`/${encodeURIComponent(slug)}/public`} className="inline-flex items-center gap-1 text-[11px] text-gray-300 hover:text-white">
-              <ArrowLeft className="w-3 h-3 rtl:-scale-x-100" aria-hidden="true" />
-              {t("public.record.back")}
-            </Link>
-            <p className="text-sm font-bold truncate">{tournament?.name || t("public.defaultTitle")}</p>
-          </div>
-          <LanguageSwitcher triggerClassName="shrink-0 text-gray-100 hover:bg-white/10 hover:text-white" />
-        </div>
-      </header>
-      <main className="max-w-4xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4 flex-1">
-        {loading ? (
-          <p role="status" className="text-xs text-gray-500">{t("public.loading")}</p>
-        ) : cloudLoadError ? (
-          <p role="alert" className="text-xs text-red-700">{cloudLoadError}</p>
-        ) : (
-          <>
-            <h1 className="text-lg font-bold text-gray-900">{title}</h1>
-            {publicRoundsLoading && <p role="status" className="text-xs text-gray-500">{t("public.loadingRounds")}</p>}
-            {children}
-          </>
-        )}
-      </main>
-    </div>
+    <PublicShell
+      width="narrow"
+      title={tournament?.name || t("public.defaultTitle")}
+      backHref={`/${encodeURIComponent(slug)}/public`}
+      backLabel={t("public.record.back")}
+    >
+      {loading ? (
+        <p role="status" className="text-xs text-fg-muted">{t("public.loading")}</p>
+      ) : cloudLoadError ? (
+        <Alert role="alert" tone="danger">{cloudLoadError}</Alert>
+      ) : (
+        <>
+          <h1 className="text-xl font-semibold tracking-tight text-fg">{title}</h1>
+          {publicRoundsLoading && <p role="status" className="text-xs text-fg-muted">{t("public.loadingRounds")}</p>}
+          {children}
+        </>
+      )}
+    </PublicShell>
   );
 }
 
 function Notice({ children }: { children: React.ReactNode }) {
-  return <div className="bg-white border border-[#d0d7de] rounded-lg p-8 text-center text-xs text-gray-600">{children}</div>;
+  return <EmptyState title={children} />;
 }
 
 export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string }) {
@@ -67,8 +60,8 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
     .filter((name): name is string => Boolean(name));
   return (
     <RecordShell slug={slug} title={<PublicTeamName team={team} />}>
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-4 space-y-1 text-xs text-gray-700">
-        <p className="font-semibold text-gray-500 uppercase text-[10px]">{t("public.record.teamTitle")}</p>
+      <Card className="space-y-1 p-4 text-[13px] text-fg-muted">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("public.record.teamTitle")}</p>
         {team.institutionName && <p>{t("public.record.institution", { institution: team.institutionName })}</p>}
         {categoryNames.length > 0 && <p>{t("public.record.breakCategories", { categories: formatList(categoryNames) })}</p>}
         <p>
@@ -82,48 +75,48 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
                 </React.Fragment>
               ))}
         </p>
-      </div>
-      <section className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <h2 className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">{t("public.record.debates")}</h2>
+      </Card>
+      <Card className="overflow-hidden">
+        <CardHeader title={t("public.record.debates")} />
         {rows.length === 0 ? (
-          <p className="p-6 text-center text-xs text-gray-500">{t("public.record.noDebates")}</p>
+          <p className="px-4 py-8 text-center text-[13px] text-fg-muted">{t("public.record.noDebates")}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-start tabby-table">
-              <thead>
-                <tr>
-                  <th scope="col">{t("public.col.round")}</th>
-                  <th scope="col">{t("public.col.side")}</th>
-                  <th scope="col">{t("public.col.debate")}</th>
-                  <th scope="col">{t("public.col.result")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-start">
+              <THead>
+                <TR>
+                  <TH scope="col">{t("public.col.round")}</TH>
+                  <TH scope="col">{t("public.col.side")}</TH>
+                  <TH scope="col">{t("public.col.debate")}</TH>
+                  <TH scope="col">{t("public.col.result")}</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {rows.map((row) => (
-                  <tr key={row.debateId}>
-                    <td className="text-xs font-semibold">{row.roundName}</td>
-                    <td className="text-xs">{t(`side.${row.side}`)}</td>
-                    <td className="text-xs">
+                  <TR key={row.debateId}>
+                    <TD className="text-xs font-semibold">{row.roundName}</TD>
+                    <TD className="text-xs">{t(`side.${row.side}`)}</TD>
+                    <TD className="text-xs">
                       {t("public.record.opponents", { teams: formatList(row.opponents.map((opponent) => opponent.name || t("public.noPublicName"))) })}
-                      {row.venueName && <span className="block text-[10px] text-gray-500">{row.venueName}</span>}
-                    </td>
-                    <td className="text-xs font-mono">
+                      {row.venueName && <span className="block text-[11px] text-fg-muted">{row.venueName}</span>}
+                    </TD>
+                    <TD className="text-xs font-mono">
                       {row.result
                         ? row.result.rank !== undefined && tournament?.format === "bp"
                           ? t("public.rank", { rank: row.result.rank })
                           : row.result.win ? t("public.win") : t("public.loss")
                         : "—"}
                       {row.speakerScoreTotal !== undefined && (
-                        <span className="ms-2 text-gray-500">{t("public.speaks", { speaks: formatNumber(row.speakerScoreTotal, SCORE_DISPLAY_OPTIONS) })}</span>
+                        <span className="ms-2 text-fg-muted">{t("public.speaks", { speaks: formatNumber(row.speakerScoreTotal, SCORE_DISPLAY_OPTIONS) })}</span>
                       )}
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
+              </TBody>
+            </Table>
           </div>
         )}
-      </section>
+      </Card>
     </RecordShell>
   );
 }
@@ -143,47 +136,47 @@ export function AdjudicatorRecordPage({ slug, adjudicatorId }: { slug: string; a
   const rows = adjudicatorRecord(adjudicator.id, rounds, debates);
   return (
     <RecordShell slug={slug} title={<PublicPersonName name={adjudicator.name} />}>
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-4 space-y-1 text-xs text-gray-700">
-        <p className="font-semibold text-gray-500 uppercase text-[10px]">{t("public.record.adjudicatorTitle")}</p>
+      <Card className="space-y-1 p-4 text-[13px] text-fg-muted">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("public.record.adjudicatorTitle")}</p>
         {adjudicator.institutionName && <p>{t("public.record.institution", { institution: adjudicator.institutionName })}</p>}
-      </div>
-      <section className="bg-white border border-[#d0d7de] rounded-lg overflow-hidden">
-        <h2 className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">{t("public.record.debates")}</h2>
+      </Card>
+      <Card className="overflow-hidden">
+        <CardHeader title={t("public.record.debates")} />
         {rows.length === 0 ? (
-          <p className="p-6 text-center text-xs text-gray-500">{t("public.record.noDebates")}</p>
+          <p className="px-4 py-8 text-center text-[13px] text-fg-muted">{t("public.record.noDebates")}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-start tabby-table">
-              <thead>
-                <tr>
-                  <th scope="col">{t("public.col.round")}</th>
-                  <th scope="col">{t("public.col.role")}</th>
-                  <th scope="col">{t("public.col.debate")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-start">
+              <THead>
+                <TR>
+                  <TH scope="col">{t("public.col.round")}</TH>
+                  <TH scope="col">{t("public.col.role")}</TH>
+                  <TH scope="col">{t("public.col.debate")}</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {rows.map((row) => (
-                  <tr key={row.debateId}>
-                    <td className="text-xs font-semibold">{row.roundName}</td>
-                    <td className="text-xs">{t(`public.role.${row.role}`)}</td>
-                    <td className="text-xs">
+                  <TR key={row.debateId}>
+                    <TD className="text-xs font-semibold">{row.roundName}</TD>
+                    <TD className="text-xs">{t(`public.role.${row.role}`)}</TD>
+                    <TD className="text-xs">
                       {row.teams.map((team, index) => (
                         <React.Fragment key={team.side}>
                           {index > 0 && " · "}
-                          <Link href={publicRecordPath(slug, "team", team.teamId)} className="hover:underline">
+                          <Link href={publicRecordPath(slug, "team", team.teamId)} className={publicRecordLinkClass}>
                             {team.name || t("public.noPublicName")}
                           </Link>
                         </React.Fragment>
                       ))}
-                      {row.venueName && <span className="block text-[10px] text-gray-500">{row.venueName}</span>}
-                    </td>
-                  </tr>
+                      {row.venueName && <span className="block text-[11px] text-fg-muted">{row.venueName}</span>}
+                    </TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
+              </TBody>
+            </Table>
           </div>
         )}
-      </section>
+      </Card>
     </RecordShell>
   );
 }

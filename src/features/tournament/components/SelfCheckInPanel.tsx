@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
-import { CheckCircle2, CircleSlash } from "lucide-react";
+import { CircleSlash } from "lucide-react";
 
 import { useTournament } from "@/contexts/TournamentContext";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { StatusPill } from "@/components/ui/Badge";
+import { Alert } from "@/components/ui/Feedback";
 
 /**
  * Lets a team or adjudicator mark themselves available (or not) for the current round from their
@@ -33,39 +37,37 @@ export function SelfCheckInPanel({ privateKey, passcode }: { privateKey: string;
   };
 
   return (
-    <section aria-labelledby="self-check-in-title" className="rounded-lg border border-[#d0d7de] bg-white p-4 shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="self-check-in-title" className="text-sm font-bold text-gray-900">{t("checkIn.title", { round: roundName })}</h2>
-          <p role="status" className="mt-1 flex items-center gap-1.5 text-xs text-gray-700">
+    <Card>
+      <section aria-labelledby="self-check-in-title" className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 id="self-check-in-title" className="text-[15px] font-semibold text-fg">{t("checkIn.title", { round: roundName })}</h2>
+          <p role="status" className="mt-1.5">
             {available ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+              <StatusPill tone="success">{t("checkIn.available")}</StatusPill>
             ) : (
-              <CircleSlash className="h-4 w-4 text-gray-500" aria-hidden="true" />
+              <StatusPill tone="neutral" icon={<CircleSlash aria-hidden="true" />}>{t("checkIn.notAvailable")}</StatusPill>
             )}
-            {available ? t("checkIn.available") : t("checkIn.notAvailable")}
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="primary"
             onClick={() => void submit(true)}
             disabled={saving || available}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            aria-busy={(saving && !available) || undefined}
           >
             {saving && !available ? t("checkIn.saving") : t("checkIn.markAvailable")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => void submit(false)}
             disabled={saving || !available}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            aria-busy={(saving && available) || undefined}
           >
             {saving && available ? t("checkIn.saving") : t("checkIn.markNotAvailable")}
-          </button>
+          </Button>
         </div>
-      </div>
-      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
-    </section>
+      </section>
+      {error && <Alert tone="danger" role="alert" className="mx-4 mb-4">{error}</Alert>}
+    </Card>
   );
 }
