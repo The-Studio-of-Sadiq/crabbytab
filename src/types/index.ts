@@ -392,6 +392,14 @@ export interface PreformedPanel {
   traineeIds: string[];
   /** 0-10, like Debate.importance: higher panels go to higher-priority debates. */
   importance: number;
+  /** Anticipated-draw annotations (Tabbycat PreformedPanel); informational, set by "create from anticipated draw". */
+  roomRank?: number;
+  /** Lowest bracket this panel's room might be. */
+  bracketMin?: number;
+  /** Highest bracket this panel's room might be. */
+  bracketMax?: number;
+  /** Teams in the room that may still be live for the open break. */
+  liveness?: number;
 }
 
 export interface Institution {

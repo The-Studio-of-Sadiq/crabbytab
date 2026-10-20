@@ -2,11 +2,14 @@
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Layers, Plus, Save, Trash2, Upload, X, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Layers, Plus, Save, Trash2, Upload, X, AlertTriangle, CheckCircle2, Wand2, ArrowDownWideNarrow } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import type { Adjudicator, PreformedPanel } from "@/types";
 import {
+  anticipateRound,
   assignToPanel,
+  panelsFromAnticipatedDraw,
+  prioritisePanels,
   emptyPreformedPanel,
   panelMemberIds,
   panelsFromPreformedIds,
@@ -23,8 +26,19 @@ function newPanelId(): string {
 }
 
 export default function PreformedPanelsPage() {
-  const { tournament, rounds, activeRound, setActiveRound, adjudicators, updateRound, recordAuditEvent } =
-    useTournament();
+  const {
+    tournament,
+    rounds,
+    activeRound,
+    setActiveRound,
+    adjudicators,
+    teams,
+    debates,
+    ballots,
+    breakCategories,
+    updateRound,
+    recordAuditEvent,
+  } = useTournament();
   const [draftByRound, setDraftByRound] = useState<Record<string, PreformedPanel[]>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "error" | "success"; text: string } | null>(null);
@@ -84,6 +98,32 @@ export default function PreformedPanelsPage() {
       return;
     }
     setPanels(imported);
+  };
+
+  const anticipate = () => (round && tournament
+    ? anticipateRound(round, { tournament, rounds, teams, debates, ballots, breakCategories })
+    : undefined);
+
+  const handleAnticipate = () => {
+    const anticipation = anticipate();
+    if (!anticipation) return;
+    if (anticipation.rooms.length === 0) {
+      setMessage({ kind: "error", text: "There are not enough teams for a room." });
+      return;
+    }
+    setPanels(panelsFromAnticipatedDraw(panels, anticipation.rooms, newPanelId));
+    setMessage({
+      kind: anticipation.notice ? "error" : "success",
+      text: anticipation.notice ?? `Created or updated ${anticipation.rooms.length} panels from the anticipated draw. Save to keep them.`,
+    });
+  };
+
+  const handlePrioritise = (method: "bracket" | "liveness") => {
+    try {
+      setPanels(prioritisePanels(panels, method, method === "liveness" ? anticipate()?.thresholds : undefined));
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not prioritise the panels." });
+    }
   };
 
   const label = (adjudicator: Adjudicator) =>
@@ -199,6 +239,30 @@ export default function PreformedPanelsPage() {
             </button>
             <button
               type="button"
+              onClick={handleAnticipate}
+              title="One panel per room the next draw is expected to have, annotated with its possible bracket range and live teams"
+              className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              <Wand2 className="h-3.5 w-3.5" /> Create from anticipated draw
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePrioritise("bracket")}
+              disabled={panels.length === 0}
+              className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <ArrowDownWideNarrow className="h-3.5 w-3.5" /> Prioritise by bracket
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePrioritise("liveness")}
+              disabled={panels.length === 0}
+              className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <ArrowDownWideNarrow className="h-3.5 w-3.5" /> Prioritise by liveness
+            </button>
+            <button
+              type="button"
               onClick={handleSave}
               disabled={!dirty || saving || errors.length > 0}
               className="inline-flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
@@ -258,6 +322,10 @@ export default function PreformedPanelsPage() {
                         Panel {index + 1}
                         <span className="ml-2 font-normal text-gray-500">
                           {voters.length} voting{average !== undefined ? ` · avg ${average.toFixed(1)}` : ""}
+                          {panel.roomRank !== undefined && ` · room ${panel.roomRank}`}
+                          {panel.bracketMin !== undefined && panel.bracketMax !== undefined &&
+                            ` · bracket ${panel.bracketMin === panel.bracketMax ? panel.bracketMin : `${panel.bracketMin}–${panel.bracketMax}`}`}
+                          {panel.liveness !== undefined && ` · ${panel.liveness} live`}
                         </span>
                       </h2>
                       <div className="flex items-center gap-2">
