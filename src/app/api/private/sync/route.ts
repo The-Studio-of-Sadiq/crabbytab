@@ -23,6 +23,10 @@ import {
   sanitizeTeamPrivateDebate,
 } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
+import {
+  applyPrivateBallotConfirmation,
+  planIndividualBallotWrites,
+} from "@/lib/privateIndividualBallots";
 import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
@@ -222,7 +226,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        ballotSubmissions.push(ballot);
+        ballotSubmissions.push(applyPrivateBallotConfirmation(ballot, tournament, roundById.get(debate.roundId)));
       } else {
         const debate = assignedDebates.get(debateId)!;
         const panel = debate.adjudicators;
@@ -370,20 +374,37 @@ export async function POST(request: NextRequest) {
           return false;
         }
 
-        const plan = planPrivateBallotWrites(
-          ballotSubmissions,
-          new Map(debateIds.map((debateId) => [
-            debateId,
-            existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
-              id: document.id,
-              data: document.data() as Partial<BallotSubmission>,
-            })),
-          ])),
-          // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
-          new Set(debateIds.filter((debateId) =>
-            isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
-          ))
-        );
+        const existingByDebate = new Map(debateIds.map((debateId) => [
+          debateId,
+          existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
+            id: document.id,
+            data: document.data() as Partial<BallotSubmission>,
+          })),
+        ]));
+        // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
+        const lockedDebateIds = new Set(debateIds.filter((debateId) =>
+          isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
+        ));
+        const individual = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator === true);
+        const consensus = ballotSubmissions.filter((ballot) => ballot.singleAdjudicator !== true);
+        const consensusPlan = planPrivateBallotWrites(consensus, existingByDebate, lockedDebateIds);
+        const individualPlan = planIndividualBallotWrites({
+          submissions: individual,
+          existingByDebate,
+          lockedDebateIds,
+          debates: assignedDebates,
+          rulesFor: (debate) => ({
+            format: tournament.format,
+            preferences: tournament.preferences,
+            stage: roundById.get(debate.roundId)?.stage,
+          }),
+          autoConfirm: tournament.preferences?.privateBallotConfirmation !== "tab_room",
+          timestamp: new Date().toISOString(),
+        });
+        const plan = {
+          discardExistingIds: [...new Set([...consensusPlan.discardExistingIds, ...individualPlan.discardExistingIds])],
+          writes: [...consensusPlan.writes, ...individualPlan.writes],
+        };
         const existingById = new Map(
           [...existingBallotsByDebate.values()].flatMap((snapshot) =>
             snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)
@@ -437,7 +458,8 @@ export async function POST(request: NextRequest) {
         firestore,
         tournament,
         adjudicator: { id: actorDocument.id, name: actor.name, email: actor.email },
-        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true),
+        // Receipts cover what this adjudicator submitted, not a merge of the panel's sheets.
+        ballots: writtenBallots.filter((ballot) => ballot.discarded !== true && ballot.submitterId === actorDocument.id),
         debates: assignedDebates,
         rounds: roundById,
       });

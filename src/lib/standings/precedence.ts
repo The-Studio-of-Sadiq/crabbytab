@@ -4,6 +4,7 @@ import {
   ALL_TEAM_METRICS,
   DEFAULT_SPEAKER_PRECEDENCE,
   DEFAULT_TEAM_PRECEDENCE,
+  EXTRA_ONLY_TEAM_METRICS,
   RANKING_ONLY_TEAM_METRICS,
   REPEATABLE_TEAM_METRICS,
   TEAM_METRIC_DIRECTION,
@@ -30,7 +31,8 @@ export function resolveTeamPrecedence(
   format: TournamentFormat | string,
   preferences?: Pick<TournamentPreferences, "teamStandingsPrecedence">
 ): TeamMetricId[] {
-  const custom = sanitize(preferences?.teamStandingsPrecedence, ALL_TEAM_METRICS, REPEATABLE_TEAM_METRICS);
+  const rankable = ALL_TEAM_METRICS.filter((id) => !EXTRA_ONLY_TEAM_METRICS.includes(id));
+  const custom = sanitize(preferences?.teamStandingsPrecedence, rankable, REPEATABLE_TEAM_METRICS);
   if (custom.length > 0) return custom;
   return format === "bp" ? DEFAULT_TEAM_PRECEDENCE.bp : DEFAULT_TEAM_PRECEDENCE.two_team;
 }

@@ -171,6 +171,8 @@ export interface TournamentContextType {
   breakResults: BreakCategoryResult[];
   isOwnerOrAdmin: boolean;
     isDataEntryAssistant: boolean;
+  /** Data-entry staff: effective permissions from the server (lib/staffPermissions.ts); empty for administrators. */
+  staffPermissions: string[];
   staffAccessLoading: boolean;
   staffAccessError: string;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
@@ -369,6 +371,7 @@ export function TournamentProvider({
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
+  const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [liveAdminVerified, setLiveAdminVerified] = useState(false);
   const [staffAccessError, setStaffAccessError] = useState("");
   const [privateSelfCheckIn, setPrivateSelfCheckIn] = useState<SelfCheckInStatus | null>(null);
@@ -1467,6 +1470,7 @@ export function TournamentProvider({
         const result = await response.json().catch(() => ({})) as {
           error?: string;
           role?: "admin" | "dataEntry" | null;
+          permissions?: unknown;
         };
         if (!response.ok) {
           throw new Error(result.error || `Access verification failed (${response.status}).`);
@@ -1485,7 +1489,11 @@ export function TournamentProvider({
           persistLocal("meta", safeTournament);
         }
         if (active) {
-          persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null });
+          const permissions = Array.isArray(result.permissions)
+            ? result.permissions.filter((item): item is string => typeof item === "string")
+            : [];
+          setStaffPermissions(permissions);
+          persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null, permissions });
           setLiveAdminVerified(result.role === "admin");
           setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
           setStaffAccessError(
@@ -1497,7 +1505,7 @@ export function TournamentProvider({
       } catch (error) {
         // Offline, the role last verified for this account on this device still applies, so the
         // tab room keeps working; Firestore rules enforce access whenever writes reach the cloud.
-        const cached = safeJsonParse<{ uid?: unknown; role?: unknown } | null>(
+        const cached = safeJsonParse<{ uid?: unknown; role?: unknown; permissions?: unknown } | null>(
           typeof window === "undefined" ? null : getLocalStore().getItem(`${storagePrefix}_verifiedRole`),
           null
         );
@@ -1509,6 +1517,9 @@ export function TournamentProvider({
         ) {
           setLiveAdminVerified(cached.role === "admin");
           setCloudStaffRole(cached.role);
+          setStaffPermissions(Array.isArray(cached.permissions)
+            ? cached.permissions.filter((item): item is string => typeof item === "string")
+            : []);
           setStaffAccessError("");
           return;
         }
@@ -2110,8 +2121,65 @@ export function TournamentProvider({
     }, override));
   };
 
+  /**
+   * Data-entry staff confirm ballots on the server (docs/staff-access.md); the changed ballots and
+   * debate come back and are stored as synced, so they are not sent back as local edits.
+   */
+  const confirmBallotAsStaff = async (
+    request: { action: "confirm" | "check"; ballotId: string; version: number; entry?: BallotSubmission }
+  ) => {
+    if (!user || !tournament) throw new Error("Sign in to confirm ballots.");
+    const token = await user.getIdToken();
+    const response = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/assistant-ballots`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      differences?: Array<{ field: string; first: string; second: string }>;
+      ballots?: BallotSubmission[];
+      debate?: Debate;
+    };
+    if (!response.ok || !result.ballots || !result.debate) {
+      const details = result.differences?.length
+        ? ` ${result.differences.map((difference) => `${difference.field}: ${difference.first} / ${difference.second}`).join("; ")}`
+        : "";
+      throw new Error(`${result.error || "Could not confirm the ballot."}${details}`);
+    }
+    const changedBallots = new Map(result.ballots.map((item) => [item.id, item]));
+    const nextBallots = [
+      ...ballots.map((item) => changedBallots.get(item.id) ?? item),
+      ...result.ballots.filter((item) => !ballots.some((existing) => existing.id === item.id)),
+    ];
+    const serverDebate = result.debate;
+    const nextDebates = debates.map((item) => item.id === serverDebate.id ? serverDebate : item);
+    setBallots(nextBallots);
+    persistLocal("ballots", nextBallots);
+    setDebates(nextDebates);
+    persistLocal("debates", nextDebates);
+    saveSyncState(baselineAfterDataEntrySync({
+      baseline: readSyncBaseline(),
+      sentCollections: {
+        ballots: result.ballots as unknown as CloudRecord[],
+        debates: [serverDebate] as unknown as CloudRecord[],
+      },
+      rejected: [],
+    }));
+  };
+
   const submitBallot = async (ballot: BallotSubmission, privatePasscode?: string) => {
+    // A data-entry assistant's blind check of someone else's entry is confirmed on the server.
+    if (isDataEntryAssistant && ballot.confirmed && ballot.checksVersion !== undefined) {
+      const pending = ballots.find((item) =>
+        item.debateId === ballot.debateId && item.version === ballot.checksVersion && !item.discarded && !item.confirmed
+      );
+      if (!pending) throw new Error("The ballot being checked is no longer waiting for a check. Sync and reload.");
+      await confirmBallotAsStaff({ action: "check", ballotId: pending.id, version: pending.version, entry: ballot });
+      return;
+    }
     await guarded((override) => submitBallotCommand(ballot, privatePasscode, ballotWorkflowDependencies, override));
+    if (ballot.confirmed) notifyBallotConfirmed();
   };
 
   const confirmBallot = async (
@@ -2119,8 +2187,32 @@ export function TournamentProvider({
     debateId: string,
     submittedBallot?: BallotSubmission
   ) => {
+    if (isDataEntryAssistant) {
+      const pending = ballots.find((item) => item.id === ballotId);
+      if (!pending) throw new Error("That ballot could not be found. Sync and reload.");
+      await confirmBallotAsStaff({ action: "confirm", ballotId, version: pending.version });
+      return;
+    }
     await guarded((override) =>
       confirmBallotCommand(ballotId, debateId, submittedBallot, ballotWorkflowDependencies, override)
+    );
+    notifyBallotConfirmed();
+  };
+
+  /**
+   * "Ballot confirmed" emails (docs/email-notifications.md): confirmations of a live cloud
+   * tournament reach Firestore through live writes, not uploads, so the server is asked to send
+   * them once the writes are flushed. A failure only delays them to the next trigger.
+   */
+  const notifyBallotConfirmed = () => {
+    if (!db || !user || !tournament || !isOwnerOrAdmin || tournament.preferences?.notifyBallotConfirmed !== true) return;
+    const currentUser = user;
+    const tournamentId = tournament.id;
+    void (async () => {
+      await flushLiveWrites();
+      await sendDueNotificationsCommand({ tournamentId, idToken: await currentUser.getIdToken() });
+    })().catch((error: unknown) =>
+      console.warn("Could not send ballot-confirmed emails:", error instanceof Error ? error.message : error)
     );
   };
 
@@ -2883,6 +2975,7 @@ export function TournamentProvider({
         breakResults,
         isOwnerOrAdmin,
           isDataEntryAssistant,
+        staffPermissions,
         staffAccessLoading,
           staffAccessError,
         cloudSyncState,

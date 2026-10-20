@@ -1,4 +1,4 @@
-import { Team, DebateSide, BPSide, TwoTeamSide, BPPositionCost } from "@/types";
+import { Team, DebateSide, BPSide, TwoTeamSide, BPPositionCost, BPAssignmentMethod } from "@/types";
 import { Rng, randomInt, shuffle } from "./rng";
 
 export interface TeamSideHistory {
@@ -10,7 +10,7 @@ export interface SideAllocationOptions {
   bpPositionCost?: BPPositionCost;
   renyiOrder?: number;
   bpPositionCostExponent?: number;
-  bpAssignmentMethod?: "hungarian" | "random";
+  bpAssignmentMethod?: BPAssignmentMethod;
   maxTimesPerSide?: number;
   maxAllowedSideImbalance?: number;
 }
@@ -32,6 +32,8 @@ export function sideCounts(history: DebateSide[], sides: readonly DebateSide[]):
  *   Rényi entropy of order α in bits (α = 1 Shannon, α = 0 Hartley).
  * - sum_squared_deviations: Σ (count − mean)² over the four positions after
  *   this round (4 × Tabbycat's "variance" option, which only rescales it).
+ * - simple: the number of times the team has already been in `side`
+ *   (Tabbycat's _position_cost_simple, history[pos], before this round).
  */
 export function bpPositionBaseCost(
   history: DebateSide[],
@@ -39,6 +41,7 @@ export function bpPositionBaseCost(
   options: Pick<SideAllocationOptions, "bpPositionCost" | "renyiOrder"> = {}
 ): number {
   const counts = sideCounts(history, BP_SIDES);
+  if (options.bpPositionCost === "simple") return counts[BP_SIDES.indexOf(side)];
   counts[BP_SIDES.indexOf(side)] += 1;
   const n = counts.reduce((sum, c) => sum + c, 0);
 

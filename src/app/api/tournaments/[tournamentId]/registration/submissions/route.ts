@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidRecordId } from "@/lib/linkTokens";
 import { parseReviewAction, reviewSubmission } from "@/lib/registration/service";
+import { entryName } from "@/lib/registration/validation";
+import { sendTemplatedEmail } from "@/lib/email/templatedEmail";
 import { assertStillAdministrator } from "@/lib/tournamentAdminAuth";
 import { authorizeRegistrationAdmin, NO_STORE, readJsonBody, registrationErrorResponse } from "../shared";
 
@@ -35,6 +37,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entityName: body.entityName,
       now: Date.now(),
     });
+    if (action === "approve") {
+      // Registration approved (docs/email-notifications.md): only when switched on in the email settings.
+      const tournamentName = (await authorization.tournamentRef.get()).data()?.name;
+      await sendTemplatedEmail({
+        tournamentRef: authorization.tournamentRef,
+        tournamentName: typeof tournamentName === "string" ? tournamentName : "the tournament",
+        event: "registration_approved",
+        recipient: {
+          email: submission.contactEmail,
+          name: submission.contactName,
+          entry: submission.approvedEntityName || entryName(submission),
+          institution: submission.institution?.name ?? "",
+        },
+        when: (settings) => settings.registrationEmails,
+      });
+    }
     return NextResponse.json({ submission }, { headers: NO_STORE });
   } catch (error) {
     return registrationErrorResponse(error, "Could not update the submission.");

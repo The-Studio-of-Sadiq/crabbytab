@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
 import { normalizeEmail } from "@/lib/linkTokens";
 import { isTournamentAdministrator } from "@/lib/tournamentAccess";
+import { groupPermissions, normalizePermissionAssignment } from "@/lib/staffPermissions";
 import {
   assertStillAdministrator,
   authorizeTournamentAdministrator,
@@ -16,6 +17,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validUid(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
+}
+
+/**
+ * Permission groups of a data-entry staff member (docs/staff-access.md). `permissions` is derived
+ * from the groups and stored so firestore.rules can check direct live writes.
+ */
+function permissionFields(body: unknown) {
+  const record = isRecord(body) ? body : {};
+  const { groups, extraPermissions } = normalizePermissionAssignment(record);
+  return { groups, extraPermissions, permissions: groupPermissions({ groups, extraPermissions }) };
 }
 
 const authorizeAdministrator = (request: NextRequest, tournamentId: string) =>
@@ -117,6 +128,7 @@ export async function POST(
           role: assignment.role,
           addedAt: assignment.addedAt,
           addedBy: user.uid,
+          ...(assignment.role === "dataEntry" ? permissionFields(body) : {}),
         });
       }
       return assignments;
@@ -171,4 +183,42 @@ export async function DELETE(
   }
 
   return NextResponse.json({ uid, removed: true });
+}
+/** Changes the permission groups of one data-entry staff member. */
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ tournamentId: string }> }
+) {
+  const { tournamentId } = await params;
+  if (!validId(tournamentId)) return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
+  const authorization = await authorizeAdministrator(request, tournamentId);
+  if ("error" in authorization) {
+    return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  const uid = isRecord(body) ? body.uid : undefined;
+  if (!validUid(uid)) return NextResponse.json({ error: "Invalid staff account." }, { status: 400 });
+  const fields = permissionFields(body);
+  try {
+    await authorization.firestore.runTransaction(async (transaction) => {
+      await assertStillAdministrator(transaction, authorization);
+      const staffRef = authorization.tournamentRef.collection("staff").doc(uid);
+      const staffSnapshot = await transaction.get(staffRef);
+      if (staffSnapshot.data()?.role !== "dataEntry") {
+        throw new Error("Permission groups apply to data-entry staff only.");
+      }
+      transaction.update(staffRef, { ...fields, permissionsUpdatedAt: new Date().toISOString(), permissionsUpdatedBy: authorization.user.uid });
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not change staff permissions." },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json({ uid, ...fields });
 }
