@@ -162,7 +162,11 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
     ["adjudicator", new Map()],
   ]);
   const questionXml = questionDefinitions.map(({ question, fromTeams, fromAdjudicators }, index) => {
-    const typeMap = { text: "t", textarea: "tl", scale: "is", yes_no: "bs", select_one: "ss", select_many: "ms" } as const;
+    // "scale" (any number in range) is Tabbycat's float box with bounds.
+    const typeMap = {
+      text: "t", textarea: "tl", scale: "f", yes_no: "bs", select_one: "ss", select_many: "ms",
+      integer: "i", float: "f", checkbox: "bc", integer_scale: "is",
+    } as const;
     const xmlQuestionId = ids.allocate("question", question.id || String(index + 1));
     questionIdsBySource.get(fromTeams ? "team" : "adjudicator")!.set(question.id, xmlQuestionId);
     const choices = (question.options || []).map((option) => `<choice>${escapeXml(option)}</choice>`).join("");

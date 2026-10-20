@@ -59,9 +59,39 @@ export type BPAssignmentMethod = "hungarian" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
 export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
-export type FeedbackQuestionType = "text" | "textarea" | "scale" | "yes_no" | "select_one" | "select_many";
+/**
+ * Tabbycat's answer types: text (t), long text (tl), integer box (i), float box (f), integer
+ * scale (is), yes/no dropdown (bs), checkbox (bc), select one (ss), select many (ms).
+ * "scale" is the pre-wave-3 "number in range" type: any number between min and max.
+ */
+export type FeedbackQuestionType =
+  | "text"
+  | "textarea"
+  | "scale"
+  | "yes_no"
+  | "select_one"
+  | "select_many"
+  | "integer"
+  | "float"
+  | "checkbox"
+  | "integer_scale";
 export type FeedbackAnswer = string | number | boolean | string[] | null;
+/** Pre-wave-3 preset; see FeedbackPathConfig and src/lib/feedback/paths.ts for how it maps. */
 export type FeedbackPath = "chairs_to_panel" | "two_way" | "everyone";
+/** Which adjudicators a team gives feedback on: the chair only, or every adjudicator on the panel. */
+export type TeamFeedbackTargets = "chair" | "all_adjudicators" | "none";
+/** Who gives feedback on whom (Tabbycat's feedback_from_teams and feedback_paths, made explicit). */
+export interface FeedbackPathConfig {
+  teams: TeamFeedbackTargets;
+  chairOnPanellists: boolean;
+  chairOnTrainees: boolean;
+  panellistsOnChair: boolean;
+  traineesOnChair: boolean;
+  /** Every adjudicator (trainees included) on every other adjudicator; implies the four above. */
+  adjudicatorsOnEachOther: boolean;
+  /** Teams and adjudicators may also rate teams. Never expected, never counted in adjudicator scores. */
+  onTeams: boolean;
+}
 /** Who gave feedback: a team, or an adjudicator in the role they held in that debate. */
 export type FeedbackSourceRole = "team" | "chair" | "panellist" | "trainee";
 /** The role the rated adjudicator held in that debate. */
@@ -77,8 +107,21 @@ export interface FeedbackQuestion {
   type: FeedbackQuestionType;
   required: boolean;
   options?: string[];
+  /** Bounds for scale and integer_scale (required) and integer/float boxes (optional). */
   min?: number;
   max?: number;
+}
+
+/** One change to an adjudicator's base or test score, newest last. */
+export interface AdjudicatorScoreChange {
+  field: "baseScore" | "testScore";
+  /** Undefined: there was no test score (or it was cleared). */
+  previous?: number;
+  value?: number;
+  timestamp: string;
+  actorId?: string;
+  actorName?: string;
+  reason?: string;
 }
 
 export interface TournamentPreferences {
@@ -106,6 +149,10 @@ export interface TournamentPreferences {
   teamFeedbackQuestions?: FeedbackQuestion[];
   adjudicatorFeedbackQuestions?: FeedbackQuestion[];
   feedbackPath?: "chairs_to_panel" | "two_way" | "everyone";
+  /** Explicit paths; absent -> derived from feedbackPath. */
+  feedbackPaths?: FeedbackPathConfig;
+  /** Paths in elimination rounds; absent -> same as feedbackPaths. */
+  eliminationFeedbackPaths?: FeedbackPathConfig;
   feedbackInEliminationRounds?: boolean;
   checkInExpiresAfterHours?: number;
   publicCheckInStatus?: boolean;
@@ -391,6 +438,8 @@ export interface Adjudicator {
   institutionName?: string;
   baseScore: number; // e.g., 1 to 10 or 1 to 5 scale (default 5.0)
   testScore?: number;
+  /** Every base/test score change, oldest first. Organiser-only, like the scores themselves. */
+  scoreHistory?: AdjudicatorScoreChange[];
   trainee: boolean;
   independent: boolean;
   checkedIn?: boolean;

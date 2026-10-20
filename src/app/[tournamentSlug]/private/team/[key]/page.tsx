@@ -23,7 +23,12 @@ import {
 import { Debate, DebateSide, FeedbackAnswer } from "@/types";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
-import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import {
+  isFeedbackEnabledForRound,
+  questionsForFeedbackSource,
+  validateFeedbackAnswers,
+} from "@/lib/feedback/questions";
+import { feedbackPathsForRound, isFeedbackPathAllowed } from "@/lib/feedback/paths";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 
@@ -611,6 +616,13 @@ export default function TeamPrivatePortalPage() {
                     .map((slot) => [slot!.teamId, slot!] as const)
                 ).values()
               );
+              const feedbackPaths = feedbackPathsForRound(tournament?.preferences, round);
+              const feedbackOpen = feedbackEnabled && isFeedbackEnabledForRound(
+                debate,
+                round,
+                tournament?.preferences?.feedbackInEliminationRounds !== false
+              );
+              const ratedPanel = panel.filter((adj) => isFeedbackPathAllowed(feedbackPaths, "team", adj.role));
 
               return (
                 <div
@@ -735,7 +747,7 @@ export default function TeamPrivatePortalPage() {
                     </div>
 
                     {/* Section: Feedback on Adjudicators */}
-                    {feedbackEnabled && (
+                    {feedbackOpen && feedbackPaths.teams !== "none" && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
@@ -751,13 +763,13 @@ export default function TeamPrivatePortalPage() {
                           <p className="text-[11px] text-gray-500 italic">
                             {t("teamPortal.adjudicatorsHidden")}
                           </p>
-                        ) : panel.length === 0 ? (
+                        ) : ratedPanel.length === 0 ? (
                           <p className="text-[11px] text-gray-500 italic">
                             {t("teamPortal.noAdjudicators")}
                           </p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                            {panel.map((adj) => {
+                            {ratedPanel.map((adj) => {
                               const submitted = hasSubmittedFeedback(adj.id, debate.id);
                               const pastFb = getSubmittedFeedback(adj.id, debate.id);
 
@@ -793,7 +805,7 @@ export default function TeamPrivatePortalPage() {
                       </div>
                     )}
 
-                    {feedbackEnabled && (
+                    {feedbackOpen && feedbackPaths.onTeams && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">

@@ -123,3 +123,23 @@ describe("feedback scores", () => {
     expect(history[1].summary?.count).toBe(1);
   });
 });
+
+describe("question answers and the feedback score", () => {
+  it("uses only the overall score; numeric answers never change it", () => {
+    const debates = [panelDebate("d1", "r1")];
+    const plain = [submission({ score: 6 })];
+    const withAnswers = [submission({ score: 6, answers: { clarity: 1, minutes: 99.5, scale: 10, oral: true } })];
+    expect(calculateFeedbackSummaries(withAnswers, debates).get("chair"))
+      .toEqual(calculateFeedbackSummaries(plain, debates).get("chair"));
+  });
+
+  it("still leaves out unconfirmed and ignored feedback", () => {
+    const debates = [panelDebate("d1", "r1")];
+    const summaries = calculateFeedbackSummaries([
+      submission({ id: "a", score: 8 }),
+      submission({ id: "b", score: 1, confirmed: false, answers: { clarity: 5 } }),
+      submission({ id: "c", score: 1, ignored: true, answers: { clarity: 5 } }),
+    ], debates);
+    expect(summaries.get("chair")).toMatchObject({ count: 1, average: 8 });
+  });
+});

@@ -68,14 +68,67 @@ With the default weights (conflict 1,000,000, history 10,000, mismatch 10,000,00
 The weights are used exactly as configured, so a low conflict penalty can let a conflict
 through. Any such conflict is reported. A penalty of 0 turns that check off.
 
+## Feedback paths
+
+*Settings → Adjudicator Feedback → Feedback paths* says who gives feedback on whom
+(`TournamentPreferences.feedbackPaths`, `src/lib/feedback/paths.ts`), as Tabbycat's
+"feedback from teams" and "feedback paths" settings:
+
+- **Teams** give feedback on the chair only, on every adjudicator on the panel, or nobody.
+- **Adjudicators:** chair on panellists, chair on trainees, panellists on chair, trainees on
+  chair, each switched separately, or *every adjudicator on every other* (trainees included).
+- **Feedback on teams** (teams and adjudicators rating teams) can be allowed. It is never
+  expected and never counts towards adjudicator scores.
+- **Elimination rounds** can have their own paths (`eliminationFeedbackPaths`); without them the
+  preliminary paths apply. *Collect feedback in elimination rounds* and the per-round switch still
+  turn feedback off entirely.
+
+The same resolved paths (`feedbackPathsForRound`) decide what the team and adjudicator portals
+offer, what the private sync route accepts, which sources the tab-room form lists, what the
+progress panel expects and which forms the print page produces (one per expected submission,
+teams' and adjudicators'). The data-entry assistant route checks only that source and target sat
+in the debate, not the paths (a known gap).
+
+Tournaments from before the explicit paths keep their preset (`feedbackPath`):
+
+| Preset | Teams on | Adjudicators |
+|---|---|---|
+| chairs → panel | chair | chair on panellists and trainees |
+| two-way (default) | chair | chair on panel, panellists and trainees on chair |
+| everyone | every adjudicator | every adjudicator on every other; feedback on teams allowed |
+
+Teams were always expected to rate only the chair, so the presets keep that. **Behaviour change:**
+before, a team's portal and the tab-room form also accepted team feedback on panellists and
+trainees under the first two presets; now they follow the paths. Choose *Every adjudicator on the
+panel* to restore that. Under *everyone* teams are now also expected to rate every adjudicator.
+
 ## Feedback progress
 
-The progress panel expects each team to rate the chair. Adjudicators are expected to rate
-each other according to the feedback path:
+The progress panel lists, per round, the feedback the round's paths expect. Any submission from
+that source about that target in the round counts as received, including unconfirmed and ignored
+ones.
 
-- *chairs → panel:* the chair rates the panel.
-- *two-way:* the chair and the panel rate each other.
-- *everyone:* every adjudicator rates every other adjudicator.
+## Feedback questions
 
-Any submission from that source about that target in the round counts as received,
-including ignored ones.
+Besides the overall score, each questionnaire (teams' and adjudicators') can ask questions of
+these types, matching Tabbycat's: short text, long text, whole-number box and decimal box (optional
+minimum and maximum), integer scale (pick one whole number between required bounds, at most 21
+choices), number in range (the pre-wave-3 "scale": any number between required bounds), yes/no,
+checkbox (a required checkbox must be ticked), select one and select many. Answers are validated in
+the browser and again by the private sync and data-entry routes. Answers never change the feedback
+score: `scores.ts` uses only the overall score of confirmed, non-ignored feedback.
+
+The per-adjudicator page summarises the answers of counted feedback per question: average and range
+for numeric questions, yes/no tallies for yes/no and checkbox questions, option counts for selects,
+the responses for text, and the agree/disagree tally.
+
+## Base and test score history
+
+Every change to an adjudicator's base or test score is appended to `Adjudicator.scoreHistory`
+(`src/lib/feedback/scoreHistory.ts`): which score, old → new value, when, who and an optional reason
+(entered on the per-adjudicator page). Changes from the participant editor and bulk edits are
+recorded too, without a reason. The history travels with the adjudicator record, so it is in backups
+(a malformed history is a backup warning) and it is private like the scores. It is written as one
+field, so if two devices change the same adjudicator's scores at the same moment, one entry can be
+lost (the audit log keeps both changes as `scoreChanges`). Changes made before this existed are not
+listed. The page shows it next to the feedback-derived score history by round.

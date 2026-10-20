@@ -35,6 +35,8 @@ import {
   questionsForFeedbackSource,
   validateFeedbackAnswers,
 } from "@/lib/feedback/questions";
+import { feedbackPathsForRound } from "@/lib/feedback/paths";
+import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
 
 export const runtime = "nodejs";
 
@@ -259,16 +261,20 @@ export async function POST(request: NextRequest) {
             (actorType !== "team" || targetTeamId !== actorDocument.id);
         const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;
         const targetIsChair = Boolean(targetAdjudicatorId && panel.chairId === targetAdjudicatorId);
-        const feedbackAllowed = canSubmitParticipantFeedback({
+        const round = roundById.get(debate.roundId);
+        const sourceRole = actorType === "adjudicator" ? adjudicatorRoleInDebate(debate, actorDocument.id) : "team";
+        const targetRole = targetAdjudicatorId ? adjudicatorRoleInDebate(debate, targetAdjudicatorId) : undefined;
+        const feedbackAllowed = Boolean(sourceRole) && canSubmitParticipantFeedback({
           sourceType: actorType,
           sourceId: actorDocument.id,
-          sourceIsChair: actorType === "adjudicator" && panel.chairId === actorDocument.id,
+          sourceIsChair: sourceRole === "chair",
+          sourceRole,
           targetType,
           targetId: targetId || "",
           targetIsChair,
-          path: tournament.preferences?.feedbackPath || "two_way",
+          targetRole,
+          path: feedbackPathsForRound(tournament.preferences, round),
         });
-        const round = roundById.get(debate.roundId);
         if (
           !sourceIsAuthorized ||
           !targetIsAuthorized ||

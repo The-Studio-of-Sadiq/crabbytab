@@ -12,12 +12,58 @@ import {
   blendAdjudicatorScore,
   calculateFeedbackSummaries,
   feedbackWeightKey,
+  isFeedbackCountedForScore,
   normalizeFeedbackWeight,
   preFeedbackScore,
 } from "@/lib/feedback/scores";
+import { agreementTally, analyzeFeedbackAnswers, type FeedbackQuestionAnalysis } from "@/lib/feedback/answers";
+import { questionsForFeedbackSource } from "@/lib/feedback/questions";
+import { MAX_SCORE_CHANGE_REASON_LENGTH } from "@/lib/feedback/scoreHistory";
 import { FeedbackReviewControls } from "@/features/tournament/components/FeedbackReviewControls";
 
 const ROLE_LABELS: Record<string, string> = { chair: "Chair", panellist: "Panellist", trainee: "Trainee" };
+
+const SCORE_FIELD_LABELS = { baseScore: "Base", testScore: "Test" } as const;
+
+function formatScore(value: number | undefined): string {
+  return value === undefined ? "none" : value.toFixed(1);
+}
+
+function formatTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString();
+}
+
+function AnalysisRow({ item }: { item: FeedbackQuestionAnalysis }) {
+  let detail: React.ReactNode;
+  if (item.kind === "numeric") {
+    detail = item.average === undefined
+      ? "—"
+      : `Average ${item.average.toFixed(2)} (range ${item.min}–${item.max})`;
+  } else if (item.kind === "boolean") {
+    detail = item.answered ? `${item.yes} yes · ${item.no} no` : "—";
+  } else if (item.kind === "choice") {
+    detail = item.answered ? item.counts.map(({ option, count }) => `${option}: ${count}`).join(" · ") : "—";
+  } else {
+    detail = item.responses.length === 0 ? "—" : (
+      <details>
+        <summary className="cursor-pointer text-blue-700">Show {item.responses.length} response(s)</summary>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          {item.responses.map((response, index) => (
+            <li key={index} className="whitespace-pre-wrap">{response}</li>
+          ))}
+        </ul>
+      </details>
+    );
+  }
+  return (
+    <tr>
+      <td className="text-xs font-semibold text-gray-900">{item.question.label}</td>
+      <td className="text-center font-mono text-xs">{item.answered}</td>
+      <td className="text-xs text-gray-800">{detail}</td>
+    </tr>
+  );
+}
 
 function parseScore(value: string): number | undefined | "invalid" {
   if (!value.trim()) return undefined;
@@ -35,7 +81,7 @@ export default function AdjudicatorFeedbackDetailPage() {
     debates,
     adjudicators,
     feedback,
-    updateAdjudicator,
+    updateAdjudicatorScores,
     reviewFeedback,
     isOwnerOrAdmin,
   } = useTournament();
@@ -43,6 +89,7 @@ export default function AdjudicatorFeedbackDetailPage() {
   const preferences = tournament?.preferences;
   const [baseDraft, setBaseDraft] = useState<string | null>(null);
   const [testDraft, setTestDraft] = useState<string | null>(null);
+  const [reasonDraft, setReasonDraft] = useState("");
   const [message, setMessage] = useState<{ kind: "error" | "success"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -62,6 +109,23 @@ export default function AdjudicatorFeedbackDetailPage() {
     [feedback, adjudicatorId]
   );
   const debatesById = useMemo(() => new Map(debates.map((debate) => [debate.id, debate])), [debates]);
+  // Same submissions as the score: confirmed and not ignored.
+  const answerAnalysis = useMemo(() => {
+    const counted = received.filter(isFeedbackCountedForScore);
+    return (["team", "adjudicator"] as const).map((sourceType) => {
+      const fromSource = counted.filter((item) => item.sourceType === sourceType);
+      return {
+        sourceType,
+        count: fromSource.length,
+        agreement: agreementTally(fromSource),
+        questions: analyzeFeedbackAnswers(questionsForFeedbackSource(sourceType, preferences), fromSource),
+      };
+    });
+  }, [received, preferences]);
+  const scoreChanges = useMemo(
+    () => [...(adjudicator?.scoreHistory ?? [])].reverse(),
+    [adjudicator?.scoreHistory]
+  );
   const roundsById = useMemo(() => new Map(rounds.map((round) => [round.id, round])), [rounds]);
 
   if (!adjudicator) {
@@ -90,9 +154,10 @@ export default function AdjudicatorFeedbackDetailPage() {
     }
     setSaving(true);
     try {
-      await updateAdjudicator({ ...adjudicator, baseScore: base, testScore: test });
+      await updateAdjudicatorScores(adjudicator.id, { baseScore: base, testScore: test }, reasonDraft);
       setBaseDraft(null);
       setTestDraft(null);
+      setReasonDraft("");
       setMessage({ kind: "success", text: "Scores saved." });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not save the scores." });
@@ -176,6 +241,17 @@ export default function AdjudicatorFeedbackDetailPage() {
               className="mt-1 block w-24 rounded border border-gray-300 px-2 py-1 font-mono text-xs"
             />
           </label>
+          <label className="min-w-[12rem] flex-1 text-xs font-semibold text-gray-700">
+            Reason (optional)
+            <input
+              type="text"
+              maxLength={MAX_SCORE_CHANGE_REASON_LENGTH}
+              value={reasonDraft}
+              onChange={(event) => setReasonDraft(event.target.value)}
+              placeholder="e.g. Adjusted after round 3 feedback"
+              className="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-xs"
+            />
+          </label>
           <button
             type="submit"
             disabled={saving || (baseDraft === null && testDraft === null)}
@@ -229,6 +305,79 @@ export default function AdjudicatorFeedbackDetailPage() {
           </table>
         </div>
       </section>
+
+      <section className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white" aria-labelledby="score-changes">
+        <h2 id="score-changes" className="border-b border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs font-bold uppercase text-gray-900">
+          Base and test score changes
+        </h2>
+        <div className="overflow-x-auto">
+          <table className="tabby-table w-full text-left">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Score</th>
+                <th>Change</th>
+                <th>By</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scoreChanges.map((change, index) => (
+                <tr key={`${change.timestamp}-${change.field}-${index}`}>
+                  <td className="whitespace-nowrap text-xs text-gray-700">{formatTime(change.timestamp)}</td>
+                  <td className="text-xs font-semibold text-gray-900">{SCORE_FIELD_LABELS[change.field]}</td>
+                  <td className="font-mono text-xs">
+                    {formatScore(change.previous)} → <span className="font-bold">{formatScore(change.value)}</span>
+                  </td>
+                  <td className="text-xs text-gray-700">{change.actorName || change.actorId || "Unknown"}</td>
+                  <td className="text-xs text-gray-700">{change.reason || "—"}</td>
+                </tr>
+              ))}
+              {scoreChanges.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-xs text-gray-400">
+                    No changes recorded yet. Changes made before score history existed are not listed.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {answerAnalysis.map((group) => (
+        <section
+          key={group.sourceType}
+          className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white"
+          aria-labelledby={`answers-${group.sourceType}`}
+        >
+          <h2 id={`answers-${group.sourceType}`} className="border-b border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs font-bold uppercase text-gray-900">
+            Answers from {group.sourceType === "team" ? "teams" : "adjudicators"} ({group.count} counted)
+          </h2>
+          <p className="border-b border-gray-100 px-3 py-2 text-xs text-gray-700">
+            Agreed with the decision: {group.agreement.answered
+              ? `${group.agreement.agree} agree · ${group.agreement.disagree} disagree`
+              : "no answers"}
+            <span className="ml-1 text-[11px] text-gray-500">(confirmed, not ignored feedback only; answers never change the score)</span>
+          </p>
+          {group.questions.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="tabby-table w-full text-left">
+                <thead>
+                  <tr>
+                    <th>Question</th>
+                    <th className="text-center">Answered</th>
+                    <th>Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.questions.map((item) => <AnalysisRow key={item.question.id} item={item} />)}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ))}
 
       <section className="space-y-2" aria-labelledby="received-feedback">
         <h2 id="received-feedback" className="text-sm font-bold text-gray-900">Feedback received ({received.length})</h2>

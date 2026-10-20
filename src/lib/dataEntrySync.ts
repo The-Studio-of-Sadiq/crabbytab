@@ -1,5 +1,6 @@
 import type { BallotSubmission, Debate, DebateResultStatus, TournamentPreferences } from "@/types";
 import { validateFeedbackScore, validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
+import { isFeedbackAnswerRecord, questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
 
 /**
  * Field whitelists for records a data-entry assistant may sync. Assistants
@@ -250,6 +251,13 @@ export function validateAssistantFeedback(
   if (record.comments !== undefined && (typeof record.comments !== "string" || record.comments.length > 5000)) {
     throw new Error(`${label} has invalid comments.`);
   }
+  const answers = record.answers ?? {};
+  if (!isFeedbackAnswerRecord(answers)) throw new Error(`${label} has invalid answers.`);
+  const answerError = validateFeedbackAnswers(
+    questionsForFeedbackSource(record.sourceType === "adjudicator" ? "adjudicator" : "team", preferences),
+    answers
+  );
+  if (answerError) throw new Error(`${label}: ${answerError}`);
 }
 
 /**

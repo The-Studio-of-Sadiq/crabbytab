@@ -1,12 +1,14 @@
 import type {
   Debate,
   FeedbackPath,
+  FeedbackPathConfig,
   FeedbackSourceRole,
   FeedbackSubmission,
   FeedbackTargetRole,
   Round,
 } from "@/types";
-import { canSubmitParticipantFeedback, isFeedbackEnabledForRound } from "./questions";
+import { isFeedbackEnabledForRound } from "./questions";
+import { isFeedbackPathAllowed, toFeedbackPathConfig } from "./paths";
 import { adjudicatorRoleInDebate } from "./scores";
 
 export interface ExpectedFeedback {
@@ -29,45 +31,38 @@ function panelOf(debate: Debate): Array<{ id: string; role: FeedbackTargetRole }
 }
 
 /**
- * The feedback a debate is expected to produce: each team rates the chair, and
- * adjudicators rate each other as the tournament's feedback path allows
- * (chairs_to_panel: chair on panel; two_way: chair and panel on each other;
- * everyone: every adjudicator on every other).
+ * The feedback a debate is expected to produce under the given paths (a preset or an explicit
+ * config; see paths.ts): teams on the chair or on every adjudicator, and adjudicators on each
+ * other as the paths allow. Feedback on teams is optional and never expected.
  */
-export function expectedFeedbackForDebate(debate: Debate, path: FeedbackPath): ExpectedFeedback[] {
+export function expectedFeedbackForDebate(
+  debate: Debate,
+  path: FeedbackPath | FeedbackPathConfig
+): ExpectedFeedback[] {
   if (debate.byeTeamId || debate.postponed) return [];
+  const config = toFeedbackPathConfig(path);
   const panel = panelOf(debate);
-  const chair = panel.find((member) => member.role === "chair");
   const expected: ExpectedFeedback[] = [];
 
-  if (chair) {
-    for (const slot of Object.values(debate.teams ?? {})) {
-      if (!slot?.teamId) continue;
+  for (const slot of Object.values(debate.teams ?? {})) {
+    if (!slot?.teamId) continue;
+    for (const target of panel) {
+      if (!isFeedbackPathAllowed(config, "team", target.role)) continue;
       expected.push({
         roundId: debate.roundId,
         debateId: debate.id,
         sourceType: "team",
         sourceId: slot.teamId,
         sourceRole: "team",
-        targetAdjudicatorId: chair.id,
-        targetRole: "chair",
+        targetAdjudicatorId: target.id,
+        targetRole: target.role,
       });
     }
   }
 
   for (const source of panel) {
     for (const target of panel) {
-      if (source.id === target.id) continue;
-      const allowed = canSubmitParticipantFeedback({
-        sourceType: "adjudicator",
-        sourceId: source.id,
-        sourceIsChair: source.role === "chair",
-        targetType: "adjudicator",
-        targetId: target.id,
-        targetIsChair: target.role === "chair",
-        path,
-      });
-      if (!allowed) continue;
+      if (source.id === target.id || !isFeedbackPathAllowed(config, source.role, target.role)) continue;
       expected.push({
         roundId: debate.roundId,
         debateId: debate.id,
@@ -80,6 +75,17 @@ export function expectedFeedbackForDebate(debate: Debate, path: FeedbackPath): E
     }
   }
   return expected;
+}
+
+/** The adjudicators a participant of a debate gives feedback on under the paths, in panel order. */
+export function feedbackTargetsForSource(
+  debate: Debate,
+  source: { sourceType: "team" | "adjudicator"; sourceId: string },
+  path: FeedbackPath | FeedbackPathConfig
+): Array<{ targetAdjudicatorId: string; targetRole: FeedbackTargetRole }> {
+  return expectedFeedbackForDebate(debate, path)
+    .filter((item) => item.sourceType === source.sourceType && item.sourceId === source.sourceId)
+    .map(({ targetAdjudicatorId, targetRole }) => ({ targetAdjudicatorId, targetRole }));
 }
 
 function submissionKey(item: {
@@ -116,7 +122,7 @@ export function roundFeedbackProgress(
   round: Pick<Round, "id" | "stage" | "feedbackEnabled">,
   debates: Debate[],
   submissions: FeedbackSubmission[],
-  path: FeedbackPath,
+  path: FeedbackPath | FeedbackPathConfig,
   feedbackInEliminationRounds = true
 ): RoundFeedbackProgress {
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
@@ -162,28 +168,24 @@ export interface FeedbackSourceOption {
   sourceRole: FeedbackSourceRole;
 }
 
-/** Participants of a debate who may give feedback on the given adjudicator under the path. */
+/** Participants of a debate who may give feedback on the given adjudicator under the paths. */
 export function feedbackSourcesForTarget(
   debate: Debate,
   targetAdjudicatorId: string,
-  path: FeedbackPath
+  path: FeedbackPath | FeedbackPathConfig
 ): FeedbackSourceOption[] {
   const targetRole = adjudicatorRoleInDebate(debate, targetAdjudicatorId);
   if (!targetRole) return [];
-  const options: FeedbackSourceOption[] = Object.values(debate.teams ?? {})
-    .filter((slot) => Boolean(slot?.teamId))
-    .map((slot) => ({ sourceType: "team", sourceId: slot.teamId, sourceRole: "team" }));
+  const config = toFeedbackPathConfig(path);
+  const options: FeedbackSourceOption[] = isFeedbackPathAllowed(config, "team", targetRole)
+    ? Object.values(debate.teams ?? {})
+        .filter((slot) => Boolean(slot?.teamId))
+        .map((slot) => ({ sourceType: "team", sourceId: slot.teamId, sourceRole: "team" }))
+    : [];
   for (const member of panelOf(debate)) {
-    const allowed = canSubmitParticipantFeedback({
-      sourceType: "adjudicator",
-      sourceId: member.id,
-      sourceIsChair: member.role === "chair",
-      targetType: "adjudicator",
-      targetId: targetAdjudicatorId,
-      targetIsChair: targetRole === "chair",
-      path,
-    });
-    if (allowed) options.push({ sourceType: "adjudicator", sourceId: member.id, sourceRole: member.role });
+    if (member.id !== targetAdjudicatorId && isFeedbackPathAllowed(config, member.role, targetRole)) {
+      options.push({ sourceType: "adjudicator", sourceId: member.id, sourceRole: member.role });
+    }
   }
   return options;
 }

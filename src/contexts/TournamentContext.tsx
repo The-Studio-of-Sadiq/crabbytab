@@ -263,6 +263,12 @@ export interface TournamentContextType {
   addAdjudicators: (adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]) => Promise<void>;
   updateAdjudicator: (adj: Adjudicator, privatePasscode?: string) => Promise<void>;
   updateAdjudicators: (adjudicators: Adjudicator[]) => Promise<void>;
+  /** Sets base/test scores and records the change (with the reason) in the score history. */
+  updateAdjudicatorScores: (
+    adjudicatorId: string,
+    scores: { baseScore: number; testScore?: number },
+    reason?: string
+  ) => Promise<void>;
   deleteAdjudicator: (adjId: string) => Promise<void>;
   addVenue: (venue: Omit<Venue, "id" | "tournamentId">) => Promise<void>;
   addVenues: (venues: Omit<Venue, "id" | "tournamentId">[]) => Promise<void>;
@@ -1655,6 +1661,7 @@ export function TournamentProvider({
     recordAuditEvent,
     createId: createEntityId,
     generatePrivateKey,
+    currentActor: () => ({ id: user?.uid, name: user?.displayName || user?.email || undefined }),
     cloudRepository:
       AUTOMATIC_CLOUD_WRITES && db && tournament?.id
         ? createFirestoreEntityRepository(tournament.id)
@@ -2158,6 +2165,20 @@ export function TournamentProvider({
 
   const updateAdjudicator = async (adj: Adjudicator, _privatePasscode?: string) => {
     await updateAdjudicatorCommand(adj);
+  };
+
+  const updateAdjudicatorScores: TournamentContextType["updateAdjudicatorScores"] = async (
+    adjudicatorId,
+    scores,
+    reason
+  ) => {
+    const current = adjudicators.find((adjudicator) => adjudicator.id === adjudicatorId);
+    if (!current) throw new Error("This adjudicator no longer exists.");
+    const { testScore: _previousTestScore, ...rest } = current;
+    await updateAdjudicatorCommand(
+      { ...rest, baseScore: scores.baseScore, ...(scores.testScore !== undefined ? { testScore: scores.testScore } : {}) },
+      { scoreChangeReason: reason }
+    );
   };
 
   const deleteAdjudicator = async (adjId: string) => {
@@ -2913,6 +2934,7 @@ export function TournamentProvider({
         addAdjudicators,
         updateAdjudicator,
         updateAdjudicators,
+        updateAdjudicatorScores,
         deleteAdjudicator,
         addVenue,
         addVenues,

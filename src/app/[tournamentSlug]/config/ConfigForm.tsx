@@ -45,7 +45,9 @@ import {
 } from "@/lib/standings/metrics";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence } from "@/lib/standings/precedence";
 import { lockedSettingsFields } from "@/features/tournament/application/stateGuards";
-import { validateFeedbackQuestions } from "@/lib/feedback/questions";
+import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedback/questions";
+import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
+import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
 import { LOCALES } from "@/lib/i18n/config";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
@@ -1513,17 +1515,20 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                           Answer type
                           <select
                             value={question.type}
-                            onChange={(event) => updateFeedbackQuestion(question.id, {
-                              type: event.target.value as FeedbackQuestion["type"],
-                            })}
+                            onChange={(event) => {
+                              const type = event.target.value as FeedbackQuestion["type"];
+                              // Scales need bounds; start them at what the inputs show.
+                              const needsBounds = type === "scale" || type === "integer_scale";
+                              updateFeedbackQuestion(question.id, {
+                                type,
+                                ...(needsBounds ? { min: question.min ?? 1, max: question.max ?? 5 } : {}),
+                              });
+                            }}
                             className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
                           >
-                            <option value="text">Short text</option>
-                            <option value="textarea">Long text</option>
-                            <option value="scale">Number scale</option>
-                            <option value="yes_no">Yes / No</option>
-                            <option value="select_one">Select one</option>
-                            <option value="select_many">Select many</option>
+                            {FEEDBACK_QUESTION_TYPES.map(({ type, label }) => (
+                              <option key={type} value={type}>{label}</option>
+                            ))}
                           </select>
                         </label>
                         {(question.type === "select_one" || question.type === "select_many") && (
@@ -1539,12 +1544,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                             />
                           </label>
                         )}
-                        {question.type === "scale" && (
+                        {(question.type === "scale" || question.type === "integer_scale") && (
                           <div className="flex gap-2">
                             <label className="flex-1 text-[11px] font-semibold text-gray-700">
                               Minimum
                               <input
                                 type="number"
+                                step={question.type === "integer_scale" ? 1 : "any"}
                                 value={question.min ?? 1}
                                 onChange={(event) => updateFeedbackQuestion(question.id, { min: Number(event.target.value) })}
                                 className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
@@ -1554,11 +1560,31 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                               Maximum
                               <input
                                 type="number"
+                                step={question.type === "integer_scale" ? 1 : "any"}
                                 value={question.max ?? 5}
                                 onChange={(event) => updateFeedbackQuestion(question.id, { max: Number(event.target.value) })}
                                 className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
                               />
                             </label>
+                          </div>
+                        )}
+                        {(question.type === "integer" || question.type === "float") && (
+                          <div className="flex gap-2">
+                            {(["min", "max"] as const).map((bound) => (
+                              <label key={bound} className="flex-1 text-[11px] font-semibold text-gray-700">
+                                {bound === "min" ? "Minimum (optional)" : "Maximum (optional)"}
+                                <input
+                                  type="number"
+                                  step={question.type === "integer" ? 1 : "any"}
+                                  value={question[bound] ?? ""}
+                                  onChange={(event) => updateFeedbackQuestion(question.id, {
+                                    [bound]: event.target.value === "" ? undefined : Number(event.target.value),
+                                  })}
+                                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                                  placeholder="No limit"
+                                />
+                              </label>
+                            ))}
                           </div>
                         )}
                         <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
@@ -1588,24 +1614,20 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         </button>
                       </div>
                     ))}
-                    <div className="grid gap-3 border-t border-gray-200 pt-3 sm:grid-cols-2">
-                      <label className="text-[11px] font-semibold text-gray-700">
-                        Feedback path
-                        <select
-                          value={prefs.feedbackPath || "two_way"}
-                          onChange={(event) => {
-                            const path = event.target.value;
-                            if (path === "chairs_to_panel" || path === "two_way" || path === "everyone") {
-                              setPrefs((current) => ({ ...current, feedbackPath: path }));
-                            }
-                          }}
-                          className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                        >
-                          <option value="chairs_to_panel">Chair to panel (team feedback remains open)</option>
-                          <option value="two_way">Chair and panel two-way (team feedback remains open)</option>
-                          <option value="everyone">Everyone in the debate</option>
-                        </select>
-                      </label>
+                    <div className="space-y-3 border-t border-gray-200 pt-3">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-800">Feedback paths</h4>
+                        <p className="text-[11px] text-gray-500">
+                          Who gives feedback on whom. The same paths decide what the portals offer, what the
+                          progress tracker expects and which forms are printed.
+                        </p>
+                      </div>
+                      <FeedbackPathsEditor
+                        idPrefix="feedback-paths"
+                        legend={prefs.eliminationFeedbackPaths ? "Preliminary rounds" : "All rounds"}
+                        value={preliminaryFeedbackPaths(prefs)}
+                        onChange={(feedbackPaths) => setPrefs((current) => ({ ...current, feedbackPaths }))}
+                      />
                       <label className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
                         <input
                           type="checkbox"
@@ -1617,6 +1639,27 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                         />
                         Collect feedback in elimination rounds
                       </label>
+                      {prefs.feedbackInEliminationRounds !== false && (
+                        <label className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(prefs.eliminationFeedbackPaths)}
+                            onChange={(event) => setPrefs((current) => ({
+                              ...current,
+                              eliminationFeedbackPaths: event.target.checked ? preliminaryFeedbackPaths(current) : undefined,
+                            }))}
+                          />
+                          Use different paths in elimination rounds
+                        </label>
+                      )}
+                      {prefs.feedbackInEliminationRounds !== false && prefs.eliminationFeedbackPaths && (
+                        <FeedbackPathsEditor
+                          idPrefix="elimination-feedback-paths"
+                          legend="Elimination rounds"
+                          value={prefs.eliminationFeedbackPaths}
+                          onChange={(eliminationFeedbackPaths) => setPrefs((current) => ({ ...current, eliminationFeedbackPaths }))}
+                        />
+                      )}
                     </div>
                   </div>
                 )}
