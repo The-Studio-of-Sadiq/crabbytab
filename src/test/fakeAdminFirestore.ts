@@ -101,7 +101,9 @@ export function createFakeAdminFirestore(initial: Record<string, Data> = {}): Fa
     runTransaction: async <T>(callback: (transaction: unknown) => Promise<T>): Promise<T> => {
       const writes: Array<() => void> = [];
       const transaction = {
-        get: async (ref: Ref) => snapshot(ref.path),
+        // A document reference, or a query (no path) read inside the transaction.
+        get: async (ref: Ref | { get: () => Promise<unknown> }) =>
+          "path" in ref ? snapshot(ref.path) : ref.get(),
         set: (ref: Ref, data: Data, options?: { merge?: boolean }) => {
           writes.push(() => applySet(ref.path, data, options));
           return transaction;
