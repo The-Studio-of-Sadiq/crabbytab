@@ -326,6 +326,13 @@ export interface TournamentPreferences {
   notifyBallotConfirmed?: boolean;
   /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
   allowSelfCheckIn?: boolean;
+  /** Printed ballots (w45): where to return scoresheets / feedback forms (Tabbycat score_return_location); empty or "TBA" hides. */
+  ballotReturnLocation?: string;
+  feedbackReturnLocation?: string;
+  /** Printed scoresheets ask adjudicators to circle the digits of each score (Tabbycat ballots_confirm_digits). */
+  ballotsConfirmDigits?: boolean;
+  /** Printed scoresheets leave the motion blank (Tabbycat ballots_hide_motions). */
+  ballotsHideMotions?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
   speakerCategories?: SpeakerCategory[];
 
@@ -548,6 +555,20 @@ export interface PreformedPanel {
   liveness?: number;
 }
 
+/** How a check-in was made (check-in history; lib/checkins/history.ts). */
+export type CheckInSource = "tab" | "scan" | "bulk" | "self";
+
+/** One change of availability or check-in, newest last on the record. */
+export interface CheckInEvent {
+  at: string;
+  /** Absent for rooms, which are checked in without a round. */
+  roundId?: string;
+  available: boolean;
+  source: CheckInSource;
+  /** Who made it (staff name or email); absent for self check-in. */
+  by?: string;
+}
+
 export interface Institution {
   id: string;
   tournamentId: string;
@@ -579,6 +600,9 @@ export interface Speaker {
    * every entry with resolveSpeakerCategoryRef, so both keep working.
    */
   categories?: string[];
+  /** Speaker-level check-in per round (Tabbycat checks speakers in individually). */
+  roundAvailability?: Record<string, boolean>;
+  checkInHistory?: CheckInEvent[];
   /** Tabbycat Person.anonymous: name (and team) redacted on public pages. */
   anonymous?: boolean;
   /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
@@ -611,6 +635,7 @@ export interface Team {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   venueRequirements?: VenueRequirements;
   /** Soft room preferences (Tabbycat venue constraints). */
   venueConstraints?: VenueConstraint[];
@@ -649,6 +674,7 @@ export interface Adjudicator {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   conflicts: AdjudicatorConflict[];
   gender?: string;
   /** Overrides the institution region for diversity displays. */
@@ -684,6 +710,7 @@ export interface Venue {
   /** Round id -> available in that round (Tabbycat round availability for rooms). */
   roundAvailability?: Record<string, boolean>;
   checkedIn?: boolean;
+  checkInHistory?: CheckInEvent[];
   /** When the room was last checked in; with venueCheckInExpiresAfterHours the check-in lapses. */
   checkedInAt?: string;
   /** Map or meeting link (online rooms), shown with the room in the draw, portals and emails. */

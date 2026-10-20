@@ -31,6 +31,7 @@ import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTe
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
+import { checkInEvent } from "@/lib/checkins/history";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
 import {
   canSubmitParticipantFeedback,
@@ -443,6 +444,9 @@ export async function POST(request: NextRequest) {
         checkIn.available,
         new FieldPath("roundAvailabilityAt", checkIn.roundId),
         checkedInAt,
+        // Check-in history (lib/checkins/history.ts); self check-ins are rare, so not capped here.
+        "checkInHistory",
+        FieldValue.arrayUnion(checkInEvent({ available: checkIn.available, source: "self", roundId: checkIn.roundId, at: checkedInAt })),
         "syncVersion",
         FieldValue.increment(1)
       );
