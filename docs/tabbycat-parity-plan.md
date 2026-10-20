@@ -184,8 +184,12 @@ questions, configurable paths, base-score history (*done: see
 exclusion; CrabbyTab leaves swing teams out of standings and breaks itself.*
 
 **Wave 4 — P3/P4 (not implemented yet; see the corrections in "B. Wave 4 corrections" below).** #18 AIDA 2019 break rule (WADL dropped: not in Tabbycat); #19 1000-team two-team allocation speed
-(7–18 s/round) and sharding; #20 soft ranked venue constraints, per-round venue availability,
-team-declared institution conflicts; #21 editable notification templates, motion/standings
+(7–18 s/round) and sharding (*done: exact-output speed-up proven by golden fixtures, Tabbycat
+voting/consensus Hungarian strategies, preformed panels from an anticipated draw, shards; see
+[adjudicator-allocation.md](adjudicator-allocation.md)*); #20 soft ranked venue constraints,
+per-round venue availability, team-declared institution conflicts (*done: room preferences with
+priorities, per-round room availability, room check-in expiry, room links, room category display,
+team–institution conflict editing and conflicts CSV export; see adjudicator-allocation.md "Rooms"*); #21 editable notification templates, motion/standings
 release emails; #22 design rollout to every page, dark mode everywhere, keyboard drag-and-drop;
 #23 admin-UI translations and more languages; #24 broader API (teams, results, standings);
 #25 diversity statistics, public veto stats; #26 optional public (non-private-URL) ballot and
@@ -222,7 +226,7 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 ### B. Wave 4 corrections (wave 4 is not implemented yet)
 - **#18**: drop WADL — it is not in Tabbycat v2.12.1 (only in historical migrations). Keep
   `aida-2019-australs-open` (cap 3, +1 per 8 teams beyond a 16-team break; `breakqual/aida.py`).
-- **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry.
+- **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry. *Done.*
 - **#21**: include Reply-To, the "ballot confirmed" event (CrabbyTab only notifies on submission),
   and per-tournament saved templates for the 8 automatic emails.
 - **#24 is underscoped**: Tabbycat's API is full read/write (66 endpoints: tournaments, rounds,
@@ -245,17 +249,17 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
 
 **Medium (workflow):** maximum margin; independent reply-score step; BP position cost `simple`;
-deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics; assistant
+deterministic (unshuffled) Hungarian (*done for the Tabbycat allocation strategies*); `pullup_debates` and `draw_strength_rank` metrics; assistant
 access levels and permission groups; concurrent current rounds, round start times, preparation
 time, public schedule + iCal; three-state motion release (info slides first); public draw "current
 round only"; public team/adjudicator record pages; public adjudicator tab; public and private
 scoresheets; public tab top-N limits; noindex control; public elimination bracket; anonymity
 (anonymous speakers, hidden institutions, code names shown/generated); email delivery webhooks;
-CSV exports (participants, availability, break eligibility, conflicts); simulated results /
+CSV exports (participants, availability, break eligibility, conflicts — *conflicts done*); simulated results /
 demo tournament for rehearsals; registration breadth (institution/coach self-registration,
 auto-accept, over-allocation, slot transfers, name/code-name generators, region/phone/gender
 fields); feedback score step, full team-feedback modes, intro text, unexpected and "important"
-feedback views; venue room URL and category descriptions.
+feedback views; venue room URL and category descriptions (*done*).
 
 **Low (polish):** custom side names (Gov/Opp…); toggles for the reply-speaker rule and for
 motions altogether; reverse public motion order; copy motions between rounds; cross-tournament

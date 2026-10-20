@@ -68,6 +68,103 @@ With the default weights (conflict 1,000,000, history 10,000, mismatch 10,000,00
 The weights are used exactly as configured, so a low conflict penalty can let a conflict
 through. Any such conflict is reported. A penalty of 0 turns that check off.
 
+Team conflicts include **team-declared institution conflicts** (Tabbycat's team–institution
+conflicts, `Team.institutionConflictIds`): adjudicators from an institution the team declared
+clash with that team, beyond its own institution. They are edited on Setup → Conflicts (or
+imported by CSV) and count like declared extra-institution conflicts.
+
+### Speed (wave 4)
+
+The allocator returns exactly the same panels as before the wave 4 speed work; seeded fixtures in
+`src/lib/draw/allocator.golden.test.ts` (golden output captured before the change) prove it.
+
+- The local search skips a move without computing its pair costs when a lower bound shows it
+  cannot beat the best move found so far (group costs are never negative, and IEEE rounding is
+  monotone, so the bound holds for the floating-point values too). Pair costs (adjudicator
+  conflicts and past co-panels) are precomputed sparsely; panel members are gathered into a
+  reused buffer instead of new arrays.
+- A debate's team-conflict costs are computed once and shared by all its seats.
+- The Hungarian solver works on flat typed arrays with the same operations in the same order, so
+  ties still resolve identically.
+
+On the 300-room golden fixture the allocation went from ~21 s to ~1.3 s, and the 60-room
+panel-average fixture from ~16 s to ~2.4 s. The remaining cost at 1000 teams is the Hungarian
+matching itself, which is O(n³): with ~1000 seats it takes ~1.5 s when adjudicator scores vary
+and much longer when every adjudicator has the same score (every matching is then tied, and the
+algorithm explores the most). Making that degenerate case faster would change which of the tied
+allocations is returned, so it was left alone.
+
+## Allocation strategies
+
+Configuration → *Adjudicator allocation strategy*:
+
+| Strategy | Behaviour |
+| --- | --- |
+| Preset 1 (`crabbytab_v1`, default) | The cost model above: seat ranks matched to adjudicator ranks. |
+| Panel average (`panel_average`) | As above, but the strength cost compares each panel's average with the debate priority. |
+| Tabbycat voting (`tabbycat_voting`) | Tabbycat's `hungarian-voting`. With D debates and V voters, `max(D − ⌊(V − D)/2⌋, 0)` of the strongest voters chair the most important debates alone; the rest form panels of three in the other debates (the third seat in the top half of those may be a point weaker). Trainees (and voters below the minimum score) go one per solo debate. |
+| Tabbycat consensus (`tabbycat_consensus`) | Tabbycat's `hungarian-consensus`. Every voter is used; panels are as even as possible, the most important debates getting the extra member, and each further seat may be a point weaker. Trainees go one per debate. |
+
+The Tabbycat strategies use Tabbycat's seat cost (`lib/draw/tabbycatHungarian.ts`): conflicts and
+history, plus `1000·e^(diff−0.25)` when `diff = 5 + importance − score > 0.25`, plus `5 − score`,
+with scores normalised to 0–5 and the 0–10 debate priority to Tabbycat's 1–5 importance. They
+ignore the panel size setting. Differences from Tabbycat: voters are not shuffled before sorting
+(ties break by score, then id, so the result is reproducible), and conflict and history costs use
+CrabbyTab's configured penalties. As in Tabbycat's code, the voting strategy gives the *solo*
+chairs the top rooms. Their warnings (too few voters or panellists) are shown on the allocation
+page and stored in the audit event. Preformed panels are still placed first with any strategy.
+
+## Preformed panels from an anticipated draw
+
+Allocation → Preformed panels → *Create from anticipated draw* ports Tabbycat's
+`preformed/anticipated.py`: from the previous preliminary round's draw and each team's points
+before it (confirmed ballots), every possible result of that round gives each team a lowest and
+highest possible total; these are sorted and cut into rooms, giving each room a bracket range and
+the number of teams that may still be live for the open break (Tabbycat's live thresholds from
+`breakqual/liveness.py`, ported in `lib/draw/anticipatedDraw.ts`). One panel per room is created,
+or updated (keeping its members) when a panel with that room rank exists. In the first round,
+before the previous draw exists, and in elimination rounds, panels are created without brackets.
+
+*Prioritise by bracket* sets importance in four levels by the middle of each bracket range
+(Tabbycat's 1, 0, −1, −2 become 10, 7, 3, 0); *Prioritise by liveness* gives panels with a live
+team 10, panels whose lowest bracket is already safe 7, and the rest 0. Empty panels may be saved;
+allocation skips them.
+
+## Shards
+
+The allocation board can be split into 2–6 shards (Tabbycat's sharding) to work on part of the
+draw: sort by bracket, priority or venue (category, then name), and mix *top to bottom* (shard A
+has the top of the order) or *interleaved* (debates dealt out in turn, so every shard has a
+similar spread). Shards are balanced (Tabbycat can produce lopsided shards, e.g. 1, 1 and 6 for
+8 debates in 3). A shard is only a view: auto-allocation and the conflict checks always cover the
+whole round. Logic: `lib/draw/sharding.ts`.
+
+## Rooms
+
+Rooms are allocated after the draw, and again after auto-allocation when any adjudicator has room
+requirements or preferences (`lib/draw/venueAllocator.ts`), with a minimum-cost matching:
+
+- **Hard requirements** (category, capacity, step-free, online, near the tab room) from teams,
+  institutions, adjudicators or the debate must hold; otherwise allocation fails with an error.
+- **Room preferences** (Tabbycat venue constraints; Setup → Room preferences): a team,
+  adjudicator or institution prefers rooms of a category with a priority. They are met where
+  possible with lexicographic costs: missing one preference of a priority costs more than missing
+  every lower-priority preference together, and any preference outweighs room ranking (if those
+  weights would be too large for exact arithmetic, each priority level weighs its rank instead).
+  Tabbycat assigns these greedily, debate by debate; CrabbyTab finds the best assignment. Unmet
+  preferences appear as warnings in the draw check.
+- Then higher-ranked debates (bracket, importance) get higher-priority rooms.
+- **Per-round availability:** a room can be taken out of (or put into) one round on the Venues
+  page; otherwise its default availability applies.
+- **Room check-in expiry:** room check-ins record their time and lapse after *Room check-in
+  expiry* hours (Tabbycat `checkin_window_venues`); expired rooms show as such on the check-ins page.
+- **Room links:** a room may have an http(s) link (online meeting or map). It is shown on the
+  admin draw, in private portals (read only for debates of rounds still running, about one read
+  per round), with the public draw data, and in emails as `{{venue_url}}`.
+- **Room categories** (Venues page): a description (tooltip "This room …", always on admin pages,
+  on public pages only when marked) and whether the category is shown as a prefix or suffix of
+  room names. A room has one category (Tabbycat allows several).
+
 ## Feedback paths
 
 *Settings → Adjudicator Feedback → Feedback paths* says who gives feedback on whom
