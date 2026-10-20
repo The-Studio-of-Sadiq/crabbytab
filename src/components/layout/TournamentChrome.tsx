@@ -25,6 +25,8 @@ const THEMED_SUBPATHS = new Set(["", "/results", "/results/intake", "/standings"
  * `/imports/teams`, …) are themed too. Setup and admin pages.
  */
 const THEMED_SECTIONS = ["/config", "/imports", "/staff", "/api", "/email", "/registration", "/private-urls", "/audit"];
+// Results area: ballot entry (/results/[roundSeq]/[debateId]), feedback detail pages, breaks, analytics.
+THEMED_SECTIONS.push("/results", "/feedback", "/break", "/analytics");
 
 function isThemedRoute(pathname: string | null, tournamentSlug: string) {
   if (!pathname) return false;

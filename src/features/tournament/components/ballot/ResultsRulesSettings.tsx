@@ -26,6 +26,11 @@ import {
   winnerDeclarationFor,
 } from "@/lib/ballots/ballotRules";
 import { SIDE_NAME_OPTIONS, SIDE_NAME_SETS, sideNamesFor } from "@/lib/sideNames";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Checkbox, Input, Select } from "@/components/ui/Field";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 
 /**
  * Settings for how ballots record results (Tabbycat's winners_in_ballots, speakers_in_ballots,
@@ -40,40 +45,48 @@ interface ResultsRulesSettingsProps {
   shapeLocked: boolean;
 }
 
-const WINNER_OPTIONS: [WinnerDeclaration, string][] = [
-  ["none", "From the scores — the higher total wins; totals may not tie"],
-  ["high-points", "Declared, as a check — the declared winner must have the higher total"],
-  ["tied-points", "Declared, to break ties — equal totals allowed; the declared winner may not have the lower total"],
-  ["low-points", "Declared, overriding the scores — low-point wins allowed"],
+const WINNER_OPTIONS: [WinnerDeclaration, MessageKey][] = [
+  ["none", "results.rules.winner.none"],
+  ["high-points", "results.rules.winner.highPoints"],
+  ["tied-points", "results.rules.winner.tiedPoints"],
+  ["low-points", "results.rules.winner.lowPoints"],
 ];
 
-const SPEAKERS_OPTIONS: [SpeakersInBallots, string][] = [
-  ["always", "Always"],
-  ["prelim", "Preliminary rounds only (elimination ballots record the result only)"],
-  ["never", "Never (ballots record the result only)"],
+const SPEAKERS_OPTIONS: [SpeakersInBallots, MessageKey][] = [
+  ["always", "results.rules.speakers.always"],
+  ["prelim", "results.rules.speakers.prelim"],
+  ["never", "results.rules.speakers.never"],
 ];
 
-const RANK_OPTIONS: [SpeakerRanksMode, string][] = [
-  ["none", "Do not rank speeches"],
-  ["any", "Rank every speech, independently of the scores"],
-  ["high-points", "Rank every speech; ranks must follow the scores"],
+const RANK_OPTIONS: [SpeakerRanksMode, MessageKey][] = [
+  ["none", "results.rules.ranks.none"],
+  ["any", "results.rules.ranks.any"],
+  ["high-points", "results.rules.ranks.highPoints"],
 ];
 
-const SPEECH_TYPES: [ScoreCriterionSpeechType, string][] = [
-  ["all", "All speeches"],
-  ["substantive", "Substantive"],
-  ["reply", "Reply"],
+const SPEECH_TYPES: [ScoreCriterionSpeechType, MessageKey][] = [
+  ["all", "results.rules.criteria.speechType.all"],
+  ["substantive", "results.rules.criteria.speechType.substantive"],
+  ["reply", "results.rules.criteria.speechType.reply"],
 ];
 
-const box = "block p-3 rounded bg-gray-50 border border-gray-200";
-const select = "w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white disabled:bg-gray-100";
-const help = "text-[11px] text-gray-500 block mt-1";
+type NumberField = "weight" | "minScore" | "maxScore" | "step";
+
+const NUMBER_FIELD_LABELS: Record<NumberField, MessageKey> = {
+  weight: "results.rules.criteria.weightLabel",
+  minScore: "results.rules.criteria.minLabel",
+  maxScore: "results.rules.criteria.maxLabel",
+  step: "results.rules.criteria.stepLabel",
+};
+
+const box = "rounded-lg border border-border bg-muted/40 p-3";
 
 export function ResultsRulesSettings({ prefs, onChange, format, shapeLocked }: ResultsRulesSettingsProps) {
+  const { t } = useI18n();
   const twoTeam = format !== "bp";
   const criteria = scoreCriteriaFor(prefs);
   const criteriaErrors = validateScoreCriteria(criteria);
-  const lockedNote = "Ballots have been entered, so this is locked.";
+  const lockedNote = t("results.rules.locked");
 
   const setCriteria = (next: ScoreCriterion[]) =>
     onChange({ scoreCriteria: next.map((criterion, index) => ({ ...criterion, seq: index + 1 })) });
@@ -82,93 +95,79 @@ export function ResultsRulesSettings({ prefs, onChange, format, shapeLocked }: R
 
   return (
     <div className="space-y-4">
-      <label className={box}>
-        <span className="font-semibold text-gray-800 block mb-1">Deciding the winner</span>
-        <select
+      <div className={box}>
+        <Select
+          label={t("results.rules.winner.label")}
+          help={twoTeam ? t("results.rules.winner.helpTwoTeam") : t("results.rules.winner.helpBp")}
           value={winnerDeclarationFor(prefs)}
           onChange={(e) => {
             const mode = e.target.value as WinnerDeclaration;
             // allowLowPointWins is kept in step for older clients and saved data.
             onChange({ winnersInBallots: mode, allowLowPointWins: mode === "low-points" });
           }}
-          className={select}
         >
-          {WINNER_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <span className={help}>
-          {twoTeam
-            ? "Applies to every scoresheet, voting sheets included. Replaces \"Allow low-point wins\"."
-            : "BP: \"from the scores\" ranks teams by total; \"to break ties\" lets ranks order teams with equal totals; \"overriding\" accepts any ranks."}
-        </span>
-      </label>
+          {WINNER_OPTIONS.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
+        </Select>
+      </div>
 
-      <label className={box}>
-        <span className="font-semibold text-gray-800 block mb-1">Ballots ask for speaker scores</span>
-        <select
+      <div className={box}>
+        <Select
+          label={t("results.rules.speakers.label")}
+          help={shapeLocked ? lockedNote : t("results.rules.speakers.help")}
           value={speakersInBallotsFor(prefs)}
           disabled={shapeLocked}
           onChange={(e) => onChange({ speakersInBallots: e.target.value as SpeakersInBallots })}
-          className={select}
         >
-          {SPEAKERS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <span className={help}>
-          {shapeLocked
-            ? lockedNote
-            : "Results-only debates count for points and wins but not for speaks, margins or the speaker tab."}
-        </span>
-      </label>
+          {SPEAKERS_OPTIONS.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
+        </Select>
+      </div>
 
-      <label className={box}>
-        <span className="font-semibold text-gray-800 block mb-1">Speech ranks</span>
-        <select
+      <div className={box}>
+        <Select
+          label={t("results.rules.ranks.label")}
+          help={t("results.rules.ranks.help")}
           value={speakerRanksFor(prefs)}
           onChange={(e) => onChange({ speakerRanks: e.target.value as SpeakerRanksMode })}
-          className={select}
         >
-          {RANK_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-        <span className={help}>
-          Consensus ballots rank every substantive speech in the debate (1 = best). Adds the
-          &quot;Speech ranks (sum)&quot; speaker metric. Reply speeches are not ranked.
-        </span>
-      </label>
+          {RANK_OPTIONS.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
+        </Select>
+      </div>
 
       {twoTeam && (
-        <label className={box}>
-          <span className="font-semibold text-gray-800 block mb-1">Panel score aggregation (voting ballots)</span>
-          <select
+        <div className={box}>
+          <Select
+            label={t("results.rules.aggregation.label")}
+            help={t("results.rules.aggregation.help")}
             value={scoreAggregationFor(prefs)}
             onChange={(e) => onChange({ scoreAggregation: e.target.value as ScoreAggregation })}
-            className={select}
           >
-            <option value="mean">Mean (average)</option>
-            <option value="median">Median (in even-numbered panels, the mean rounded up)</option>
-          </select>
-          <span className={help}>How a speech&apos;s scores from several adjudicators combine. Team totals are always the mean.</span>
-        </label>
+            <option value="mean">{t("results.rules.aggregation.mean")}</option>
+            <option value="median">{t("results.rules.aggregation.median")}</option>
+          </Select>
+        </div>
       )}
 
       {twoTeam && (
-        <label className={box}>
-          <span className="font-semibold text-gray-800 block mb-1">Maximum margin</span>
-          <input
+        <div className={box}>
+          <Input
+            label={t("results.rules.maxMargin.label")}
+            help={t("results.rules.maxMargin.help")}
             type="number"
             min={0}
             step="any"
             value={maximumMarginFor(prefs) || 0}
             onChange={(e) => onChange({ maximumMargin: Math.max(0, Number(e.target.value) || 0) })}
-            className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+            className="font-mono"
           />
-          <span className={help}>The largest amount by which one team can beat another on a scoresheet; 0 means no limit.</span>
-        </label>
+        </div>
       )}
 
       {twoTeam && prefs.replyScoresEnabled && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className={box}>
-            <span className="font-semibold text-gray-800 block mb-1">Reply score step</span>
-            <input
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className={box}>
+            <Input
+              label={t("results.rules.replyStep.label")}
+              help={t("results.rules.replyStep.help")}
               type="number"
               min={0.01}
               step="any"
@@ -177,143 +176,131 @@ export function ResultsRulesSettings({ prefs, onChange, format, shapeLocked }: R
                 const value = Number(e.target.value);
                 onChange({ stepReplyScore: Number.isFinite(value) && value > 0 ? value : undefined });
               }}
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+              className="font-mono"
             />
-            <span className={help}>E.g. 1 for whole points or 0.5 for half points. Unset, it is half the speaker score step.</span>
-          </label>
-          <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-            <input
-              type="checkbox"
+          </div>
+          <div className={box}>
+            <Checkbox
+              label={t("results.rules.replySubstantive.label")}
+              description={t("results.rules.replySubstantive.help")}
               checked={requireSubstantiveForReply(prefs)}
               onChange={(e) => onChange({ requireSubstantiveForReply: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600"
             />
-            <div>
-              <span className="font-semibold text-gray-800 block">Reply speaker must have given a substantive speech</span>
-              <span className="text-[11px] text-gray-500">The last substantive speaker can never reply.</span>
-            </div>
-          </label>
+          </div>
         </div>
       )}
 
       {twoTeam && (
-        <label className={box}>
-          <span className="font-semibold text-gray-800 block mb-1">Side names</span>
-          <select
+        <div className={box}>
+          <Select
+            label={t("results.rules.sideNames.label")}
+            help={t("results.rules.sideNames.help")}
             value={sideNamesFor(prefs)}
             onChange={(e) => onChange({ sideNames: e.target.value as SideNames })}
-            className={select}
           >
             {SIDE_NAME_OPTIONS.map((value) => <option key={value} value={value}>{SIDE_NAME_SETS[value].label}</option>)}
-          </select>
-          <span className={help}>Used on ballots, the draw, printing and public pages.</span>
-        </label>
+          </Select>
+        </div>
       )}
 
-      <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-        <input
-          type="checkbox"
+      <div className={box}>
+        <Checkbox
+          label={t("results.rules.motions.label")}
+          description={t("results.rules.motions.help")}
           checked={motionsEnabled(prefs)}
           onChange={(e) => onChange({ enableMotions: e.target.checked })}
-          className="rounded border-gray-300 text-blue-600"
         />
-        <div>
-          <span className="font-semibold text-gray-800 block">Record motions on ballots</span>
-          <span className="text-[11px] text-gray-500">Off: ballots and printed scoresheets do not ask for the motion or vetoes.</span>
-        </div>
-      </label>
+      </div>
 
-      <fieldset className="p-3 rounded bg-gray-50 border border-gray-200 space-y-2" disabled={shapeLocked}>
-        <legend className="px-1 font-semibold text-gray-800">Score criteria</legend>
-        <p className="text-[11px] text-gray-500">
-          {shapeLocked
-            ? lockedNote
-            : "Optional. With criteria, adjudicators score each one and a speech's score is the weighted sum (e.g. WSDC Style / Content / Strategy)."}
-        </p>
+      <fieldset className={`${box} space-y-3`} disabled={shapeLocked}>
+        <legend className="px-1 text-xs font-medium text-fg">{t("results.rules.criteria.legend")}</legend>
+        <p className="text-xs text-fg-muted">{shapeLocked ? lockedNote : t("results.rules.criteria.help")}</p>
         {criteria.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-left text-gray-600">
-                  <th className="p-1 font-semibold">Name</th>
-                  <th className="p-1 font-semibold">Speeches</th>
-                  <th className="p-1 font-semibold">Weight</th>
-                  <th className="p-1 font-semibold">Min</th>
-                  <th className="p-1 font-semibold">Max</th>
-                  <th className="p-1 font-semibold">Step</th>
-                  <th className="p-1 font-semibold">Required</th>
-                  <th className="p-1"><span className="sr-only">Remove</span></th>
-                </tr>
-              </thead>
-              <tbody>
+          <TableContainer>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{t("results.rules.criteria.name")}</TH>
+                  <TH>{t("results.rules.criteria.speeches")}</TH>
+                  <TH>{t("results.rules.criteria.weight")}</TH>
+                  <TH>{t("results.rules.criteria.min")}</TH>
+                  <TH>{t("results.rules.criteria.max")}</TH>
+                  <TH>{t("results.rules.criteria.step")}</TH>
+                  <TH align="center">{t("results.rules.criteria.required")}</TH>
+                  <TH><span className="sr-only">{t("results.rules.criteria.remove")}</span></TH>
+                </TR>
+              </THead>
+              <TBody>
                 {criteria.map((criterion) => {
-                  const number = (field: "weight" | "minScore" | "maxScore" | "step") => (
-                    <input
+                  const name = criterion.name || t("results.rules.criteria.unnamed");
+                  const number = (field: NumberField) => (
+                    <Input
                       type="number"
                       step="any"
-                      aria-label={`${criterion.name || "Criterion"} ${field}`}
+                      aria-label={t(NUMBER_FIELD_LABELS[field], { name })}
                       value={Number.isFinite(criterion[field]) ? criterion[field] : ""}
                       onChange={(e) => updateCriterion(criterion.id, { [field]: e.target.value === "" ? Number.NaN : Number(e.target.value) })}
-                      className="w-16 border border-gray-300 rounded px-1.5 py-1 font-mono"
+                      className="h-7 w-16 px-1.5 font-mono text-xs"
                     />
                   );
                   return (
-                    <tr key={criterion.id}>
-                      <td className="p-1">
-                        <input
-                          aria-label="Criterion name"
+                    <TR key={criterion.id}>
+                      <TD>
+                        <Input
+                          aria-label={t("results.rules.criteria.nameLabel")}
                           value={criterion.name}
                           maxLength={20}
                           onChange={(e) => updateCriterion(criterion.id, { name: e.target.value })}
-                          className="w-28 border border-gray-300 rounded px-1.5 py-1"
+                          className="h-7 w-28 px-1.5 text-xs"
                         />
-                      </td>
-                      <td className="p-1">
-                        <select
-                          aria-label={`${criterion.name || "Criterion"} speeches`}
+                      </TD>
+                      <TD>
+                        <Select
+                          aria-label={t("results.rules.criteria.speechesLabel", { name })}
                           value={criterion.speechType}
                           onChange={(e) => updateCriterion(criterion.id, { speechType: e.target.value as ScoreCriterionSpeechType })}
-                          className="border border-gray-300 rounded px-1.5 py-1 bg-white"
+                          className="h-7 w-auto text-xs"
                         >
-                          {SPEECH_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                        </select>
-                      </td>
-                      <td className="p-1">{number("weight")}</td>
-                      <td className="p-1">{number("minScore")}</td>
-                      <td className="p-1">{number("maxScore")}</td>
-                      <td className="p-1">{number("step")}</td>
-                      <td className="p-1 text-center">
+                          {SPEECH_TYPES.map(([value, key]) => <option key={value} value={value}>{t(key)}</option>)}
+                        </Select>
+                      </TD>
+                      <TD>{number("weight")}</TD>
+                      <TD>{number("minScore")}</TD>
+                      <TD>{number("maxScore")}</TD>
+                      <TD>{number("step")}</TD>
+                      <TD align="center">
                         <input
                           type="checkbox"
-                          aria-label={`${criterion.name || "Criterion"} required`}
+                          aria-label={t("results.rules.criteria.requiredLabel", { name })}
                           checked={criterion.required}
                           onChange={(e) => updateCriterion(criterion.id, { required: e.target.checked })}
+                          className="h-4 w-4 cursor-pointer accent-[rgb(var(--color-accent))]"
                         />
-                      </td>
-                      <td className="p-1">
-                        <button
-                          type="button"
+                      </TD>
+                      <TD>
+                        <IconButton
+                          size="sm"
+                          label={t("results.rules.criteria.removeLabel", { name })}
+                          icon={<Trash2 aria-hidden="true" />}
                           onClick={() => setCriteria(criteria.filter((item) => item.id !== criterion.id))}
-                          className="text-red-600 hover:text-red-800 p-1"
-                          aria-label={`Remove ${criterion.name || "criterion"}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
+                          className="text-danger hover:text-danger"
+                        />
+                      </TD>
+                    </TR>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TBody>
+            </Table>
+          </TableContainer>
         )}
         {criteriaErrors.length > 0 && (
-          <ul role="alert" className="text-[11px] text-red-700 space-y-0.5">
-            {criteriaErrors.map((error) => <li key={error}>• {error}</li>)}
+          <ul role="alert" className="list-disc space-y-0.5 ps-5 text-xs text-danger">
+            {criteriaErrors.map((error) => <li key={error}>{error}</li>)}
           </ul>
         )}
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="secondary"
           onClick={() =>
             setCriteria([
               ...criteria,
@@ -330,10 +317,10 @@ export function ResultsRulesSettings({ prefs, onChange, format, shapeLocked }: R
               },
             ])
           }
-          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
         >
-          <Plus className="w-3.5 h-3.5" /> Add criterion
-        </button>
+          <Plus aria-hidden="true" />
+          {t("results.rules.criteria.add")}
+        </Button>
       </fieldset>
     </div>
   );

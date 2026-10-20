@@ -1,8 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import { GitCompare } from "lucide-react";
 import type { BallotDifference } from "@/lib/ballots/result";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Dialog } from "@/components/ui/Dialog";
+import { Button } from "@/components/ui/Button";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 
 interface BallotDiffDialogProps {
   differences: BallotDifference[];
@@ -24,63 +28,53 @@ export function BallotDiffDialog({
   onKeepSecond,
   onClose,
 }: BallotDiffDialogProps) {
+  const { t } = useI18n();
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ballot-diff-title"
-        className="w-full max-w-2xl space-y-4 rounded-lg bg-white p-6 shadow-xl"
-      >
-        <h3 id="ballot-diff-title" className="flex items-center gap-2 text-base font-bold text-gray-900">
-          <GitCompare className="h-5 w-5 text-amber-600" />
-          The two entries do not match
-        </h3>
-        <p className="text-xs text-gray-600">
-          Check the paper ballot, then record the correct entry. The other one is kept as a discarded version.
-        </p>
-        <div className="max-h-80 overflow-auto rounded border border-gray-200 text-xs">
-          <table className="w-full text-left">
-            <thead className="sticky top-0 bg-gray-100 text-gray-700">
-              <tr>
-                <th className="p-2 font-bold">Field</th>
-                <th className="p-2 font-bold">{firstLabel}</th>
-                <th className="p-2 font-bold">{secondLabel}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 font-mono">
-              {differences.map((difference) => (
-                <tr key={difference.field}>
-                  <td className="p-2 font-sans font-semibold text-gray-900">{difference.field}</td>
-                  <td className="p-2 text-gray-800">{difference.first}</td>
-                  <td className="p-2 text-gray-800">{difference.second}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3">
-          <button ref={closeRef} type="button" onClick={onClose} className="rounded bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-200">
-            Go back and correct
-          </button>
-          <button type="button" disabled={busy} onClick={onKeepFirst} className="rounded border border-blue-600 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
-            Record {firstLabel.toLowerCase()}
-          </button>
-          <button type="button" disabled={busy} onClick={onKeepSecond} className="rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-            Record {secondLabel.toLowerCase()}
-          </button>
-        </div>
-      </div>
-    </div>
+    <Dialog
+      open
+      size="lg"
+      onClose={onClose}
+      dismissible={!busy}
+      initialFocusRef={closeRef}
+      icon={<GitCompare className="text-warning" aria-hidden="true" />}
+      title={t("results.ballot.diff.title")}
+      description={t("results.ballot.diff.description")}
+      footer={
+        <>
+          <Button ref={closeRef} variant="secondary" onClick={onClose} disabled={busy}>
+            {t("results.ballot.diff.goBack")}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onKeepFirst}>
+            {t("results.ballot.diff.record", { entry: firstLabel })}
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={onKeepSecond}>
+            {t("results.ballot.diff.record", { entry: secondLabel })}
+          </Button>
+        </>
+      }
+    >
+      <TableContainer className="max-h-80">
+        <Table>
+          <THead>
+            <TR>
+              <TH>{t("results.ballot.diff.field")}</TH>
+              <TH>{firstLabel}</TH>
+              <TH>{secondLabel}</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {differences.map((difference) => (
+              <TR key={difference.field}>
+                <TD className="font-medium">{difference.field}</TD>
+                <TD className="font-mono text-xs">{difference.first}</TD>
+                <TD className="font-mono text-xs">{difference.second}</TD>
+              </TR>
+            ))}
+          </TBody>
+        </Table>
+      </TableContainer>
+    </Dialog>
   );
 }

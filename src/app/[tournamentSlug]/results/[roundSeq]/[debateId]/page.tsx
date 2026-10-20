@@ -1,15 +1,27 @@
 "use client";
 
-import { formatScore } from "@/lib/scoreDisplay";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, FileCheck2, Lightbulb, Printer, Save, ShieldCheck, Users } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileCheck2, Lightbulb, Printer, Save, ShieldCheck, Users } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { SideBadge } from "@/components/ui/SideBadge";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Select } from "@/components/ui/Field";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Tabs, TabPanel } from "@/components/ui/Tabs";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
 import { BallotHistory } from "@/features/tournament/components/ballot/BallotHistory";
 import { BallotDiffDialog } from "@/features/tournament/components/ballot/BallotDiffDialog";
+import { useFormatScore } from "@/features/tournament/components/results/useFormatScore";
 import {
   blankEntry,
   entryFromBallot,
@@ -38,8 +50,28 @@ import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/li
 import { MotionPreferencesFields } from "@/features/tournament/components/ballot/MotionPreferencesFields";
 import { normalizeMotionPreferences, validateMotionPreferences } from "@/lib/motions/preferences";
 import { motionsEnabled, speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
-import { sideLabel } from "@/lib/sideNames";
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import { mergeIndividualBallots } from "@/lib/ballots/individualBallots";
+import type { MessageKey } from "@/lib/i18n/messages";
+
+const ERROR_SUMMARY_ID = "ballot-entry-errors";
+const radioClasses = cn("h-4 w-4 shrink-0 cursor-pointer accent-[rgb(var(--color-accent))]", focusRing);
+const BP_RANK_KEYS: MessageKey[] = [
+  "results.ballot.bpRank1",
+  "results.ballot.bpRank2",
+  "results.ballot.bpRank3",
+  "results.ballot.bpRank4",
+];
+
+function BackToResults({ href }: { href: string }) {
+  const { t } = useI18n();
+  return (
+    <Link href={href} className={buttonClasses({ variant: "ghost", size: "sm", className: "no-print -ms-2.5" })}>
+      <ArrowLeft className="rtl:-scale-x-100" aria-hidden="true" />
+      {t("results.ballot.back")}
+    </Link>
+  );
+}
 
 export default function BallotEntryPage() {
   const params = useParams();
@@ -48,6 +80,7 @@ export default function BallotEntryPage() {
   const roundSeq = parseInt(params.roundSeq as string, 10);
   const debateId = params.debateId as string;
 
+  const { t, plural } = useI18n();
   const { user } = useAuth();
   const { tournament, debates, rounds, teams, adjudicators, motions, ballots, submitBallot, confirmBallot, discardBallot } =
     useTournament();
@@ -81,7 +114,8 @@ export default function BallotEntryPage() {
     ? sides.length * substantiveSpeakerCount(rules)
     : undefined;
   const usingMotions = motionsEnabled(preferences);
-  const label = (side: DebateSide, kind: "abbr" | "full" = "abbr") => sideLabel(side, preferences, kind);
+  const label = (side: DebateSide, kind: "abbr" | "full" = "abbr") =>
+    kind === "full" ? translatedSideName(t, side, preferences) : sideLabel(side, preferences);
 
   const rosters = useMemo(() => {
     const byId = new Map(teams.map((team) => [team.id, team]));
@@ -117,6 +151,9 @@ export default function BallotEntryPage() {
   const [message, setMessage] = useState("");
   const [differences, setDifferences] = useState<BallotDifference[] | null>(null);
   const [candidate, setCandidate] = useState<BallotSubmission | null>(null);
+  // Confirmations that used to be window.confirm prompts.
+  const [pendingSideTeamId, setPendingSideTeamId] = useState<string | null>(null);
+  const [pendingDiscard, setPendingDiscard] = useState<BallotSubmission | null>(null);
   const initializedFor = useRef<string | null>(null);
 
   const loadEntry = useCallback((next: BallotEntry) => {
@@ -184,76 +221,105 @@ export default function BallotEntryPage() {
     }
   }, [entry, errors, teamIds, debate?.adjudicators?.chairId, rules]);
 
+  const resultsHref = `/${tournamentSlug}/results`;
+
   if (!debate || !tournament) {
     return (
-      <div className="p-8 text-center">
-        <p className="text-gray-500">Debate not found.</p>
-        <button onClick={() => router.back()} className="mt-4 rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
-          Go Back
-        </button>
-      </div>
+      <EmptyState
+        icon={<FileCheck2 />}
+        title={t("results.ballot.notFound")}
+        action={
+          <Button variant="primary" onClick={() => router.back()}>
+            {t("results.ballot.goBack")}
+          </Button>
+        }
+      />
     );
   }
 
   if (debate.byeTeamId) {
     const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
+    const teamName = byeTeam?.teamName || t("results.ballot.byeTeamFallback");
     return (
       <div className="mx-auto max-w-4xl space-y-6 pb-12">
-        <button onClick={() => router.push(`/${tournamentSlug}/results`)} className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Back to Results Overview</span>
-        </button>
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <h2 className="text-lg font-bold text-gray-900">Bye — no ballot required</h2>
-          <p className="mt-2 text-sm text-gray-700">
-            {byeTeam?.teamName || "Team"}: {debate.byeResult === "win" ? "full win awarded with prior average speaker scores." : "absent; no standings result is added."}
-          </p>
-        </div>
+        <BackToResults href={resultsHref} />
+        <PageHeader title={t("results.ballot.title")} description={round?.name} />
+        <Alert tone="info" title={t("results.ballot.bye.title")}>
+          {debate.byeResult === "win"
+            ? t("results.ballot.bye.win", { team: teamName })
+            : t("results.ballot.bye.absent", { team: teamName })}
+        </Alert>
       </div>
     );
   }
 
+  const requestSide = (teamId: string) => {
+    if (affTeamId && entry && JSON.stringify(entry) !== initialSnapshot) {
+      setPendingSideTeamId(teamId);
+      return;
+    }
+    setAffTeamId(teamId);
+    setReloadBlank(true);
+  };
+
   const sidePicker = choosesSides && drawnDebate ? (
-    <fieldset className="space-y-2 rounded border border-blue-200 bg-blue-50/60 p-3">
-      <legend className="px-1 text-xs font-bold text-gray-800">Sides (chosen at the debate)</legend>
-      <p className="text-[11px] text-gray-600">This round&apos;s sides were not fixed by the draw. Record which team was {label("AFF", "full")}.</p>
+    <fieldset className="space-y-2 rounded-lg border border-info-border bg-info-subtle p-3">
+      <legend className="px-1 text-xs font-semibold text-fg">{t("results.ballot.sides.legend")}</legend>
+      <p className="text-xs text-fg-muted">{t("results.ballot.sides.help", { side: label("AFF", "full") })}</p>
       <div className="flex flex-col gap-1.5 sm:flex-row sm:gap-6">
         {[drawnDebate.teams.AFF, drawnDebate.teams.NEG].map((slot) => slot?.teamId && (
-          <label key={slot.teamId} className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+          <label key={slot.teamId} className="flex items-center gap-2 text-[13px] font-medium text-fg">
             <input
               type="radio"
               name="affirmative-team"
+              className={radioClasses}
               checked={affTeamId === slot.teamId}
-              onChange={() => {
-                if (affTeamId && entry && JSON.stringify(entry) !== initialSnapshot &&
-                  !window.confirm("Changing the sides clears the scores entered so far. Continue?")) return;
-                setAffTeamId(slot.teamId);
-                setReloadBlank(true);
-              }}
+              onChange={() => requestSide(slot.teamId)}
             />
-            {slot.teamName} was {label("AFF", "full")}
+            {t("results.ballot.sides.option", { team: slot.teamName, side: label("AFF", "full") })}
           </label>
         ))}
       </div>
     </fieldset>
   ) : null;
 
+  const sideChangeDialog = pendingSideTeamId !== null && (
+    <ConfirmActionDialog
+      title={t("results.ballot.sides.confirmTitle")}
+      description={t("results.ballot.sides.confirmDescription")}
+      confirmLabel={t("results.ballot.sides.confirmAction")}
+      variant="danger"
+      onCancel={() => setPendingSideTeamId(null)}
+      onConfirm={() => {
+        setAffTeamId(pendingSideTeamId);
+        setReloadBlank(true);
+        setPendingSideTeamId(null);
+      }}
+    />
+  );
+
   if (!entry) {
     return sidePicker && !affTeamId ? (
-      <div className="mx-auto max-w-4xl space-y-4 pb-12">
-        <button onClick={() => router.push(`/${tournamentSlug}/results`)} className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Back to Results Overview</span>
-        </button>
-        <h2 className="text-lg font-bold text-gray-900">Debate Ballot Entry &bull; {debate.venueName}</h2>
+      <div className="mx-auto max-w-4xl space-y-6 pb-12">
+        <BackToResults href={resultsHref} />
+        <PageHeader
+          title={t("results.ballot.title")}
+          description={[round?.name, debate.venueName].filter(Boolean).join(" · ")}
+        />
         {sidePicker}
       </div>
-    ) : <div className="p-8 text-center text-sm text-gray-500">Loading ballot…</div>;
+    ) : (
+      <p role="status" className="p-8 text-center text-[13px] text-fg-muted">
+        {t("results.ballot.loading")}
+      </p>
+    );
   }
 
   const dirty = JSON.stringify(entry) !== initialSnapshot;
   const chairId = debate.adjudicators?.chairId;
+  // Saved into the ballot record (submitterName / confirmedBy), so it is not translated.
   const userLabel = user?.email || "Tab room";
+  const teamName = (side: DebateSide) => debate.teams[side]?.teamName || label(side);
 
   const updateEntry = (patch: Partial<BallotEntry>) => setEntry((current) => (current ? { ...current, ...patch } : current));
 
@@ -323,9 +389,9 @@ export default function BallotEntryPage() {
     setMessage("");
     try {
       await action();
-      if (done) router.push(`/${tournamentSlug}/results`);
+      if (done) router.push(resultsHref);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save the ballot.");
+      setMessage(error instanceof Error ? error.message : t("results.ballot.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -356,266 +422,319 @@ export default function BallotEntryPage() {
 
   const portalBallotCount = debateBallots.filter((ballot) => ballot.submitterType === "judge" && !ballot.discarded).length;
   const visibleErrors = showErrors ? errors : [];
+  const errorId = visibleErrors.length > 0 ? ERROR_SUMMARY_ID : undefined;
+  const motionLabel = (motion: { reference?: string; text: string }) =>
+    `${motion.reference ? `${motion.reference}: ` : ""}${motion.text}`;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 pb-12">
-      <div className="no-print flex items-center justify-between border-b border-[#d0d7de] pb-3">
-        <button onClick={() => router.push(`/${tournamentSlug}/results`)} className="inline-flex items-center space-x-1 text-xs font-semibold text-gray-600 hover:text-gray-900">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Back to Results Overview</span>
-        </button>
-        <span className="text-xs font-semibold text-gray-500">{round?.name} &bull; {debate.venueName}</span>
-      </div>
+      <BackToResults href={resultsHref} />
 
-      <div className="flex justify-end">
-        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
-          <Printer className="h-4 w-4" />
-          Print Ballot
-        </button>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white shadow-xs">
-        <div className="border-b border-[#d0d7de] bg-[#f6f8fa] p-4">
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-            <div>
-              <h2 className="flex items-center space-x-2 text-lg font-bold text-gray-900">
-                <FileCheck2 className="h-5 w-5 text-blue-600" />
-                <span>Debate Ballot Entry</span>
-              </h2>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Venue: <span className="font-bold text-gray-800">{debate.venueName}</span> &bull; Chair:{" "}
-                <span className="font-bold text-gray-800">{debate.adjudicators?.chairName || "Unassigned"}</span>
-                {voting && <> &bull; <span className="font-semibold">Voting ballots</span></>}
-              </p>
-            </div>
-            <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${confirmedBallot ? "border border-emerald-300 bg-emerald-100 text-emerald-800" : "border border-amber-300 bg-amber-100 text-amber-800"}`}>
-              {confirmedBallot ? `Result confirmed (v${confirmedBallot.version})` : "No confirmed result"}
+      <PageHeader
+        title={t("results.ballot.title")}
+        description={round?.name}
+        meta={
+          <>
+            <span className="text-xs text-fg-muted">
+              {t("results.ballot.venue", { venue: debate.venueName || "—" })}
             </span>
-          </div>
-        </div>
-
-        <CheckBanner state={checkState} />
-
-        {message && (
-          <div role="alert" className="m-4 flex items-center space-x-2 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>{message}</span>
-          </div>
-        )}
-
-        <form onSubmit={(event) => event.preventDefault()} className="space-y-6 p-5">
-          {sidePicker}
-          {preferences?.ballotIntroExplanation?.trim() && (
-            <div className="space-y-1 rounded-md border border-blue-200 bg-blue-50/80 p-3.5 text-xs leading-relaxed text-blue-900">
-              <div className="font-bold text-blue-950">Ballot instructions</div>
-              <div className="whitespace-pre-line text-[11px]">{preferences.ballotIntroExplanation}</div>
-            </div>
-          )}
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {usingMotions && (
-            <label className="block text-xs font-bold text-gray-700">
-              <span className="mb-1 flex items-center gap-1.5"><Lightbulb className="h-3.5 w-3.5 text-amber-500" />Motion debated</span>
-              <select value={entry.motionId || ""} onChange={(event) => updateEntry({ motionId: event.target.value })} className="w-full rounded border border-gray-300 px-3 py-2 text-xs font-medium">
-                <option value="">— Select motion —</option>
-                {availableMotions.map((motion) => (
-                  <option key={motion.id} value={motion.id}>{motion.reference ? `${motion.reference}: ` : ""}{motion.text}</option>
-                ))}
-              </select>
-            </label>
+            <span className="text-xs text-fg-muted">
+              {t("results.ballot.chair", { chair: debate.adjudicators?.chairName || t("results.ballot.unassigned") })}
+            </span>
+            {voting && <Badge tone="info">{t("results.ballot.votingBallots")}</Badge>}
+            {confirmedBallot ? (
+              <StatusPill tone="success">{t("results.ballot.resultConfirmed", { version: confirmedBallot.version })}</StatusPill>
+            ) : (
+              <StatusPill tone="warning">{t("results.ballot.noConfirmedResult")}</StatusPill>
             )}
-            {!isBP && preferences?.enableForfeits && (
-              <label className="block text-xs font-bold text-gray-700">
-                <span className="mb-1 block">Forfeit</span>
-                <select
-                  value={entry.forfeitSide || ""}
-                  onChange={(event) => updateEntry({ forfeitSide: (event.target.value || undefined) as DebateSide | undefined })}
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-xs font-medium"
-                >
-                  <option value="">No forfeit — debate took place</option>
-                  {sides.map((side) => (
-                    <option key={side} value={side}>{debate.teams[side]?.teamName || label(side)} ({label(side)}) forfeited</option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
+          </>
+        }
+        actions={
+          <Button variant="secondary" className="no-print" onClick={() => window.print()}>
+            <Printer aria-hidden="true" />
+            {t("results.ballot.print")}
+          </Button>
+        }
+      />
 
-          {usingMotions && preferences?.enableMotionVetoes && availableMotions.length > 1 && (
-            <fieldset className="grid gap-3 rounded border border-gray-200 p-3 sm:grid-cols-2">
-              <legend className="px-1 text-xs font-bold text-gray-700">Motion vetoes</legend>
-              {sides.map((side) => (
-                <label key={side} className="text-xs font-semibold text-gray-700">
-                  <span className="mb-1 block">{debate.teams[side]?.teamName || label(side)} vetoed</span>
-                  <select
+      <CheckBanner state={checkState} />
+
+      {message && (
+        <Alert tone="danger" role="alert">
+          <span className="text-fg">{message}</span>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader icon={<FileCheck2 aria-hidden="true" />} title={t("results.ballot.formTitle")} />
+        <CardBody>
+          <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
+            {sidePicker}
+            {preferences?.ballotIntroExplanation?.trim() && (
+              <Alert tone="info" title={t("results.ballot.instructions")}>
+                <span className="whitespace-pre-line text-xs">{preferences.ballotIntroExplanation}</span>
+              </Alert>
+            )}
+
+            {(usingMotions || (!isBP && preferences?.enableForfeits)) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {usingMotions && (
+                  <Select
+                    label={
+                      <span className="inline-flex items-center gap-1.5">
+                        <Lightbulb className="h-3.5 w-3.5 text-fg-subtle" aria-hidden="true" />
+                        {t("results.ballot.motion")}
+                      </span>
+                    }
+                    value={entry.motionId || ""}
+                    onChange={(event) => updateEntry({ motionId: event.target.value })}
+                  >
+                    <option value="">{t("results.ballot.selectMotion")}</option>
+                    {availableMotions.map((motion) => (
+                      <option key={motion.id} value={motion.id}>{motionLabel(motion)}</option>
+                    ))}
+                  </Select>
+                )}
+                {!isBP && preferences?.enableForfeits && (
+                  <Select
+                    label={t("results.ballot.forfeit")}
+                    value={entry.forfeitSide || ""}
+                    onChange={(event) => updateEntry({ forfeitSide: (event.target.value || undefined) as DebateSide | undefined })}
+                  >
+                    <option value="">{t("results.ballot.noForfeit")}</option>
+                    {sides.map((side) => (
+                      <option key={side} value={side}>
+                        {t("results.ballot.forfeitOption", { team: teamName(side), side: label(side) })}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            )}
+
+            {usingMotions && preferences?.enableMotionVetoes && availableMotions.length > 1 && (
+              <fieldset className="grid gap-4 rounded-lg border border-border p-4 sm:grid-cols-2">
+                <legend className="px-1 text-xs font-semibold text-fg">{t("results.ballot.vetoes")}</legend>
+                {sides.map((side) => (
+                  <Select
+                    key={side}
+                    label={t("results.ballot.vetoedBy", { team: teamName(side) })}
                     value={entry.vetoes?.[side] || ""}
                     onChange={(event) => updateEntry({ vetoes: { ...entry.vetoes, [side]: event.target.value } })}
-                    className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
                   >
-                    <option value="">No veto recorded</option>
+                    <option value="">{t("results.ballot.noVeto")}</option>
                     {availableMotions.filter((motion) => motion.id !== entry.motionId).map((motion) => (
-                      <option key={motion.id} value={motion.id}>{motion.reference ? `${motion.reference}: ` : ""}{motion.text}</option>
+                      <option key={motion.id} value={motion.id}>{motionLabel(motion)}</option>
                     ))}
-                  </select>
-                </label>
-              ))}
-            </fieldset>
-          )}
-
-          {recordsMotionPreferences && (
-            <MotionPreferencesFields
-              sides={sides}
-              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))}
-              motions={availableMotions}
-              value={entry.motionPreferences || {}}
-              onChange={(motionPreferences) => updateEntry({ motionPreferences })}
-            />
-          )}
-
-          {!entry.forfeitSide && voting && entry.sheets && (
-            <VotingSheets
-              sheets={entry.sheets}
-              activeSheet={activeSheet}
-              onSelectSheet={setActiveSheet}
-              rules={rules}
-              sides={sides}
-              rosters={rosters}
-              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || label(side)]))}
-              onChangeSide={updateSheetSide}
-              scored={scored}
-              declaresWinner={!scored || winnerMode !== "none"}
-              onDeclareWinner={(sheetIndex, winner) =>
-                updateEntry({ sheets: (entry.sheets || []).map((sheet, index) => (index === sheetIndex ? { ...sheet, declaredWinner: winner } : sheet)) })
-              }
-              portalBallotCount={portalBallotCount}
-              onFillFromPortal={() => {
-                const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
-                updateEntry({ sheets: result.sheets });
-                // Individual ballots must agree on speakers, motion and vetoes (Tabbycat's merge check).
-                const merge = mergeIndividualBallots(debate, debateBallots, rules);
-                setMessage(
-                  result.filled === 0
-                    ? "No adjudicator has submitted a ballot through their private URL yet."
-                    : merge.errors.length > 0
-                      ? `Check before confirming: ${merge.errors.join(" ")}`
-                      : merge.missingAdjudicatorIds.length > 0
-                        ? `${merge.missingAdjudicatorIds.length} voting adjudicator(s) have not submitted yet.`
-                        : ""
-                );
-              }}
-            />
-          )}
-
-          {!entry.forfeitSide && !voting && !scored && (
-            <p className="rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-              This round&apos;s ballots record the result only; no speaker scores are entered.
-            </p>
-          )}
-          {!entry.forfeitSide && !voting && (
-            <div className="space-y-5">
-              {sides.map((side) => (
-                <div key={side} className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
-                  <div className="flex flex-col justify-between gap-2 border-b border-gray-200 pb-2 sm:flex-row sm:items-center">
-                    <div className="flex items-center space-x-2">
-                      <SideBadge side={side} preferences={preferences} />
-                      <span className="text-sm font-bold text-gray-900">{debate.teams[side]?.teamName || "Unassigned team"}</span>
-                    </div>
-                    {winnerFromScores ? (
-                      <span className="text-xs font-semibold text-gray-600">
-                        {isBP ? `Rank ${derivedRanks[side] ?? "—"} (from totals)` : derivedRanks[side] === 1 ? "Winner (higher total)" : ""}
-                      </span>
-                    ) : isBP ? (
-                      <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
-                        Rank
-                        <select
-                          value={entry.ranks?.[side] ?? ""}
-                          onChange={(event) => updateEntry({ ranks: { ...entry.ranks, [side]: Number(event.target.value) } })}
-                          className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-bold text-gray-900"
-                        >
-                          <option value={1}>1st (3 pts)</option>
-                          <option value={2}>2nd (2 pts)</option>
-                          <option value={3}>3rd (1 pt)</option>
-                          <option value={4}>4th (0 pts)</option>
-                        </select>
-                      </label>
-                    ) : (
-                      <label className="flex items-center gap-2 text-xs font-semibold text-gray-600">
-                        <input type="radio" name="winner" checked={entry.ranks?.[side] === 1} onChange={() => setWinner(side)} />
-                        Winner
-                      </label>
-                    )}
-                  </div>
-                  {scored && (
-                    <SpeechRows
-                      idPrefix={`consensus-${side}`}
-                      roster={rosters[side] || []}
-                      entries={entry.speakerScores[side] || []}
-                      rules={rules}
-                      rankCount={rankCount}
-                      onChange={(speeches) => updateConsensusSide(side, speeches)}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {preview && <ResultPreview teamScores={preview.teamScores} sides={sides} teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || label(side)]))} sideNames={Object.fromEntries(sides.map((side) => [side, label(side)]))} forfeit={entry.forfeitSide} scored={!preview.noSpeakerScores} />}
-
-          {visibleErrors.length > 0 && (
-            <ul role="alert" className="space-y-1 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-              {visibleErrors.map((error) => <li key={error}>• {error}</li>)}
-            </ul>
-          )}
-
-          <div className="no-print flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 pt-3">
-            <button type="button" onClick={() => router.push(`/${tournamentSlug}/results`)} className="rounded bg-gray-100 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200">
-              Cancel
-            </button>
-            {checkState.kind === "single" && (
-              <>
-                <button type="button" disabled={busy} onClick={() => save(false)} className="inline-flex items-center gap-1.5 rounded border border-blue-600 px-4 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
-                  <Save className="h-3.5 w-3.5" />Save draft
-                </button>
-                <button type="button" disabled={busy} onClick={() => save(true)} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                  <CheckCircle2 className="h-3.5 w-3.5" />Save and confirm
-                </button>
-              </>
+                  </Select>
+                ))}
+              </fieldset>
             )}
-            {checkState.kind === "first-entry" && (
-              <button type="button" disabled={busy} onClick={() => save(false)} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                <Save className="h-3.5 w-3.5" />Save for checking
-              </button>
+
+            {recordsMotionPreferences && (
+              <MotionPreferencesFields
+                sides={sides}
+                teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))}
+                motions={availableMotions}
+                value={entry.motionPreferences || {}}
+                onChange={(motionPreferences) => updateEntry({ motionPreferences })}
+              />
             )}
-            {checkState.kind === "review" && (
-              dirty ? (
-                <button type="button" disabled={busy} onClick={() => save(false)} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                  <Save className="h-3.5 w-3.5" />Save corrected version (needs another check)
-                </button>
-              ) : (
+
+            {!entry.forfeitSide && voting && entry.sheets && (
+              <VotingSheets
+                sheets={entry.sheets}
+                activeSheet={activeSheet}
+                onSelectSheet={setActiveSheet}
+                rules={rules}
+                sides={sides}
+                rosters={rosters}
+                teamNames={Object.fromEntries(sides.map((side) => [side, teamName(side)]))}
+                onChangeSide={updateSheetSide}
+                scored={scored}
+                declaresWinner={!scored || winnerMode !== "none"}
+                onDeclareWinner={(sheetIndex, winner) =>
+                  updateEntry({ sheets: (entry.sheets || []).map((sheet, index) => (index === sheetIndex ? { ...sheet, declaredWinner: winner } : sheet)) })
+                }
+                errorId={errorId}
+                portalBallotCount={portalBallotCount}
+                onFillFromPortal={() => {
+                  const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
+                  updateEntry({ sheets: result.sheets });
+                  // Individual ballots must agree on speakers, motion and vetoes (Tabbycat's merge check).
+                  const merge = mergeIndividualBallots(debate, debateBallots, rules);
+                  setMessage(
+                    result.filled === 0
+                      ? t("results.ballot.portal.none")
+                      : merge.errors.length > 0
+                        ? t("results.ballot.portal.mergeErrors", { errors: merge.errors.join(" ") })
+                        : merge.missingAdjudicatorIds.length > 0
+                          ? plural("results.ballot.portal.missing", merge.missingAdjudicatorIds.length)
+                          : ""
+                  );
+                }}
+              />
+            )}
+
+            {!entry.forfeitSide && !voting && !scored && (
+              <Alert tone="info">{t("results.ballot.resultsOnly")}</Alert>
+            )}
+            {!entry.forfeitSide && !voting && (
+              <div className="space-y-4">
+                {sides.map((side) => {
+                  const headingId = `consensus-${side}-heading`;
+                  const name = debate.teams[side]?.teamName || t("results.ballot.unassignedTeam");
+                  return (
+                    <section key={side} aria-labelledby={headingId} className="space-y-3 rounded-lg border border-border bg-muted/40 p-4">
+                      <div className="flex flex-col justify-between gap-2 border-b border-border pb-2 sm:flex-row sm:items-center">
+                        <h3 id={headingId} className="flex items-center gap-2 text-sm font-semibold text-fg">
+                          <SideBadge side={side} preferences={preferences} />
+                          {name}
+                        </h3>
+                        {winnerFromScores ? (
+                          isBP ? (
+                            <span className="text-xs font-medium text-fg-muted">
+                              {derivedRanks[side] !== undefined
+                                ? t("results.ballot.rankFromTotals", { rank: derivedRanks[side] })
+                                : t("results.ballot.rankFromTotalsUnknown")}
+                            </span>
+                          ) : derivedRanks[side] === 1 ? (
+                            <StatusPill tone="success">{t("results.ballot.winnerHigherTotal")}</StatusPill>
+                          ) : null
+                        ) : isBP ? (
+                          <div className="flex items-center gap-2">
+                            <label htmlFor={`rank-${side}`} className="text-xs font-medium text-fg-muted">
+                              {t("results.ballot.rank")}
+                            </label>
+                            <Select
+                              id={`rank-${side}`}
+                              aria-label={t("results.ballot.rankLabel", { team: name })}
+                              value={entry.ranks?.[side] ?? ""}
+                              onChange={(event) => updateEntry({ ranks: { ...entry.ranks, [side]: Number(event.target.value) } })}
+                              className="h-7 w-auto text-xs font-semibold"
+                            >
+                              {BP_RANK_KEYS.map((key, index) => (
+                                <option key={key} value={index + 1}>{t(key)}</option>
+                              ))}
+                            </Select>
+                          </div>
+                        ) : (
+                          <label className="flex items-center gap-2 text-xs font-medium text-fg">
+                            <input
+                              type="radio"
+                              name="winner"
+                              className={radioClasses}
+                              checked={entry.ranks?.[side] === 1}
+                              onChange={() => setWinner(side)}
+                              aria-label={t("results.ballot.winnerLabel", { team: name })}
+                            />
+                            {t("results.ballot.winner")}
+                          </label>
+                        )}
+                      </div>
+                      {scored && (
+                        <SpeechRows
+                          idPrefix={`consensus-${side}`}
+                          roster={rosters[side] || []}
+                          entries={entry.speakerScores[side] || []}
+                          rules={rules}
+                          rankCount={rankCount}
+                          errorId={errorId}
+                          onChange={(speeches) => updateConsensusSide(side, speeches)}
+                        />
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+
+            {preview && (
+              <ResultPreview
+                teamScores={preview.teamScores}
+                sides={sides}
+                teamNames={Object.fromEntries(sides.map((side) => [side, teamName(side)]))}
+                sideNames={Object.fromEntries(sides.map((side) => [side, label(side)]))}
+                forfeit={entry.forfeitSide}
+                scored={!preview.noSpeakerScores}
+              />
+            )}
+
+            {visibleErrors.length > 0 && (
+              <div id={ERROR_SUMMARY_ID} role="alert">
+                <Alert tone="danger" title={plural("results.ballot.errorsTitle", visibleErrors.length)}>
+                  <ul className="list-disc space-y-0.5 ps-4 text-xs text-fg">
+                    {visibleErrors.map((error) => <li key={error}>{error}</li>)}
+                  </ul>
+                </Alert>
+              </div>
+            )}
+
+            <div className="no-print flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => router.push(resultsHref)}>
+                {t("common.cancel")}
+              </Button>
+              {checkState.kind === "single" && (
                 <>
-                  <button type="button" disabled={busy} onClick={() => void run(() => discardBallot(checkState.pending.id), "done")} className="rounded border border-red-300 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">
-                    Discard v{checkState.pending.version}
-                  </button>
-                  <button type="button" disabled={busy || errors.length > 0} onClick={() => void run(() => confirmBallot(checkState.pending.id, debate.id), "done")} className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
-                    <ShieldCheck className="h-3.5 w-3.5" />Confirm v{checkState.pending.version}
-                  </button>
+                  <Button variant="secondary" disabled={busy} onClick={() => save(false)}>
+                    <Save aria-hidden="true" />
+                    {t("results.ballot.saveDraft")}
+                  </Button>
+                  <Button variant="primary" disabled={busy} onClick={() => save(true)}>
+                    <CheckCircle2 aria-hidden="true" />
+                    {t("results.ballot.saveAndConfirm")}
+                  </Button>
                 </>
-              )
-            )}
-            {checkState.kind === "blind-check" && (
-              <button type="button" disabled={busy} onClick={blindCheck} className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
-                <ShieldCheck className="h-3.5 w-3.5" />Check against v{checkState.pending.version}
-              </button>
-            )}
-            {checkState.kind === "awaiting-other" && (
-              <button type="button" disabled={busy || !dirty} onClick={() => save(false)} className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50">
-                <Save className="h-3.5 w-3.5" />Save as new version
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+              )}
+              {checkState.kind === "first-entry" && (
+                <Button variant="primary" disabled={busy} onClick={() => save(false)}>
+                  <Save aria-hidden="true" />
+                  {t("results.ballot.saveForChecking")}
+                </Button>
+              )}
+              {checkState.kind === "review" && (
+                dirty ? (
+                  <Button variant="primary" disabled={busy} onClick={() => save(false)}>
+                    <Save aria-hidden="true" />
+                    {t("results.ballot.saveCorrected")}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      className="text-danger"
+                      disabled={busy}
+                      onClick={() => void run(() => discardBallot(checkState.pending.id), "done")}
+                    >
+                      {t("results.ballot.discardVersion", { version: checkState.pending.version })}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      disabled={busy || errors.length > 0}
+                      onClick={() => void run(() => confirmBallot(checkState.pending.id, debate.id), "done")}
+                    >
+                      <ShieldCheck aria-hidden="true" />
+                      {t("results.ballot.confirmVersion", { version: checkState.pending.version })}
+                    </Button>
+                  </>
+                )
+              )}
+              {checkState.kind === "blind-check" && (
+                <Button variant="primary" disabled={busy} onClick={blindCheck}>
+                  <ShieldCheck aria-hidden="true" />
+                  {t("results.ballot.checkAgainst", { version: checkState.pending.version })}
+                </Button>
+              )}
+              {checkState.kind === "awaiting-other" && (
+                <Button variant="primary" disabled={busy || !dirty} onClick={() => save(false)}>
+                  <Save aria-hidden="true" />
+                  {t("results.ballot.saveNewVersion")}
+                </Button>
+              )}
+            </div>
+          </form>
+        </CardBody>
+      </Card>
 
       <BallotHistory
         ballots={debateBallots}
@@ -628,16 +747,36 @@ export default function BallotEntryPage() {
         onLoad={(ballot) => blank && loadEntry(entryFromBallot(ballot, blank, rules))}
         onConfirm={(ballot) => void run(() => confirmBallot(ballot.id, debate.id))}
         onDiscard={(ballot) => {
-          if (ballot.confirmed && !window.confirm(`Discard the confirmed result (v${ballot.version})? The debate will have no result until another version is confirmed.`)) return;
+          if (ballot.confirmed) {
+            setPendingDiscard(ballot);
+            return;
+          }
           void run(() => discardBallot(ballot.id));
         }}
       />
 
+      {sideChangeDialog}
+
+      {pendingDiscard && (
+        <ConfirmActionDialog
+          title={t("results.ballot.discardConfirmed.title", { version: pendingDiscard.version })}
+          description={t("results.ballot.discardConfirmed.description")}
+          confirmLabel={t("results.ballot.discardConfirmed.action", { version: pendingDiscard.version })}
+          variant="danger"
+          onCancel={() => setPendingDiscard(null)}
+          onConfirm={() => {
+            const ballot = pendingDiscard;
+            setPendingDiscard(null);
+            void run(() => discardBallot(ballot.id));
+          }}
+        />
+      )}
+
       {differences && candidate && checkState.kind === "blind-check" && (
         <BallotDiffDialog
           differences={differences}
-          firstLabel={`First entry (v${checkState.pending.version})`}
-          secondLabel="Your entry"
+          firstLabel={t("results.ballot.diff.firstEntry", { version: checkState.pending.version })}
+          secondLabel={t("results.ballot.diff.yourEntry")}
           busy={busy}
           onClose={() => setDifferences(null)}
           onKeepFirst={() => void run(() => confirmBallot(checkState.pending.id, debate.id), "done")}
@@ -649,25 +788,27 @@ export default function BallotEntryPage() {
 }
 
 function CheckBanner({ state }: { state: ReturnType<typeof resolveCheckState> }) {
-  if (state.kind === "single" || state.kind === "first-entry") {
-    return state.kind === "first-entry" ? (
-      <p className="mx-4 mt-4 rounded border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
-        Double entry is on: a different person must check this ballot before it counts.
-      </p>
-    ) : null;
+  const { t } = useI18n();
+  if (state.kind === "single") return null;
+  if (state.kind === "first-entry") {
+    return (
+      <Alert tone="info" title={t("results.ballot.check.doubleEntryTitle")}>
+        {t("results.ballot.check.firstEntry")}
+      </Alert>
+    );
   }
-  const who = state.pending.submitterName || "another user";
+  const who = state.pending.submitterName || t("results.ballot.check.anotherUser");
+  const version = state.pending.version;
   const text =
     state.kind === "review"
-      ? `Version ${state.pending.version}, entered by ${who}, is waiting for your check. Compare it with the paper ballot, then confirm or discard it.`
+      ? t("results.ballot.check.review", { version, name: who })
       : state.kind === "blind-check"
-        ? `Blind check: enter the paper ballot again without looking at version ${state.pending.version}. Both entries are compared when you submit.`
-        : `You entered version ${state.pending.version}. A different person must check it before it counts.`;
+        ? t("results.ballot.check.blind", { version })
+        : t("results.ballot.check.awaitingOther", { version });
   return (
-    <p className="mx-4 mt-4 flex items-start gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+    <Alert tone="warning" title={t("results.ballot.check.doubleEntryTitle")}>
       {text}
-    </p>
+    </Alert>
   );
 }
 
@@ -685,80 +826,100 @@ function VotingSheets(props: {
   scored: boolean;
   declaresWinner: boolean;
   onDeclareWinner: (sheetIndex: number, winner: DebateSide) => void;
+  errorId?: string;
 }) {
+  const { t } = useI18n();
   const { sheets, activeSheet, onSelectSheet, rules, sides, rosters, teamNames, onChangeSide, scored, declaresWinner } = props;
   const label = (side: DebateSide) => sideLabel(side, rules.preferences);
   if (sheets.length === 0) {
-    return <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Allocate a chair before entering voting ballots.</p>;
+    return <Alert tone="warning">{t("results.ballot.sheets.noChair")}</Alert>;
   }
   const sheet = sheets[Math.min(activeSheet, sheets.length - 1)];
   const sheetIndex = sheets.indexOf(sheet);
+  const tabsId = "adjudicator-sheets";
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div role="tablist" aria-label="Adjudicator scoresheets" className="flex flex-wrap gap-1">
-          {sheets.map((item, index) => {
+    <section className="space-y-3" aria-label={t("results.ballot.sheets.label")}>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <Tabs
+          id={tabsId}
+          ariaLabel={t("results.ballot.sheets.label")}
+          value={String(sheetIndex)}
+          onValueChange={(value) => onSelectSheet(Number(value))}
+          className="min-w-0 flex-1"
+          items={sheets.map((item, index) => {
             const outcome = sheetOutcome(item, rules);
-            return (
-              <button
-                key={item.adjudicatorId}
-                type="button"
-                role="tab"
-                aria-selected={index === sheetIndex}
-                onClick={() => onSelectSheet(index)}
-                className={`flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs font-semibold ${index === sheetIndex ? "border-blue-600 bg-blue-50 text-blue-800" : "border-gray-300 bg-white text-gray-700"}`}
-              >
-                <Users className="h-3.5 w-3.5" />
-                {item.adjudicatorName}
-                {index === 0 && <span className="text-[10px] font-bold uppercase text-gray-500">chair</span>}
-                {outcome.winner && Number.isFinite(outcome.totals[outcome.winner]) && (
-                  <span className="text-[10px] font-bold text-emerald-700">→ {label(outcome.winner)}</span>
-                )}
-              </button>
-            );
+            const winner = outcome.winner && Number.isFinite(outcome.totals[outcome.winner]) ? outcome.winner : undefined;
+            return {
+              value: String(index),
+              icon: <Users aria-hidden="true" />,
+              label: (
+                <>
+                  {item.adjudicatorName}
+                  {index === 0 && (
+                    <span className="text-[11px] font-medium uppercase text-fg-muted">{t("role.chair")}</span>
+                  )}
+                  {winner && (
+                    <span className="text-[11px] font-medium text-success">
+                      {t("results.ballot.sheets.tabWinner", { side: label(winner) })}
+                    </span>
+                  )}
+                </>
+              ),
+            };
           })}
-        </div>
+        />
         {props.portalBallotCount > 0 && (
-          <button type="button" onClick={props.onFillFromPortal} className="text-xs font-semibold text-blue-700 hover:underline">
-            Fill from private-URL ballots ({props.portalBallotCount})
-          </button>
+          <Button size="sm" variant="ghost" onClick={props.onFillFromPortal}>
+            {t("results.ballot.sheets.fillFromPortal", { count: props.portalBallotCount })}
+          </Button>
         )}
       </div>
-      {sheetIndex > 0 && scored && (
-        <p className="text-[11px] text-gray-500">Speaker order is set on the chair&apos;s sheet and shared by every scoresheet.</p>
-      )}
-      {declaresWinner && (
-        <fieldset className="flex flex-wrap items-center gap-4 rounded border border-gray-200 bg-white p-3">
-          <legend className="px-1 text-xs font-bold text-gray-700">{sheet.adjudicatorName || "This adjudicator"} voted for</legend>
-          {sides.map((side) => (
-            <label key={side} className="flex items-center gap-2 text-xs font-semibold text-gray-800">
-              <input
-                type="radio"
-                name={`declared-winner-${sheet.adjudicatorId}`}
-                checked={sheet.declaredWinner === side}
-                onChange={() => props.onDeclareWinner(sheetIndex, side)}
+      <TabPanel id={tabsId} value={String(sheetIndex)} className="space-y-3">
+        {sheetIndex > 0 && scored && (
+          <p className="text-xs text-fg-muted">{t("results.ballot.sheets.sharedOrder")}</p>
+        )}
+        {declaresWinner && (
+          <fieldset className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface p-3">
+            <legend className="px-1 text-xs font-semibold text-fg">
+              {sheet.adjudicatorName
+                ? t("results.ballot.sheets.votedFor", { name: sheet.adjudicatorName })
+                : t("results.ballot.sheets.votedForUnnamed")}
+            </legend>
+            {sides.map((side) => (
+              <label key={side} className="flex items-center gap-2 text-[13px] font-medium text-fg">
+                <input
+                  type="radio"
+                  className={radioClasses}
+                  name={`declared-winner-${sheet.adjudicatorId}`}
+                  checked={sheet.declaredWinner === side}
+                  onChange={() => props.onDeclareWinner(sheetIndex, side)}
+                />
+                {t("results.ballot.teamWithSide", { team: teamNames[side], side: label(side) })}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        {scored && sides.map((side) => {
+          const headingId = `sheet-${sheet.adjudicatorId}-${side}-heading`;
+          return (
+            <section key={side} aria-labelledby={headingId} className="space-y-3 rounded-lg border border-border bg-muted/40 p-4">
+              <h3 id={headingId} className="flex items-center gap-2 border-b border-border pb-2 text-sm font-semibold text-fg">
+                <SideBadge side={side} preferences={rules.preferences} />
+                {teamNames[side]}
+              </h3>
+              <SpeechRows
+                idPrefix={`sheet-${sheet.adjudicatorId}-${side}`}
+                roster={rosters[side] || []}
+                entries={sheet.speakerScores[side] || []}
+                rules={rules}
+                lockSpeakers={sheetIndex > 0}
+                errorId={props.errorId}
+                onChange={(speeches) => onChangeSide(sheetIndex, side, speeches)}
               />
-              {teamNames[side]} ({label(side)})
-            </label>
-          ))}
-        </fieldset>
-      )}
-      {scored && sides.map((side) => (
-        <div key={side} className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
-          <div className="flex items-center space-x-2 border-b border-gray-200 pb-2">
-            <SideBadge side={side} preferences={rules.preferences} />
-            <span className="text-sm font-bold text-gray-900">{teamNames[side]}</span>
-          </div>
-          <SpeechRows
-            idPrefix={`sheet-${sheet.adjudicatorId}-${side}`}
-            roster={rosters[side] || []}
-            entries={sheet.speakerScores[side] || []}
-            rules={rules}
-            lockSpeakers={sheetIndex > 0}
-            onChange={(speeches) => onChangeSide(sheetIndex, side, speeches)}
-          />
-        </div>
-      ))}
+            </section>
+          );
+        })}
+      </TabPanel>
     </section>
   );
 }
@@ -771,27 +932,40 @@ function ResultPreview(props: {
   forfeit?: DebateSide;
   scored: boolean;
 }) {
+  const { t, plural } = useI18n();
+  const formatScore = useFormatScore();
   const ordered = [...props.sides].sort((left, right) => (props.teamScores[left]?.rank ?? 9) - (props.teamScores[right]?.rank ?? 9));
   return (
-    <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
-      <div className="mb-1 font-bold">Result to be recorded</div>
+    <Alert tone="success" title={t("results.ballot.preview.title")}>
       {props.forfeit ? (
-        <p>{props.teamNames[props.forfeit]} forfeited; {props.teamNames[ordered[0]]} receives the win. No speaker scores are recorded.</p>
+        <p className="text-fg">
+          {t("results.ballot.preview.forfeit", {
+            forfeiter: props.teamNames[props.forfeit],
+            winner: props.teamNames[ordered[0]],
+          })}
+        </p>
       ) : (
-        <ol className="space-y-0.5">
+        <ol className="space-y-0.5 text-fg">
           {ordered.map((side) => {
             const score = props.teamScores[side];
+            const stats = [
+              plural("results.ballot.preview.points", score.points),
+              ...(props.scored ? [t("results.ballot.preview.total", { total: formatScore(score.totalSpeakerScore) })] : []),
+              ...(score.margin !== undefined
+                ? [t("results.ballot.preview.margin", { margin: `${score.margin > 0 ? "+" : ""}${formatScore(score.margin)}` })]
+                : []),
+              ...(score.votes !== undefined ? [plural("results.ballot.preview.votes", score.votes)] : []),
+            ];
             return (
               <li key={side}>
-                <span className="font-semibold">{props.teamNames[side]}</span> ({props.sideNames[side]}) — {score.points} pt{score.points === 1 ? "" : "s"}
-                {props.scored && `, total ${formatScore(score.totalSpeakerScore)}`}
-                {score.margin !== undefined && `, margin ${score.margin > 0 ? "+" : ""}${formatScore(score.margin)}`}
-                {score.votes !== undefined && `, ${score.votes} vote${score.votes === 1 ? "" : "s"}`}
+                <span className="font-medium">{t("results.ballot.teamWithSide", { team: props.teamNames[side], side: props.sideNames[side] })}</span>
+                {" — "}
+                {stats.join(" · ")}
               </li>
             );
           })}
         </ol>
       )}
-    </div>
+    </Alert>
   );
 }
