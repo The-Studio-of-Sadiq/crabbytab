@@ -50,7 +50,15 @@ import { createRoundCommand, updateRoundCommand } from "@/features/tournament/ap
 import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
+import { createSeededRng } from "@/lib/draw/rng";
 import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
+import {
+  addFeedbackInSequence,
+  planSimulatedBallots,
+  planSimulatedFeedback,
+  submitBallotsInSequence,
+  type SkippedDebate,
+} from "@/features/tournament/application/rehearsal";
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { saveTournamentCommand } from "@/features/tournament/application/settings";
 import { withRuleOverride } from "@/features/tournament/application/ruleOverridePrompt";
@@ -297,6 +305,10 @@ export interface TournamentContextType {
     privateUrlKey?: string
   ) => Promise<void>;
   reviewFeedback: (feedbackId: string, change: FeedbackReviewChange) => Promise<void>;
+  /** Rehearsal tools: random valid confirmed ballots for a round's unresulted debates (seeded). */
+  simulateRoundResults: (roundId: string, seed: number) => Promise<RehearsalOutcome>;
+  /** Rehearsal tools: random valid feedback along the feedback paths for a round (seeded). */
+  simulateRoundFeedback: (roundId: string, seed: number) => Promise<RehearsalOutcome>;
   /** Records that a paper ballot sheet arrived; returns false when it was already recorded. */
   recordBallotIntake: (sheet: BallotSheet) => Promise<boolean>;
   recordAuditEvent: (event: {
@@ -309,6 +321,10 @@ export interface TournamentContextType {
   }) => Promise<void>;
   releaseAuditLog: () => Promise<{ releasedAt: string; eventCount: number }>;
   generatePrivateUrlKeys: (forceRegenerate?: boolean) => Promise<void>;
+}
+export interface RehearsalOutcome {
+  created: number;
+  skipped: SkippedDebate[];
 }
 export interface UploadOutcome {
   /** Records archived as sync conflicts instead of being written. */
@@ -2360,6 +2376,75 @@ export function TournamentProvider({
     });
   };
 
+  // Rehearsal tools. Ballots and feedback go through their commands one after another (see
+  // application/rehearsal.ts); the result is saved once, like any other batch of changes.
+  const simulateRoundResults = async (roundId: string, seed: number): Promise<RehearsalOutcome> => {
+    const round = rounds.find((item) => item.id === roundId);
+    if (!tournament || !round) throw new Error("That round no longer exists.");
+    const plan = planSimulatedBallots({
+      tournament,
+      round,
+      debates,
+      teams,
+      motions,
+      ballots,
+      rng: createSeededRng(seed),
+      submitter: { id: user?.uid, name: user?.displayName || user?.email || undefined },
+    });
+    if (plan.ballots.length > 0) {
+      const state = await guarded((override) => submitBallotsInSequence(plan.ballots, { ballots, debates, rounds }, {
+        adjudicators,
+        recordAuditEvent,
+        checkPolicy: ballotWorkflowDependencies.checkPolicy,
+        // A confirmed ballot withdraws released results; the changed rounds are saved below.
+        updateRound: async () => undefined,
+      }, override));
+      saveLiveRecords("ballots", ballots, state.ballots);
+      saveLiveRecords("debates", debates, state.debates);
+      if (state.rounds.some((item, index) => item !== rounds[index])) saveRoundsLocally(state.rounds);
+    }
+    await recordAuditEvent({
+      action: "rehearsal.results_simulated",
+      category: "ballot",
+      roundId,
+      summary: `Rehearsal: simulated ${plan.ballots.length} ballot(s) for ${round.name}`,
+      details: { seed, ballotIds: plan.ballots.map((ballot) => ballot.id), skipped: plan.skipped },
+    });
+    return { created: plan.ballots.length, skipped: plan.skipped };
+  };
+
+  const simulateRoundFeedback = async (roundId: string, seed: number): Promise<RehearsalOutcome> => {
+    const round = rounds.find((item) => item.id === roundId);
+    if (!tournament || !round) throw new Error("That round no longer exists.");
+    const plan = planSimulatedFeedback({
+      tournament,
+      round,
+      debates,
+      teams,
+      adjudicators,
+      feedback,
+      rng: createSeededRng(seed),
+    });
+    if (plan.feedback.length > 0) {
+      const saved = await addFeedbackInSequence(plan.feedback, {
+        tournament,
+        feedback,
+        createId: () => createEntityId("fb"),
+        recordAuditEvent,
+      });
+      setFeedback(saved);
+      persistLocal("feedback", saved);
+    }
+    await recordAuditEvent({
+      action: "rehearsal.feedback_simulated",
+      category: "feedback",
+      roundId,
+      summary: `Rehearsal: simulated ${plan.feedback.length} feedback submission(s) for ${round.name}`,
+      details: { seed, skipped: plan.skipped },
+    });
+    return { created: plan.feedback.length, skipped: plan.skipped };
+  };
+
   const reviewFeedback = async (feedbackId: string, change: FeedbackReviewChange) => {
     await reviewFeedbackCommand(feedbackId, change, {
       feedback,
@@ -3049,6 +3134,8 @@ export function TournamentProvider({
         proceedToNextEliminationRound,
         addFeedback,
         reviewFeedback,
+        simulateRoundResults,
+        simulateRoundFeedback,
         recordBallotIntake,
         recordAuditEvent,
         releaseAuditLog,
