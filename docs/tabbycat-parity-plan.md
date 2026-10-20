@@ -39,6 +39,8 @@ means the sync/publish hardening PR that added this section.
 | Sync: Republish ignored unuploaded local changes | FIXED | this PR | asks first (`syncStatus.ts` `planRepublish`, `Navbar.tsx`) |
 | Sync: upload published despite conflicts / part-way failure | FIXED | this PR | refused (`publishBlockerAfterUpload`, `UploadIssue`) |
 | Sync: no unsynced indicator or `beforeunload` warning | FIXED | this PR | `computePendingChanges`, top-bar sync status, `useBeforeUnloadWarning` |
+| C CSV exports: participants, availability, break eligibility, conflicts | FIXED | wave 4/5 exports-demo PR | `lib/csv/participantExports.ts`, Data exports page; conflicts round-trip through the conflicts import; see [data-import-export.md](./data-import-export.md) |
+| C demo tournament, simulated results and feedback (rehearsals) | FIXED | wave 4/5 exports-demo PR | `lib/rehearsal/demoTournament.ts`, `application/rehearsal.ts`, Rehearsal tools page; seeded, through the ballot/feedback commands, typed confirmation outside demo tournaments, audited |
 | 1.1 elimination rounds counted in standings | FIXED | #10 | `standings/calculator.ts` filters elimination and cancelled rounds |
 | 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
 | 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |

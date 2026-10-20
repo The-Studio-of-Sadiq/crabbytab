@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Eye,
   FileCheck2,
+  FileDown,
+  FlaskConical,
   History,
   Key,
   KeyRound,
@@ -253,6 +255,8 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
           </NavDisclosure>
           <NavLink href={`${base}/imports/assistants`} icon={Shield} label="Assistants" />
           <NavLink href={`${base}/audit`} icon={History} label="Audit log" />
+          <NavLink href={`${base}/exports`} icon={FileDown} label="Data exports" />
+          <NavLink href={`${base}/rehearsal`} icon={FlaskConical} label="Rehearsal tools" />
           <NavLink href={`${base}/api`} icon={KeyRound} label="API access" />
         </NavGroup>
       )}
