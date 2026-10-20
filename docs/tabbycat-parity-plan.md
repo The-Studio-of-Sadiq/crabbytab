@@ -44,7 +44,7 @@ means the sync/publish hardening PR that added this section.
 | 1.2 real margins | FIXED | #10 | `ballots/result.ts` margin = difference of team totals |
 | 1.3 reply ids `reply-AFF/NEG` | FIXED | #10 | portal attributes the reply to a real speaker; old ids excluded from tabs |
 | 1.4 ghost / iron-person | FIXED | #10 | `ballots/result.ts` ghost flagging and `teamScoreIncludesGhosts` |
-| 1.5 pullups persisted; metric direction | FIXED | #15 | `generator.ts` writes `pulledUp`; `metrics.ts` `pullups: -1` |
+| 1.5 pullups persisted; metric direction | FIXED | #15 | `generator.ts` writes `pulledUp`; `metrics.ts` `pullups: 1` (more ranks higher, as Tabbycat's `npullups`; corrected in wave 4/5) |
 | 1.6 bye win fabricates speaks | FIXED | #15 | `standings/calculator.ts` bye records team result only |
 | 1.7 rank-vs-score (low-point win) validation | FIXED | #10 | `ballots/result.ts` checks `allowLowPointWins` |
 | 1.8 round completion for prelims | FIXED | #11 | `roundAdministration.ts` `getRoundCompletionBlockers` / `setRoundCompletion` |
@@ -66,7 +66,7 @@ means the sync/publish hardening PR that added this section.
 | 2 elim: BP elim sides by seed | UNVERIFIED | — | sides are fixed in seed order (OG = top seed); no seed-choice option |
 | 2 elim: manual break overrides and remarks | FIXED | #11 | `BreakCategory.teamOverrides`, `breakqual/calculator.ts` |
 | 2 elim: adjudicator break | FIXED | #16 | `Adjudicator.breaking` and public breaking-adjudicators list |
-| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | PARTIAL | wave 2 #8 | `wbw` (repeatable), `num_adjs`, `num_iron`, missed-speeches/replies eligibility and the high-low trimmed mean done; reply stddev/count and team points as speaker metrics still open |
+| 2 standings extras (who-beat-whom, votes, iron-person count, min speeches, reply stddev/count, team points as speaker metric) | FIXED | wave 2 #8, wave 4/5 | `wbw` (repeatable), `num_adjs`, `num_iron`, missed-speeches/replies eligibility and the high-low trimmed mean (wave 2); reply stddev/count and the speaker team metrics (wave 4/5) |
 | 3 voting ballots | FIXED | #10, wave 2 #9 | majority, dissent, `marginIncludesDissenters`; consensus or voting per stage (`eliminationBallotMode`, read through `ballotModeFor`) |
 | 3 blind double entry, version history, entered/checked by | FIXED | #10 | `ballotEntry.ts`, `BallotDiffDialog`, `BallotHistory` |
 | 3 vetoes, veto stats, motions by round, forfeits | FIXED | #10 | `BallotSubmission.vetoes` / `forfeitSide`; vetoes in analytics |
@@ -159,8 +159,9 @@ CrabbyTab defects left open (follow-ups):
 Rule differences worth deciding on:
 - Round-1 byes go to the first teams in the list (CrabbyTab) or the last imported (Tabbycat); neither
   is random. CrabbyTab should break the tie with the draw's seeded RNG.
-- BP draw strength counts opponents' wins in CrabbyTab and opponents' points in Tabbycat (already
-  left out of the BP preset).
+- ~~BP draw strength counts opponents' wins in CrabbyTab and opponents' points in Tabbycat~~ *Fixed in
+  wave 4/5: `draw_strength` sums opponents' points, BP records no wins, and the BP preset ends with
+  `draw_strength`; the harness's BP standings now agree 2496/2496.*
 - Teams tied inside the break get consecutive seeds in standings (name) order in CrabbyTab; Tabbycat
   gives them equal break ranks.
 - The DebateXML importer totals ballots with CrabbyTab's defaults (ghost speeches excluded) before the
@@ -223,6 +224,7 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 ### B. Wave 4 corrections (wave 4 is not implemented yet)
 - **#18**: drop WADL — it is not in Tabbycat v2.12.1 (only in historical migrations). Keep
   `aida-2019-australs-open` (cap 3, +1 per 8 teams beyond a 16-team break; `breakqual/aida.py`).
+  *Done: `aida_2019_australs_open` (standings-and-breaks.md).*
 - **#20**: include venue-constraint priorities (soft, ranked) and venue check-in expiry.
 - **#21**: include Reply-To, the "ballot confirmed" event (CrabbyTab only notifies on submission),
   and per-tournament saved templates for the 8 automatic emails.
@@ -240,13 +242,15 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 4. Speaker ranks on ballots and the `srank` metric (APDA; `speaker_ranks`).
 5. Declared-winner modes incl. `tied-points`, and declaring a winner on voting sheets (`winners_in_ballots`).
 6. Speaker-tab metrics: team points, team wins, 1sts/2nds/3rds, num_adjs, srank, replies count/stddev.
+   *Done except `srank` (ranked ballots).*
 7. Odd-bracket methods `pullup_lowest_ds_rank(_npulls)`; `graph_one` conflict avoidance; two-team pull-up penalty.
+   *Done: `min_cost_with_pullups` (draw-generation.md).*
 8. Score criteria (weighted per-criterion speaker scores).
-9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins).
+9. BP draw strength by opponents' points (`draw_strength`; CrabbyTab uses opponents' wins). *Done.*
 10. Per-adjudicator ballots via private URLs merged into voting ballots; assistants confirming others' entries.
 
-**Medium (workflow):** maximum margin; independent reply-score step; BP position cost `simple`;
-deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics; assistant
+**Medium (workflow):** maximum margin; independent reply-score step; ~~BP position cost `simple`;
+deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics~~ (done); assistant
 access levels and permission groups; concurrent current rounds, round start times, preparation
 time, public schedule + iCal; three-state motion release (info slides first); public draw "current
 round only"; public team/adjudicator record pages; public adjudicator tab; public and private
