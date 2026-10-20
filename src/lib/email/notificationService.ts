@@ -20,6 +20,7 @@ import { createSmtpEmailProvider, type EmailProvider } from "@/lib/email/provide
 import { deliveryRef } from "@/lib/email/deliveryStatus";
 import { loadEmailSettings, replyToHeader, templateFor } from "@/lib/email/settings";
 import { calculateStandings } from "@/lib/standings/calculator";
+import { loadPortalVenues } from "@/lib/privateParticipantData";
 
 /**
  * Server-side delivery of automatic notifications. All data comes from the cloud copy in
@@ -141,9 +142,11 @@ async function buildRoundRecipients(
       );
       return buildMotionsRecipients(round, debates, teams, adjudicators, motions);
     }
+    // Room links for {{venue_url}}: one read per room of this round.
+    const venues = await loadPortalVenues(tournamentRef, debates);
     return event === "draw_teams"
-      ? buildDrawTeamRecipients(round, debates, teams, adjudicators)
-      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators);
+      ? buildDrawTeamRecipients(round, debates, teams, adjudicators, venues)
+      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators, venues);
   }
   // Running totals only include rounds whose results pass the same release test.
   const releasedRounds = rounds.filter((item) => areRoundResultsReleased(item, tournament.preferences));

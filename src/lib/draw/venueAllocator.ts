@@ -1,5 +1,13 @@
 import { Adjudicator, Debate, Venue } from "@/types";
 import { solveHungarian } from "./hungarian";
+import {
+  constraintLookup,
+  debateVenueConstraints,
+  isVenueAvailableForRound,
+  venueInCategory,
+  type ApplicableVenueConstraint,
+  type VenueConstraintContext,
+} from "@/lib/venues/venues";
 
 export function getVenueIncompatibilities(debate: Debate, venue: Venue): string[] {
   const reasons: string[] = [];
@@ -70,12 +78,51 @@ export function applyAdjudicatorVenueRequirements(
   });
 }
 
+/** Integer costs above this lose precision in the Hungarian solver's sums. */
+const SAFE_COST = 2 ** 50;
+
+/**
+ * Penalty per unmet soft constraint, by priority. Weights are lexicographic: missing one
+ * constraint of a priority costs more than missing every constraint of all lower priorities
+ * together, and the smallest weight outweighs any difference in room ranking. If the weights would
+ * be too large for exact arithmetic, each priority level instead weighs its rank (1, 2, ...) times
+ * the unit, which still puts every constraint above room ranking.
+ */
+function constraintWeights(constraintsByDebate: ApplicableVenueConstraint[][], unit: number): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const constraints of constraintsByDebate) {
+    for (const constraint of constraints) counts.set(constraint.priority, (counts.get(constraint.priority) ?? 0) + 1);
+  }
+  const levels = [...counts.keys()].sort((a, b) => a - b);
+  const weights = new Map<number, number>();
+  let lowerTotal = 0;
+  for (const level of levels) {
+    const weight = (lowerTotal + 1) * unit;
+    weights.set(level, weight);
+    lowerTotal += counts.get(level)! * (lowerTotal + 1);
+  }
+  if ((lowerTotal + 1) * unit * Math.max(1, constraintsByDebate.length) > SAFE_COST) {
+    levels.forEach((level, index) => weights.set(level, (index + 1) * unit));
+  }
+  return weights;
+}
+
+/**
+ * Assigns rooms to a round's debates with a minimum-cost matching. Hard requirements
+ * (category/capacity/access/online/near the tab room on the debate) must hold; soft ranked
+ * constraints of the debate's teams, adjudicators and institutions (`context`) are met where
+ * possible, higher priority first (Tabbycat's venue constraints, but optimal instead of greedy);
+ * then higher-ranked debates get higher-priority rooms. Rooms unavailable in the debates' round are
+ * not used.
+ */
 export function allocateVenuesToDebates(
   debates: Debate[],
-  venues: Venue[]
+  venues: Venue[],
+  context?: VenueConstraintContext
 ): Map<string, Venue> {
+  const roundId = debates[0]?.roundId;
   const rooms = venues
-    .filter((venue) => venue.available !== false)
+    .filter((venue) => isVenueAvailableForRound(venue, roundId))
     .sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   const eligibleDebates = debates
     .filter((debate) => !debate.byeTeamId && !debate.postponed)
@@ -94,13 +141,25 @@ export function allocateVenuesToDebates(
   }
   if (eligibleDebates.length === 0) return new Map();
 
-  const invalidCost = (eligibleDebates.length + 1) * (rooms.length + 1) ** 2;
+  const rankingTotal = (eligibleDebates.length + 1) * (rooms.length + 1) ** 2;
+  const lookup = context ? constraintLookup(context) : undefined;
+  const constraintsByDebate = eligibleDebates.map((debate) => (lookup ? debateVenueConstraints(debate, lookup) : []));
+  const weights = constraintWeights(constraintsByDebate, rankingTotal);
+  const softTotal = constraintsByDebate.reduce(
+    (sum, constraints) => sum + constraints.reduce((inner, constraint) => inner + weights.get(constraint.priority)!, 0),
+    0
+  );
+  // Without constraints this is the original invalid cost, so plain draws are unchanged.
+  const invalidCost = rankingTotal + softTotal;
   const costs = eligibleDebates.map((debate, debateRank) =>
-    rooms.map((venue, venueRank) =>
-      getVenueIncompatibilities(debate, venue).length > 0
-        ? invalidCost
-        : Math.abs(debateRank - venueRank) * (rooms.length + 1) + venueRank
-    )
+    rooms.map((venue, venueRank) => {
+      if (getVenueIncompatibilities(debate, venue).length > 0) return invalidCost;
+      let cost = Math.abs(debateRank - venueRank) * (rooms.length + 1) + venueRank;
+      for (const constraint of constraintsByDebate[debateRank]) {
+        if (!venueInCategory(venue, constraint.category)) cost += weights.get(constraint.priority)!;
+      }
+      return cost;
+    })
   );
   const assignments = solveHungarian(costs);
   const result = new Map<string, Venue>();

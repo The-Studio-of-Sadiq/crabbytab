@@ -1,4 +1,5 @@
 import type { Catalogue } from "@/lib/i18n/messages";
+import { publicSiteBn } from "@/lib/i18n/messages/publicSite.bn";
 
 /**
  * Bengali (বাংলা). MACHINE-DRAFTED: produced by machine translation and not yet reviewed by a
@@ -435,4 +436,5 @@ export const bn: Catalogue = {
   "register.receivedTeam": "ধন্যবাদ। টুর্নামেন্টের আয়োজকেরা আপনার দল পর্যালোচনা করবেন।",
   "register.receivedAdjudicator": "ধন্যবাদ। টুর্নামেন্টের আয়োজকেরা আপনার নিবন্ধন পর্যালোচনা করবেন।",
   "register.another": "আরেকটি নিবন্ধন করুন",
+  ...publicSiteBn,
 };

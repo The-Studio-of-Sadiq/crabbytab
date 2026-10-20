@@ -5,6 +5,7 @@ import {
   type SourceRecord,
 } from "@/lib/publicView/projection";
 import { fingerprintPublicSource } from "@/lib/publicView/snapshot";
+import type { PublicDerived, PublicTabs } from "@/lib/publicView/derived";
 import type { Tournament } from "@/types";
 
 export interface PublishPublicViewResponse {
@@ -20,7 +21,7 @@ export function fingerprintLocalPublicView(
   collections: Record<CloudCollectionName, CloudRecord[]>
 ): string {
   const source = Object.fromEntries(
-    PUBLIC_SOURCE_COLLECTIONS.map((name) => [name, (collections[name] || []) as unknown as SourceRecord[]])
+    [...PUBLIC_SOURCE_COLLECTIONS, "feedback" as const].map((name) => [name, (collections[name] || []) as unknown as SourceRecord[]])
   ) as PublicSourceData;
   return fingerprintPublicSource(tournament as unknown as SourceRecord, source);
 }
@@ -67,6 +68,14 @@ export interface PublicProjectionResponse {
   roundSections?: Record<string, string>;
   /** Rounds whose debates and ballots this response includes (the latest public round). */
   loadedRoundIds?: string[];
+  tabs?: PublicTabs | null;
+  derived?: PublicDerived;
+}
+
+/** Publish-time tabs and aggregates of the public projection (see lib/publicView/derived.ts). */
+export interface PublicProjectionExtras {
+  tabs?: PublicTabs;
+  derived: PublicDerived;
 }
 
 export interface PublicRoundResponse {

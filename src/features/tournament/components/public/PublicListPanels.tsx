@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { SideBadge } from "@/components/ui/SideBadge";
@@ -20,8 +21,19 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="p-6 text-center text-xs text-gray-500">{children}</p>;
 }
 
-export function ParticipantsPanel({ participants }: { participants: PublicParticipants }) {
+export function ParticipantsPanel({
+  participants,
+  showBreakCategories = false,
+  teamHref,
+  adjudicatorHref,
+}: {
+  participants: PublicParticipants;
+  showBreakCategories?: boolean;
+  teamHref?: (teamId: string) => string | undefined;
+  adjudicatorHref?: (adjudicatorId: string) => string | undefined;
+}) {
   const { t, formatList } = useI18n();
+  const nameOrPlaceholder = (name: string) => name || t("public.noPublicName");
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Panel title={t("lists.teams", { count: participants.teams.length })}>
@@ -35,14 +47,27 @@ export function ParticipantsPanel({ participants }: { participants: PublicPartic
                   <th scope="col">{t("lists.col.team")}</th>
                   <th scope="col">{t("lists.col.institution")}</th>
                   <th scope="col">{t("lists.col.speakers")}</th>
+                  {showBreakCategories && <th scope="col">{t("lists.col.breakCategories")}</th>}
                 </tr>
               </thead>
               <tbody>
                 {participants.teams.map((team) => (
                   <tr key={team.id}>
-                    <td className="text-xs font-bold text-gray-900">{team.name}</td>
+                    <td className="text-xs font-bold text-gray-900">
+                      {teamHref?.(team.id) ? (
+                        <Link href={teamHref(team.id)!} className="hover:underline">{nameOrPlaceholder(team.name)}</Link>
+                      ) : (
+                        nameOrPlaceholder(team.name)
+                      )}
+                    </td>
                     <td className="text-xs text-gray-600">{team.institutionName || "—"}</td>
-                    <td className="text-xs text-gray-700">{formatList(team.speakers) || "—"}</td>
+                    <td className="text-xs text-gray-700">
+                      {formatList([
+                        ...team.speakers,
+                        ...Array.from({ length: team.anonymousSpeakers ?? 0 }, () => t("public.redacted")),
+                      ]) || "—"}
+                    </td>
+                    {showBreakCategories && <td className="text-xs text-gray-600">{formatList(team.breakCategories ?? []) || "—"}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -65,7 +90,15 @@ export function ParticipantsPanel({ participants }: { participants: PublicPartic
               <tbody>
                 {participants.adjudicators.map((adjudicator) => (
                   <tr key={adjudicator.id}>
-                    <td className="text-xs font-bold text-gray-900">{adjudicator.name}</td>
+                    <td className="text-xs font-bold text-gray-900">
+                      {adjudicator.anonymous ? (
+                        <span className="italic text-gray-500">{t("public.redacted")}</span>
+                      ) : adjudicatorHref?.(adjudicator.id) ? (
+                        <Link href={adjudicatorHref(adjudicator.id)!} className="hover:underline">{nameOrPlaceholder(adjudicator.name)}</Link>
+                      ) : (
+                        nameOrPlaceholder(adjudicator.name)
+                      )}
+                    </td>
                     <td className="text-xs text-gray-600">{adjudicator.institutionName || t("common.independent")}</td>
                   </tr>
                 ))}
@@ -126,7 +159,9 @@ function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAd
         <ul className="divide-y divide-gray-100">
           {rows.map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-              <span className="font-bold text-gray-900">{row.name}</span>
+              <span className="font-bold text-gray-900">
+                {row.anonymous ? <span className="italic text-gray-500">{t("public.redacted")}</span> : row.name || t("public.noPublicName")}
+              </span>
               <span className="text-gray-600">{row.institutionName || t("common.independent")}</span>
             </li>
           ))}

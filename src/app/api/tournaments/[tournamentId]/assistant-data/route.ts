@@ -82,7 +82,7 @@ export async function GET(
       ])),
       venues: records.venues.map((venue) => pickFields(venue, [
         "id", "tournamentId", "name", "priority", "category", "capacity", "accessible", "online", "available",
-        "checkedIn", "checkInHistory",
+        "checkedIn", "checkedInAt", "checkInHistory",
       ])),
       motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
         "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "released",

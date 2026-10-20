@@ -52,6 +52,7 @@ import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedba
 import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
 import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
 import { LOCALES } from "@/lib/i18n/config";
+import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -342,11 +343,14 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   >
                     <option value="crabbytab_v1">Preset 1 — Current CrabbyTab allocation</option>
                     <option value="panel_average">Panel average — match each panel to debate priority</option>
+                    <option value="tabbycat_voting">Tabbycat voting — solo chairs in top rooms, panels of three below</option>
+                    <option value="tabbycat_consensus">Tabbycat consensus — spread every voter evenly across rooms</option>
                   </select>
                   <p className="text-[11px] text-gray-500 mt-1">
                     Preset 1 preserves the existing strength-ranking behavior. Panel average instead matches the
                     average strength of each complete voting panel to its debate priority; the strongest eligible
-                    panel member is still promoted to chair.
+                    panel member is still promoted to chair. The two Tabbycat strategies reproduce Tabbycat&apos;s
+                    Hungarian allocators (voting and consensus) and ignore the panel size setting.
                   </p>
                 </div>
                 <div className="sm:col-span-2">
@@ -1789,19 +1793,6 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={prefs.publicDraw !== false}
-                  onChange={(e) => setPrefs((p) => ({ ...p, publicDraw: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Draw Display</span>
-                  <span className="text-[11px] text-gray-500">Allow public viewers to see confirmed round pairings and room allocations.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
                   checked={prefs.publicResults !== false}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicResults: e.target.checked }))}
                   className="rounded border-gray-300 text-blue-600"
@@ -1884,6 +1875,25 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
             </label>
 
             <label className="block max-w-xs text-xs font-semibold text-gray-700">
+              Room check-in expiry (hours; 0 means never)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={prefs.venueCheckInExpiresAfterHours ?? 0}
+                onChange={(event) => setPrefs((current) => ({
+                  ...current,
+                  venueCheckInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                }))}
+                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                A room checked in longer ago than this shows as expired on the check-ins page (Tabbycat&apos;s room
+                check-in window).
+              </span>
+            </label>
+
+            <label className="block max-w-xs text-xs font-semibold text-gray-700">
               Public pages and portals language
               <select
                 value={prefs.publicLanguage ?? ""}
@@ -1908,6 +1918,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 Default for public pages, team and adjudicator portals. Viewers can still pick their own language.
               </span>
             </label>
+
+            <PublicSiteSettingsFields prefs={prefs} setPrefs={setPrefs} />
           </div>
         )}
 

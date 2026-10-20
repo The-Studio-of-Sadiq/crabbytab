@@ -11,6 +11,7 @@ import { tournamentReadRoutes } from "./tournament";
 import { entityWriteRoutes } from "./write/entities";
 import { roundWriteRoutes } from "./write/rounds";
 import { tournamentWriteRoutes } from "./write/tournament";
+import { currentDrawRoundId, getPublicSiteSettings, isRoundDrawPublic } from "@/lib/publicFeatures";
 
 const rootRoute = defineRoute({
   method: "GET",
@@ -76,8 +77,11 @@ const legacyDrawsRoute = defineRoute({
     );
     if (context.query.roundSeq !== undefined && rounds.length === 0) throw notFound("Round");
     const publicView = context.data.view === "public";
+    // Public access sees only the rounds on the public draw page (the draw mode decides).
+    const drawMode = getPublicSiteSettings(context.tournament.preferences).drawMode;
+    const currentRoundId = currentDrawRoundId(allRounds);
     const visibleRounds = rounds.filter((round) =>
-      !publicView || round.drawStatus === "confirmed" || round.drawStatus === "released"
+      !publicView || isRoundDrawPublic(round, drawMode, currentRoundId)
     );
     const debatesByRound = await Promise.all(visibleRounds.map((round) =>
       context.data.all("debates", [{ field: "roundId", op: "==", value: round.id }])

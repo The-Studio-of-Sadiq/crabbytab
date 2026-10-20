@@ -26,7 +26,9 @@ import {
   setSpeakerCheckIn,
   setVenueCheckIn,
 } from "@/lib/checkins/history";
-import type { CheckInEvent } from "@/types";
+import type { CheckInEvent, CheckInSource } from "@/types";
+import { isVenueCheckedIn } from "@/lib/venues/venues";
+import type { Venue } from "@/types";
 
 interface BarcodeDetectorResult {
   rawValue: string;
@@ -69,6 +71,16 @@ export default function CheckinsPage() {
   const checkedInTeams = teams.filter((t) => t.checkedIn !== false).length;
   const checkedInAdjs = adjudicators.filter((a) => a.checkedIn !== false).length;
   const checkInExpiry = tournament?.preferences?.checkInExpiresAfterHours;
+  const venueCheckInExpiry = tournament?.preferences?.venueCheckInExpiresAfterHours;
+  const venuePresent = (venue: Venue) => isVenueCheckedIn(venue, venueCheckInExpiry);
+  // Rooms: beta's check-in expiry (checkedInAt) plus the check-in history (lib/checkins/history.ts).
+  const checkInVenue = (venue: Venue, present: boolean, source: CheckInSource = "tab") => {
+    const at = new Date().toISOString();
+    return updateVenue({
+      ...setVenueCheckIn(venue, present, { source, by: actor, at }),
+      checkedInAt: present ? at : venue.checkedInAt,
+    });
+  };
   const roundTeamsPresent = activeRound
     ? teams.filter((team) => isAvailableForRound(team, activeRound, checkInExpiry)).length
     : checkedInTeams;
@@ -191,7 +203,7 @@ export default function CheckinsPage() {
       }
     } else {
       for (const venue of venues) {
-        if (venue.checkedIn === false) await updateVenue(setVenueCheckIn(venue, true, { source: "bulk", by: actor }));
+        if (!venuePresent(venue)) await checkInVenue(venue, true, "bulk");
       }
     }
   };
@@ -264,7 +276,7 @@ export default function CheckinsPage() {
         } else {
           const venue = venues.find((item) => item.id.toLowerCase() === scannedId);
           if (!venue) throw new Error("No team, adjudicator, or venue matches that barcode.");
-          await updateVenue(setVenueCheckIn(venue, true, { source: "scan", by: actor }));
+          await checkInVenue(venue, true, "scan");
           setScanStatus({ message: `${venue.name} checked in.`, error: false });
         }
       }
@@ -437,7 +449,7 @@ export default function CheckinsPage() {
           }`}
         >
           <MapPin className="w-3.5 h-3.5" />
-          <span>Venues ({venues.filter((venue) => venue.checkedIn !== false).length}/{venues.length})</span>
+          <span>Venues ({venues.filter(venuePresent).length}/{venues.length})</span>
         </button>
       </div>
 
@@ -552,14 +564,21 @@ export default function CheckinsPage() {
                       <td className="text-xs text-gray-600">{venue.category || "—"}</td>
                       <td className="text-center">
                         <button
-                          onClick={() => updateVenue(setVenueCheckIn(venue, venue.checkedIn === false, { source: "tab", by: actor }))}
+                          onClick={() => checkInVenue(venue, !venuePresent(venue))}
+                          title={
+                            venue.checkedIn !== false && !venuePresent(venue)
+                              ? "The check-in has expired"
+                              : venue.checkedInAt
+                                ? `Checked in ${new Date(venue.checkedInAt).toLocaleString()}`
+                                : undefined
+                          }
                           className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-bold transition ${
-                            venue.checkedIn !== false
+                            venuePresent(venue)
                               ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
                               : "bg-red-100 text-red-800 border border-red-300 hover:bg-red-200"
                           }`}
                         >
-                          {venue.checkedIn !== false ? "Present" : "Absent"}
+                          {venuePresent(venue) ? "Present" : venue.checkedIn !== false ? "Expired" : "Absent"}
                         </button>
                       </td>
                     </tr>

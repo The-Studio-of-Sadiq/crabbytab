@@ -43,12 +43,12 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
   draw_teams: {
     label: "Draw released (teams)",
     when: "Each team's speakers, once the draw is confirmed or released.",
-    variables: ["team", "side", "debate", "venue", "chair", "panellists"],
+    variables: ["team", "side", "debate", "venue", "venue_url", "chair", "panellists"],
   },
   draw_adjudicators: {
     label: "Draw released (adjudicators)",
     when: "Each adjudicator on a panel, once panels are revealed.",
-    variables: ["debate", "venue", "chair", "panellists"],
+    variables: ["debate", "venue", "venue_url", "chair", "panellists"],
   },
   team_points: {
     label: "Team results",
@@ -101,12 +101,12 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<TemplateEvent, EmailTemplate> = {
   draw_teams: {
     subject: "{{tournament}} — {{round}} draw",
     body:
-      "Hi {{name}},\n\nThe draw for {{round}} has been released.\n\nTeam: {{team}}\nSide: {{side}}\nDebate: {{debate}}\nVenue: {{venue}}\nChair: {{chair}}\n\nGood luck!\nTournament Staff",
+      "Hi {{name}},\n\nThe draw for {{round}} has been released.\n\nTeam: {{team}}\nSide: {{side}}\nDebate: {{debate}}\nVenue: {{venue}} {{venue_url}}\nChair: {{chair}}\n\nGood luck!\nTournament Staff",
   },
   draw_adjudicators: {
     subject: "{{tournament}} — {{round}} adjudicator allocation",
     body:
-      "Hi {{name}},\n\nYour allocation for {{round}}:\n\nDebate: {{debate}}\nVenue: {{venue}}\nChair: {{chair}}\nPanellists: {{panellists}}\n\nThank you,\nTournament Staff",
+      "Hi {{name}},\n\nYour allocation for {{round}}:\n\nDebate: {{debate}}\nVenue: {{venue}} {{venue_url}}\nChair: {{chair}}\nPanellists: {{panellists}}\n\nThank you,\nTournament Staff",
   },
   team_points: {
     subject: "{{tournament}} — {{round}} result for {{team}}",

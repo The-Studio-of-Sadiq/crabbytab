@@ -6,6 +6,7 @@ import { Eye, EyeOff, Megaphone } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { getPublicRelease, isTabRound, setRelease } from "@/lib/publicRelease";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 type ReleaseChange = Parameters<typeof setRelease>[1];
 
@@ -26,6 +27,10 @@ export function ReleasePanel() {
 
   const preferences = tournament.preferences;
   const release = getPublicRelease(preferences);
+  const site = getPublicSiteSettings(preferences);
+  const anonymousCount =
+    teams.reduce((count, team) => count + team.speakers.filter((speaker) => speaker.anonymous).length, 0) +
+    adjudicators.filter((adjudicator) => adjudicator.anonymous).length;
   const prelims = rounds.filter((round) => round.stage === "preliminary" && !round.cancelled);
   const completedPrelims = prelims.filter(isTabRound);
   const items: ReleaseItem[] = [
@@ -79,6 +84,86 @@ export function ReleasePanel() {
       description: `${adjudicators.filter((item) => item.breaking).length} adjudicator(s) marked as breaking in the participant directory.`,
       released: release.breakingAdjudicators,
       change: (released) => ({ kind: "breakingAdjudicators", released }),
+    },
+    {
+      key: "adjudicatorTab",
+      label: "Adjudicator tab",
+      description: `Adjudicator scores (${
+        site.adjudicatorTabShows === "test" ? "base score" : site.adjudicatorTabShows === "final" ? "final score" : "base, final and per-round feedback"
+      }; change in Settings → Public Visibility).`,
+      released: site.adjudicatorTab,
+      change: (released) => ({ kind: "adjudicatorTab", released }),
+    },
+    {
+      key: "ballots",
+      label: "Scoresheets",
+      description: "Every adjudicator's scoresheet, for rounds whose speaker scores and panels are public.",
+      released: site.ballots,
+      change: (released) => ({ kind: "ballots", released }),
+    },
+    {
+      key: "privateBallots",
+      label: "Scoresheets on team private URLs",
+      description: "Each team sees the full scoresheets of its own debates once the round's results are released.",
+      released: site.privateBallots,
+      change: (released) => ({ kind: "privateBallots", released }),
+    },
+    ...(breakCategories.length > 0
+      ? [{
+          key: "breakCategoryTabs",
+          label: "Break category team tabs",
+          description: "A team tab per break category (eligible teams ranked within the category).",
+          released: site.breakCategoryTabs,
+          change: (released: boolean): ReleaseChange => ({ kind: "breakCategoryTabs", released }),
+        }]
+      : []),
+    {
+      key: "recordPages",
+      label: "Team and adjudicator record pages",
+      description: "Per-participant pages listing their public debates and results.",
+      released: site.recordPages,
+      change: (released) => ({ kind: "recordPages", released }),
+    },
+    ...(preferences.sideAllocationRule === "preallocated"
+      ? [{
+          key: "sideAllocations",
+          label: "Pre-allocated sides",
+          description: "Each team's pre-allocated side in every preliminary round.",
+          released: site.sideAllocations,
+          change: (released: boolean): ReleaseChange => ({ kind: "sideAllocations", released }),
+        }]
+      : []),
+    {
+      key: "bracket",
+      label: "Elimination bracket",
+      description: "A bracket built from released elimination draws and results.",
+      released: site.bracket,
+      change: (released) => ({ kind: "bracket", released }),
+    },
+    {
+      key: "diversity",
+      label: "Diversity statistics",
+      description: `Gender and region breakdowns of speakers and adjudicators, speaker scores and feedback (counts and averages only).${
+        anonymousCount > 0 ? ` ${anonymousCount} anonymous participant(s) are still counted.` : ""
+      }`,
+      released: site.diversity,
+      change: (released) => ({ kind: "diversity", released }),
+    },
+    ...(preferences.enableMotionVetoes
+      ? [{
+          key: "vetoStatistics",
+          label: "Motion veto statistics",
+          description: "How often each released motion was vetoed, from public results.",
+          released: site.vetoStatistics,
+          change: (released: boolean): ReleaseChange => ({ kind: "vetoStatistics", released }),
+        }]
+      : []),
+    {
+      key: "feedbackProgress",
+      label: "Feedback progress",
+      description: "Who has not yet submitted the feedback they owe (counts only, no feedback content).",
+      released: site.feedbackProgress,
+      change: (released) => ({ kind: "feedbackProgress", released }),
     },
     ...[...breakCategories]
       .sort((left, right) => (right.priority || 0) - (left.priority || 0))

@@ -60,11 +60,15 @@ export default function DisplayPage() {
     };
   }, [isOwnerOrAdmin, tournamentSlug]);
 
-  // For non-staff viewers, require publicDraw to be enabled AND the round draw to be released.
+  // For non-staff viewers, the round's draw must be on the public draw page: the projection marks
+  // it under the draw mode (current round only / every released draw); older views fall back to
+  // the legacy switch and the draw status.
+  const publicDrawFlag = (activeRound as (typeof activeRound & { drawPublic?: boolean }) | null)?.drawPublic;
   const showDraw =
     isOwnerOrAdmin ||
-    (prefs?.publicDraw !== false &&
-      (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released"));
+    (publicDrawFlag ??
+      (prefs?.publicDraw !== false &&
+        (activeRound?.drawStatus === "confirmed" || activeRound?.drawStatus === "released")));
   const showAdjudicators = isOwnerOrAdmin || activeRound?.adjudicatorsRevealed === true;
   const showMotions = isOwnerOrAdmin || prefs?.publicMotions !== false;
 

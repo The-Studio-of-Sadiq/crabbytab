@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   loadBallotsForDebates,
   loadParticipantDebates,
+  loadPortalVenues,
   loadTeamsById,
   type TournamentReferenceLike,
 } from "./privateParticipantData";
@@ -111,5 +112,23 @@ describe("participant-scoped private reads", () => {
     const found = await loadBallotsForDebates(ref, Array.from({ length: 70 }, (_, index) => `d${index}`));
     expect(found).toHaveLength(70);
     expect(counter.queries).toHaveLength(3);
+  });
+});
+
+describe("loadPortalVenues", () => {
+  it("reads each room once and publishes only safe links", async () => {
+    const { ref, counter } = fakeTournament({
+      venues: {
+        v1: { name: "Online 1", url: "https://meet.example.org/a", category: "Online", priority: 1 },
+        v2: { name: "Bad", url: "javascript:alert(1)", priority: 1 },
+        v3: { name: "Gone", deletedAt: "2026-10-01T00:00:00Z" },
+      },
+    });
+    const venues = await loadPortalVenues(ref, [{ venueId: "v1" }, { venueId: "v1" }, { venueId: "v2" }, { venueId: "v3" }, {}]);
+    expect(venues).toEqual([
+      { id: "v1", name: "Online 1", category: "Online", url: "https://meet.example.org/a" },
+      { id: "v2", name: "Bad" },
+    ]);
+    expect(counter.reads).toBe(3);
   });
 });

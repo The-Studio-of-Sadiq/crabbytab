@@ -27,6 +27,48 @@ reload only rounds whose hash changed.
 | Institutions | `publicInstitutionsList` | name, code, region; team/adjudicator counts only if participants are public too |
 | Adjudication core / Breaking adjudicators | `publicAdjudicatorCore` / `publicBreakingAdjudicators` | adjudicators flagged `adjCore` / `breaking` |
 
+### Public-site settings (waves 4–5, Tabbycat `public_features` / `tab_release` / `ui_options`)
+
+Every setting below is enforced by the projection when the view is published, so a hidden value
+never reaches the public, a cache or a local copy. Defaults follow Tabbycat except where noted.
+Per-item switches are on the **Public release** panel; modes, limits and text are under
+**Settings → Public Visibility**. `getPublicSiteSettings` (`src/lib/publicFeatures.ts`) resolves
+them with their defaults.
+
+| Setting (Tabbycat) | Preference | Effect |
+| --- | --- | --- |
+| Public draw (`public_draw`) | `publicDrawMode`: off / current / all (absent: all, or off if the legacy `publicDraw` is false) | "Current round only" publishes only the latest released draw; earlier rounds stay public only through released results. Each projected round carries `drawPublic`. The projector and the v1 draws API (without the draws scope) follow it. |
+| Record pages (`public_record`, default on) | `publicRecordPages` | `/[slug]/public/team/[id]` and `/adjudicator/[id]`: a participant's public debates and results, built from the projection only. Anonymous adjudicators have no record page. |
+| Adjudicator tab (`adjudicators_tab_released`, `adjudicators_tab_shows`) | `releaseAdjudicatorTab`, `adjudicatorTabShows`: test / final / all | Base score, feedback-blended score (weight of the latest published round), or both plus per-round feedback averages. Computed at publish time; feedback content is never published. |
+| Scoresheets (`ballots_released`) | `releaseBallots` | Each adjudicator's sheet, for rounds whose speaker scores **and** panels are public. Sheets are copied generically: known fields plus any numeric / side-valued field (criteria, ranks, declared winner); free text never passes. |
+| Private scoresheets (`private_ballots_released`) | `releasePrivateBallots` | A team's private URL shows its own debates' full scoresheets once the round's results are released (even before team speaks); sheets need the panel to be public. |
+| Tab limits (`team/speaker/replies_tab_limit`) | `teamTabLimit`, `speakerTabLimit`, `repliesTabLimit` (0 = all) | Tabs are computed at publish time (`tabs` section). With a limit, rounds visible only through a released tab (e.g. silent rounds) publish no individual results, so ranks below the cutoff cannot be rebuilt. Ties at the cutoff are kept. |
+| Break category team tabs (`break_category_tabs_released`) | `releaseBreakCategoryTabs` | A team tab per break category, eligible teams re-ranked within it (shared ranks kept). |
+| Break page metrics (`public_break_metrics_to_show`) | `publicBreakMetrics` (-1 all, 0 none, n) | The first n team precedence metrics of each breaking team. |
+| Break categories on participants (`public_break_categories`) | `publicBreakCategories` | Team break eligibility is published only with this (or with category tabs). Before wave 4 eligibility was always published. |
+| Pre-allocated sides (`public_side_allocations`) | `publicSideAllocations` | "Sides" tab: each team's pre-allocated side per preliminary round. |
+| Elimination bracket | `publicBracket` | Built from public elimination draws and results; BP teams advance with 2+ points. |
+| Diversity (`public_diversity`) | `publicDiversity` | Gender / region / category counts of speakers and adjudicators, chair / panellist / trainee allocations by gender, average speaker score by gender (public speaker scores only), average feedback received and given by gender. Counts and averages only. |
+| Veto statistics | `publicVetoStatistics` (needs `enableMotionVetoes`) | Vetoes per motion and side, from ballots of rounds with public results. |
+| Feedback progress (`feedback_progress`) | `publicFeedbackProgress` | Per public team / adjudicator, feedback owed and submitted in rounds whose panels are public. |
+| Institutions (`show_team_institutions`, `show_adjudicator_institutions`) | `showTeamInstitutions`, `showAdjudicatorInstitutions` | When off, institution ids and names are removed from teams, adjudicators and tabs. |
+| Team code names (`team_code_names`) | `teamCodeNames`: off / all-tooltips / admin-tooltips-code / admin-tooltips-real / everywhere | Every mode except off and all-tooltips publishes **only** the code name (teams without one have an empty name and show "(no public name)"). all-tooltips publishes the real name and the code name as a tooltip. A code name equal to the team name (what older versions stored) counts as none. |
+| Participant code names (`participant_code_names`) | `participantCodeNames`: off / everywhere | Speakers and adjudicators are published under `codeName`. |
+| Anonymous people (`Person.anonymous`) | `Speaker.anonymous`, `Adjudicator.anonymous` (participant directory) | Name published as empty with `anonymous: true`; pages show "Redacted". In tab rows an anonymous speaker also loses their team and gets an opaque id. |
+| Emoji / speakers in draw / splitting adjudicators | `showEmoji`, `showSpeakersInDraw` (default on), `showSplittingAdjudicators` | Emoji are removed when off; splits are published as `splitAdjudicatorIds` on ballots whose panel is public. |
+| Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection. |
+| Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, at the top of the public tab. |
+| Motions order (`public_motions_order`) | `publicMotionsOrder`: forward / reverse | By the motions' earliest round; CrabbyTab's default stays forward (Tabbycat: reverse). |
+
+**Code-name and emoji generators.** Settings → Public Visibility can fill in missing team emoji and
+code names (emoji names or speakers' last names, Tabbycat's `code_name_generator`); existing values
+are never overwritten (`src/lib/codeNames.ts`, seeded random source).
+
+**Publish cost.** The projection reads the feedback collection only when the adjudicator tab (final
+or all), diversity or feedback progress is on (`needsPublicFeedback`); otherwise a publish reads the
+same collections as before. The new `tabs` and `derived` base sections are cached like the others;
+views published before them read as having none until the next publish (view format 3).
+
 ### When public pages change
 
 Public pages show the last **published** cloud copy, never an organiser device's local state.

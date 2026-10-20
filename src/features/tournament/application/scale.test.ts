@@ -20,8 +20,8 @@ import { FIXED_TIME, makeAdjudicators, makeTeams, makeTournament, makeVenues, si
 
 const mode = process.env.CRABBYTAB_SCALE ?? "quick";
 const TEAMS = 1000;
-// Auto-allocation is the slow step at this size (5-15 s a round for 500 WSDC rooms with panels of
-// two); it runs in a Web Worker in the app, so it does not freeze the page.
+// Auto-allocation is the slow step at this size (3-9 s a round for 500 WSDC rooms with panels of
+// two, where every adjudicator has the same score); it runs in a Web Worker in the app.
 const BUDGET_MS = { draw: 15_000, allocation: 30_000, standings: 3_000, publicView: 3_000 };
 /** Vercel Data Cache entry limit is 2 MB and a function response 4.5 MB; keep clear of both. */
 const MAX_SECTION_BYTES = 1_500_000;

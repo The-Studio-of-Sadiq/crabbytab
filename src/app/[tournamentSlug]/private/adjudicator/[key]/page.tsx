@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
@@ -58,6 +59,7 @@ export default function AdjudicatorPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    venues,
     ballots,
     feedback,
     submitBallot,
@@ -855,7 +857,12 @@ export default function AdjudicatorPrivatePortalPage() {
                       <span className="text-gray-400">&bull;</span>
                       <div className="flex items-center gap-1 text-xs text-gray-700 font-semibold">
                         <MapPin className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{debate.venueName}</span>
+                        <VenueLabel
+                          debate={debate}
+                          venues={venues}
+                          categories={tournament?.preferences?.venueCategories}
+                          audience="public"
+                        />
                       </div>
                     </div>
 

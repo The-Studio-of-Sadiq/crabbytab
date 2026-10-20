@@ -27,7 +27,7 @@ import {
   applyPrivateBallotConfirmation,
   planIndividualBallotWrites,
 } from "@/lib/privateIndividualBallots";
-import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTeamsById } from "@/lib/privateParticipantData";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
@@ -42,6 +42,7 @@ import {
 } from "@/lib/feedback/questions";
 import { feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 export const runtime = "nodejs";
 
@@ -481,7 +482,8 @@ export async function POST(request: NextRequest) {
       assignedBallots.filter((ballot) => assignedDebates.has(ballot.debateId)),
       allRounds,
       actorType,
-      tournament.preferences?.publicResults !== false
+      tournament.preferences?.publicResults !== false,
+      getPublicSiteSettings(tournament.preferences).privateBallots
     );
     const feedback = feedbackSnapshot.docs.map((document) => ({
       ...document.data(),
@@ -548,6 +550,11 @@ export async function POST(request: NextRequest) {
     } : undefined;
 
     const roundsById = new Map(allRounds.map((round) => [round.id, round]));
+    // Room links (online rooms, maps) for debates of rounds still running.
+    const venues = await loadPortalVenues(
+      tournamentRef,
+      [...assignedDebates.values()].filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
+    );
     const responseDebates = [...assignedDebates.values()].map((debate) =>
       actorType === "team"
         ? sanitizeTeamPrivateDebate(
@@ -576,6 +583,7 @@ export async function POST(request: NextRequest) {
       teams: privateTeams,
       rounds: privateRounds,
       debates: responseDebates,
+      venues,
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);

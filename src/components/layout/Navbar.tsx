@@ -43,6 +43,7 @@ import {
   Download,
   ExternalLink,
   FilePlus2,
+  FlaskConical,
   Import,
   KeyRound,
   Layers,
@@ -494,6 +495,7 @@ export function Navbar({
           <DropdownMenuItem href="/" icon={<Layers />}>All tournaments</DropdownMenuItem>
           <DropdownMenuItem href="/tournaments/new" icon={<FilePlus2 />}>New tournament</DropdownMenuItem>
           <DropdownMenuItem href="/tournaments/import" icon={<Import />}>Import tournament</DropdownMenuItem>
+          <DropdownMenuItem href="/tournaments/demo" icon={<FlaskConical />}>Load demo tournament</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem href={`/${tournamentSlug}/public`} external icon={<ExternalLink />}>
             Open public tab

@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Eye,
   FileCheck2,
+  FileDown,
+  FlaskConical,
   History,
   Key,
   KeyRound,
@@ -178,6 +180,7 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
             <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label="Speaker categories" />
             <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label="Conflicts" />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label="Venues" />
+            <NavLink href={`${base}/imports/venue-constraints`} icon={MapPin} label="Room preferences" />
             <NavLink href={`${base}/imports/motions`} icon={Lightbulb} label="Motions" />
           </>
         )}
@@ -256,6 +259,8 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
           </NavDisclosure>
           <NavLink href={`${base}/imports/assistants`} icon={Shield} label="Assistants" />
           <NavLink href={`${base}/audit`} icon={History} label="Audit log" />
+          <NavLink href={`${base}/exports`} icon={FileDown} label="Data exports" />
+          <NavLink href={`${base}/rehearsal`} icon={FlaskConical} label="Rehearsal tools" />
           <NavLink href={`${base}/api`} icon={KeyRound} label="API access" />
         </NavGroup>
       )}
