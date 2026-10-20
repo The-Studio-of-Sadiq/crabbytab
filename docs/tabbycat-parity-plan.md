@@ -275,6 +275,27 @@ motion statistics; ~~team emoji and speakers in the draw~~ *(done)*; team refere
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
 
+### Ops breadth (waves 4/5): email, registration, feedback, staff access, check-ins
+
+Status of #21 (as corrected in B) and the email, registration, feedback, staff-access and check-in
+items of C. Each row names the PR that implements it; the docs linked there describe behaviour and
+limitations.
+
+| Item | PR | Docs |
+|---|---|---|
+| #21 saved per-tournament templates for every automatic email, Reply-To | #50 | [email-notifications.md](email-notifications.md) |
+| #21 "ballot confirmed" and "motions released" emails; feedback / private URL templates; registration and "places allocated" emails | #50 | same |
+| Email delivery status via a signed, provider-agnostic webhook | #50 | same |
+| SMS hook (generic signed relay); web push documented as out of scope | #50 | same |
+| Institution and coach self-registration, auto-accept (`registration_confirmation`), over-allocation, slot transfers, team-name and code-name generators, phone/gender/region fields mapped to person fields, per-form messages, institution and per-speaker questions | #54 (stacked on #50) | [registration.md](registration.md#registration-breadth-tabbycat-parity) |
+| Feedback score step, all `feedback_from_teams` modes, feedback introduction, unexpected feedback, important feedback view, panellists-on-each-other path | #56 | [adjudicator-allocation.md](adjudicator-allocation.md#feedback-paths) |
+| Assistant access levels and permission groups (server-enforced), assistants confirming others' ballots, per-adjudicator ballots merged into voting ballots, chair-ballot confirmation option | #44 | [staff-access.md](staff-access.md) |
+| Check-in history, bulk check-in (previous round, breaking adjudicators), speaker-level check-in, printed-ballot options (return locations, circled digits, hidden motions) | #57 | [public-pages-and-notifications.md](public-pages-and-notifications.md#check-ins-history-bulk-speakers-printed-forms) |
+
+Not done here: Tabbycat's Equity and Adjudication Core permission groups (they need
+administrator-only data), web push, showing unexpected feedback on public participant pages
+(public-site work).
+
 ### D. Not gaps (different design or not applicable)
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"
 is inexpressible); per-round result releases instead of a global switch; barcodes from entity ids;
