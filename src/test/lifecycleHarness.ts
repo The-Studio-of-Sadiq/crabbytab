@@ -128,6 +128,7 @@ export class TournamentHarness {
       teams: this.teams,
       adjudicators: this.adjudicators,
       venues: this.venues,
+      ballots: this.ballots,
       now,
     });
   }

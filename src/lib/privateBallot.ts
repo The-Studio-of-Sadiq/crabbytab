@@ -8,6 +8,7 @@ import {
 } from "@/types";
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
 import { consensusTeamScores } from "@/lib/ballots/result";
+import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
 
 const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
@@ -17,7 +18,7 @@ export function buildPrivateBallot(
   {
     tournament,
     adjudicator,
-    debate,
+    debate: drawnDebate,
     teams,
     tournamentId,
   }: {
@@ -29,6 +30,22 @@ export function buildPrivateBallot(
   }
 ): BallotSubmission {
   const adjudicatorId = adjudicator.id;
+  const sides = tournament.format === "bp" ? BP_SIDES : TWO_TEAM_SIDES;
+  // Sides chosen on the ballot (manual-ballot sides): the chair records which team took which side
+  // through each side's team id; the roster checks below then follow that arrangement.
+  let debate = drawnDebate;
+  if (sidesChosenOnBallot(drawnDebate)) {
+    const submittedTeamScores = isRecord(input.teamScores) ? input.teamScores : {};
+    const assignment = Object.fromEntries(sides.map((side) => {
+      const score = submittedTeamScores[side];
+      return [side, isRecord(score) && typeof score.teamId === "string" ? score.teamId : undefined];
+    })) as Partial<Record<DebateSide, string>>;
+    if (isSidePermutation(drawnDebate, assignment)) {
+      debate = arrangeDebateSides(drawnDebate, assignment);
+    } else if (sidesPending(drawnDebate)) {
+      throw new Error("The ballot must record which team took which side.");
+    }
+  }
   const isVotingMember =
     !adjudicator.trainee &&
     (debate.adjudicators?.chairId === adjudicatorId ||
@@ -37,7 +54,6 @@ export function buildPrivateBallot(
     throw new Error("Only the chair or a voting panellist may submit a ballot.");
   }
 
-  const sides = tournament.format === "bp" ? BP_SIDES : TWO_TEAM_SIDES;
   const id = input.id;
   if (
     typeof id !== "string" ||

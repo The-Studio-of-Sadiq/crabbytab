@@ -239,8 +239,9 @@ export const RULES_PRESETS: RulesPreset[] = [
       conflictAvoidance: "off",
       avoidSameInstitution: false,
       avoidTeamHistory: false,
+      sideAllocationRule: "manual_ballot",
     },
-    unsupported: ["Sides chosen on the ballot (Tabbycat's manual-ballot side allocation); sides are balanced instead"],
+    unsupported: [],
   },
   {
     id: "joynt",
