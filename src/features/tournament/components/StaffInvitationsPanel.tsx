@@ -3,11 +3,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import { Copy, Mail, RotateCw, XCircle } from "lucide-react";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { StatusPill, type Tone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { Alert } from "@/components/ui/Feedback";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { Input, Select, Textarea } from "@/components/ui/Field";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 type InvitationState = "pending" | "accepted" | "revoked" | "expired";
 
@@ -32,19 +37,26 @@ interface IssuedLink {
   error?: string;
 }
 
-const STATE_LABEL: Record<InvitationState, { label: string; tone: Tone }> = {
-  pending: { label: "Pending", tone: "info" },
-  accepted: { label: "Accepted", tone: "success" },
-  revoked: { label: "Revoked", tone: "neutral" },
-  expired: { label: "Expired", tone: "warning" },
+const STATE_LABEL: Record<InvitationState, { label: MessageKey; tone: Tone }> = {
+  pending: { label: "setup.staff.inviteStatePending", tone: "info" },
+  accepted: { label: "setup.staff.inviteStateAccepted", tone: "success" },
+  revoked: { label: "setup.staff.inviteStateRevoked", tone: "neutral" },
+  expired: { label: "setup.staff.inviteStateExpired", tone: "warning" },
 };
 
-function formatTime(value: string | undefined): string {
-  return value ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+/** A server-supplied message (shown verbatim) or one of this panel's translated messages. */
+type Notice = { text: string } | { key: MessageKey };
+
+/** Uses the server's error message when there is one, otherwise the translated fallback. */
+function errorNotice(caught: unknown, fallback: MessageKey): Notice {
+  return caught instanceof Error && caught.message ? { text: caught.message } : { key: fallback };
 }
+
+const DATE_TIME: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
 
 /** Invite-by-email for the staff page: create, list, resend and revoke invitations. */
 export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: string; user: User }) {
+  const { t, plural, formatDateTime } = useI18n();
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
   const [links, setLinks] = useState<IssuedLink[]>([]);
   const [emails, setEmails] = useState("");
@@ -52,8 +64,11 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
   const [expiryDays, setExpiryDays] = useState("7");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<Notice | null>(null);
   const [message, setMessage] = useState("");
+  const [pendingRevoke, setPendingRevoke] = useState<InvitationSummary | null>(null);
+
+  const formatTime = (value: string | undefined) => (value ? formatDateTime(value, DATE_TIME) : "");
 
   const request = useCallback(
     async (method: "GET" | "POST" | "PATCH" | "DELETE", body?: Record<string, unknown>) => {
@@ -69,7 +84,7 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
         invitations?: InvitationSummary[];
         links?: IssuedLink[];
       };
-      if (!response.ok) throw new Error(result.error || "Could not update staff invitations.");
+      if (!response.ok) throw new Error(result.error || "");
       if (result.invitations) setInvitations(result.invitations);
       return result;
     },
@@ -79,8 +94,8 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
   useEffect(() => {
     let active = true;
     request("GET")
-      .catch((loadError: unknown) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load staff invitations.");
+      .catch((caught: unknown) => {
+        if (active) setError(errorNotice(caught, "setup.staff.inviteLoadError"));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -92,12 +107,12 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
 
   const run = async (key: string, action: () => Promise<string>) => {
     setBusy(key);
-    setError("");
+    setError(null);
     setMessage("");
     try {
       setMessage(await action());
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Could not update staff invitations.");
+      setError(errorNotice(actionError, "setup.staff.inviteUpdateError"));
     } finally {
       setBusy(null);
     }
@@ -107,8 +122,8 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
     setLinks(issued);
     const failed = issued.filter((link) => !link.delivered).length;
     return failed === 0
-      ? `Invitation email sent to ${issued.length} address(es).`
-      : `${issued.length - failed} sent, ${failed} not emailed. Copy their links below and share them another way.`;
+      ? plural("setup.staff.inviteSent", issued.length)
+      : t("setup.staff.invitePartial", { sent: issued.length - failed, failed });
   };
 
   const invite = (event: React.FormEvent) => {
@@ -128,60 +143,69 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
       return describeLinks(result.links ?? []);
     });
 
-  const revoke = (invitation: InvitationSummary) => {
-    if (!window.confirm(`Revoke the invitation for ${invitation.email}? Its link will stop working.`)) return;
-    void run(`revoke-${invitation.id}`, async () => {
+  const revoke = async (invitation: InvitationSummary) => {
+    await run(`revoke-${invitation.id}`, async () => {
       await request("DELETE", { invitationId: invitation.id });
       setLinks((current) => current.filter((link) => link.id !== invitation.id));
-      return `Invitation for ${invitation.email} revoked.`;
+      return t("setup.staff.inviteRevoked", { email: invitation.email });
     });
+    setPendingRevoke(null);
   };
 
   const copy = async (link: IssuedLink) => {
     try {
       await navigator.clipboard.writeText(link.link);
-      setMessage(`Link for ${link.email} copied.`);
+      setMessage(t("setup.staff.inviteLinkCopied", { email: link.email }));
     } catch {
-      setError("Could not copy automatically; select the link and copy it.");
+      setError({ key: "setup.staff.inviteCopyFailed" });
     }
   };
 
   const open = invitations.filter((invitation) => invitation.state === "pending" || invitation.state === "expired");
   const closed = invitations.filter((invitation) => invitation.state === "accepted" || invitation.state === "revoked");
 
+  const closedText = (invitation: InvitationSummary) => {
+    if (invitation.acceptedAt) {
+      return t("setup.staff.inviteClosedAcceptedAt", { email: invitation.email, time: formatTime(invitation.acceptedAt) });
+    }
+    return invitation.state === "accepted"
+      ? t("setup.staff.inviteClosedAccepted", { email: invitation.email })
+      : t("setup.staff.inviteClosedRevoked", { email: invitation.email });
+  };
+
   return (
     <Card className="max-w-3xl">
       <CardHeader
         icon={<Mail aria-hidden="true" />}
-        title="Invite by email"
-        description="People without a CrabbyTab account create one from the invitation link; existing accounts sign in. Each link works once."
+        title={t("setup.staff.inviteTitle")}
+        description={t("setup.staff.inviteDescription")}
       />
       <CardBody className="space-y-4">
         <form onSubmit={invite} className="space-y-3">
           <Textarea
-            label="Email addresses"
-            help="Separate addresses with spaces, commas, semicolons or new lines (up to 50)."
+            label={t("setup.staff.inviteEmailsLabel")}
+            help={t("setup.staff.inviteEmailsHelp")}
             value={emails}
             onChange={(event) => setEmails(event.target.value)}
             rows={2}
             autoComplete="off"
-            placeholder="person@example.com"
+            placeholder={t("setup.staff.emailPlaceholder")}
           />
           <div className="flex flex-wrap items-end gap-3">
             <Select
-              label="Role"
-              wrapperClassName="w-56"
+              label={t("setup.staff.inviteRoleLabel")}
+              wrapperClassName="w-56 max-w-full"
               value={role}
               onChange={(event) => {
                 const next = event.target.value;
                 if (next === "admin" || next === "dataEntry") setRole(next);
               }}
             >
-              <option value="dataEntry">Data-entry staff</option>
-              <option value="admin">Tournament administrator</option>
+              <option value="dataEntry">{t("setup.staff.roleDataEntry")}</option>
+              <option value="admin">{t("setup.staff.roleAdmin")}</option>
             </Select>
             <Input
-              label="Link valid for (days)"
+              label={t("setup.staff.inviteExpiryLabel")}
               wrapperClassName="w-40"
               type="number"
               min={1}
@@ -192,34 +216,38 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
               onChange={(event) => setExpiryDays(event.target.value)}
             />
             <Button type="submit" variant="primary" loading={busy === "create"} disabled={!emails.trim() || busy !== null}>
-              Send invitations
+              {t("setup.staff.inviteSend")}
             </Button>
           </div>
         </form>
 
-        {error && <Alert tone="danger" role="alert">{error}</Alert>}
+        {error && <Alert tone="danger" role="alert">{"text" in error ? error.text : t(error.key)}</Alert>}
         {message && <Alert tone="success" role="status">{message}</Alert>}
 
         {links.length > 0 && (
           <div className="space-y-2 rounded-md border border-border p-3">
-            <p className="text-xs font-medium text-fg">New links (shown once; only a hash is stored)</p>
+            <p className="text-xs font-medium text-fg">{t("setup.staff.inviteNewLinks")}</p>
             <ul className="space-y-2">
               {links.map((link) => (
                 <li key={link.id} className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="font-medium text-fg">{link.email}</span>
                   <StatusPill tone={link.delivered ? "success" : "warning"}>
-                    {link.delivered ? "Emailed" : "Not emailed"}
+                    {link.delivered ? t("setup.staff.inviteEmailed") : t("setup.staff.inviteNotEmailed")}
                   </StatusPill>
                   <input
                     readOnly
-                    aria-label={`Invitation link for ${link.email}`}
+                    aria-label={t("setup.staff.inviteLinkLabel", { email: link.email })}
                     value={link.link}
                     onFocus={(event) => event.currentTarget.select()}
                     className="min-w-0 flex-1 rounded border border-border bg-muted px-2 py-1 font-mono text-[11px] text-fg-muted"
                   />
-                  <Button size="sm" onClick={() => void copy(link)}>
+                  <Button
+                    size="sm"
+                    onClick={() => void copy(link)}
+                    aria-label={t("setup.staff.inviteCopyLabel", { email: link.email })}
+                  >
                     <Copy aria-hidden="true" />
-                    Copy
+                    {t("setup.common.copy")}
                   </Button>
                   {link.error && <p className="w-full text-fg-muted">{link.error}</p>}
                 </li>
@@ -230,12 +258,12 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
 
         <section aria-labelledby="pending-invitations-heading" className="space-y-2">
           <h3 id="pending-invitations-heading" className="text-xs font-semibold text-fg">
-            Open invitations ({open.length})
+            {t("setup.staff.inviteOpenTitle", { count: open.length })}
           </h3>
           {loading ? (
-            <p className="text-xs text-fg-muted" role="status">Loading invitations…</p>
+            <p className="text-xs text-fg-muted" role="status">{t("setup.staff.inviteLoading")}</p>
           ) : open.length === 0 ? (
-            <p className="text-xs text-fg-muted">No open invitations.</p>
+            <p className="text-xs text-fg-muted">{t("setup.staff.inviteNoneOpen")}</p>
           ) : (
             <ul className="divide-y divide-border border-y border-border">
               {open.map((invitation) => (
@@ -243,12 +271,20 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
                   <div className="min-w-0 space-y-0.5">
                     <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-fg">
                       <span className="truncate">{invitation.email}</span>
-                      <StatusPill tone={STATE_LABEL[invitation.state].tone}>{STATE_LABEL[invitation.state].label}</StatusPill>
+                      <StatusPill tone={STATE_LABEL[invitation.state].tone}>{t(STATE_LABEL[invitation.state].label)}</StatusPill>
                     </p>
                     <p className="text-xs text-fg-muted">
-                      {invitation.role === "admin" ? "Tournament administrator" : "Data-entry staff"} ·{" "}
-                      {invitation.state === "expired" ? "expired" : "expires"} {formatTime(invitation.expiresAt)}
-                      {invitation.lastSentAt ? ` · last emailed ${formatTime(invitation.lastSentAt)}` : ""}
+                      {invitation.role === "admin" ? t("setup.staff.roleAdmin") : t("setup.staff.roleDataEntry")}
+                      {" · "}
+                      {t(invitation.state === "expired" ? "setup.staff.inviteExpired" : "setup.staff.inviteExpires", {
+                        time: formatTime(invitation.expiresAt),
+                      })}
+                      {invitation.lastSentAt && (
+                        <>
+                          {" · "}
+                          {t("setup.staff.inviteLastEmailed", { time: formatTime(invitation.lastSentAt) })}
+                        </>
+                      )}
                     </p>
                     {invitation.deliveryError && <p className="text-xs text-warning">{invitation.deliveryError}</p>}
                   </div>
@@ -258,21 +294,21 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
                       onClick={() => void resend(invitation)}
                       loading={busy === `resend-${invitation.id}`}
                       disabled={busy !== null}
-                      aria-label={`Resend invitation to ${invitation.email}`}
+                      aria-label={t("setup.staff.inviteResendLabel", { email: invitation.email })}
                     >
                       <RotateCw aria-hidden="true" />
-                      Resend
+                      {t("setup.staff.inviteResend")}
                     </Button>
                     <Button
                       size="sm"
                       variant="danger"
-                      onClick={() => revoke(invitation)}
+                      onClick={() => setPendingRevoke(invitation)}
                       loading={busy === `revoke-${invitation.id}`}
                       disabled={busy !== null}
-                      aria-label={`Revoke invitation for ${invitation.email}`}
+                      aria-label={t("setup.staff.inviteRevokeLabel", { email: invitation.email })}
                     >
                       <XCircle aria-hidden="true" />
-                      Revoke
+                      {t("setup.staff.inviteRevoke")}
                     </Button>
                   </div>
                 </li>
@@ -281,19 +317,30 @@ export function StaffInvitationsPanel({ tournamentId, user }: { tournamentId: st
           )}
           {closed.length > 0 && (
             <details className="text-xs text-fg-muted">
-              <summary className="cursor-pointer">Accepted and revoked ({closed.length})</summary>
+              <summary className={cn("cursor-pointer rounded-sm", focusRing)}>
+                {t("setup.staff.inviteClosedSummary", { count: closed.length })}
+              </summary>
               <ul className="mt-2 space-y-1">
                 {closed.map((invitation) => (
-                  <li key={invitation.id}>
-                    {invitation.email} — {STATE_LABEL[invitation.state].label.toLowerCase()}
-                    {invitation.acceptedAt ? ` ${formatTime(invitation.acceptedAt)}` : ""}
-                  </li>
+                  <li key={invitation.id}>{closedText(invitation)}</li>
                 ))}
               </ul>
             </details>
           )}
         </section>
       </CardBody>
+
+      {pendingRevoke && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.staff.inviteRevokeConfirmTitle")}
+          description={t("setup.staff.inviteRevokeConfirmDescription", { email: pendingRevoke.email })}
+          confirmLabel={t("setup.staff.inviteRevokeConfirmButton")}
+          isBusy={busy === `revoke-${pendingRevoke.id}`}
+          onCancel={() => setPendingRevoke(null)}
+          onConfirm={() => void revoke(pendingRevoke)}
+        />
+      )}
     </Card>
   );
 }

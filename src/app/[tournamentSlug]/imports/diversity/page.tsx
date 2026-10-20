@@ -1,8 +1,15 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Users2 } from "lucide-react";
+import { Search } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Section } from "@/components/ui/Card";
+import { Alert } from "@/components/ui/Feedback";
+import { Input } from "@/components/ui/Field";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import type { Adjudicator, Speaker, Team } from "@/types";
 import { formatDiversityCounts, panelDiversitySummary, participantRegion } from "@/lib/adjudicators/diversity";
 import { buildAdminDiversity } from "@/lib/publicView/derived";
@@ -22,7 +29,7 @@ interface DiversityInputProps {
 /** Saves on blur, only when the trimmed value changed. */
 function DiversityInput({ label, value, placeholder, disabled, onSave }: DiversityInputProps) {
   return (
-    <input
+    <Input
       key={value ?? ""}
       type="text"
       defaultValue={value ?? ""}
@@ -33,12 +40,13 @@ function DiversityInput({ label, value, placeholder, disabled, onSave }: Diversi
         const next = event.target.value.trim() || undefined;
         if (next !== (value?.trim() || undefined)) void onSave(next);
       }}
-      className="w-full rounded border border-gray-300 px-2 py-1 text-xs disabled:bg-gray-50"
+      className="h-7 text-xs"
     />
   );
 }
 
 export default function DiversityPage() {
+  const { t, richPlural } = useI18n();
   const {
     tournament,
     rounds,
@@ -101,7 +109,7 @@ export default function DiversityPage() {
     try {
       await action();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save the change.");
+      setError(caught instanceof Error ? caught.message : t("setup.importsExtra.diversity.saveError"));
     }
   };
 
@@ -115,126 +123,123 @@ export default function DiversityPage() {
   const saveAdjudicator = (adjudicator: Adjudicator, patch: Partial<Pick<Adjudicator, "gender" | "region">>) =>
     run(() => updateAdjudicator({ ...adjudicator, ...patch }));
 
+  const rowCount = kind === "speakers" ? speakerRows.length : adjudicatorRows.length;
+  // The counts are organiser-entered gender/region labels, shown as they are.
+  const summaryValues = {
+    genders: formatDiversityCounts(summary.genders) || "—",
+    regions: formatDiversityCounts(summary.regions) || "—",
+  };
+
   return (
     <div className="space-y-6">
-      <div className="border-b border-[#d0d7de] pb-4">
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-gray-900">
-          <Users2 className="h-6 w-6 text-violet-600" /> Diversity
-        </h1>
-        <p className="mt-1 max-w-3xl text-xs text-gray-500">
-          Optional, self-described gender and region for speakers and adjudicators. Region falls back to the
-          institution&apos;s region. These fields are private to tournament staff; the allocation editor can show
-          them as badges and a per-panel summary.
-        </p>
-      </div>
+      <PageHeader title={t("setup.importsExtra.diversity.title")} description={t("setup.importsExtra.diversity.description")} />
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["speakers", "adjudicators"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setKind(item)}
-            aria-pressed={kind === item}
-            className={`rounded-md px-3 py-1.5 text-xs font-bold ${
-              kind === item ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            {item === "speakers" ? "Speakers" : "Adjudicators"}
-          </button>
-        ))}
-        <input
+        <SegmentedControl
+          label={t("setup.importsExtra.diversity.kindLabel")}
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: "speakers", label: t("setup.importsExtra.diversity.speakers") },
+            { value: "adjudicators", label: t("setup.importsExtra.diversity.adjudicators") },
+          ]}
+        />
+        <Input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search…"
-          aria-label="Search participants"
-          className="ml-auto w-48 rounded border border-gray-300 px-2.5 py-1 text-xs"
+          placeholder={t("setup.importsExtra.diversity.searchPlaceholder")}
+          aria-label={t("setup.importsExtra.diversity.search")}
+          leadingIcon={<Search />}
+          wrapperClassName="ms-auto w-full sm:w-56"
+          className="w-full"
         />
       </div>
 
-      <p className="text-xs text-gray-600">
-        <span className="font-semibold">{summary.size} {kind}:</span> gender {formatDiversityCounts(summary.genders) || "—"};
-        region {formatDiversityCounts(summary.regions) || "—"}
+      <p className="text-xs text-fg-muted">
+        {richPlural(
+          kind === "speakers" ? "setup.importsExtra.diversity.summarySpeakers" : "setup.importsExtra.diversity.summaryAdjudicators",
+          summary.size,
+          { b: (text) => <span className="font-semibold text-fg">{text}</span> },
+          summaryValues
+        )}
       </p>
-      {!isOwnerOrAdmin && <p className="text-xs text-gray-500">Only tournament administrators can edit these fields.</p>}
-      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+      {!isOwnerOrAdmin && <Alert tone="info">{t("setup.importsExtra.diversity.adminOnly")}</Alert>}
+      {error && <Alert tone="danger" role="alert">{error}</Alert>}
 
-      <div className="overflow-x-auto rounded-lg border border-[#d0d7de] bg-white">
-        <table className="tabby-table w-full text-left">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>{kind === "speakers" ? "Team" : "Institution"}</th>
-              <th className="w-48">Gender</th>
-              <th className="w-48">Region</th>
-            </tr>
-          </thead>
-          <tbody>
+      <TableContainer>
+        <Table>
+          <THead>
+            <TR>
+              <TH>{t("setup.common.name")}</TH>
+              <TH>{kind === "speakers" ? t("setup.importsExtra.diversity.team") : t("setup.importsExtra.diversity.institution")}</TH>
+              <TH className="w-48">{t("setup.importsExtra.diversity.gender")}</TH>
+              <TH className="w-48">{t("setup.importsExtra.diversity.region")}</TH>
+            </TR>
+          </THead>
+          <TBody>
             {kind === "speakers"
               ? speakerRows.map(({ team, speaker }) => (
-                  <tr key={`${team.id}-${speaker.id}`}>
-                    <td className="text-xs font-semibold text-gray-900">{speaker.name}</td>
-                    <td className="text-xs text-gray-600">{team.name}</td>
-                    <td>
+                  <TR key={`${team.id}-${speaker.id}`}>
+                    <TD className="text-xs font-semibold">{speaker.name}</TD>
+                    <TD className="text-xs text-fg-muted">{team.name}</TD>
+                    <TD>
                       <DiversityInput
-                        label={`Gender of ${speaker.name}`}
+                        label={t("setup.importsExtra.diversity.genderOf", { name: speaker.name })}
                         value={speaker.gender}
                         disabled={!isOwnerOrAdmin}
                         onSave={(gender) => saveSpeaker(team, speaker, { gender })}
                       />
-                    </td>
-                    <td>
+                    </TD>
+                    <TD>
                       <DiversityInput
-                        label={`Region of ${speaker.name}`}
+                        label={t("setup.importsExtra.diversity.regionOf", { name: speaker.name })}
                         value={speaker.region}
                         placeholder={participantRegion({ institutionId: team.institutionId }, institutionsById)}
                         disabled={!isOwnerOrAdmin}
                         onSave={(region) => saveSpeaker(team, speaker, { region })}
                       />
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))
               : adjudicatorRows.map((adjudicator) => (
-                  <tr key={adjudicator.id}>
-                    <td className="text-xs font-semibold text-gray-900">{adjudicator.name}</td>
-                    <td className="text-xs text-gray-600">{adjudicator.institutionName ?? "Independent"}</td>
-                    <td>
+                  <TR key={adjudicator.id}>
+                    <TD className="text-xs font-semibold">{adjudicator.name}</TD>
+                    <TD className="text-xs text-fg-muted">
+                      {adjudicator.institutionName ?? t("setup.importsExtra.diversity.independent")}
+                    </TD>
+                    <TD>
                       <DiversityInput
-                        label={`Gender of ${adjudicator.name}`}
+                        label={t("setup.importsExtra.diversity.genderOf", { name: adjudicator.name })}
                         value={adjudicator.gender}
                         disabled={!isOwnerOrAdmin}
                         onSave={(gender) => saveAdjudicator(adjudicator, { gender })}
                       />
-                    </td>
-                    <td>
+                    </TD>
+                    <TD>
                       <DiversityInput
-                        label={`Region of ${adjudicator.name}`}
+                        label={t("setup.importsExtra.diversity.regionOf", { name: adjudicator.name })}
                         value={adjudicator.region}
                         placeholder={participantRegion({ institutionId: adjudicator.institutionId }, institutionsById)}
                         disabled={!isOwnerOrAdmin}
                         onSave={(region) => saveAdjudicator(adjudicator, { region })}
                       />
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
-            {(kind === "speakers" ? speakerRows.length : adjudicatorRows.length) === 0 && (
-              <tr>
-                <td colSpan={4} className="py-8 text-center text-xs text-gray-400">No {kind} found.</td>
-              </tr>
+            {rowCount === 0 && (
+              <TableEmpty colSpan={4}>
+                {kind === "speakers" ? t("setup.importsExtra.diversity.noSpeakers") : t("setup.importsExtra.diversity.noAdjudicators")}
+              </TableEmpty>
             )}
-          </tbody>
-        </table>
-      </div>
+          </TBody>
+        </Table>
+      </TableContainer>
 
       {tournament && (
-        <section aria-labelledby="diversity-statistics" className="space-y-2">
-          <h2 id="diversity-statistics" className="text-sm font-bold text-gray-900">Statistics</h2>
-          <p className="text-xs text-gray-600">
-            Over every round and confirmed ballot. The public page (released from the Public release panel) shows the
-            same breakdowns, limited to released results and announced panels.
-          </p>
+        <Section title={t("setup.importsExtra.diversity.statistics")} description={t("setup.importsExtra.diversity.statisticsHelp")}>
           {statistics && <DiversityPanel diversity={statistics} />}
-        </section>
+        </Section>
       )}
     </div>
   );

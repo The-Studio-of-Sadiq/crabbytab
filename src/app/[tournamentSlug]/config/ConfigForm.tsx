@@ -3,9 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
-  Sliders,
   Save,
-  CheckCircle2,
   Shield,
   Eye,
   Shuffle,
@@ -17,9 +15,17 @@ import {
   UserCheck,
   Scale,
   Calendar,
-  AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import { Alert } from "@/components/ui/Feedback";
+import { StatusPill } from "@/components/ui/Badge";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 import {
   TournamentPreferences,
   TournamentFormat,
@@ -33,6 +39,8 @@ import {
   ByeTeamResults,
   ByeTeamSelectionMethod,
   FeedbackQuestion,
+  FeedbackQuestionType,
+  RoundStage,
 } from "@/types";
 import { PrecedenceEditor, ExtraMetricsEditor } from "@/components/setup/PrecedenceEditor";
 import {
@@ -60,16 +68,39 @@ import { PublicSiteSettingsFields } from "@/features/tournament/components/Publi
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
-const SETTINGS_CATEGORIES: Record<SettingsCategory, string> = {
-  draw: "Draw Rules",
-  rounds: "Round Settings",
-  format: "Format & Teams",
-  scoring: "Scoring & Ballots",
-  standings: "Standings Rules",
-  visibility: "Public Visibility",
+const SETTINGS_CATEGORIES: Record<SettingsCategory, MessageKey> = {
+  draw: "setup.config.categoryDraw",
+  rounds: "setup.config.categoryRounds",
+  format: "setup.config.categoryFormat",
+  scoring: "setup.config.categoryScoring",
+  standings: "setup.config.categoryStandings",
+  visibility: "setup.config.categoryVisibility",
 };
 
+const STAGE_LABELS: Record<RoundStage, MessageKey> = {
+  preliminary: "setup.config.stagePreliminary",
+  elimination: "setup.config.stageElimination",
+};
+
+/** Display names for the stored feedback question types (the lib labels stay as the English source). */
+const QUESTION_TYPE_LABELS: Record<FeedbackQuestionType, MessageKey> = {
+  text: "setup.config.questionTypeText",
+  textarea: "setup.config.questionTypeTextarea",
+  integer: "setup.config.questionTypeInteger",
+  float: "setup.config.questionTypeFloat",
+  integer_scale: "setup.config.questionTypeIntegerScale",
+  scale: "setup.config.questionTypeScale",
+  yes_no: "setup.config.questionTypeYesNo",
+  checkbox: "setup.config.questionTypeCheckbox",
+  select_one: "setup.config.questionTypeSelectOne",
+  select_many: "setup.config.questionTypeSelectMany",
+};
+
+/** Number inputs for draw penalties and score bounds read as figures. */
+const NUMBER_CLASS = "font-mono tabular-nums";
+
 function ConfigFormContent({ category }: { category: SettingsCategory }) {
+  const { t, plural, rich } = useI18n();
   const {
     tournament,
     saveTournament,
@@ -157,6 +188,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   }, [tournament]);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
   const [saveError, setSaveError] = useState("");
   // Once ballots exist, the fields that shape a ballot are fixed (enforced by saveTournament too).
@@ -181,6 +213,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
   const ballotsToDelete = roundToDelete
     ? ballots.filter((ballot) => ballot.roundId === roundToDelete.id || debatesToDelete.some((debate) => debate.id === ballot.debateId))
     : [];
+  const roundLabel = (round: { name: string; stage: RoundStage }) =>
+    t("setup.config.roundWithStage", { round: round.name, stage: t(STAGE_LABELS[round.stage]) });
 
   useEffect(() => {
     setPrelimRoundCount(activePrelimCount);
@@ -188,7 +222,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
   const handleRoundCountSave = async () => {
     if (!Number.isInteger(prelimRoundCount) || prelimRoundCount < 0 || prelimRoundCount > 20) {
-      setRoundCountError("Enter a whole number from 0 to 20.");
+      setRoundCountError(t("setup.config.roundCountInvalid"));
       return;
     }
 
@@ -197,7 +231,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     try {
       await setPreliminaryRoundCount(prelimRoundCount);
     } catch (error) {
-      setRoundCountError(error instanceof Error ? error.message : "Could not update the preliminary round count.");
+      // Messages thrown by the tournament context are shown as they are (English).
+      setRoundCountError(error instanceof Error ? error.message : t("setup.config.roundCountFailed"));
     } finally {
       setIsSavingRoundCount(false);
     }
@@ -212,9 +247,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
       setRoundToDeleteId("");
       setShowDeleteRoundConfirm(false);
     } catch (error) {
-      setDeleteRoundError(
-        error instanceof Error ? error.message : "The round could not be deleted from the database. Please try again."
-      );
+      setDeleteRoundError(error instanceof Error ? error.message : t("setup.config.deleteRoundFailed"));
     } finally {
       setIsDeletingRound(false);
     }
@@ -222,8 +255,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tournament) return;
+    if (!tournament || isSaving) return;
     if (prefs.feedbackEnabled !== false) {
+      // Validation messages come from lib/feedback/questions and are shown as they are (English).
       const questionError = validateFeedbackQuestions(prefs.teamFeedbackQuestions ?? prefs.feedbackQuestions ?? []) ||
         validateFeedbackQuestions(prefs.adjudicatorFeedbackQuestions ?? prefs.feedbackQuestions ?? []);
       if (questionError) {
@@ -235,10 +269,11 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     setSaveError("");
     const criteriaErrors = validateScoreCriteria(prefs.scoreCriteria ?? []);
     if (criteriaErrors.length > 0) {
-      setSaveError(`Score criteria: ${criteriaErrors.join(" ")}`);
+      setSaveError(t("setup.config.scoreCriteriaError", { errors: criteriaErrors.join(" ") }));
       return;
     }
 
+    setIsSaving(true);
     try {
       await saveTournament({
         ...tournament,
@@ -247,8 +282,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "The settings could not be saved.");
+      setSaveError(error instanceof Error ? error.message : t("setup.config.saveFailed"));
       return;
+    } finally {
+      setIsSaving(false);
     }
 
     setSavedSuccess(true);
@@ -287,61 +324,58 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     }));
   };
 
+  /** Whole-number penalty fields: clamp at 0, empty becomes 0. */
+  const penaltyInput = (
+    key:
+      | "adjConflictPenalty"
+      | "adjHistoryPenalty"
+      | "importanceMismatchPenalty"
+      | "teamInstitutionPenalty"
+      | "teamHistoryPenalty"
+      | "previouslySawPullupPenalty"
+      | "maxAllowedSideImbalance"
+      | "sideBalancePenalty"
+      | "pairingDeviationPenalty"
+      | "pullupPenalty",
+    fallback: number,
+    label: MessageKey,
+    help: MessageKey,
+    extra?: { className?: string; wrapperClassName?: string }
+  ) => (
+    <Input
+      type="number"
+      min="0"
+      label={t(label)}
+      help={t(help)}
+      value={prefs[key] ?? fallback}
+      onChange={(e) => setPrefs((p) => ({ ...p, [key]: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+      className={extra?.className ? `${NUMBER_CLASS} ${extra.className}` : NUMBER_CLASS}
+      wrapperClassName={extra?.wrapperClassName}
+    />
+  );
+
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Sliders className="w-6 h-6 text-blue-600" />
-            <span>{SETTINGS_CATEGORIES[category]}</span>
-          </h1>
-        </div>
-
-        {saveError && (
-          <p role="alert" className="max-w-xl text-xs font-medium text-red-700">
-            {saveError}
-          </p>
-        )}
-        {savedSuccess && (
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Settings Saved!</span>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title={t(SETTINGS_CATEGORIES[category])}
+        description={category === "draw" ? t("setup.config.drawDescription") : undefined}
+      />
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* ============================================================ */}
         {/* 1. DRAW RULES (Tabbycat Draw Rules) */}
         {/* ============================================================ */}
         {category === "draw" && (
-          <div className="space-y-5">
-            {/* Header intro */}
-            <div className="border-b border-gray-200 pb-2">
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Shuffle className="w-5 h-5 text-blue-600" />
-                <span>Draw Rules</span>
-              </h2>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Parameters controlling team pairing, side allocation, conflict penalties, and adjudicator auto-allocation.
-              </p>
-            </div>
-
+          <div className="space-y-6">
             {/* A. Adjudicator Auto-Allocation & Panels */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <UserCheck className="w-4 h-4 text-indigo-600" />
-                <span>Adjudicator Allocation & Panel Rules</span>
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Adjudicator allocation strategy
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
+            <Card>
+              <CardHeader icon={<UserCheck aria-hidden="true" />} title={t("setup.config.adjAllocationTitle")} />
+              <CardBody className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Select
+                    label={t("setup.config.adjStrategyLabel")}
+                    help={t("setup.config.adjStrategyHelp")}
+                    wrapperClassName="sm:col-span-2"
                     value={prefs.adjudicatorPanelStrategy ?? "crabbytab_v1"}
                     onChange={(e) =>
                       setPrefs((p) => ({
@@ -350,612 +384,302 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                       }))
                     }
                   >
-                    <option value="crabbytab_v1">Preset 1 — Current CrabbyTab allocation</option>
-                    <option value="panel_average">Panel average — match each panel to debate priority</option>
-                    <option value="tabbycat_voting">Tabbycat voting — solo chairs in top rooms, panels of three below</option>
-                    <option value="tabbycat_consensus">Tabbycat consensus — spread every voter evenly across rooms</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Preset 1 preserves the existing strength-ranking behavior. Panel average instead matches the
-                    average strength of each complete voting panel to its debate priority; the strongest eligible
-                    panel member is still promoted to chair. The two Tabbycat strategies reproduce Tabbycat&apos;s
-                    Hungarian allocators (voting and consensus) and ignore the panel size setting.
-                  </p>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="flex items-start gap-2 rounded border border-gray-200 bg-gray-50 p-3">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(prefs.usePreformedPanels)}
-                      onChange={(event) => setPrefs((current) => ({
-                        ...current,
-                        usePreformedPanels: event.target.checked,
-                      }))}
-                      className="mt-0.5 rounded border-gray-300 text-blue-600"
-                    />
-                    <span>
-                      <span className="block text-xs font-semibold text-gray-800">Allocate preformed panels as a unit</span>
-                      <span className="mt-1 block text-[11px] text-gray-500">
-                        Build each round&apos;s panels on Allocation &rarr; Preformed panels (CSV <code>preformed_panel_id</code>
-                        groups can seed them). Auto-allocation places each panel as a unit, higher importance into
-                        higher-priority debates, skipping members who are unavailable; other debates are filled normally.
-                      </span>
-                    </span>
-                  </label>
-                </div>
+                    <option value="crabbytab_v1">{t("setup.config.adjStrategyCrabbytab")}</option>
+                    <option value="panel_average">{t("setup.config.adjStrategyPanelAverage")}</option>
+                    <option value="tabbycat_voting">{t("setup.config.adjStrategyTabbycatVoting")}</option>
+                    <option value="tabbycat_consensus">{t("setup.config.adjStrategyTabbycatConsensus")}</option>
+                  </Select>
+                  <Checkbox
+                    className="sm:col-span-2"
+                    label={t("setup.config.preformedPanelsLabel")}
+                    description={rich("setup.config.preformedPanelsHelp", {
+                      code: (text) => <code className="font-mono">{text}</code>,
+                    })}
+                    checked={Boolean(prefs.usePreformedPanels)}
+                    onChange={(event) => setPrefs((current) => ({
+                      ...current,
+                      usePreformedPanels: event.target.checked,
+                    }))}
+                  />
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Minimum adjudicator score to vote
-                  </label>
-                  <input
+                  <Input
                     type="number"
                     step="0.1"
                     min="0"
+                    label={t("setup.config.minAdjScoreLabel")}
+                    help={t("setup.config.minAdjScoreHelp")}
                     value={prefs.minAdjScoreToVote ?? 1.5}
                     onChange={(e) =>
                       setPrefs((p) => ({ ...p, minAdjScoreToVote: parseFloat(e.target.value) || 0 }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    className={NUMBER_CLASS}
                   />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    The auto-allocator will only take adjudicators at or above this score as voting panellists
-                  </p>
+                  {penaltyInput("adjConflictPenalty", 1000000, "setup.config.adjConflictPenaltyLabel", "setup.config.adjConflictPenaltyHelp")}
+                  {penaltyInput("adjHistoryPenalty", 10000, "setup.config.adjHistoryPenaltyLabel", "setup.config.adjHistoryPenaltyHelp")}
+                  {penaltyInput(
+                    "importanceMismatchPenalty",
+                    10000000,
+                    "setup.config.importanceMismatchLabel",
+                    "setup.config.importanceMismatchHelp"
+                  )}
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Adjudicator conflict penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.adjConflictPenalty ?? 1000000}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, adjConflictPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by adjudicator auto-allocator for conflicts
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Adjudicator history penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.adjHistoryPenalty ?? 10000}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, adjHistoryPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by adjudicator auto-allocator for history
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Importance mismatch penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.importanceMismatchPenalty ?? 10000000}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, importanceMismatchPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Penalty applied by preformed panel auto-allocator for priority mismatch
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2 border-t border-gray-100 pt-3 text-xs">
-                <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
+                <div className="space-y-3 border-t border-border pt-4">
+                  <Checkbox
+                    label={t("setup.config.skipAdjCheckinsLabel")}
+                    description={t("setup.config.skipAdjCheckinsHelp")}
                     checked={Boolean(prefs.skipAdjCheckins)}
                     onChange={(e) => setPrefs((p) => ({ ...p, skipAdjCheckins: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
                   />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Skip adjudicator check-ins</span>
-                    <span className="text-[11px] text-gray-500">Automatically make all adjudicators available for all rounds</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    label={t("setup.config.noPanellistsLabel")}
+                    description={t("setup.config.noPanellistsHelp")}
                     checked={Boolean(prefs.noPanellistAdjs)}
                     onChange={(e) => setPrefs((p) => ({ ...p, noPanellistAdjs: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
                   />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">No panellist adjudicators</span>
-                    <span className="text-[11px] text-gray-500">Hide panellist positions in the UI (and don&apos;t allocate them)</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    label={t("setup.config.noTraineesLabel")}
+                    description={t("setup.config.noTraineesHelp")}
                     checked={Boolean(prefs.noTraineeAdjs)}
                     onChange={(e) => setPrefs((p) => ({ ...p, noTraineeAdjs: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
                   />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">No trainee adjudicators</span>
-                    <span className="text-[11px] text-gray-500">Hide trainee positions in the UI (and don&apos;t allocate them)</span>
-                  </div>
-                </label>
-              </div>
-            </div>
+                </div>
+              </CardBody>
+            </Card>
 
             {/* B. Team Clashes & Conflict Avoidance */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <Users2 className="w-4 h-4 text-amber-600" />
-                <span>Team Conflicts & Clashes</span>
-              </h3>
-
-              <div className="space-y-3 text-xs">
-                <label className="flex items-center space-x-2.5 p-2.5 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
+            <Card>
+              <CardHeader icon={<Users2 aria-hidden="true" />} title={t("setup.config.teamConflictsTitle")} />
+              <CardBody className="space-y-4">
+                <div className="space-y-3">
+                  <Checkbox
+                    label={t("setup.config.avoidInstitutionLabel")}
+                    description={t("setup.config.avoidInstitutionHelp")}
                     checked={prefs.avoidSameInstitution !== false}
                     onChange={(e) => setPrefs((p) => ({ ...p, avoidSameInstitution: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
                   />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Avoid same institution</span>
-                    <span className="text-[11px] text-gray-500">Two-team draws try to avoid pairing teams from the same institution. BP power-paired draws ignore institutions, as Tabbycat and WUDC rules do.</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center space-x-2.5 p-2.5 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    label={t("setup.config.avoidHistoryLabel")}
+                    description={t("setup.config.avoidHistoryHelp")}
                     checked={prefs.avoidTeamHistory !== false}
                     onChange={(e) => setPrefs((p) => ({ ...p, avoidTeamHistory: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
                   />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Avoid team history</span>
-                    <span className="text-[11px] text-gray-500">Two-team draws (including later random rounds) try to avoid rematches. BP power-paired draws ignore history.</span>
-                  </div>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Team institution penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.teamInstitutionPenalty ?? 1}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, teamInstitutionPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Cost of a same-institution room for one-up-one-down and minimum-cost conflict avoidance (two-team draws)
-                  </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Team history penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.teamHistoryPenalty ?? 1000}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, teamHistoryPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Cost per previous meeting for one-up-one-down and minimum-cost conflict avoidance (two-team draws)
-                  </p>
+                <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-3">
+                  {penaltyInput("teamInstitutionPenalty", 1, "setup.config.teamInstitutionPenaltyLabel", "setup.config.teamInstitutionPenaltyHelp")}
+                  {penaltyInput("teamHistoryPenalty", 1000, "setup.config.teamHistoryPenaltyLabel", "setup.config.teamHistoryPenaltyHelp")}
+                  {penaltyInput("previouslySawPullupPenalty", 0, "setup.config.sawPullupPenaltyLabel", "setup.config.sawPullupPenaltyHelp")}
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Previously saw pullup penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.previouslySawPullupPenalty ?? 0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, previouslySawPullupPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Minimum-cost conflict avoidance only: a room mixing teams from different brackets costs this much per earlier debate either team had with a pull-up in it. Leave 0 for no penalty.
-                  </p>
-                </div>
-              </div>
-            </div>
+              </CardBody>
+            </Card>
 
             {/* C. Side Allocations & Balancing */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <Scale className="w-4 h-4 text-emerald-600" />
-                <span>Side Allocations & Balancing</span>
-              </h3>
+            <Card>
+              <CardHeader icon={<Scale aria-hidden="true" />} title={t("setup.config.sidesTitle")} />
+              <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label={t("setup.config.sideMethodLabel")}
+                  help={t("setup.config.sideMethodHelp")}
+                  value={prefs.sideAllocationRule || "balanced"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, sideAllocationRule: e.target.value as TournamentPreferences["sideAllocationRule"] }))
+                  }
+                >
+                  <option value="balanced">{t("setup.config.sideBalanced")}</option>
+                  <option value="random">{t("setup.config.sideRandom")}</option>
+                  <option value="preallocated">{t("setup.config.sidePreallocated")}</option>
+                  <option value="manual_ballot" disabled={format === "bp"}>{t("setup.config.sideManualBallot")}</option>
+                </Select>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Side allocations method
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.sideAllocationRule || "balanced"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, sideAllocationRule: e.target.value as TournamentPreferences["sideAllocationRule"] }))
-                    }
-                  >
-                    <option value="balanced">Balanced (prefer equalizing sides across rounds)</option>
-                    <option value="random">Random</option>
-                    <option value="preallocated">Preallocated (two-team; set per round on the Draw page)</option>
-                    <option value="manual_ballot" disabled={format === "bp"}>Chosen on the ballot (two-team; e.g. a coin toss)</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Balanced: in two-team draws, the team that has been affirmative more often goes negative (ties at random); in BP, positions minimise the position cost below. Preallocated sides fix each team&apos;s side before the draw is made. Chosen on the ballot: the draw pairs teams without sides, and each ballot records which team took which side.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Maximum number of times per side
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={prefs.maxTimesPerSide ?? 5}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, maxTimesPerSide: Math.max(1, parseInt(e.target.value, 10) || 1) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Absolute limit: a side assignment that would exceed this count is rejected. Draw generation reports an error if no valid assignment exists.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Maximum allowed side imbalance
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.maxAllowedSideImbalance ?? 0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, maxAllowedSideImbalance: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Absolute limit on the difference between a team&apos;s most- and least-used sides after assignment. An assignment that exceeds it is rejected; 0 disables this limit.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Side balance penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.sideBalancePenalty ?? 0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, sideBalancePenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Minimum-cost conflict avoidance only (two-team, balanced sides): cost per unit of shared imbalance when both teams have been on the same side more often.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Pairing deviation penalty
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.pairingDeviationPenalty ?? 0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, pairingDeviationPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Minimum-cost conflict avoidance only: weight for deviating from the pairing method. At 0, the pairing method only decides between equally clash-free pairings.
-                  </p>
-                </div>
-              </div>
-            </div>
+                <Input
+                  type="number"
+                  min="1"
+                  label={t("setup.config.maxTimesPerSideLabel")}
+                  help={t("setup.config.maxTimesPerSideHelp")}
+                  value={prefs.maxTimesPerSide ?? 5}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, maxTimesPerSide: Math.max(1, parseInt(e.target.value, 10) || 1) }))
+                  }
+                  className={NUMBER_CLASS}
+                />
+                {penaltyInput("maxAllowedSideImbalance", 0, "setup.config.maxImbalanceLabel", "setup.config.maxImbalanceHelp")}
+                {penaltyInput("sideBalancePenalty", 0, "setup.config.sideBalancePenaltyLabel", "setup.config.sideBalancePenaltyHelp")}
+                {penaltyInput("pairingDeviationPenalty", 0, "setup.config.pairingDeviationLabel", "setup.config.pairingDeviationHelp")}
+              </CardBody>
+            </Card>
 
             {/* D. Two-Team Bracket Matching & Conflict Avoidance */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <Shuffle className="w-4 h-4 text-blue-600" />
-                <span>Two-Team Bracket Pairing & Conflict Avoidance</span>
-              </h3>
+            <Card>
+              <CardHeader icon={<Shuffle aria-hidden="true" />} title={t("setup.config.bracketsTitle")} />
+              <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label={t("setup.config.pairingMethodLabel")}
+                  help={t("setup.config.pairingMethodHelp")}
+                  value={prefs.pairingMethod ?? "fold"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, pairingMethod: e.target.value as PairingMethod }))}
+                >
+                  <option value="fold">{t("setup.config.pairingFold")}</option>
+                  <option value="slide">{t("setup.config.pairingSlide")}</option>
+                  <option value="adjacent">{t("setup.config.pairingAdjacent")}</option>
+                  <option value="fold_top_adjacent_rest">{t("setup.config.pairingFoldTopAdjacentRest")}</option>
+                  <option value="random">{t("setup.config.pairingRandom")}</option>
+                </Select>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Pairing method</label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.pairingMethod ?? "fold"}
-                    onChange={(e) => setPrefs((p) => ({ ...p, pairingMethod: e.target.value as PairingMethod }))}
-                  >
-                    <option value="fold">Fold (1 vs 10, 2 vs 9, ...)</option>
-                    <option value="slide">Slide (1 vs 6, 2 vs 7, ...)</option>
-                    <option value="adjacent">Adjacent (1 vs 2, 3 vs 4, ...)</option>
-                    <option value="fold_top_adjacent_rest">Fold top room, adjacent for the rest</option>
-                    <option value="random">Random within bracket</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Slide: 1 vs 6, 2 vs 7, …. Fold: 1 vs 10, 2 vs 9, …. Adjacent: 1 vs 2, 3 vs 4, ….
-                  </p>
-                </div>
+                <Select
+                  label={t("setup.config.conflictAvoidanceLabel")}
+                  help={t("setup.config.conflictAvoidanceHelp")}
+                  value={prefs.conflictAvoidance ?? "one_up_one_down"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
+                >
+                  <option value="one_up_one_down">{t("setup.config.conflictOneUpOneDown")}</option>
+                  <option value="min_cost">{t("setup.config.conflictMinCost")}</option>
+                  <option value="min_cost_with_pullups">{t("setup.config.conflictMinCostPullups")}</option>
+                  <option value="off">{t("setup.config.conflictOff")}</option>
+                </Select>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Conflict avoidance method</label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.conflictAvoidance ?? "one_up_one_down"}
-                    onChange={(e) => setPrefs((p) => ({ ...p, conflictAvoidance: e.target.value as ConflictAvoidance }))}
-                  >
-                    <option value="one_up_one_down">One-up-one-down (swap with the room above or below)</option>
-                    <option value="min_cost">Minimum-cost matching (pull-ups chosen first)</option>
-                    <option value="min_cost_with_pullups">Minimum-cost matching (including pull-ups)</option>
-                    <option value="off">Off</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    One-up-one-down swaps opponents between adjacent rooms where that removes a clash. Minimum-cost matching pairs each bracket to minimise clashes plus the penalties above, keeping to the pairing method where it can. &quot;Including pull-ups&quot; matches the whole field at once, so it also chooses who is pulled up (only between adjacent brackets), weighing the odd bracket method by the pull-up penalty; it does not use intermediate brackets or the pull-up restriction. Random rounds avoid clashes unless this is off.
-                  </p>
-                </div>
+                <Select
+                  label={t("setup.config.oddBracketLabel")}
+                  help={t("setup.config.oddBracketHelp")}
+                  value={prefs.oddBracketMethod ?? "intermediate_bubble"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
+                >
+                  <option value="intermediate_bubble">{t("setup.config.oddIntermediateBubble")}</option>
+                  <option value="intermediate">{t("setup.config.oddIntermediate")}</option>
+                  <option value="intermediate1">{t("setup.config.oddIntermediate1")}</option>
+                  <option value="intermediate2">{t("setup.config.oddIntermediate2")}</option>
+                  <option value="pullup_top">{t("setup.config.oddPullupTop")}</option>
+                  <option value="pullup_bottom">{t("setup.config.oddPullupBottom")}</option>
+                  <option value="pullup_middle">{t("setup.config.oddPullupMiddle")}</option>
+                  <option value="pullup_random">{t("setup.config.oddPullupRandom")}</option>
+                  <option value="pullup_lowest_ds_rank">{t("setup.config.oddPullupLowestDsRank")}</option>
+                  <option value="pullup_lowest_ds_rank_npulls">{t("setup.config.oddPullupLowestDsRankNpulls")}</option>
+                </Select>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Odd bracket resolution method</label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.oddBracketMethod ?? "intermediate_bubble"}
-                    onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
-                  >
-                    <option value="intermediate_bubble">Intermediate brackets with bubble-up-bubble-down</option>
-                    <option value="intermediate">Intermediate brackets</option>
-                    <option value="intermediate1">Intermediate brackets 1 (preallocated sides)</option>
-                    <option value="intermediate2">Intermediate brackets 2 (preallocated sides)</option>
-                    <option value="pullup_top">Pull up the top team from below</option>
-                    <option value="pullup_bottom">Pull up the bottom team from below</option>
-                    <option value="pullup_middle">Pull up the middle team from below</option>
-                    <option value="pullup_random">Pull up a random team from below</option>
-                    <option value="pullup_lowest_ds_rank">Pull up the team with the lowest draw strength by rank</option>
-                    <option value="pullup_lowest_ds_rank_npulls">Pull up the least pulled-up team, then the lowest draw strength by rank</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Pull-ups move a team from the bracket below into an odd bracket. Intermediate brackets pair the bottom team of an odd bracket with the top team below; bubble-up-bubble-down swaps them with a neighbour if they clash. With preallocated sides, use pull-up top/bottom/random or intermediate brackets 1/2. The draw strength by rank methods (the team whose opponents ranked lowest goes first) need minimum-cost matching including pull-ups.
-                  </p>
-                </div>
+                <Select
+                  label={t("setup.config.pullupRestrictionLabel")}
+                  help={t("setup.config.pullupRestrictionHelp")}
+                  value={prefs.pullupRestriction ?? "none"}
+                  onChange={(e) => setPrefs((p) => ({ ...p, pullupRestriction: e.target.value as PullupRestriction }))}
+                >
+                  <option value="none">{t("setup.config.pullupNone")}</option>
+                  <option value="least_pulled">{t("setup.config.pullupLeastPulled")}</option>
+                  <option value="lowest_draw_strength_speaks">{t("setup.config.pullupLowestSpeaks")}</option>
+                  <option value="lowest_draw_strength_wins">{t("setup.config.pullupLowestWins")}</option>
+                </Select>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Pullup restriction</label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.pullupRestriction ?? "none"}
-                    onChange={(e) => setPrefs((p) => ({ ...p, pullupRestriction: e.target.value as PullupRestriction }))}
-                  >
-                    <option value="none">No restriction</option>
-                    <option value="least_pulled">Teams pulled up the fewest times so far</option>
-                    <option value="lowest_draw_strength_speaks">Lowest draw strength (speaks)</option>
-                    <option value="lowest_draw_strength_wins">Lowest draw strength (wins)</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Restricts which teams the pull-up methods may choose. Two-team formats only; has no effect on intermediate brackets, minimum-cost matching including pull-ups, or BP. Draw strength (wins) uses opponents&apos; points, as Tabbycat does.
-                  </p>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Pullup penalty</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={prefs.pullupPenalty ?? 0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, pullupPenalty: Math.max(0, parseInt(e.target.value, 10) || 0) }))
-                    }
-                    className="w-full sm:w-64 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    BP: added once per previous pull-up when a team is placed above its points bracket, so teams pulled up less often are preferred. Set high enough to outweigh position costs (e.g. 100000 with the default exponent). Two-team minimum-cost matching including pull-ups: multiplied by a team&apos;s place in the odd bracket order when it is pulled up, so it is weighed against clashes; at 0 the order only breaks ties. Leave 0 for no preference.
-                  </p>
-                </div>
-              </div>
-            </div>
+                {penaltyInput("pullupPenalty", 0, "setup.config.pullupPenaltyLabel", "setup.config.pullupPenaltyHelp", {
+                  className: "sm:w-64",
+                  wrapperClassName: "sm:col-span-2",
+                })}
+              </CardBody>
+            </Card>
 
             {/* E. British Parliamentary (BP) Specific Draw Rules */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <Shield className="w-4 h-4 text-purple-600" />
-                <span>British Parliamentary (BP) Draw Rules</span>
-              </h3>
-              <p className="text-xs text-gray-600">
-                Power-paired BP rounds assign every team to a room and position in one Hungarian assignment, as Tabbycat does: brackets by points, pull-ups from the bracket below, and position costs from each team&apos;s history. Institution and history clashes are not considered.
-              </p>
+            <Card>
+              <CardHeader
+                icon={<Shield aria-hidden="true" />}
+                title={t("setup.config.bpTitle")}
+                description={t("setup.config.bpDescription")}
+              />
+              <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label={t("setup.config.bpPullupLabel")}
+                  help={t("setup.config.bpPullupHelp")}
+                  value={prefs.bpPullupDistribution ?? "anywhere"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, bpPullupDistribution: e.target.value as BPPullupDistribution }))
+                  }
+                >
+                  <option value="anywhere">{t("setup.config.bpPullupAnywhere")}</option>
+                  <option value="top">{t("setup.config.bpPullupTop")}</option>
+                  <option value="bottom">{t("setup.config.bpPullupBottom")}</option>
+                </Select>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    BP pullup distribution
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.bpPullupDistribution ?? "anywhere"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, bpPullupDistribution: e.target.value as BPPullupDistribution }))
-                    }
-                  >
-                    <option value="anywhere">Anywhere in bracket (WUDC-compliant)</option>
-                    <option value="top">Top room(s) of bracket</option>
-                    <option value="bottom">Bottom room(s) of bracket</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    In BP, how pullups are distributed. Only &quot;Anywhere&quot; is WUDC-compliant.
-                  </p>
-                </div>
+                <Select
+                  label={t("setup.config.bpPositionCostLabel")}
+                  help={t("setup.config.bpPositionCostHelp")}
+                  value={prefs.bpPositionCost ?? "renyi_entropy"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, bpPositionCost: e.target.value as BPPositionCost }))
+                  }
+                >
+                  <option value="renyi_entropy">{t("setup.config.bpCostRenyi")}</option>
+                  <option value="sum_squared_deviations">{t("setup.config.bpCostSquared")}</option>
+                  <option value="simple">{t("setup.config.bpCostSimple")}</option>
+                </Select>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    BP position cost
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.bpPositionCost ?? "renyi_entropy"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, bpPositionCost: e.target.value as BPPositionCost }))
-                    }
-                  >
-                    <option value="renyi_entropy">Rényi entropy</option>
-                    <option value="sum_squared_deviations">Sum of squared deviations</option>
-                    <option value="simple">Simple (times already in the position)</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    In BP, which position cost function to use (see documentation for details)
-                  </p>
-                </div>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  label={t("setup.config.renyiOrderLabel")}
+                  help={t("setup.config.renyiOrderHelp")}
+                  value={prefs.renyiOrder ?? 1.0}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, renyiOrder: parseFloat(e.target.value) || 1.0 }))
+                  }
+                  className={NUMBER_CLASS}
+                />
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Rényi order (BP)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={prefs.renyiOrder ?? 1.0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, renyiOrder: parseFloat(e.target.value) || 1.0 }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Rényi order α, if BP position cost uses Rényi entropy. Shannon is α = 1, Hartley is α = 0, collision is α = 2. See documentation for details.
-                  </p>
-                </div>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  label={t("setup.config.bpExponentLabel")}
+                  help={t("setup.config.bpExponentHelp")}
+                  value={prefs.bpPositionCostExponent ?? 4.0}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, bpPositionCostExponent: parseFloat(e.target.value) || 4.0 }))
+                  }
+                  className={NUMBER_CLASS}
+                />
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    BP position cost exponent
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={prefs.bpPositionCostExponent ?? 4.0}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, bpPositionCostExponent: parseFloat(e.target.value) || 4.0 }))
-                    }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    The BP position cost is raised to this power; higher exponents bias towards resolving fewer large position imbalances over more small ones. See documentation for details.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    BP assignment method
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.bpAssignmentMethod ?? "hungarian"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, bpAssignmentMethod: e.target.value as BPAssignmentMethod }))
-                    }
-                  >
-                    <option value="hungarian">Hungarian algorithm with preshuffling (WUDC-compliant)</option>
-                    <option value="hungarian_unshuffled">Hungarian algorithm without preshuffling (not WUDC-compliant)</option>
-                    <option value="random">Random positions within brackets</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Hungarian minimises total position cost, choosing at random among equally good draws. Without preshuffling, ties are settled by standings order, so the draw is the same for every seed. Random keeps the brackets but ignores position history.
-                  </p>
-                </div>
-
-              </div>
-            </div>
+                <Select
+                  label={t("setup.config.bpAssignmentLabel")}
+                  help={t("setup.config.bpAssignmentHelp")}
+                  value={prefs.bpAssignmentMethod ?? "hungarian"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, bpAssignmentMethod: e.target.value as BPAssignmentMethod }))
+                  }
+                >
+                  <option value="hungarian">{t("setup.config.bpAssignmentHungarian")}</option>
+                  <option value="hungarian_unshuffled">{t("setup.config.bpAssignmentUnshuffled")}</option>
+                  <option value="random">{t("setup.config.bpAssignmentRandom")}</option>
+                </Select>
+              </CardBody>
+            </Card>
 
             {/* F. Scheduling & Byes */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <span>Scheduling & Byes</span>
-              </h3>
+            <Card>
+              <CardHeader icon={<Calendar aria-hidden="true" />} title={t("setup.config.byesTitle")} />
+              <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label={t("setup.config.byeResultsLabel")}
+                  help={t("setup.config.byeResultsHelp")}
+                  value={prefs.byeTeamResults ?? "absent"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, byeTeamResults: e.target.value as ByeTeamResults }))
+                  }
+                >
+                  <option value="absent">{t("setup.config.byeResultsAbsent")}</option>
+                  <option value="win">{t("setup.config.byeResultsWin")}</option>
+                </Select>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Bye team results
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.byeTeamResults ?? "absent"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, byeTeamResults: e.target.value as ByeTeamResults }))
-                    }
-                  >
-                    <option value="absent">Treat bye teams as absent</option>
-                    <option value="win">Award a win (no speaker scores)</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    How to handle teams who were marked available yet excluded from a round (a bye)
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Bye team selection method
-                  </label>
-                  <select
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white font-medium"
-                    value={prefs.byeTeamSelectionMethod ?? "none"}
-                    onChange={(e) =>
-                      setPrefs((p) => ({ ...p, byeTeamSelectionMethod: e.target.value as ByeTeamSelectionMethod }))
-                    }
-                  >
-                    <option value="none">Don&apos;t choose bye teams</option>
-                    <option value="lowest_ranked">Lowest ranked team</option>
-                    <option value="random">Random team</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    If creating a draw with an uneven number of teams, how to decide who gets the bye (won&apos;t be allocated)
-                  </p>
-                </div>
-              </div>
-            </div>
+                <Select
+                  label={t("setup.config.byeSelectionLabel")}
+                  help={t("setup.config.byeSelectionHelp")}
+                  value={prefs.byeTeamSelectionMethod ?? "none"}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, byeTeamSelectionMethod: e.target.value as ByeTeamSelectionMethod }))
+                  }
+                >
+                  <option value="none">{t("setup.config.byeSelectionNone")}</option>
+                  <option value="lowest_ranked">{t("setup.config.byeSelectionLowest")}</option>
+                  <option value="random">{t("setup.config.byeSelectionRandom")}</option>
+                </Select>
+              </CardBody>
+            </Card>
           </div>
         )}
 
@@ -963,456 +687,334 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
         {/* 2. ROUND SETTINGS */}
         {/* ============================================================ */}
         {category === "rounds" && (
-          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Clock className="w-4 h-4 text-blue-600" />
-              <span>Round Settings & Management</span>
-            </h3>
-            <p className="text-xs text-gray-600">
-              Set the total number of preliminary rounds or safely delete specific individual rounds.
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1" htmlFor="prelim-round-count">
-                  Number of Preliminary Rounds
-                </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <input
+          <Card>
+            <CardHeader
+              icon={<Clock aria-hidden="true" />}
+              title={t("setup.config.roundsTitle")}
+              description={t("setup.config.roundsDescription")}
+            />
+            <CardBody className="space-y-6">
+              <div className="space-y-1.5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <Input
                     id="prelim-round-count"
                     type="number"
                     min={0}
                     max={20}
                     step={1}
+                    label={t("setup.config.prelimCountLabel")}
+                    error={roundCountError || undefined}
                     value={prelimRoundCount}
                     onChange={(event) => setPrelimRoundCount(Number(event.target.value))}
-                    className="w-32 border border-gray-300 rounded px-3 py-1.5 text-sm font-mono font-bold"
+                    className={`w-32 ${NUMBER_CLASS}`}
                   />
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={handleRoundCountSave}
-                    disabled={isSavingRoundCount || prelimRoundCount === activePrelimCount}
-                    className="px-3.5 py-1.5 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold disabled:opacity-50 transition"
+                    disabled={prelimRoundCount === activePrelimCount}
+                    loading={isSavingRoundCount}
+                    loadingText={t("setup.config.updatingRoundCount")}
                   >
-                    {isSavingRoundCount ? "Updating..." : "Update Round Count"}
-                  </button>
+                    {t("setup.config.updateRoundCount")}
+                  </Button>
                 </div>
-                <p className="text-[11px] text-gray-500 mt-1.5">
-                  Canceled rounds preserve their ballots and can be restored by increasing this count. Elimination rounds remain intact.
-                </p>
-                {roundCountError && <p className="text-xs text-red-600 mt-1">{roundCountError}</p>}
+                <p className="text-xs text-fg-muted">{t("setup.config.prelimCountHelp")}</p>
               </div>
 
-              <div className="border-t border-gray-100 pt-4 space-y-2">
-                <div>
-                  <h4 className="text-xs font-semibold text-gray-700">Feedback by round</h4>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Override the tournament feedback setting for individual rounds.
-                  </p>
+              <div className="space-y-6 border-t border-border pt-4">
+                <section aria-labelledby="feedback-by-round-heading">
+                  <h3 id="feedback-by-round-heading" className="text-[13px] font-semibold text-fg">
+                    {t("setup.config.feedbackByRoundTitle")}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-fg-muted">{t("setup.config.feedbackByRoundHelp")}</p>
                   <div className="mt-2 space-y-1">
                     {rounds.map((round) => (
-                      <label key={round.id} className="flex items-center gap-2 rounded border border-gray-200 px-3 py-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={round.feedbackEnabled ?? (
-                            round.stage !== "elimination" || prefs.feedbackInEliminationRounds !== false
-                          )}
-                          onChange={(event) => {
-                            setRoundFeedbackError("");
-                            void updateRound({ ...round, feedbackEnabled: event.target.checked })
-                              .catch(() => setRoundFeedbackError(`Could not update feedback for ${round.name}.`));
-                          }}
-                          className="rounded border-gray-300 text-blue-600"
-                        />
-                        <span>{round.name} ({round.stage})</span>
-                      </label>
+                      <Checkbox
+                        key={round.id}
+                        className="rounded-md border border-border px-3 py-2"
+                        label={roundLabel(round)}
+                        checked={round.feedbackEnabled ?? (
+                          round.stage !== "elimination" || prefs.feedbackInEliminationRounds !== false
+                        )}
+                        onChange={(event) => {
+                          setRoundFeedbackError("");
+                          void updateRound({ ...round, feedbackEnabled: event.target.checked })
+                            .catch(() => setRoundFeedbackError(t("setup.config.roundFeedbackFailed", { round: round.name })));
+                        }}
+                      />
                     ))}
                   </div>
-                  {roundFeedbackError && <p role="alert" className="mt-2 text-xs text-red-600">{roundFeedbackError}</p>}
-                </div>
+                  {roundFeedbackError && <p role="alert" className="mt-2 text-xs text-danger">{roundFeedbackError}</p>}
+                </section>
                 <RoundWeightsEditor rounds={rounds} updateRound={updateRound} />
               </div>
 
-              <div className="border-t border-gray-100 pt-4 space-y-2">
-                <label className="block text-xs font-semibold text-gray-700" htmlFor="delete-round-select">
-                  Delete an Individual Round
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <select
+              <div className="space-y-2 border-t border-border pt-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Select
                     id="delete-round-select"
+                    label={t("setup.config.deleteRoundLabel")}
+                    wrapperClassName="w-full sm:max-w-xs"
                     value={roundToDeleteId}
                     onChange={(event) => setRoundToDeleteId(event.target.value)}
-                    className="w-full sm:max-w-xs border border-gray-300 rounded px-3 py-2 text-xs bg-white"
                   >
-                    <option value="">Choose a round to delete...</option>
+                    <option value="">{t("setup.config.deleteRoundPlaceholder")}</option>
                     {rounds.map((round) => (
                       <option key={round.id} value={round.id}>
-                        {round.name} ({round.stage})
+                        {roundLabel(round)}
                       </option>
                     ))}
-                  </select>
-                  <button
-                    type="button"
+                  </Select>
+                  <Button
+                    variant="danger"
                     onClick={() => setShowDeleteRoundConfirm(true)}
                     disabled={!roundToDelete || isDeletingRound}
-                    className="inline-flex items-center justify-center gap-1.5 rounded border border-red-300 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 transition"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Delete Round</span>
-                  </button>
+                    <Trash2 aria-hidden="true" />
+                    <span>{t("setup.config.deleteRoundButton")}</span>
+                  </Button>
                 </div>
-                {deleteRoundError && <p role="alert" className="text-xs text-red-600">{deleteRoundError}</p>}
+                {deleteRoundError && <p role="alert" className="text-xs text-danger">{deleteRoundError}</p>}
               </div>
-            </div>
-          </div>
+            </CardBody>
+          </Card>
         )}
 
         {/* ============================================================ */}
         {/* 3. FORMAT & TEAMS */}
         {/* ============================================================ */}
         {category === "format" && (
-          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Shield className="w-4 h-4 text-blue-600" />
-              <span>Debate Format & Team Structure</span>
-            </h3>
-            <p className="text-xs text-gray-600">
-              Define the parliamentary debate style, number of teams per debate, and speaker requirements.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Parliamentary Format
-                </label>
-                <select
-                  value={format}
-                  disabled={ballotShapeLocked}
-                  aria-describedby={ballotShapeLocked ? "ballot-shape-locked" : undefined}
-                  onChange={(e) => {
-                    const newFmt = e.target.value as TournamentFormat;
-                    setFormat(newFmt);
-                    if (newFmt === "bp") {
-                      setPrefs((p) => ({
-                        ...p,
-                        teamsInDebate: 4,
-                        substantiveSpeakers: 2,
-                        replyScoresEnabled: false,
-                      }));
-                    } else {
-                      setPrefs((p) => ({
-                        ...p,
-                        teamsInDebate: 2,
-                        substantiveSpeakers: 3,
-                        replyScoresEnabled: true,
-                      }));
-                    }
-                  }}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-semibold bg-white"
-                >
-                  <option value="bp">British Parliamentary (BP) — 4 Teams, 2 Speakers/Team</option>
-                  <option value="uadc">Asian Parliamentary (UADC) — 2 Teams, 3 Speakers + Reply</option>
-                  <option value="australs">Australs — 2 Teams, 3 Speakers + Reply</option>
-                  <option value="wsdc">World Schools (WSDC) — 2 Teams, 3 Speakers + Reply</option>
-                </select>
-                {ballotShapeLocked && (
-                  <p id="ballot-shape-locked" className="mt-1 text-[11px] text-gray-600">
-                    Ballots have been entered, so the format, speakers per team, reply speeches and ballot mode
-                    are locked.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Substantive Speakers per Team
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="5"
-                  value={prefs.substantiveSpeakers}
-                  disabled={ballotShapeLocked}
-                  onChange={(e) =>
+          <Card>
+            <CardHeader
+              icon={<Shield aria-hidden="true" />}
+              title={t("setup.config.formatTitle")}
+              description={t("setup.config.formatDescription")}
+            />
+            <CardBody className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Select
+                label={t("setup.config.formatLabel")}
+                help={ballotShapeLocked ? t("setup.config.ballotShapeLocked") : undefined}
+                value={format}
+                disabled={ballotShapeLocked}
+                onChange={(e) => {
+                  const newFmt = e.target.value as TournamentFormat;
+                  setFormat(newFmt);
+                  if (newFmt === "bp") {
                     setPrefs((p) => ({
                       ...p,
-                      substantiveSpeakers: parseInt(e.target.value, 10),
-                    }))
+                      teamsInDebate: 4,
+                      substantiveSpeakers: 2,
+                      replyScoresEnabled: false,
+                    }));
+                  } else {
+                    setPrefs((p) => ({
+                      ...p,
+                      teamsInDebate: 2,
+                      substantiveSpeakers: 3,
+                      replyScoresEnabled: true,
+                    }));
                   }
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono font-bold"
-                />
-              </div>
+                }}
+              >
+                <option value="bp">{t("setup.config.formatBp")}</option>
+                <option value="uadc">{t("setup.config.formatUadc")}</option>
+                <option value="australs">{t("setup.config.formatAustrals")}</option>
+                <option value="wsdc">{t("setup.config.formatWsdc")}</option>
+              </Select>
 
-              <div className="md:col-span-2">
-                <label className="flex items-center space-x-2.5 p-2 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(prefs.replyScoresEnabled)}
-                    disabled={ballotShapeLocked}
-                    onChange={(e) => setPrefs((p) => ({ ...p, replyScoresEnabled: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
-                  />
-                  <div>
-                    <span className="font-semibold text-gray-800 text-xs block">Enable Reply Speech Scoring</span>
-                    <span className="text-[11px] text-gray-500">
-                      Standard for 3-speaker formats (Australs, UADC, WSDC) where a 4th speech is delivered as a half-length reply.
-                    </span>
-                  </div>
-                </label>
-              </div>
-            </div>
-          </div>
+              <Input
+                type="number"
+                min="1"
+                max="5"
+                label={t("setup.config.substantiveSpeakersLabel")}
+                value={prefs.substantiveSpeakers}
+                disabled={ballotShapeLocked}
+                onChange={(e) =>
+                  setPrefs((p) => ({
+                    ...p,
+                    substantiveSpeakers: parseInt(e.target.value, 10),
+                  }))
+                }
+                className={NUMBER_CLASS}
+              />
+
+              <Checkbox
+                className="md:col-span-2"
+                label={t("setup.config.replyScoringLabel")}
+                description={t("setup.config.replyScoringHelp")}
+                checked={Boolean(prefs.replyScoresEnabled)}
+                disabled={ballotShapeLocked}
+                onChange={(e) => setPrefs((p) => ({ ...p, replyScoresEnabled: e.target.checked }))}
+              />
+            </CardBody>
+          </Card>
         )}
 
         {/* ============================================================ */}
         {/* 4. SCORING & BALLOTS */}
         {/* ============================================================ */}
         {category === "scoring" && (
-          <div className="space-y-4">
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <FileCheck2 className="w-4 h-4 text-emerald-600" />
-                <span>Speaker Scoring Parameters</span>
-              </h3>
-              <p className="text-xs text-gray-600">
-                Define the allowed bounds and step increments for substantive and reply speeches.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Minimum Speaker Score
-                  </label>
-                  <input
+          <div className="space-y-6">
+            <Card>
+              <CardHeader
+                icon={<FileCheck2 aria-hidden="true" />}
+                title={t("setup.config.speakerScoringTitle")}
+                description={t("setup.config.speakerScoringDescription")}
+              />
+              <CardBody className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Input
                     type="number"
+                    label={t("setup.config.minSpeakerScoreLabel")}
+                    help={t("setup.config.defaultValue", { value: 68 })}
                     value={prefs.minSpeakerScore}
                     onChange={(e) =>
                       setPrefs((p) => ({ ...p, minSpeakerScore: parseFloat(e.target.value) || 68 }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    className={NUMBER_CLASS}
                   />
-                  <p className="text-[11px] text-gray-500 mt-1">Default 68</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Maximum Speaker Score
-                  </label>
-                  <input
+                  <Input
                     type="number"
+                    label={t("setup.config.maxSpeakerScoreLabel")}
+                    help={t("setup.config.defaultValue", { value: 84 })}
                     value={prefs.maxSpeakerScore}
                     onChange={(e) =>
                       setPrefs((p) => ({ ...p, maxSpeakerScore: parseFloat(e.target.value) || 84 }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    className={NUMBER_CLASS}
                   />
-                  <p className="text-[11px] text-gray-500 mt-1">Default 84</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Score Step Increment
-                  </label>
-                  <select
+                  <Select
+                    label={t("setup.config.scoreStepLabel")}
+                    help={t("setup.config.scoreStepHelp")}
                     value={prefs.stepSpeakerScore}
                     onChange={(e) =>
                       setPrefs((p) => ({ ...p, stepSpeakerScore: parseFloat(e.target.value) || 1 }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono bg-white"
+                    className={NUMBER_CLASS}
                   >
-                    <option value={1}>1.0 (Integers only: 74, 75, 76...)</option>
-                    <option value={0.5}>0.5 (Half points: 74.5, 75.0...)</option>
-                  </select>
-                  <p className="text-[11px] text-gray-500 mt-1">Allowed increments</p>
+                    <option value={1}>{t("setup.config.scoreStepWhole")}</option>
+                    <option value={0.5}>{t("setup.config.scoreStepHalf")}</option>
+                  </Select>
                 </div>
-              </div>
 
-              {prefs.replyScoresEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Minimum Reply Score
-                    </label>
-                    <input
+                {prefs.replyScoresEnabled && (
+                  <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                    <Input
                       type="number"
+                      label={t("setup.config.minReplyScoreLabel")}
+                      help={t("setup.config.minReplyScoreHelp")}
                       value={prefs.minReplyScore ?? 34}
                       onChange={(e) =>
                         setPrefs((p) => ({ ...p, minReplyScore: parseFloat(e.target.value) || 34 }))
                       }
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                      className={NUMBER_CLASS}
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">Default 34 (typically half of substantive min)</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Maximum Reply Score
-                    </label>
-                    <input
+                    <Input
                       type="number"
+                      label={t("setup.config.maxReplyScoreLabel")}
+                      help={t("setup.config.maxReplyScoreHelp")}
                       value={prefs.maxReplyScore ?? 42}
                       onChange={(e) =>
                         setPrefs((p) => ({ ...p, maxReplyScore: parseFloat(e.target.value) || 42 }))
                       }
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                      className={NUMBER_CLASS}
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">Default 42 (typically half of substantive max)</p>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </CardBody>
+            </Card>
 
             {/* Ballot Rules & Options */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <FileCheck2 className="w-4 h-4 text-emerald-600" />
-                <span>Ballot Rules & Options</span>
-              </h3>
+            <Card>
+              <CardHeader icon={<FileCheck2 aria-hidden="true" />} title={t("setup.config.ballotRulesTitle")} />
+              <CardBody className="space-y-4">
+                <Textarea
+                  rows={3}
+                  label={t("setup.config.ballotIntroLabel")}
+                  help={t("setup.config.ballotIntroHelp")}
+                  value={prefs.ballotIntroExplanation ?? ""}
+                  onChange={(e) => setPrefs((p) => ({ ...p, ballotIntroExplanation: e.target.value }))}
+                />
 
-              <div className="space-y-4 text-xs">
-                {/* Ballot introduction/explanation */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Ballot introduction/explanation
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={prefs.ballotIntroExplanation ?? ""}
-                    onChange={(e) => setPrefs((p) => ({ ...p, ballotIntroExplanation: e.target.value }))}
-                    placeholder="Any explanatory text needed to introduce the ballot form, e.g. speaker scale"
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Any explanatory text needed to introduce the ballot form, e.g. speaker scale
-                  </p>
-                </div>
-
-                {/* Margin includes dissenters */}
-                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={prefs.marginIncludesDissenters ?? true}
-                    onChange={(e) => setPrefs((p) => ({ ...p, marginIncludesDissenters: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
-                  />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Margin includes dissenters</span>
-                    <span className="text-[11px] text-gray-500">
-                      If checked, a team&apos;s winning margin includes dissenting adjudicators
-                    </span>
-                  </div>
-                </label>
-
-                {/* Team score includes ghosts */}
-                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(prefs.teamScoreIncludesGhosts)}
-                    onChange={(e) => setPrefs((p) => ({ ...p, teamScoreIncludesGhosts: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
-                  />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Team score includes ghosts</span>
-                    <span className="text-[11px] text-gray-500">
-                      If checked, all speaker scores, including for duplicate speeches, will be counted for team scores
-                    </span>
-                  </div>
-                </label>
-
-                {/* Require Double-Entry Ballot Verification */}
-                <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(prefs.ballotDoubleEntry)}
-                    onChange={(e) => setPrefs((p) => ({ ...p, ballotDoubleEntry: e.target.checked }))}
-                    className="rounded border-gray-300 text-blue-600"
-                  />
-                  <div>
-                    <span className="font-semibold text-gray-800 block">Require Double-Entry Ballot Verification</span>
-                    <span className="text-[11px] text-gray-500">
-                      A ballot only counts once a second person has checked it.
-                    </span>
-                  </div>
-                </label>
+                <Checkbox
+                  label={t("setup.config.marginDissentersLabel")}
+                  description={t("setup.config.marginDissentersHelp")}
+                  checked={prefs.marginIncludesDissenters ?? true}
+                  onChange={(e) => setPrefs((p) => ({ ...p, marginIncludesDissenters: e.target.checked }))}
+                />
+                <Checkbox
+                  label={t("setup.config.ghostsLabel")}
+                  description={t("setup.config.ghostsHelp")}
+                  checked={Boolean(prefs.teamScoreIncludesGhosts)}
+                  onChange={(e) => setPrefs((p) => ({ ...p, teamScoreIncludesGhosts: e.target.checked }))}
+                />
+                <Checkbox
+                  label={t("setup.config.doubleEntryLabel")}
+                  description={t("setup.config.doubleEntryHelp")}
+                  checked={Boolean(prefs.ballotDoubleEntry)}
+                  onChange={(e) => setPrefs((p) => ({ ...p, ballotDoubleEntry: e.target.checked }))}
+                />
 
                 {prefs.ballotDoubleEntry && (
-                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
-                    <span className="font-semibold text-gray-800 block mb-1">How ballots are checked</span>
-                    <select
-                      value={prefs.ballotCheckMode ?? "review"}
-                      onChange={(e) => setPrefs((p) => ({ ...p, ballotCheckMode: e.target.value as "review" | "blind" }))}
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
-                    >
-                      <option value="review">Review — the checker compares the entry with the paper ballot and confirms it</option>
-                      <option value="blind">Blind — the checker re-enters the ballot without seeing the first entry</option>
-                    </select>
-                  </label>
+                  <Select
+                    label={t("setup.config.checkModeLabel")}
+                    value={prefs.ballotCheckMode ?? "review"}
+                    onChange={(e) => setPrefs((p) => ({ ...p, ballotCheckMode: e.target.value as "review" | "blind" }))}
+                  >
+                    <option value="review">{t("setup.config.checkModeReview")}</option>
+                    <option value="blind">{t("setup.config.checkModeBlind")}</option>
+                  </Select>
                 )}
 
                 {tournament?.format !== "bp" && (
-                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
-                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate, preliminary rounds</span>
-                    <select
-                      value={prefs.ballotMode ?? "consensus"}
-                      disabled={ballotShapeLocked}
-                      onChange={(e) => setPrefs((p) => ({ ...p, ballotMode: e.target.value as "consensus" | "voting" }))}
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
-                    >
-                      <option value="consensus">Consensus — one ballot for the whole panel</option>
-                      <option value="voting">Voting — one scoresheet per voting adjudicator; the majority decides</option>
-                    </select>
-                    <span className="text-[11px] text-gray-500 block mt-1">
-                      With voting ballots, recorded speaker scores are the average of the majority; the chair breaks a tied panel.
-                    </span>
-                  </label>
+                  <Select
+                    label={t("setup.config.prelimBallotModeLabel")}
+                    help={t("setup.config.prelimBallotModeHelp")}
+                    value={prefs.ballotMode ?? "consensus"}
+                    disabled={ballotShapeLocked}
+                    onChange={(e) => setPrefs((p) => ({ ...p, ballotMode: e.target.value as "consensus" | "voting" }))}
+                  >
+                    <option value="consensus">{t("setup.config.ballotModeConsensus")}</option>
+                    <option value="voting">{t("setup.config.ballotModeVoting")}</option>
+                  </Select>
                 )}
 
                 {tournament?.format !== "bp" && (
-                  <label className="block p-3 rounded bg-gray-50 border border-gray-200">
-                    <span className="font-semibold text-gray-800 block mb-1">Ballots per debate, elimination rounds</span>
-                    <select
-                      value={prefs.eliminationBallotMode ?? ""}
-                      disabled={eliminationBallotModeLocked}
-                      onChange={(e) =>
-                        setPrefs((p) => ({
-                          ...p,
-                          eliminationBallotMode: (e.target.value || undefined) as "consensus" | "voting" | undefined,
-                        }))
-                      }
-                      className="w-full border border-gray-300 rounded px-3 py-2 text-xs bg-white"
-                    >
-                      <option value="">Same as preliminary rounds</option>
-                      <option value="consensus">Consensus — one ballot for the whole panel</option>
-                      <option value="voting">Voting — one scoresheet per voting adjudicator; the majority decides</option>
-                    </select>
-                    <span className="text-[11px] text-gray-500 block mt-1">
-                      {eliminationBallotModeLocked
-                        ? "Elimination ballots have been entered, so this is locked."
-                        : "Can be changed until the first elimination ballot is entered."}
-                    </span>
-                  </label>
+                  <Select
+                    label={t("setup.config.elimBallotModeLabel")}
+                    help={eliminationBallotModeLocked
+                      ? t("setup.config.elimBallotModeLocked")
+                      : t("setup.config.elimBallotModeHelp")}
+                    value={prefs.eliminationBallotMode ?? ""}
+                    disabled={eliminationBallotModeLocked}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        eliminationBallotMode: (e.target.value || undefined) as "consensus" | "voting" | undefined,
+                      }))
+                    }
+                  >
+                    <option value="">{t("setup.config.elimBallotModeSame")}</option>
+                    <option value="consensus">{t("setup.config.ballotModeConsensus")}</option>
+                    <option value="voting">{t("setup.config.ballotModeVoting")}</option>
+                  </Select>
                 )}
 
                 {(
                   [
-                    ["enableMotionVetoes", "Record motion vetoes", "Ballots record which motion each team vetoed; vetoes appear in motion statistics."],
+                    ["enableMotionVetoes", "setup.config.motionVetoesLabel", "setup.config.motionVetoesHelp"],
                     ...(tournament?.format !== "bp"
-                      ? [["enableForfeits", "Allow forfeits", "A debate can be recorded as a forfeit: the other team wins and no speaker scores are recorded."]]
+                      ? [["enableForfeits", "setup.config.forfeitsLabel", "setup.config.forfeitsHelp"]]
                       : []),
-                  ] as Array<["enableMotionVetoes" | "enableForfeits", string, string]>
+                  ] as Array<["enableMotionVetoes" | "enableForfeits", MessageKey, MessageKey]>
                 ).map(([key, label, help]) => (
-                  <label key={key} className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(prefs[key])}
-                      onChange={(e) => setPrefs((p) => ({ ...p, [key]: e.target.checked }))}
-                      className="rounded border-gray-300 text-blue-600"
-                    />
-                    <div>
-                      <span className="font-semibold text-gray-800 block">{label}</span>
-                      <span className="text-[11px] text-gray-500">{help}</span>
-                    </div>
-                  </label>
+                  <Checkbox
+                    key={key}
+                    label={t(label)}
+                    description={t(help)}
+                    checked={Boolean(prefs[key])}
+                    onChange={(e) => setPrefs((p) => ({ ...p, [key]: e.target.checked }))}
+                  />
                 ))}
 
                 <ResultsRulesSettings
@@ -1421,190 +1023,161 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   format={format}
                   shapeLocked={ballotShapeLocked}
                 />
-              </div>
-            </div>
+              </CardBody>
+            </Card>
 
             {/* Adjudicator Feedback */}
-            <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-                <FileCheck2 className="w-4 h-4 text-emerald-600" />
-                <span>Adjudicator Feedback</span>
-              </h3>
+            <Card>
+              <CardHeader icon={<MessageSquare aria-hidden="true" />} title={t("setup.config.feedbackTitle")} />
+              <CardBody className="space-y-4">
+                <Checkbox
+                  label={t("setup.config.feedbackEnabledLabel")}
+                  checked={prefs.feedbackEnabled !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, feedbackEnabled: e.target.checked }))}
+                />
 
-              <div className="space-y-4 text-xs">
-                <div className="p-3 rounded bg-gray-50 border border-gray-200 space-y-3">
-                  <label className="flex items-center space-x-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={prefs.feedbackEnabled !== false}
-                      onChange={(e) => setPrefs((p) => ({ ...p, feedbackEnabled: e.target.checked }))}
-                      className="rounded border-gray-300 text-blue-600"
-                    />
-                    <span className="font-semibold text-gray-800">Enable Adjudicator Feedback Submission</span>
-                  </label>
-
-                  {prefs.feedbackEnabled !== false && (
-                    <div className="space-y-4 pt-2 border-t border-gray-200">
+                {prefs.feedbackEnabled !== false && (
+                  <div className="space-y-4 border-t border-border pt-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
-                          Minimum Feedback Score
-                        </label>
-                        <input
-                          type="number"
-                          value={prefs.feedbackMinScore ?? 1}
-                          onChange={(e) =>
-                            setPrefs((p) => ({ ...p, feedbackMinScore: parseInt(e.target.value, 10) || 1 }))
-                          }
-                          className="w-full border border-gray-300 rounded px-2.5 py-1 text-xs font-mono font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
-                          Maximum Feedback Score
-                        </label>
-                        <input
-                          type="number"
-                          value={prefs.feedbackMaxScore ?? 10}
-                          onChange={(e) =>
-                            setPrefs((p) => ({ ...p, feedbackMaxScore: parseInt(e.target.value, 10) || 10 }))
-                          }
-                          className="w-full border border-gray-300 rounded px-2.5 py-1 text-xs font-mono font-bold"
-                        />
-                      </div>
+                      <Input
+                        type="number"
+                        label={t("setup.config.feedbackMinLabel")}
+                        value={prefs.feedbackMinScore ?? 1}
+                        onChange={(e) =>
+                          setPrefs((p) => ({ ...p, feedbackMinScore: parseInt(e.target.value, 10) || 1 }))
+                        }
+                        className={NUMBER_CLASS}
+                      />
+                      <Input
+                        type="number"
+                        label={t("setup.config.feedbackMaxLabel")}
+                        value={prefs.feedbackMaxScore ?? 10}
+                        onChange={(e) =>
+                          setPrefs((p) => ({ ...p, feedbackMaxScore: parseInt(e.target.value, 10) || 10 }))
+                        }
+                        className={NUMBER_CLASS}
+                      />
                     </div>
                     <FeedbackOptionsFields value={prefs} onChange={(change) => setPrefs((p) => ({ ...p, ...change }))} />
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
                 {prefs.feedbackEnabled !== false && (
-                  <div className="space-y-3 rounded border border-gray-200 p-3">
+                  <section aria-labelledby="feedback-questions-heading" className="space-y-3 rounded-md border border-border p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <h4 className="text-xs font-bold text-gray-800">Custom feedback questions</h4>
-                        <p className="text-[11px] text-gray-500">Configure separate questionnaires by feedback submitter.</p>
+                        <h3 id="feedback-questions-heading" className="text-[13px] font-semibold text-fg">
+                          {t("setup.config.questionsTitle")}
+                        </h3>
+                        <p className="text-xs text-fg-muted">{t("setup.config.questionsDescription")}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={addFeedbackQuestion}
-                        className="rounded border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-bold text-blue-800 hover:bg-blue-100"
-                      >
-                        Add question
-                      </button>
+                      <Button size="sm" variant="secondary" onClick={addFeedbackQuestion}>
+                        {t("setup.config.addQuestion")}
+                      </Button>
                     </div>
-                    <label className="block max-w-xs text-[11px] font-semibold text-gray-700">
-                      Questionnaire
-                      <select
-                        value={questionnaireSource}
-                        onChange={(event) => {
-                          if (event.target.value === "team" || event.target.value === "adjudicator") {
-                            setQuestionnaireSource(event.target.value);
-                          }
-                        }}
-                        className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                      >
-                        <option value="team">Team feedback</option>
-                        <option value="adjudicator">Adjudicator feedback</option>
-                      </select>
-                    </label>
-                    {feedbackQuestionError && <p role="alert" className="text-xs text-red-700">{feedbackQuestionError}</p>}
+                    <Select
+                      label={t("setup.config.questionnaireLabel")}
+                      wrapperClassName="max-w-xs"
+                      value={questionnaireSource}
+                      onChange={(event) => {
+                        if (event.target.value === "team" || event.target.value === "adjudicator") {
+                          setQuestionnaireSource(event.target.value);
+                        }
+                      }}
+                    >
+                      <option value="team">{t("setup.config.questionnaireTeam")}</option>
+                      <option value="adjudicator">{t("setup.config.questionnaireAdjudicator")}</option>
+                    </Select>
+                    {feedbackQuestionError && (
+                      <Alert tone="danger" role="alert">{feedbackQuestionError}</Alert>
+                    )}
                     {currentFeedbackQuestions.map((question, index) => (
-                      <div key={question.id} className="grid grid-cols-1 gap-2 rounded bg-gray-50 p-3 sm:grid-cols-2">
-                        <label className="text-[11px] font-semibold text-gray-700">
-                          Question {index + 1}
-                          <input
-                            value={question.label}
-                            onChange={(event) => updateFeedbackQuestion(question.id, { label: event.target.value })}
-                            className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                            placeholder="Enter a question"
-                          />
-                        </label>
-                        <label className="text-[11px] font-semibold text-gray-700">
-                          Answer type
-                          <select
-                            value={question.type}
-                            onChange={(event) => {
-                              const type = event.target.value as FeedbackQuestion["type"];
-                              // Scales need bounds; start them at what the inputs show.
-                              const needsBounds = type === "scale" || type === "integer_scale";
-                              updateFeedbackQuestion(question.id, {
-                                type,
-                                ...(needsBounds ? { min: question.min ?? 1, max: question.max ?? 5 } : {}),
-                              });
-                            }}
-                            className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                          >
-                            {FEEDBACK_QUESTION_TYPES.map(({ type, label }) => (
-                              <option key={type} value={type}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
+                      <div key={question.id} className="grid grid-cols-1 gap-3 rounded-md bg-muted p-3 sm:grid-cols-2">
+                        <Input
+                          label={t("setup.config.questionLabel", { number: index + 1 })}
+                          value={question.label}
+                          onChange={(event) => updateFeedbackQuestion(question.id, { label: event.target.value })}
+                          placeholder={t("setup.config.questionPlaceholder")}
+                        />
+                        <Select
+                          label={t("setup.config.answerTypeLabel")}
+                          value={question.type}
+                          onChange={(event) => {
+                            const type = event.target.value as FeedbackQuestion["type"];
+                            // Scales need bounds; start them at what the inputs show.
+                            const needsBounds = type === "scale" || type === "integer_scale";
+                            updateFeedbackQuestion(question.id, {
+                              type,
+                              ...(needsBounds ? { min: question.min ?? 1, max: question.max ?? 5 } : {}),
+                            });
+                          }}
+                        >
+                          {FEEDBACK_QUESTION_TYPES.map(({ type }) => (
+                            <option key={type} value={type}>{t(QUESTION_TYPE_LABELS[type])}</option>
+                          ))}
+                        </Select>
                         {(question.type === "select_one" || question.type === "select_many") && (
-                          <label className="text-[11px] font-semibold text-gray-700 sm:col-span-2">
-                            Options (comma-separated)
-                            <input
-                              value={(question.options ?? []).join(", ")}
-                              onChange={(event) => updateFeedbackQuestion(question.id, {
-                                options: event.target.value.split(",").map((value) => value.trim()).filter(Boolean),
-                              })}
-                              className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                              placeholder="Option one, Option two"
-                            />
-                          </label>
+                          <Input
+                            label={t("setup.config.optionsLabel")}
+                            wrapperClassName="sm:col-span-2"
+                            value={(question.options ?? []).join(", ")}
+                            onChange={(event) => updateFeedbackQuestion(question.id, {
+                              options: event.target.value.split(",").map((value) => value.trim()).filter(Boolean),
+                            })}
+                            placeholder={t("setup.config.optionsPlaceholder")}
+                          />
                         )}
                         {(question.type === "scale" || question.type === "integer_scale") && (
                           <div className="flex gap-2">
-                            <label className="flex-1 text-[11px] font-semibold text-gray-700">
-                              Minimum
-                              <input
-                                type="number"
-                                step={question.type === "integer_scale" ? 1 : "any"}
-                                value={question.min ?? 1}
-                                onChange={(event) => updateFeedbackQuestion(question.id, { min: Number(event.target.value) })}
-                                className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                              />
-                            </label>
-                            <label className="flex-1 text-[11px] font-semibold text-gray-700">
-                              Maximum
-                              <input
-                                type="number"
-                                step={question.type === "integer_scale" ? 1 : "any"}
-                                value={question.max ?? 5}
-                                onChange={(event) => updateFeedbackQuestion(question.id, { max: Number(event.target.value) })}
-                                className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                              />
-                            </label>
+                            <Input
+                              type="number"
+                              label={t("setup.config.minimumLabel")}
+                              wrapperClassName="flex-1"
+                              step={question.type === "integer_scale" ? 1 : "any"}
+                              value={question.min ?? 1}
+                              onChange={(event) => updateFeedbackQuestion(question.id, { min: Number(event.target.value) })}
+                              className={NUMBER_CLASS}
+                            />
+                            <Input
+                              type="number"
+                              label={t("setup.config.maximumLabel")}
+                              wrapperClassName="flex-1"
+                              step={question.type === "integer_scale" ? 1 : "any"}
+                              value={question.max ?? 5}
+                              onChange={(event) => updateFeedbackQuestion(question.id, { max: Number(event.target.value) })}
+                              className={NUMBER_CLASS}
+                            />
                           </div>
                         )}
                         {(question.type === "integer" || question.type === "float") && (
                           <div className="flex gap-2">
                             {(["min", "max"] as const).map((bound) => (
-                              <label key={bound} className="flex-1 text-[11px] font-semibold text-gray-700">
-                                {bound === "min" ? "Minimum (optional)" : "Maximum (optional)"}
-                                <input
-                                  type="number"
-                                  step={question.type === "integer" ? 1 : "any"}
-                                  value={question[bound] ?? ""}
-                                  onChange={(event) => updateFeedbackQuestion(question.id, {
-                                    [bound]: event.target.value === "" ? undefined : Number(event.target.value),
-                                  })}
-                                  className="mt-1 w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
-                                  placeholder="No limit"
-                                />
-                              </label>
+                              <Input
+                                key={bound}
+                                type="number"
+                                label={bound === "min" ? t("setup.config.minimumOptionalLabel") : t("setup.config.maximumOptionalLabel")}
+                                wrapperClassName="flex-1"
+                                step={question.type === "integer" ? 1 : "any"}
+                                value={question[bound] ?? ""}
+                                onChange={(event) => updateFeedbackQuestion(question.id, {
+                                  [bound]: event.target.value === "" ? undefined : Number(event.target.value),
+                                })}
+                                placeholder={t("setup.config.noLimitPlaceholder")}
+                                className={NUMBER_CLASS}
+                              />
                             ))}
                           </div>
                         )}
-                        <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={question.required}
-                            onChange={(event) => updateFeedbackQuestion(question.id, { required: event.target.checked })}
-                          />
-                          Required
-                        </label>
-                        <button
-                          type="button"
+                        <Checkbox
+                          className="self-center"
+                          label={t("setup.config.questionRequired")}
+                          checked={question.required}
+                          onChange={(event) => updateFeedbackQuestion(question.id, { required: event.target.checked })}
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="justify-self-end text-danger"
                           onClick={() => setPrefs((current) => questionnaireSource === "team"
                             ? {
                                 ...current,
@@ -1616,63 +1189,53 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                                 adjudicatorFeedbackQuestions: (current.adjudicatorFeedbackQuestions ?? current.feedbackQuestions ?? [])
                                   .filter((item) => item.id !== question.id),
                               })}
-                          className="justify-self-end text-xs font-semibold text-red-700 hover:text-red-900"
                         >
-                          Remove question
-                        </button>
+                          {t("setup.config.removeQuestion")}
+                        </Button>
                       </div>
                     ))}
-                    <div className="space-y-3 border-t border-gray-200 pt-3">
+                    <div className="space-y-3 border-t border-border pt-3">
                       <div>
-                        <h4 className="text-xs font-bold text-gray-800">Feedback paths</h4>
-                        <p className="text-[11px] text-gray-500">
-                          Who gives feedback on whom. The same paths decide what the portals offer, what the
-                          progress tracker expects and which forms are printed.
-                        </p>
+                        <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.feedbackPathsTitle")}</h3>
+                        <p className="text-xs text-fg-muted">{t("setup.config.feedbackPathsDescription")}</p>
                       </div>
                       <FeedbackPathsEditor
                         idPrefix="feedback-paths"
-                        legend={prefs.eliminationFeedbackPaths ? "Preliminary rounds" : "All rounds"}
+                        legend={prefs.eliminationFeedbackPaths ? t("setup.config.pathsPreliminaryRounds") : t("setup.config.pathsAllRounds")}
                         value={preliminaryFeedbackPaths(prefs)}
                         onChange={(feedbackPaths) => setPrefs((current) => ({ ...current, feedbackPaths }))}
                       />
-                      <label className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
-                        <input
-                          type="checkbox"
-                          checked={prefs.feedbackInEliminationRounds !== false}
+                      <Checkbox
+                        label={t("setup.config.feedbackInElimLabel")}
+                        checked={prefs.feedbackInEliminationRounds !== false}
+                        onChange={(event) => setPrefs((current) => ({
+                          ...current,
+                          feedbackInEliminationRounds: event.target.checked,
+                        }))}
+                      />
+                      {prefs.feedbackInEliminationRounds !== false && (
+                        <Checkbox
+                          label={t("setup.config.elimPathsLabel")}
+                          checked={Boolean(prefs.eliminationFeedbackPaths)}
                           onChange={(event) => setPrefs((current) => ({
                             ...current,
-                            feedbackInEliminationRounds: event.target.checked,
+                            eliminationFeedbackPaths: event.target.checked ? preliminaryFeedbackPaths(current) : undefined,
                           }))}
                         />
-                        Collect feedback in elimination rounds
-                      </label>
-                      {prefs.feedbackInEliminationRounds !== false && (
-                        <label className="flex items-start gap-2 text-[11px] font-medium text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(prefs.eliminationFeedbackPaths)}
-                            onChange={(event) => setPrefs((current) => ({
-                              ...current,
-                              eliminationFeedbackPaths: event.target.checked ? preliminaryFeedbackPaths(current) : undefined,
-                            }))}
-                          />
-                          Use different paths in elimination rounds
-                        </label>
                       )}
                       {prefs.feedbackInEliminationRounds !== false && prefs.eliminationFeedbackPaths && (
                         <FeedbackPathsEditor
                           idPrefix="elimination-feedback-paths"
-                          legend="Elimination rounds"
+                          legend={t("setup.config.pathsEliminationRounds")}
                           value={prefs.eliminationFeedbackPaths}
                           onChange={(eliminationFeedbackPaths) => setPrefs((current) => ({ ...current, eliminationFeedbackPaths }))}
                         />
                       )}
                     </div>
-                  </div>
+                  </section>
                 )}
-              </div>
-            </div>
+              </CardBody>
+            </Card>
           </div>
         )}
 
@@ -1680,286 +1243,239 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
         {/* 5. STANDINGS RULES */}
         {/* ============================================================ */}
         {category === "standings" && (
-          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-5">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Trophy className="w-4 h-4 text-amber-600" />
-              <span>Standings Rules & Ranking Precedence</span>
-            </h3>
-            <p className="text-xs text-gray-600">
-              The order teams and speakers are ranked in. Leave empty to use the format&apos;s standard default.
-              This also dictates Swiss power-pairing brackets and breaking team qualifications.
-            </p>
+          <Card>
+            <CardHeader
+              icon={<Trophy aria-hidden="true" />}
+              title={t("setup.config.standingsTitle")}
+              description={t("setup.config.standingsDescription")}
+            />
+            <CardBody className="space-y-6">
+              <section className="space-y-2">
+                <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.teamPrecedenceTitle")}</h3>
+                <PrecedenceEditor
+                  value={prefs.teamStandingsPrecedence ?? []}
+                  onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
+                  labels={TEAM_METRIC_LABELS}
+                  disabledIds={[...(format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS), ...EXTRA_ONLY_TEAM_METRICS]}
+                  repeatableIds={REPEATABLE_TEAM_METRICS}
+                />
+                <p className="text-xs text-fg-muted">{t("setup.config.whoBeatWhomHelp")}</p>
+                <p className="text-xs text-fg-muted">
+                  {t("setup.config.teamPrecedenceDefault", {
+                    chain: resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" → "),
+                  })}
+                </p>
+              </section>
 
-            <div>
-              <h4 className="text-xs font-bold text-gray-800 mb-2">Team ranking precedence chain</h4>
-              <PrecedenceEditor
-                value={prefs.teamStandingsPrecedence ?? []}
-                onChange={(teamStandingsPrecedence) => setPrefs((p) => ({ ...p, teamStandingsPrecedence }))}
-                labels={TEAM_METRIC_LABELS}
-                disabledIds={[...(format === "bp" ? TWO_TEAM_ONLY_TEAM_METRICS : BP_ONLY_TEAM_METRICS), ...EXTRA_ONLY_TEAM_METRICS]}
-                repeatableIds={REPEATABLE_TEAM_METRICS}
-              />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Who-beat-whom compares two teams (only ever exactly two) tied on every metric above it, by the points
-                each earned against the other. As in Tabbycat, it can be added more than once.
-              </p>
-              <p className="text-[11px] text-gray-500 mt-1">
-                Default for this format: {resolveTeamPrecedence(format, {}).map((m) => TEAM_METRIC_LABELS[m]).join(" \u2192 ")}
-              </p>
-            </div>
+              <section className="space-y-2">
+                <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.teamExtraTitle")}</h3>
+                <ExtraMetricsEditor
+                  value={prefs.teamStandingsExtra ?? []}
+                  onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
+                  labels={TEAM_METRIC_LABELS}
+                  exclude={[...(prefs.teamStandingsPrecedence ?? []), ...RANKING_ONLY_TEAM_METRICS]}
+                />
+              </section>
 
-            <div>
-              <h4 className="text-xs font-bold text-gray-800 mb-2">Extra team metrics (displayed, not ranked on)</h4>
-              <ExtraMetricsEditor
-                value={prefs.teamStandingsExtra ?? []}
-                onChange={(teamStandingsExtra) => setPrefs((p) => ({ ...p, teamStandingsExtra }))}
-                labels={TEAM_METRIC_LABELS}
-                exclude={[...(prefs.teamStandingsPrecedence ?? []), ...RANKING_ONLY_TEAM_METRICS]}
-              />
-            </div>
+              <section className="space-y-2 border-t border-border pt-4">
+                <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.speakerPrecedenceTitle")}</h3>
+                <PrecedenceEditor
+                  value={prefs.speakerStandingsPrecedence ?? []}
+                  onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
+                  labels={SPEAKER_METRIC_LABELS}
+                  disabledIds={format === "bp" ? TWO_TEAM_ONLY_SPEAKER_METRICS : BP_ONLY_SPEAKER_METRICS}
+                />
+                <p className="text-xs text-fg-muted">{t("setup.config.speakerTeamMetricsHelp")}</p>
+                <p className="text-xs text-fg-muted">
+                  {t("setup.config.speakerPrecedenceDefault", {
+                    chain: resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" → "),
+                  })}
+                </p>
+              </section>
 
-            <div className="border-t border-gray-100 pt-4">
-              <h4 className="text-xs font-bold text-gray-800 mb-2">Speaker ranking precedence chain</h4>
-              <PrecedenceEditor
-                value={prefs.speakerStandingsPrecedence ?? []}
-                onChange={(speakerStandingsPrecedence) => setPrefs((p) => ({ ...p, speakerStandingsPrecedence }))}
-                labels={SPEAKER_METRIC_LABELS}
-                disabledIds={format === "bp" ? TWO_TEAM_ONLY_SPEAKER_METRICS : BP_ONLY_SPEAKER_METRICS}
-              />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Team metrics (team points, wins, 1sts-3rds, votes carried) count every debate of the speaker&apos;s team, whether or not the speaker spoke in it, as in Tabbycat.
-              </p>
-              <p className="text-[11px] text-gray-500 mt-1">
-                Default: {resolveSpeakerPrecedence({}).map((m) => SPEAKER_METRIC_LABELS[m]).join(" \u2192 ")}
-              </p>
-            </div>
+              <section className="space-y-2">
+                <h3 className="text-[13px] font-semibold text-fg">{t("setup.config.speakerExtraTitle")}</h3>
+                <ExtraMetricsEditor
+                  value={prefs.speakerStandingsExtra ?? []}
+                  onChange={(speakerStandingsExtra) => setPrefs((p) => ({ ...p, speakerStandingsExtra }))}
+                  labels={SPEAKER_METRIC_LABELS}
+                  exclude={prefs.speakerStandingsPrecedence ?? []}
+                />
+              </section>
 
-            <div>
-              <h4 className="text-xs font-bold text-gray-800 mb-2">Extra speaker metrics (displayed, not ranked on)</h4>
-              <ExtraMetricsEditor
-                value={prefs.speakerStandingsExtra ?? []}
-                onChange={(speakerStandingsExtra) => setPrefs((p) => ({ ...p, speakerStandingsExtra }))}
-                labels={SPEAKER_METRIC_LABELS}
-                exclude={prefs.speakerStandingsPrecedence ?? []}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Speaker score trim (for speaks_trimmed_mean)
-              </label>
-              <input
+              <Input
                 type="number"
                 min={0}
-                className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                label={t("setup.config.speakerTrimLabel")}
+                help={t("setup.config.speakerTrimHelp")}
+                className={`w-32 ${NUMBER_CLASS}`}
                 value={prefs.speakerTrim ?? 1}
                 onChange={(e) => setPrefs((p) => ({ ...p, speakerTrim: Math.max(0, Math.floor(Number(e.target.value)) || 0) }))}
               />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Scores dropped from each end: the trimmed mean leaves out a speaker&apos;s highest and lowest score(s), as
-                Tabbycat does (1 = one of each). With too few scores it is the plain average.
-              </p>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
-              {(
-                [
-                  ["standingsMissedDebates", "Speeches a speaker may miss", "speaker tab"],
-                  ["standingsMissedReplies", "Replies a speaker may miss", "replies tab"],
-                ] as const
-              ).map(([key, label, tab]) => (
-                <div key={key}>
-                  <label htmlFor={`pref-${key}`} className="block text-xs font-semibold text-gray-700 mb-1">
-                    {label}
-                  </label>
-                  <input
+              <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                {(
+                  [
+                    ["standingsMissedDebates", "setup.config.missedDebatesLabel", "setup.config.missedDebatesHelp"],
+                    ["standingsMissedReplies", "setup.config.missedRepliesLabel", "setup.config.missedRepliesHelp"],
+                  ] as const
+                ).map(([key, label, help]) => (
+                  <Input
+                    key={key}
                     id={`pref-${key}`}
                     type="number"
                     min={-1}
-                    className="w-32 border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
+                    label={t(label)}
+                    help={t(help)}
+                    className={`w-32 ${NUMBER_CLASS}`}
                     value={prefs[key] ?? -1}
                     onChange={(e) => {
                       const value = Math.floor(Number(e.target.value));
                       setPrefs((p) => ({ ...p, [key]: Number.isFinite(value) && value >= 0 ? value : undefined }));
                     }}
                   />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    -1 = no limit. A speaker who missed more preliminary rounds (with results) than this is listed on
-                    the {tab} but not ranked.
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
         )}
 
         {/* ============================================================ */}
         {/* 6. PUBLIC VISIBILITY */}
         {/* ============================================================ */}
         {category === "visibility" && (
-          <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2 border-b border-gray-100 pb-2">
-              <Eye className="w-4 h-4 text-purple-600" />
-              <span>Public Website Visibility Controls</span>
-            </h3>
-            <p className="text-xs text-gray-600">
-              Control which sections of the tournament website are visible to debaters and the general public.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
+          <Card>
+            <CardHeader
+              icon={<Eye aria-hidden="true" />}
+              title={t("setup.config.visibilityTitle")}
+              description={t("setup.config.visibilityDescription")}
+            />
+            <CardBody className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Checkbox
+                  label={t("setup.config.publicResultsLabel")}
+                  description={t("setup.config.publicResultsHelp")}
                   checked={prefs.publicResults !== false}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicResults: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
                 />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Results & Scores</span>
-                  <span className="text-[11px] text-gray-500">Allow public viewers to view ballot results for non-silent rounds.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  label={t("setup.config.publicStandingsLabel")}
+                  description={t("setup.config.publicStandingsHelp")}
                   checked={prefs.publicStandings !== false}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicStandings: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
                 />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Standings Tab</span>
-                  <span className="text-[11px] text-gray-500">Allow public tab spectators to see team and speaker leaderboards.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  label={t("setup.config.publicMotionsLabel")}
+                  description={t("setup.config.publicMotionsHelp")}
                   checked={prefs.publicMotions !== false}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicMotions: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
                 />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Motions Page</span>
-                  <span className="text-[11px] text-gray-500">Publish released debate motions and information slides on the public page.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  label={t("setup.config.publicCheckinsLabel")}
+                  description={t("setup.config.publicCheckinsHelp")}
                   checked={prefs.publicCheckInStatus === true}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicCheckInStatus: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
                 />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public check-in counts</span>
-                  <span className="text-[11px] text-gray-500">Publish round totals only; no participant names or individual check-in details.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
+                <Checkbox
+                  label={t("setup.config.selfCheckinLabel")}
+                  description={t("setup.config.selfCheckinHelp")}
                   checked={prefs.allowSelfCheckIn === true}
                   onChange={(e) => setPrefs((p) => ({ ...p, allowSelfCheckIn: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
                 />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Self check-in from private URLs</span>
-                  <span className="text-[11px] text-gray-500">Teams and adjudicators can mark themselves available for the current round. Check-ins are saved to the cloud copy; download from the cloud to see them here.</span>
-                </div>
-              </label>
-            </div>
+              </div>
 
-            <label className="block max-w-xs text-xs font-semibold text-gray-700">
-              Check-in expiry (hours; 0 means never)
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={prefs.checkInExpiresAfterHours ?? 0}
-                onChange={(event) => setPrefs((current) => ({
-                  ...current,
-                  checkInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
-                }))}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
-              />
-              <span className="mt-1 block text-[11px] font-normal text-gray-500">
-                Applies to timestamped check-ins. Legacy records without check-in timestamps remain unchanged.
-              </span>
-            </label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  label={t("setup.config.checkinExpiryLabel")}
+                  help={t("setup.config.checkinExpiryHelp")}
+                  value={prefs.checkInExpiresAfterHours ?? 0}
+                  onChange={(event) => setPrefs((current) => ({
+                    ...current,
+                    checkInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                  }))}
+                  className={NUMBER_CLASS}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  label={t("setup.config.roomCheckinExpiryLabel")}
+                  help={t("setup.config.roomCheckinExpiryHelp")}
+                  value={prefs.venueCheckInExpiresAfterHours ?? 0}
+                  onChange={(event) => setPrefs((current) => ({
+                    ...current,
+                    venueCheckInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
+                  }))}
+                  className={NUMBER_CLASS}
+                />
+                <Select
+                  label={t("setup.config.publicLanguageLabel")}
+                  help={t("setup.config.publicLanguageHelp")}
+                  value={prefs.publicLanguage ?? ""}
+                  onChange={(event) => setPrefs((current) => {
+                    // Drop the key rather than store undefined, which Firestore rejects.
+                    const next = { ...current };
+                    if (event.target.value) next.publicLanguage = event.target.value;
+                    else delete next.publicLanguage;
+                    return next;
+                  })}
+                >
+                  <option value="">{t("setup.config.publicLanguageBrowser")}</option>
+                  {LOCALES.map((locale) => (
+                    <option key={locale.code} value={locale.code}>
+                      {"machineDrafted" in locale && locale.machineDrafted
+                        ? t("setup.config.localeMachineDrafted", { language: locale.englishName })
+                        : locale.englishName}
+                    </option>
+                  ))}
+                </Select>
+              </div>
 
-            <label className="block max-w-xs text-xs font-semibold text-gray-700">
-              Room check-in expiry (hours; 0 means never)
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={prefs.venueCheckInExpiresAfterHours ?? 0}
-                onChange={(event) => setPrefs((current) => ({
-                  ...current,
-                  venueCheckInExpiresAfterHours: Math.max(0, Number(event.target.value) || 0),
-                }))}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 font-mono text-xs"
-              />
-              <span className="mt-1 block text-[11px] font-normal text-gray-500">
-                A room checked in longer ago than this shows as expired on the check-ins page (Tabbycat&apos;s room
-                check-in window).
-              </span>
-            </label>
-
-            <label className="block max-w-xs text-xs font-semibold text-gray-700">
-              Public pages and portals language
-              <select
-                value={prefs.publicLanguage ?? ""}
-                onChange={(event) => setPrefs((current) => {
-                  // Drop the key rather than store undefined, which Firestore rejects.
-                  const next = { ...current };
-                  if (event.target.value) next.publicLanguage = event.target.value;
-                  else delete next.publicLanguage;
-                  return next;
-                })}
-                className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-xs"
-              >
-                <option value="">Each viewer&apos;s browser language</option>
-                {LOCALES.map((locale) => (
-                  <option key={locale.code} value={locale.code}>
-                    {locale.englishName}
-                    {"machineDrafted" in locale && locale.machineDrafted ? " (machine-drafted)" : ""}
-                  </option>
-                ))}
-              </select>
-              <span className="mt-1 block text-[11px] font-normal text-gray-500">
-                Default for public pages, team and adjudicator portals. Viewers can still pick their own language.
-              </span>
-            </label>
-
-            <PublicSiteSettingsFields prefs={prefs} setPrefs={setPrefs} />
-          </div>
+              <PublicSiteSettingsFields prefs={prefs} setPrefs={setPrefs} />
+            </CardBody>
+          </Card>
         )}
 
         {/* Submit */}
-        <div className="flex items-center justify-between pt-3 border-t border-[#d0d7de]">
-          <span className="text-xs text-gray-500">
-            Changes apply to <strong>{tournament?.name}</strong>.
-          </span>
-          <button
-            type="submit"
-            className="inline-flex items-center space-x-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded shadow-xs transition"
-          >
-            <Save className="w-4 h-4" />
-            <span>Save Tournament Settings</span>
-          </button>
+        <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-fg-muted">
+            {rich(
+              "setup.config.changesApplyTo",
+              { b: (text) => <strong className="font-semibold text-fg">{text}</strong> },
+              { tournament: tournament?.name ?? "" }
+            )}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div role="status" aria-live="polite">
+              {savedSuccess && <StatusPill tone="success">{t("setup.config.settingsSaved")}</StatusPill>}
+            </div>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isSaving}
+              loadingText={t("setup.common.saving")}
+            >
+              <Save aria-hidden="true" />
+              <span>{t("setup.config.saveSettings")}</span>
+            </Button>
+          </div>
         </div>
+        {saveError && (
+          <Alert tone="danger" role="alert">{saveError}</Alert>
+        )}
       </form>
 
       {showDeleteRoundConfirm && roundToDelete && (
         <ConfirmActionDialog
-          title={`Delete ${roundToDelete.name}?`}
-          description={`This permanently deletes the round, ${debatesToDelete.length} debate(s), and ${ballotsToDelete.length} ballot(s), and removes motion assignments to this round. This cannot be undone.`}
-          confirmLabel="Yes, delete round"
+          title={t("setup.config.deleteRoundTitle", { round: roundToDelete.name })}
+          description={t("setup.config.deleteRoundDescription", {
+            debates: plural("setup.config.debateCount", debatesToDelete.length),
+            ballots: plural("setup.config.ballotCount", ballotsToDelete.length),
+          })}
+          confirmLabel={t("setup.config.deleteRoundConfirm")}
           onConfirm={handleRoundDelete}
           onCancel={() => setShowDeleteRoundConfirm(false)}
           variant="danger"

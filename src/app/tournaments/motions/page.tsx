@@ -5,6 +5,14 @@ import Link from "next/link";
 import type { BallotSubmission, Debate, Motion, Tournament } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { SetupShell } from "@/components/setup/SetupShell";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Checkbox } from "@/components/ui/Field";
+import { Card, CardBody } from "@/components/ui/Card";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Feedback";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { getLocalStore, readLocalTournamentMetas, tournamentKeyPrefix } from "@/lib/offline/localStore";
 import { safeJsonParse } from "@/lib/safeJson";
 import {
@@ -47,18 +55,20 @@ async function readWorkingCopy(meta: Meta): Promise<TournamentMotionData> {
  */
 export default function CrossTournamentMotionsPage() {
   const { user, loading: authLoading } = useAuth();
+  const { t, formatDecimal, formatList, formatNumber } = useI18n();
   const [data, setData] = useState<TournamentMotionData[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // Error text from the server, or a message key; resolved at render so a language change does not reload.
+  const [error, setError] = useState<{ message: string } | { key: "adminCheckFailed" | "loadFailed" } | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
     let active = true;
     void (async () => {
       setLoading(true);
-      setError("");
+      setError(null);
       try {
         const metas = await readDeviceMetas();
         let adminIds = new Set<string>();
@@ -67,7 +77,10 @@ export default function CrossTournamentMotionsPage() {
           const token = await user.getIdToken();
           const response = await fetch("/api/tournaments", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
           const result = (await response.json()) as { error?: string; tournaments?: Array<{ id: string; name: string; accessRole?: string }> };
-          if (!response.ok) throw new Error(result.error || "Could not check which tournaments you administer.");
+          if (!response.ok) {
+            if (active) setError(result.error ? { message: result.error } : { key: "adminCheckFailed" });
+            return;
+          }
           const administered = (result.tournaments || []).filter((item) => item.accessRole === "admin");
           adminIds = new Set(administered.map((item) => item.id));
           const local = new Set(metas.map((meta) => meta.id));
@@ -82,7 +95,7 @@ export default function CrossTournamentMotionsPage() {
         setSelected(new Set(withMotions.map((copy) => copy.tournament.id)));
         setMissing(notOnDevice);
       } catch (caught) {
-        if (active) setError(caught instanceof Error ? caught.message : "Could not load your tournaments.");
+        if (active) setError(caught instanceof Error && caught.message ? { message: caught.message } : { key: "loadFailed" });
       } finally {
         if (active) setLoading(false);
       }
@@ -97,93 +110,119 @@ export default function CrossTournamentMotionsPage() {
     [data, selected]
   );
 
+  const errorText = error === null
+    ? ""
+    : "message" in error
+      ? error.message
+      : t(error.key === "adminCheckFailed" ? "setup.entry.motions.adminCheckFailed" : "setup.entry.motions.loadFailed");
+
   return (
     <SetupShell maxWidth="max-w-5xl">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Motion statistics across tournaments</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Side results for motions set at the tournaments you administer, from the copies saved on this device.
-            The same motion at two tournaments is matched by its text. BP and two-team results are kept apart.
-          </p>
-        </div>
+        <PageHeader title={t("setup.entry.motions.title")} description={t("setup.entry.motions.intro")} />
 
-        {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-        {loading && <p role="status" className="text-sm text-gray-600">Loading tournaments…</p>}
-
-        {!loading && data.length === 0 && !error && (
-          <p className="rounded border border-dashed border-gray-300 bg-white p-6 text-sm text-gray-600">
-            No tournament you administer has motions on this device. Open a tournament to download it here first.
-          </p>
-        )}
-
-        {data.length > 0 && (
-          <fieldset className="rounded border border-gray-200 bg-white p-4">
-            <legend className="px-1 text-sm font-semibold text-gray-800">Tournaments</legend>
-            <div className="flex flex-wrap gap-x-5 gap-y-2">
-              {data.map((copy) => (
-                <label key={copy.tournament.id} className="flex items-center gap-2 text-sm text-gray-800">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(copy.tournament.id)}
-                    onChange={(event) => setSelected((current) => {
-                      const next = new Set(current);
-                      if (event.target.checked) next.add(copy.tournament.id);
-                      else next.delete(copy.tournament.id);
-                      return next;
-                    })}
-                    className="rounded border-gray-300"
-                  />
-                  {copy.tournament.name}
-                  <span className="text-xs uppercase text-gray-500">{copy.tournament.format === "bp" ? "BP" : "Two-team"}</span>
-                </label>
-              ))}
-            </div>
-            {missing.length > 0 && (
-              <p className="mt-3 text-xs text-gray-500">Not on this device: {missing.join(", ")}. Open them once to include them.</p>
-            )}
-          </fieldset>
-        )}
-
-        {statistics.length > 0 && (
-          <div className="overflow-x-auto rounded border border-gray-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-600">
-                <tr>
-                  <th scope="col" className="px-3 py-2">Motion</th>
-                  <th scope="col" className="px-3 py-2">Tournaments</th>
-                  <th scope="col" className="px-3 py-2 text-right">Debates</th>
-                  <th scope="col" className="px-3 py-2">Wins by position</th>
-                  <th scope="col" className="px-3 py-2 text-right">Vetoes</th>
-                  <th scope="col" className="px-3 py-2 text-right">Balance p</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {statistics.map((statistic) => (
-                  <tr key={statistic.key}>
-                    <th scope="row" className="max-w-md px-3 py-2 text-left font-medium text-gray-900">{statistic.text}</th>
-                    <td className="px-3 py-2 text-gray-700">
-                      {statistic.tournaments.map((item) => `${item.name} (${item.debates})`).join(", ")}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">{statistic.debatesCounted}</td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-700">
-                      {statistic.positionWins.map((item) => `${item.side} ${item.wins}`).join(" · ")}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">{statistic.vetoes}</td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {statistic.balance.pValue === null ? "—" : statistic.balance.pValue.toFixed(3)}
-                      {statistic.balance.lowExpectedCount && statistic.balance.pValue !== null && (
-                        <span className="sr-only"> (few debates; treat with care)</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {errorText && <Alert tone="danger" role="alert">{errorText}</Alert>}
+        {loading && (
+          <div className="space-y-3">
+            <p role="status" className="text-[13px] text-fg-muted">{t("setup.entry.motions.loading")}</p>
+            <Skeleton className="h-24 w-full" />
           </div>
         )}
 
-        <Link href="/tournaments" className="inline-block text-sm font-semibold text-blue-700 hover:underline">Back to tournaments</Link>
+        {!loading && data.length === 0 && !error && (
+          <EmptyState title={t("setup.entry.motions.emptyTitle")} description={t("setup.entry.motions.emptyBody")} />
+        )}
+
+        {data.length > 0 && (
+          <Card>
+            <CardBody>
+              <fieldset>
+                <legend className="mb-2 text-sm font-semibold text-fg">{t("setup.entry.motions.tournamentsLegend")}</legend>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {data.map((copy) => (
+                    <Checkbox
+                      key={copy.tournament.id}
+                      checked={selected.has(copy.tournament.id)}
+                      onChange={(event) => setSelected((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(copy.tournament.id);
+                        else next.delete(copy.tournament.id);
+                        return next;
+                      })}
+                      label={
+                        <span className="inline-flex items-center gap-2">
+                          {copy.tournament.name}
+                          <span className="text-xs uppercase text-fg-muted">
+                            {copy.tournament.format === "bp" ? t("setup.entry.motions.formatBp") : t("setup.entry.motions.formatTwoTeam")}
+                          </span>
+                        </span>
+                      }
+                    />
+                  ))}
+                </div>
+                {missing.length > 0 && (
+                  <p className="mt-3 text-xs text-fg-muted">
+                    {t("setup.entry.motions.notOnDevice", { names: formatList(missing) })}
+                  </p>
+                )}
+              </fieldset>
+            </CardBody>
+          </Card>
+        )}
+
+        {statistics.length > 0 && (
+          <TableContainer>
+            <Table>
+              <caption className="sr-only">{t("setup.entry.motions.tableCaption")}</caption>
+              <THead>
+                <TR>
+                  <TH>{t("setup.entry.motions.colMotion")}</TH>
+                  <TH>{t("setup.entry.motions.colTournaments")}</TH>
+                  <TH align="right">{t("setup.entry.motions.colDebates")}</TH>
+                  <TH>{t("setup.entry.motions.colWins")}</TH>
+                  <TH align="right">{t("setup.entry.motions.colVetoes")}</TH>
+                  <TH align="right">{t("setup.entry.motions.colBalance")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {statistics.map((statistic) => (
+                  <TR key={statistic.key}>
+                    <TH
+                      scope="row"
+                      className="max-w-md whitespace-normal bg-transparent text-[13px] font-medium normal-case tracking-normal text-fg"
+                    >
+                      {statistic.text}
+                    </TH>
+                    <TD className="text-fg-muted">
+                      {formatList(statistic.tournaments.map((item) =>
+                        t("setup.entry.motions.tournamentDebates", { name: item.name, count: item.debates })
+                      ))}
+                    </TD>
+                    <TD numeric>{formatNumber(statistic.debatesCounted)}</TD>
+                    <TD className="whitespace-nowrap font-mono text-xs text-fg-muted">
+                      {/* Side codes (OG, OO, AFF…) stay as they are in every language. */}
+                      {statistic.positionWins.map((item) => `${item.side} ${formatNumber(item.wins)}`).join(" · ")}
+                    </TD>
+                    <TD numeric>{formatNumber(statistic.vetoes)}</TD>
+                    <TD numeric>
+                      {statistic.balance.pValue === null ? "—" : formatDecimal(statistic.balance.pValue, 3)}
+                      {statistic.balance.lowExpectedCount && statistic.balance.pValue !== null && (
+                        <span className="sr-only"> {t("setup.entry.motions.fewDebates")}</span>
+                      )}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </TableContainer>
+        )}
+
+        <Link
+          href="/tournaments"
+          className={cn("inline-block rounded-sm text-sm font-medium text-accent-text hover:underline", focusRing)}
+        >
+          {t("setup.entry.motions.backLink")}
+        </Link>
       </div>
     </SetupShell>
   );

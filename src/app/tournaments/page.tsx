@@ -27,8 +27,15 @@ async function readDeviceTournaments() {
     return [];
   }
 }
-import { getFormatPreset } from "@/lib/setup/presets";
 import { SetupShell } from "@/components/setup/SetupShell";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Badge } from "@/components/ui/Badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Feedback";
+import { Input } from "@/components/ui/Field";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 
 type Summary = Pick<Tournament, "id" | "name" | "slug" | "format" | "createdAt"> & {
   accessRole?: "admin" | "dataEntry";
@@ -51,27 +58,24 @@ function mergeById(lists: Summary[][]): Summary[] {
   return Array.from(map.values());
 }
 
-function TournamentRow({ t }: { t: Summary }) {
-  const isMine = t.accessRole === "admin";
+function TournamentRow({ t: tournament }: { t: Summary }) {
+  const { t } = useI18n();
+  const isMine = tournament.accessRole === "admin";
   return (
     <li>
       <Link
-        href={`/${t.slug}`}
-        className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
+        href={`/${tournament.slug}`}
+        className={cn("flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted", focusRing, "focus-visible:ring-offset-0")}
       >
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">{t.name}</p>
-          <p className="text-xs text-gray-500">
-            <span className="font-mono">/{t.slug}</span> · {getFormatPreset(t.format).label}
+          <p className="truncate text-sm font-medium text-fg">{tournament.name}</p>
+          <p className="text-xs text-fg-muted">
+            <span className="font-mono">/{tournament.slug}</span> · {t(`format.${tournament.format}`)}
           </p>
         </div>
-        <div className="flex items-center space-x-3 shrink-0">
-          {isMine && (
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-              Admin
-            </span>
-          )}
-          <ArrowRight className="w-4 h-4 text-gray-400" />
+        <div className="flex shrink-0 items-center gap-3">
+          {isMine && <Badge tone="accent">{t("setup.entry.list.adminBadge")}</Badge>}
+          <ArrowRight className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
         </div>
       </Link>
     </li>
@@ -80,15 +84,18 @@ function TournamentRow({ t }: { t: Summary }) {
 
 export default function TournamentsHubPage() {
   const { user, configured, isGlobalAdmin, loading: authLoading } = useAuth();
+  const { t, rich } = useI18n();
 
   const [mine, setMine] = useState<Summary[]>([]);
   const [loadingMine, setLoadingMine] = useState(true);
-  const [mineError, setMineError] = useState("");
+  // Server error text, or "" for the generic message (kept out of the effect so a language
+  // change does not reload the list).
+  const [mineError, setMineError] = useState<{ message: string } | null>(null);
 
   const [term, setTerm] = useState("");
   const [results, setResults] = useState<Summary[] | null>(null);
   const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
+  const [searchError, setSearchError] = useState(false);
   const searchSeq = useRef(0);
 
   // Signed-in users only receive their authorized tournaments from the server.
@@ -96,7 +103,7 @@ export default function TournamentsHubPage() {
     if (authLoading) return;
     let active = true;
     setMine([]);
-    setMineError("");
+    setMineError(null);
     setLoadingMine(true);
     void (async () => {
       if (!user) {
@@ -131,7 +138,7 @@ export default function TournamentsHubPage() {
           cache: "no-store",
         });
         const result = await response.json() as { error?: string; tournaments?: Summary[] };
-        if (!response.ok) throw new Error(result.error || "Could not load your tournaments.");
+        if (!response.ok) throw new Error(result.error || "");
         const accessible = result.tournaments || [];
         const merged = new Map(accessible.map((tournament) => [tournament.id, tournament]));
         if (typeof window !== "undefined") {
@@ -158,7 +165,7 @@ export default function TournamentsHubPage() {
         }
         if (active) setMine([...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       } catch (error) {
-        if (active) setMineError(error instanceof Error ? error.message : "Could not load your tournaments.");
+        if (active) setMineError({ message: error instanceof Error ? error.message : "" });
       } finally {
         if (active) setLoadingMine(false);
       }
@@ -173,7 +180,7 @@ export default function TournamentsHubPage() {
     const q = term.trim().toLowerCase();
     if (!q || (user && !isGlobalAdmin)) {
       setResults(null);
-      setSearchError("");
+      setSearchError(false);
       setSearching(false);
       return;
     }
@@ -194,10 +201,10 @@ export default function TournamentsHubPage() {
             byName.docs.map((d) => toSummary(d.id, d.data())),
           ])
         );
-        setSearchError("");
+        setSearchError(false);
       } catch (e) {
         console.warn("Search failed:", e);
-        if (seq === searchSeq.current) setSearchError("Search failed. Check your connection and try again.");
+        if (seq === searchSeq.current) setSearchError(true);
       } finally {
         if (seq === searchSeq.current) setSearching(false);
       }
@@ -205,126 +212,133 @@ export default function TournamentsHubPage() {
     return () => clearTimeout(handle);
   }, [term, user, isGlobalAdmin]);
 
+  const code = (text: string) => <code className="font-mono">{text}</code>;
+  const sideLinkClass = cn(
+    "inline-flex items-center gap-1.5 rounded-sm text-xs font-medium text-accent-text hover:underline [&_svg]:h-3.5 [&_svg]:w-3.5",
+    focusRing
+  );
+
   return (
     <SetupShell>
       <div className="space-y-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-              {user?.displayName ? `Welcome, ${user.displayName}` : "Welcome"}
-            </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Open an existing tournament or set up a new one.
-            </p>
-          </div>
+        <PageHeader
+          title={user?.displayName ? t("setup.entry.list.welcomeNamed", { name: user.displayName }) : t("setup.entry.list.welcome")}
+          description={t("setup.entry.list.intro")}
+        />
 
-          {/* Create */}
-          {isGlobalAdmin && <Link
-            href="/tournaments/new"
-            className="flex items-center justify-between bg-white border border-[#d0d7de] rounded-lg shadow-xs p-5 hover:border-blue-500 transition-colors"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded bg-blue-600 text-white flex items-center justify-center">
-                <Plus className="w-5 h-5" />
+        {/* Create */}
+        {isGlobalAdmin && (
+          <div className="space-y-3">
+            <Link
+              href="/tournaments/new"
+              className={cn(
+                "flex items-center justify-between gap-3 rounded-lg border border-border bg-surface p-5 transition-colors hover:border-accent",
+                focusRing
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-accent text-accent-fg">
+                  <Plus className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-fg">{t("setup.entry.list.createTitle")}</p>
+                  <p className="text-xs text-fg-muted">{t("setup.entry.list.createBody")}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">Create a new tournament</p>
-                <p className="text-xs text-gray-600">
-                  A guided setup for the format, scoring, rounds and breaks.
-                </p>
-              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-fg-subtle" aria-hidden="true" />
+            </Link>
+            <div className="flex flex-col items-start gap-2">
+              <Link href="/tournaments/import" className={sideLinkClass}>
+                <FileUp aria-hidden="true" />
+                {t("setup.entry.list.importLink")}
+              </Link>
+              <Link href="/tournaments/demo" className={sideLinkClass}>
+                <FlaskConical aria-hidden="true" />
+                {t("setup.entry.list.demoLink")}
+              </Link>
             </div>
-            <ArrowRight className="w-4 h-4 text-gray-400" />
-          </Link>}
-          {isGlobalAdmin && (
-            <Link href="/tournaments/import" className="-mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
-              <FileUp className="w-3.5 h-3.5" />
-              Or import a DebateXML archive (from Tabbycat or CrabbyTab)
-            </Link>
-          )}
-          {isGlobalAdmin && (
-            <Link href="/tournaments/demo" className="-mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
-              <FlaskConical className="w-3.5 h-3.5" />
-              Or load a demo tournament for a rehearsal
-            </Link>
-          )}
+          </div>
+        )}
 
-          {/* Search */}
-          {(!user || isGlobalAdmin) && <section>
-            <h2 className="text-sm font-bold text-gray-900 mb-2">Find an existing tournament</h2>
-            {!configured || !db ? (
-              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
-                Firebase isn&apos;t configured, so there&apos;s nothing to search. Copy{" "}
-                <code className="font-mono">.env.example</code> to <code className="font-mono">.env.local</code> and
-                fill in your Firebase keys.
-              </p>
-            ) : (
-              <>
-                <div className="relative">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
+        {/* Search */}
+        {(!user || isGlobalAdmin) && (
+          <Card>
+            <CardHeader title={t("setup.entry.list.findHeading")} icon={<Search aria-hidden="true" />} />
+            <CardBody className="space-y-3">
+              {!configured || !db ? (
+                <Alert tone="warning" title={t("setup.entry.firebaseNotConfiguredTitle")}>
+                  {rich("setup.entry.list.firebaseNotConfigured", { code })}
+                </Alert>
+              ) : (
+                <>
+                  <Input
                     type="search"
+                    label={t("setup.entry.list.searchLabel")}
+                    help={t("setup.entry.list.searchHelp")}
+                    leadingIcon={<Search aria-hidden="true" />}
                     value={term}
                     onChange={(e) => setTerm(e.target.value)}
-                    placeholder="Search by tournament name or URL slug"
-                    className="w-full border border-gray-300 rounded pl-9 pr-9 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={t("setup.entry.list.searchPlaceholder")}
                   />
-                  {searching && (
-                    <Loader2 className="w-4 h-4 text-gray-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
-                  )}
-                </div>
-                <p className="text-[11px] text-gray-500 mt-1">Matches the start of the name or slug.</p>
-
-                {searchError && <p className="text-xs text-red-700 mt-2">{searchError}</p>}
-
-                {results && (
-                  <div className="mt-3 bg-white border border-[#d0d7de] rounded-lg shadow-xs">
-                    {results.length === 0 && !searching ? (
-                      <p className="px-4 py-6 text-sm text-gray-500 text-center">
-                        No tournaments start with &ldquo;{term.trim()}&rdquo;.
-                      </p>
-                    ) : (
-                      <ul className="divide-y divide-[#eaeef2]">
-                        {results.map((t) => (
-                          <TournamentRow key={t.id} t={t} />
-                        ))}
-                      </ul>
+                  <div role="status" className="text-xs text-fg-muted empty:hidden">
+                    {searching && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        {t("setup.entry.list.searching")}
+                      </span>
                     )}
                   </div>
-                )}
-              </>
-            )}
-          </section>}
 
-          {/* Mine */}
-          {(
-            <section>
-              <h2 className="text-sm font-bold text-gray-900 mb-2">
-                {user ? "Your assigned tournaments" : "Tournaments on this device"}
-              </h2>
-              {mineError && (
-                <p role="alert" className="mb-2 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                  {mineError}
-                </p>
+                  {searchError && <Alert tone="danger" role="alert">{t("setup.entry.list.searchFailed")}</Alert>}
+
+                  {results && (
+                    <div className="rounded-lg border border-border">
+                      {results.length === 0 && !searching ? (
+                        <p className="px-4 py-6 text-center text-[13px] text-fg-muted">
+                          {t("setup.entry.list.noResults", { term: term.trim() })}
+                        </p>
+                      ) : (
+                        <ul aria-label={t("setup.entry.list.searchResults")} className="divide-y divide-border">
+                          {results.map((tournament) => (
+                            <TournamentRow key={tournament.id} t={tournament} />
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
-              <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs">
-                {loadingMine ? (
-                  <p className="px-4 py-6 text-sm text-gray-500 text-center">Loading...</p>
-                ) : mine.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-gray-500 text-center">
-                    {user
-                      ? "No tournaments are assigned to your account."
-                      : "There are no tournaments saved on this device."}
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-[#eaeef2]">
-                    {mine.map((t) => (
-                      <TournamentRow key={t.id} t={t} />
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </section>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Mine */}
+        <Card>
+          <CardHeader title={user ? t("setup.entry.list.assignedHeading") : t("setup.entry.list.deviceHeading")} />
+          {mineError && (
+            <div className="border-b border-border p-4">
+              <Alert tone="danger" role="alert">{mineError.message || t("setup.entry.list.loadFailed")}</Alert>
+            </div>
           )}
+          {loadingMine ? (
+            <div className="space-y-3 p-4">
+              <p role="status" className="sr-only">{t("setup.entry.list.loading")}</p>
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+            </div>
+          ) : mine.length === 0 ? (
+            <EmptyState
+              className="m-4"
+              title={user ? t("setup.entry.list.emptyAssigned") : t("setup.entry.list.emptyDevice")}
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {mine.map((tournament) => (
+                <TournamentRow key={tournament.id} t={tournament} />
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
     </SetupShell>
   );
