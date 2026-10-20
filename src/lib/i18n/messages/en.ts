@@ -13,6 +13,7 @@ export const en = {
   "common.close": "Close",
   "common.tba": "TBA",
   "common.tbd": "TBD",
+  "common.sidesTbc": "Sides chosen at the debate",
   "common.independent": "Independent",
 
   "language.label": "Language",
@@ -319,6 +320,9 @@ export const en = {
   "adjPortal.ballot.description": "Submit panel ranking and speaker scores directly from your private adjudicator portal.",
   "adjPortal.ballot.unassigned": "Unassigned",
   "adjPortal.ballot.rank": "Rank / Place:",
+  "adjPortal.ballot.sidesLegend": "Sides (chosen at the debate)",
+  "adjPortal.ballot.affirmativeWas": "{team} was Affirmative",
+  "adjPortal.ballot.chooseSides": "Record which team was Affirmative before entering scores.",
   "adjPortal.ballot.bpFirst": "1st Place (3 pts)",
   "adjPortal.ballot.bpSecond": "2nd Place (2 pts)",
   "adjPortal.ballot.bpThird": "3rd Place (1 pt)",

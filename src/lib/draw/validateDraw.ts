@@ -1,5 +1,6 @@
 import type {
   Adjudicator,
+  BallotSubmission,
   Debate,
   DebateSide,
   Round,
@@ -13,6 +14,7 @@ import { buildMatchupHistory, getEligibleTeamsForRound } from "./generator";
 import { sameInstitution } from "./history";
 import { BP_SIDES, TWO_TEAM_SIDES, violatesSideLimits } from "./sideAllocator";
 import { getVenueIncompatibilities } from "./venueAllocator";
+import { resolveRecordedSides, sidesPending } from "./manualSides";
 
 /**
  * Checks a round's draw (generated or hand-edited) against the rules a draw must satisfy, and
@@ -73,6 +75,8 @@ export interface ValidateDrawInput {
   venues: Venue[];
   /** Clock for check-in expiry; defaults to now. */
   now?: number;
+  /** Ballots, so sides recorded on confirmed ballots (manual-ballot sides) count in the side history. */
+  ballots?: BallotSubmission[];
 }
 
 function roomLabel(debate: Debate): string {
@@ -94,12 +98,19 @@ function list(names: string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-/** Earlier, non-cancelled rounds' debates (all other rounds when `rounds` is not given). */
-function earlierDebates(input: ValidateDrawInput): Debate[] {
+/**
+ * Earlier, non-cancelled rounds' debates (all other rounds when `rounds` is not given), with the
+ * sides their confirmed ballots recorded when `ballots` are given.
+ */
+export function earlierDebates(input: Pick<ValidateDrawInput, "round" | "debates" | "rounds" | "ballots">): Debate[] {
   const { round, debates, rounds } = input;
-  if (!rounds) return debates.filter((debate) => debate.roundId !== round.id && debate.roundSeq < round.seq);
-  const earlier = new Set(rounds.filter((item) => !item.cancelled && item.seq < round.seq).map((item) => item.id));
-  return debates.filter((debate) => earlier.has(debate.roundId));
+  const earlier = rounds
+    ? (() => {
+        const ids = new Set(rounds.filter((item) => !item.cancelled && item.seq < round.seq).map((item) => item.id));
+        return debates.filter((debate) => ids.has(debate.roundId));
+      })()
+    : debates.filter((debate) => debate.roundId !== round.id && debate.roundSeq < round.seq);
+  return input.ballots ? resolveRecordedSides(earlier, input.ballots) : earlier;
 }
 
 export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
@@ -235,7 +246,8 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
   const sideRule = preferences?.sideAllocationRule;
   if (round.stage === "preliminary") {
     for (const debate of roundDebates) {
-      if (debate.byeTeamId) continue;
+      // Sides chosen on the ballot are not part of the draw, so no side rule applies to them.
+      if (debate.byeTeamId || sidesPending(debate)) continue;
       for (const [side, slot] of Object.entries(debate.teams || {}) as Array<[DebateSide, Debate["teams"][DebateSide] | undefined]>) {
         if (!slot?.teamId || !teamsById.has(slot.teamId)) continue;
         if (!isBP && sideRule === "preallocated") {

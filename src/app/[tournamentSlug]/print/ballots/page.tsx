@@ -8,6 +8,7 @@ import {
   usesPerAdjudicatorSheets,
 } from "@/features/tournament/application/ballotIntake";
 import type { DebateSide } from "@/types";
+import { sidesPending } from "@/lib/draw/manualSides";
 
 export default function PrintableBallotsPage() {
   const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
@@ -77,6 +78,8 @@ export default function PrintableBallotsPage() {
           ].filter((id): id is string => Boolean(id));
           const panelNames = panelIds.map((id) => adjudicatorMap.get(id)?.name ?? id);
           const room = debate.venueName || `Room ${debate.roomRank}`;
+          // Sides chosen at the debate: the adjudicator ticks each team's side on the sheet.
+          const sideChoice = sidesPending(debate) ? sides : undefined;
 
           return (
             <article key={sheet.code} className="print-ballot">
@@ -103,6 +106,11 @@ export default function PrintableBallotsPage() {
                   {activeRound?.abbreviation || activeRound?.name} · {room}
                 </span>
               </div>
+              {sideChoice && (
+                <p className="ballot-intro">
+                  <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.join(" or ")}).
+                </p>
+              )}
               {tournament?.preferences?.ballotIntroExplanation && (
                 <p className="ballot-intro">{tournament.preferences.ballotIntroExplanation}</p>
               )}
@@ -124,6 +132,7 @@ export default function PrintableBallotsPage() {
                       <FragmentRows
                         key={side}
                         side={side}
+                        sideChoice={sideChoice}
                         teamName={slot?.teamName ?? team?.name ?? "Unassigned"}
                         speakerNames={Array.from({ length: speakerCount }, (_, index) =>
                           speakers[index]?.name || `Speaker ${index + 1}`
@@ -155,10 +164,13 @@ export default function PrintableBallotsPage() {
 
 function FragmentRows({
   side,
+  sideChoice,
   teamName,
   speakerNames,
 }: {
   side: DebateSide;
+  /** Sides to tick from, when sides are chosen at the debate. */
+  sideChoice?: DebateSide[];
   teamName: string;
   speakerNames: string[];
 }) {
@@ -166,7 +178,11 @@ function FragmentRows({
     <>
       {speakerNames.map((speakerName, index) => (
         <tr key={`${side}-${index}`}>
-          {index === 0 && <th rowSpan={speakerNames.length}>{side}</th>}
+          {index === 0 && (
+            <th rowSpan={speakerNames.length}>
+              {sideChoice ? sideChoice.map((choice) => <span key={choice} style={{ display: "block" }}>☐ {choice}</span>) : side}
+            </th>
+          )}
           <td>{index === 0 ? <strong>{teamName}</strong> : null}<span>{speakerName}</span></td>
           <td className="blank-score" />
           {index === 0 && <td rowSpan={speakerNames.length} className="blank-score" />}

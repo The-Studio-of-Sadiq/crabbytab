@@ -11,6 +11,7 @@ export const bn: Catalogue = {
   "common.cancel": "বাতিল",
   "common.close": "বন্ধ করুন",
   "common.tba": "পরে জানানো হবে",
+  "common.sidesTbc": "পক্ষ বিতর্কে নির্ধারিত হবে",
   "common.tbd": "নির্ধারিত হয়নি",
   "common.independent": "স্বতন্ত্র",
 
@@ -318,6 +319,9 @@ export const bn: Catalogue = {
   "adjPortal.ballot.description": "আপনার ব্যক্তিগত বিচারক পোর্টাল থেকে সরাসরি প্যানেলের র‍্যাঙ্কিং ও বক্তাদের স্কোর জমা দিন।",
   "adjPortal.ballot.unassigned": "নির্ধারিত নয়",
   "adjPortal.ballot.rank": "র‍্যাঙ্ক / স্থান:",
+  "adjPortal.ballot.sidesLegend": "পক্ষ (বিতর্কে নির্ধারিত)",
+  "adjPortal.ballot.affirmativeWas": "{team} সরকারি (Affirmative) পক্ষে ছিল",
+  "adjPortal.ballot.chooseSides": "স্কোর দেওয়ার আগে কোন দল সরকারি (Affirmative) পক্ষে ছিল তা লিখুন।",
   "adjPortal.ballot.bpFirst": "১ম স্থান (৩ পয়েন্ট)",
   "adjPortal.ballot.bpSecond": "২য় স্থান (২ পয়েন্ট)",
   "adjPortal.ballot.bpThird": "৩য় স্থান (১ পয়েন্ট)",

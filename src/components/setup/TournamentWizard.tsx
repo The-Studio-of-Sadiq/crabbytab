@@ -237,6 +237,8 @@ export function TournamentWizard() {
       replyScoresEnabled: p.replyScoresEnabled,
       ...p.scores,
       breaks,
+      // Sides chosen on the ballot are two-team only.
+      ...(format === "bp" && s.sideAllocationRule === "manual_ballot" ? { sideAllocationRule: "balanced" as const } : {}),
     });
   };
 
@@ -690,6 +692,7 @@ export function TournamentWizard() {
               >
                 <option value="balanced">Balanced (equalise sides over the tournament)</option>
                 <option value="random">Random</option>
+                {s.format !== "bp" && <option value="manual_ballot">Chosen on the ballot (sides recorded with the result)</option>}
               </select>
             </Field>
             <Toggle
