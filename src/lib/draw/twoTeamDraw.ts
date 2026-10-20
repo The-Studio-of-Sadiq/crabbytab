@@ -18,9 +18,11 @@ import {
   resolveOddBracketsWithSides,
 } from "./oddBrackets";
 import { pairAllocatedSides, pairTeams } from "./pairing";
-import { ClashPenalties, DEFAULT_CLASH_PENALTIES, avoidConflicts, oneUpOneDown } from "./conflictAvoidance";
+import { ClashPenalties, DEFAULT_CLASH_PENALTIES, avoidConflicts, clashCost, oneUpOneDown } from "./conflictAvoidance";
 import { minCostPairAllocatedSides, minCostPairBracket, MinCostPairingOptions } from "./minCostPairing";
 import { PairedDebateDraft } from "./powerPaired";
+import { singleGraphPair } from "./singleGraphPairing";
+import { minCostPerfectMatching } from "./weightedMatching";
 import { Rng, shuffle } from "./rng";
 
 export interface TwoTeamDrawConfig {
@@ -38,6 +40,8 @@ export interface TwoTeamDrawConfig {
   pairingDeviationPenalty?: number;
   /** min_cost only (Tabbycat's pullup_debates_penalty). */
   previouslySawPullupPenalty?: number;
+  /** min_cost_with_pullups only (Tabbycat's draw_pullup_penalty): × the pulled-up team's place in the odd-bracket order. */
+  pullupPenalty?: number;
   maxTimesPerSide?: number;
   maxAllowedSideImbalance?: number;
 }
@@ -65,6 +69,7 @@ function resolveConfig(config: Partial<TwoTeamDrawConfig>): TwoTeamDrawConfig {
     sideBalancePenalty: config.sideBalancePenalty,
     pairingDeviationPenalty: config.pairingDeviationPenalty,
     previouslySawPullupPenalty: config.previouslySawPullupPenalty,
+    pullupPenalty: config.pullupPenalty,
     maxTimesPerSide: config.maxTimesPerSide,
     maxAllowedSideImbalance: config.maxAllowedSideImbalance,
   };
@@ -142,6 +147,104 @@ function draftFor(
   };
 }
 
+/** Rooms of one bracket group, best first, before sides are allocated. */
+export interface BracketRooms {
+  bracket: number;
+  rooms: Team[][];
+}
+
+/**
+ * Side limits as a pairing constraint for the pairing methods and one-up-one-down, which pair
+ * before sides are known. When a room's two teams cannot take opposite sides without one passing
+ * maxTimesPerSide or maxAllowedSideImbalance, its bracket is re-paired by a minimum-cost matching
+ * that forbids such rooms. If no pairing inside the bracket fits, the window widens to the
+ * neighbouring brackets (below first, then above), one bracket at a time. In the window, a room
+ * costs, in strict priority order: the win difference between its teams (so as few and as small
+ * extra pull-ups as possible), its clashes, then 1 if it is not one of the rooms the pairing method
+ * and conflict avoidance chose. Brackets whose rooms all fit are untouched.
+ *
+ * Tabbycat applies max_times_on_one_side only in its graph conflict avoidance; with
+ * one-up-one-down it pairs regardless and the side allocation silently breaks the limit.
+ * CrabbyTab keeps the limit hard: it changes as little of the power pairing as it must, and
+ * still fails (with a clear error at side allocation) when no pairing of the field fits.
+ */
+export function repairSideLimits(
+  groups: BracketRooms[],
+  history: MatchupHistory,
+  cfg: TwoTeamDrawConfig,
+  wins: Map<string, number>
+): BracketRooms[] {
+  const canMeet = sideLimitCheck(history, cfg);
+  const fits = (group: BracketRooms) => group.rooms.every(([a, b]) => canMeet(a, b));
+  let current = groups;
+  for (let index = 0; index < current.length; index++) {
+    if (fits(current[index])) continue;
+    let repaired: BracketRooms[] | null = null;
+    for (let width = 1; width <= current.length && !repaired; width++) {
+      // Windows containing `index`, preferring brackets below it.
+      for (let start = index; start >= Math.max(0, index - width + 1) && !repaired; start--) {
+        const end = start + width;
+        if (end > current.length) continue;
+        repaired = repairWindow(current.slice(start, end), history, cfg, wins, canMeet);
+        if (repaired) current = [...current.slice(0, start), ...repaired, ...current.slice(end)];
+      }
+    }
+    // No pairing of the field fits: leave it, and side allocation reports which limit cannot be met.
+    if (!repaired) return current;
+  }
+  return current;
+}
+
+function repairWindow(
+  window: BracketRooms[],
+  history: MatchupHistory,
+  cfg: TwoTeamDrawConfig,
+  wins: Map<string, number>,
+  canMeet: (a: Team, b: Team) => boolean
+): BracketRooms[] | null {
+  const rooms = window.flatMap((group) => group.rooms);
+  const teams = rooms.flat();
+  const index = new Map(teams.map((team, i) => [team.id, i]));
+  const original = new Set(rooms.map(([a, b]) => [index.get(a.id)!, index.get(b.id)!].sort((x, y) => x - y).join(":")));
+  const winsOf = (team: Team) => wins.get(team.id) ?? 0;
+  const changeScale = rooms.length + 1;
+  let maxClash = 0;
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) maxClash = Math.max(maxClash, clashCost(teams[i], teams[j], history, cfg.penalties));
+  }
+  const clashScale = changeScale;
+  const winScale = (maxClash * rooms.length + 1) * clashScale;
+  const pairs = minCostPerfectMatching(teams.length, (i, j) => {
+    if (!canMeet(teams[i], teams[j])) return null;
+    const winGap = Math.round(Math.abs(winsOf(teams[i]) - winsOf(teams[j])));
+    return winGap * winScale + clashCost(teams[i], teams[j], history, cfg.penalties) * clashScale + (original.has(`${i}:${j}`) ? 0 : 1);
+  });
+  if (!pairs) return null;
+
+  // Each new room is placed where its higher-ranked team's old room was, in that room's group;
+  // a room whose teams differ in wins belongs to the higher team's bracket.
+  const partner = new Map<number, number>();
+  for (const [i, j] of pairs) {
+    partner.set(i, j);
+    partner.set(j, i);
+  }
+  const placed = new Set<number>();
+  let offset = 0;
+  return window.map((group) => {
+    const groupRooms: Team[][] = [];
+    for (let k = 0; k < group.rooms.length * 2; k++) {
+      const i = offset + k;
+      if (placed.has(i)) continue;
+      const j = partner.get(i)!;
+      placed.add(i);
+      placed.add(j);
+      groupRooms.push([teams[Math.min(i, j)], teams[Math.max(i, j)]]);
+    }
+    offset += group.rooms.length * 2;
+    return { bracket: group.bracket, rooms: groupRooms };
+  });
+}
+
 /**
  * Ranks teams best-first. Standings order is used, but teams sharing a
  * standings rank (or with no standing yet) are shuffled with `rng`, the way
@@ -194,11 +297,39 @@ export function generateTwoTeamDraw(
     return {
       team,
       pullups: history.pullups?.get(team.id) ?? m?.pullups ?? 0,
-      drawStrengthWins: m?.draw_strength_wins ?? 0,
+      // Tabbycat's lowest_ds_wins restriction reads draw_strength (opponents' points).
+      drawStrengthWins: m?.draw_strength ?? m?.draw_strength_wins ?? 0,
       drawStrengthSpeaks: m?.draw_strength_speaks ?? 0,
     };
   };
   const winKeys = [...new Set(wins.values())].sort((a, b) => b - a);
+
+  const dsRankPullup = cfg.oddBracketMethod === "pullup_lowest_ds_rank" || cfg.oddBracketMethod === "pullup_lowest_ds_rank_npulls";
+  // Tabbycat's graph_one with preallocated sides is its per-bracket graph generator.
+  const singleGraph = cfg.conflictAvoidance === "min_cost_with_pullups" && cfg.sideRule !== "preallocated";
+  if (dsRankPullup && !singleGraph) {
+    throw new Error(
+      "Pulling up by draw strength rank needs \"Minimum cost matching (including pull-ups)\" conflict avoidance and non-preallocated sides."
+    );
+  }
+
+  if (singleGraph) {
+    const entries = ordered.map((team) => ({
+      team,
+      wins: wins.get(team.id) ?? 0,
+      pullups: statsFor(team).pullups,
+      drawStrengthRank: standingMap.get(team.id)?.metrics?.draw_strength_rank,
+    }));
+    const rooms = singleGraphPair(entries, history, {
+      ...minCostOptions(cfg, history, wins, false, rng),
+      oddBracketMethod: cfg.oddBracketMethod,
+      pullupPenalty: cfg.pullupPenalty ?? 0,
+    });
+    return rooms.map((room) => {
+      const bracket = Math.max(...room.map((team) => wins.get(team.id) ?? 0));
+      return draftFor(bracket, allocateSidesForDebate(room, history.sides, format, cfg.sideRule as "balanced" | "random", cfg, rng), wins);
+    });
+  }
 
   if (cfg.sideRule === "preallocated") {
     const sides = preallocatedSideOf(teams, cfg);
@@ -214,7 +345,7 @@ export function generateTwoTeamDraw(
     return groups.flatMap((group, index) => {
       const isTopBracket = index === 0;
       let rooms: Team[][];
-      if (cfg.conflictAvoidance === "min_cost") {
+      if (cfg.conflictAvoidance === "min_cost" || cfg.conflictAvoidance === "min_cost_with_pullups") {
         rooms = minCostPairAllocatedSides(group.aff, group.neg, history, minCostOptions(cfg, history, wins, isTopBracket, rng));
       } else {
         rooms = pairAllocatedSides(group.aff, group.neg, cfg.pairingMethod, { rng, isTopBracket });
@@ -237,20 +368,27 @@ export function generateTwoTeamDraw(
     hasConflict(history, cfg.penalties)
   );
 
-  return groups.flatMap((group, index) => {
-    const isTopBracket = index === 0;
-    const rooms = cfg.conflictAvoidance === "min_cost"
-      ? minCostPairBracket(group.teams, history, minCostOptions(cfg, history, wins, isTopBracket, rng))
-      : avoidConflicts(
-          pairTeams(group.teams, cfg.pairingMethod, { rng, isTopBracket }),
-          history,
-          cfg.conflictAvoidance,
-          cfg.penalties
-        );
-    return rooms.map((room) =>
-      draftFor(group.bracket, allocateSidesForDebate(room, history.sides, format, cfg.sideRule as "balanced" | "random", cfg, rng), wins)
+  if (cfg.conflictAvoidance === "min_cost") {
+    return groups.flatMap((group, index) =>
+      minCostPairBracket(group.teams, history, minCostOptions(cfg, history, wins, index === 0, rng)).map((room) =>
+        draftFor(group.bracket, allocateSidesForDebate(room, history.sides, format, cfg.sideRule as "balanced" | "random", cfg, rng), wins)
+      )
     );
-  });
+  }
+  const paired: BracketRooms[] = groups.map((group, index) => ({
+    bracket: group.bracket,
+    rooms: avoidConflicts(
+      pairTeams(group.teams, cfg.pairingMethod, { rng, isTopBracket: index === 0 }),
+      history,
+      cfg.conflictAvoidance,
+      cfg.penalties
+    ),
+  }));
+  return repairSideLimits(paired, history, cfg, wins).flatMap((group) =>
+    group.rooms.map((room) =>
+      draftFor(group.bracket, allocateSidesForDebate(room, history.sides, format, cfg.sideRule as "balanced" | "random", cfg, rng), wins)
+    )
+  );
 }
 
 /**

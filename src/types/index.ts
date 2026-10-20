@@ -10,11 +10,17 @@ export type TeamMetricId =
   | "margin_sum"
   | "margin_avg"
   | "draw_strength_wins"
+  /** Tabbycat's draw_strength: the sum of opponents' (round-weighted) points. Equals opponents' wins in two-team formats. */
+  | "draw_strength"
   | "draw_strength_speaks"
+  /** Mean standings rank of the team's opponents. Lower is a harder draw. Display only (Tabbycat: extra_only). */
+  | "draw_strength_rank"
   | "firsts"
   | "seconds"
   | "thirds"
   | "pullups"
+  /** Debates the team was in where some team was pulled up (Tabbycat's pullup_debates). */
+  | "pullup_debates"
   /** Who-beat-whom: points earned against the one other team tied on every earlier metric. May repeat. */
   | "wbw"
   /** Adjudicator votes carried (voting ballots), normalised to a panel of three as in Tabbycat. */
@@ -29,7 +35,16 @@ export type SpeakerMetricId =
   | "speaks_trimmed_mean"
   | "speeches_count"
   | "reply_sum"
-  | "reply_avg";
+  | "reply_avg"
+  | "reply_stddev"
+  | "reply_count"
+  /** The speaker's team's results (Tabbycat's speaker team_points, team_wins, firsts/seconds/thirds, num_adjs). */
+  | "team_points"
+  | "team_wins"
+  | "firsts"
+  | "seconds"
+  | "thirds"
+  | "num_adjs";
 
 export type OddBracketMethod =
   | "pullup_top"
@@ -41,11 +56,20 @@ export type OddBracketMethod =
   /** Preallocated sides only: excess teams form one intermediate bracket filled from below. */
   | "intermediate1"
   /** Preallocated sides only: like intermediate1, but each lower bracket fills its own intermediate bracket. */
-  | "intermediate2";
+  | "intermediate2"
+  /** min_cost_with_pullups only: pull up the team whose opponents had the lowest mean rank. */
+  | "pullup_lowest_ds_rank"
+  /** min_cost_with_pullups only: the least pulled-up team, then pullup_lowest_ds_rank. */
+  | "pullup_lowest_ds_rank_npulls";
 
 export type PairingMethod = "slide" | "fold" | "adjacent" | "random" | "fold_top_adjacent_rest";
 
-export type ConflictAvoidance = "off" | "one_up_one_down" | "min_cost";
+/**
+ * "min_cost": Tabbycat's "graph" (minimum-cost matching per bracket, pull-ups chosen first).
+ * "min_cost_with_pullups": Tabbycat's "graph_one" (one matching over the whole field that also
+ * chooses the pull-ups).
+ */
+export type ConflictAvoidance = "off" | "one_up_one_down" | "min_cost" | "min_cost_with_pullups";
 
 export type PullupRestriction =
   | "none"
@@ -54,8 +78,14 @@ export type PullupRestriction =
   | "lowest_draw_strength_wins";
 
 export type BPPullupDistribution = "anywhere" | "top" | "bottom";
-export type BPPositionCost = "renyi_entropy" | "sum_squared_deviations";
-export type BPAssignmentMethod = "hungarian" | "random";
+/** "simple": the number of times the team has already been in that position (Tabbycat's "simple"). */
+export type BPPositionCost = "simple" | "renyi_entropy" | "sum_squared_deviations";
+/**
+ * "hungarian": Hungarian algorithm on a cost matrix pre-shuffled with the draw's seed (Tabbycat's
+ * hungarian_preshuffled, WUDC-compliant). "hungarian_unshuffled": the same without the shuffle, so
+ * equal-cost alternatives are settled by team order (Tabbycat's "hungarian"; not WUDC-compliant).
+ */
+export type BPAssignmentMethod = "hungarian" | "hungarian_unshuffled" | "random";
 export type ByeTeamResults = "absent" | "win";
 export type ByeTeamSelectionMethod = "none" | "lowest_ranked" | "random";
 export type AdjudicatorPanelStrategy = "crabbytab_v1" | "panel_average";
@@ -99,7 +129,13 @@ export type FeedbackTargetRole = "chair" | "panellist" | "trainee";
 export type FeedbackWeightKey = `${FeedbackSourceRole}_on_${FeedbackTargetRole}`;
 /** "fixed": every debate gets the same panel size; "by_priority": odd panels grow in priority order. */
 export type PanelSizingMode = "fixed" | "by_priority";
-export type BreakQualificationRule = "standard" | "aida_1996" | "aida_2016_australs" | "aida_2016_easters";
+export type BreakQualificationRule =
+  | "standard"
+  | "aida_1996"
+  | "aida_2016_australs"
+  | "aida_2016_easters"
+  /** AIDA 2019 Australs (open): AIDA 2016 Australs with an institution cap of 3, +1 per 8 teams beyond a 16-team break. */
+  | "aida_2019_australs_open";
 
 export interface FeedbackQuestion {
   id: string;
