@@ -10,11 +10,11 @@ import { isFeedbackAnswerRecord, questionsForFeedbackSource, validateFeedbackAns
 export const DATA_ENTRY_FIELDS = {
   teams: [
     "id", "tournamentId", "name", "codeName", "institutionId", "institutionName", "speakers",
-    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt",
+    "emoji", "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
   ],
   adjudicators: [
     "id", "tournamentId", "name", "institutionId", "institutionName", "trainee", "independent",
-    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "gender",
+    "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
   ],
   institutions: ["id", "tournamentId", "name", "code", "region"],
   ballots: [
@@ -41,7 +41,7 @@ export const ASSISTANT_LIVE_BALLOT_FIELDS = [
   "confirmed", "discarded", "submitterType", "submitterId", "submitterName", "chairId", "syncVersion",
 ] as const;
 export const ASSISTANT_LIVE_CHECK_IN_FIELDS = [
-  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion",
+  "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion",
 ] as const;
 
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */
@@ -85,7 +85,8 @@ export function sanitizeDataEntryRecord(
   const createOnly = pickFields(value, DATA_ENTRY_CREATE_ONLY_FIELDS[collectionName] ?? []);
   if (collectionName === "teams") {
     record.speakers = Array.isArray(value.speakers)
-      ? value.speakers.filter(isRecord).map((speaker) => pickFields(speaker, ["id", "name", "categories"]))
+      ? value.speakers.filter(isRecord).map((speaker) =>
+          pickFields(speaker, ["id", "name", "categories", "roundAvailability", "checkInHistory"]))
       : [];
   }
   if (collectionName === "adjudicators") {

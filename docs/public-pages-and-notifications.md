@@ -150,6 +150,33 @@ organiser keeps either version; uploading that older local copy
 without choosing records a sync conflict in the cloud instead of silently overwriting the check-in.
 The public check-in counts update at the next publish.
 
+## Check-ins (history, bulk, speakers, printed forms)
+
+Tabbycat's check-in events and bulk check-ins, mapped onto CrabbyTab's per-round availability
+(`src/lib/checkins/history.ts`):
+
+- **History.** Every availability change made on the Availability page (toggle, barcode scan, bulk
+  action) or by self check-in is recorded as an event on the record itself (`checkInHistory`:
+  time, round, present/absent, source, and the staff member's name), newest last, at most 50 per
+  record (self check-ins are appended by the server without the cap). Speakers and rooms have
+  their own history. The page lists the round's 25 most recent events. History syncs with the
+  record (live for teams and adjudicators), so every device sees it; data-entry assistants may
+  write it (firestore.rules allow it among the check-in fields, at most 50 entries).
+- **Bulk check-in.** *Copy availability from R(n-1)* gives everyone without an explicit setting
+  for this round their availability in the previous running round (both ways: CrabbyTab
+  participants are present unless marked absent, unlike Tabbycat's check-ins);
+  *Mark breaking adjudicators present* checks in every adjudicator flagged as breaking. Both
+  record "bulk" events.
+- **Speaker-level check-in.** Each speaker can be checked in for a round (toggle on the Teams tab,
+  or scan the speaker's barcode, now on the printed label sheet). When every speaker of a team is
+  in, the team becomes available; checking a speaker out does not withdraw the team. Data-entry
+  assistants' speaker check-ins change the team's speakers, so they need the participant-editing
+  permission where staff permissions apply.
+- **Printed forms** (print pages → *Print options*): a return location printed on scoresheets and
+  feedback forms (Tabbycat `score_return_location` / `feedback_return_location`; empty or "TBA"
+  hides it), a digit strip to circle beside every score (`ballots_confirm_digits`), and a blank
+  motion line (`ballots_hide_motions`) for printing before motions are released.
+
 ## Known limitations
 
 - Notifications and self check-ins depend on the cloud copy, so they lag local changes until the

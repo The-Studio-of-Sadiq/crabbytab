@@ -74,7 +74,7 @@ service cloud.firestore {
       }
 
       function assistantLiveCheckInFields() {
-        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "syncVersion"];
+        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion"];
       }
 
       function isAssistantBallot(ballotId) {
@@ -106,6 +106,7 @@ service cloud.firestore {
           next.get("checkedIn", false) is bool &&
           next.get("roundAvailability", {}) is map &&
           next.get("roundAvailabilityAt", {}) is map &&
+          next.get("checkInHistory", []) is list && next.get("checkInHistory", []).size() <= 50 &&
           next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1;
       }
 

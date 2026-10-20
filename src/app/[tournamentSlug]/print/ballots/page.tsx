@@ -9,9 +9,14 @@ import {
 } from "@/features/tournament/application/ballotIntake";
 import type { DebateSide } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
+import { PrintOptionsCard } from "@/features/tournament/components/PrintOptionsCard";
+import { returnLocation } from "@/lib/printOptions";
 
 export default function PrintableBallotsPage() {
-  const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
+  const { tournament, activeRound, debates, teams, adjudicators, saveTournament } = useTournament();
+  const hideMotions = tournament?.preferences?.ballotsHideMotions === true;
+  const confirmDigits = tournament?.preferences?.ballotsConfirmDigits === true;
+  const returnTo = returnLocation(tournament?.preferences?.ballotReturnLocation);
   const roundDebates = activeRound
     ? debates
         .filter((debate) => debate.roundId === activeRound.id && !debate.byeTeamId)
@@ -68,6 +73,7 @@ export default function PrintableBallotsPage() {
           </button>
         </div>
         {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
+        {tournament && <PrintOptionsCard tournament={tournament} onSave={saveTournament} kind="ballots" />}
       </main>
 
       <section className="print-only printable-ballots">
@@ -95,7 +101,7 @@ export default function PrintableBallotsPage() {
                 </div>
                 <div className="ballot-room">
                   <strong>{room}</strong>
-                  <span>Motion: {debate.motionText || "________________________________"}</span>
+                  <span>Motion: {(!hideMotions && debate.motionText) || "________________________________"}</span>
                 </div>
               </header>
               <div className="ballot-sheet-id">
@@ -109,6 +115,11 @@ export default function PrintableBallotsPage() {
               {sideChoice && (
                 <p className="ballot-intro">
                   <strong>Sides were not set by the draw.</strong> Tick the side each team took ({sides.join(" or ")}).
+                </p>
+              )}
+              {confirmDigits && (
+                <p className="ballot-intro">
+                  After writing each score, circle its digits in the strip next to it, so the tab room can read it unambiguously.
                 </p>
               )}
               {tournament?.preferences?.ballotIntroExplanation && (
@@ -133,6 +144,7 @@ export default function PrintableBallotsPage() {
                         key={side}
                         side={side}
                         sideChoice={sideChoice}
+                        confirmDigits={confirmDigits}
                         teamName={slot?.teamName ?? team?.name ?? "Unassigned"}
                         speakerNames={Array.from({ length: speakerCount }, (_, index) =>
                           speakers[index]?.name || `Speaker ${index + 1}`
@@ -153,6 +165,7 @@ export default function PrintableBallotsPage() {
                 <span>
                   {sheet.adjudicatorId ? `${sheet.adjudicatorName}'s signature` : "Chair signature"}: ________________________
                 </span>
+                {returnTo && <span><strong>Return this sheet to: {returnTo}</strong></span>}
               </footer>
             </article>
           );
@@ -165,12 +178,15 @@ export default function PrintableBallotsPage() {
 function FragmentRows({
   side,
   sideChoice,
+  confirmDigits,
   teamName,
   speakerNames,
 }: {
   side: DebateSide;
   /** Sides to tick from, when sides are chosen at the debate. */
   sideChoice?: DebateSide[];
+  /** Tabbycat's ballots_confirm_digits: a strip of digits to circle next to each score. */
+  confirmDigits?: boolean;
   teamName: string;
   speakerNames: string[];
 }) {
@@ -184,7 +200,9 @@ function FragmentRows({
             </th>
           )}
           <td>{index === 0 ? <strong>{teamName}</strong> : null}<span>{speakerName}</span></td>
-          <td className="blank-score" />
+          <td className="blank-score">
+            {confirmDigits && <span style={{ fontSize: "9px", letterSpacing: "0.35em", float: "right" }}>0123456789 . 0123456789</span>}
+          </td>
           {index === 0 && <td rowSpan={speakerNames.length} className="blank-score" />}
         </tr>
       ))}

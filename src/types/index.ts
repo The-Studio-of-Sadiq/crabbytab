@@ -273,6 +273,13 @@ export interface TournamentPreferences {
   notifyTeamPoints?: boolean;
   /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
   allowSelfCheckIn?: boolean;
+  /** Printed ballots (w45): where to return scoresheets / feedback forms (Tabbycat score_return_location); empty or "TBA" hides. */
+  ballotReturnLocation?: string;
+  feedbackReturnLocation?: string;
+  /** Printed scoresheets ask adjudicators to circle the digits of each score (Tabbycat ballots_confirm_digits). */
+  ballotsConfirmDigits?: boolean;
+  /** Printed scoresheets leave the motion blank (Tabbycat ballots_hide_motions). */
+  ballotsHideMotions?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
   speakerCategories?: SpeakerCategory[];
 }
@@ -390,6 +397,20 @@ export interface PreformedPanel {
   importance: number;
 }
 
+/** How a check-in was made (check-in history; lib/checkins/history.ts). */
+export type CheckInSource = "tab" | "scan" | "bulk" | "self";
+
+/** One change of availability or check-in, newest last on the record. */
+export interface CheckInEvent {
+  at: string;
+  /** Absent for rooms, which are checked in without a round. */
+  roundId?: string;
+  available: boolean;
+  source: CheckInSource;
+  /** Who made it (staff name or email); absent for self check-in. */
+  by?: string;
+}
+
 export interface Institution {
   id: string;
   tournamentId: string;
@@ -419,6 +440,9 @@ export interface Speaker {
    * every entry with resolveSpeakerCategoryRef, so both keep working.
    */
   categories?: string[];
+  /** Speaker-level check-in per round (Tabbycat checks speakers in individually). */
+  roundAvailability?: Record<string, boolean>;
+  checkInHistory?: CheckInEvent[];
   /** Swing teams: the registered speaker this swing speaker stands in for, if any. */
   swingSourceSpeakerId?: string;
 }
@@ -447,6 +471,7 @@ export interface Team {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   venueRequirements?: VenueRequirements;
   privateUrlKey?: string; // Secret key for team's private URL
   privatePasscode?: string; // Separate passcode required to access the private portal
@@ -483,6 +508,7 @@ export interface Adjudicator {
   checkedInAt?: string;
   roundAvailability?: Record<string, boolean>;
   roundAvailabilityAt?: Record<string, string>;
+  checkInHistory?: CheckInEvent[];
   conflicts: AdjudicatorConflict[];
   gender?: string;
   /** Overrides the institution region for diversity displays. */
@@ -509,6 +535,7 @@ export interface Venue {
   nearTabRoom?: boolean;
   available?: boolean;
   checkedIn?: boolean;
+  checkInHistory?: CheckInEvent[];
 }
 
 // BP Debate Sides: OG (Opening Gov), OO (Opening Opp), CG (Closing Gov), CO (Closing Opp)
