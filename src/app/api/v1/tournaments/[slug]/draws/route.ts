@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { hashApiToken, isApiTokenScope, readBearerToken } from "@/lib/apiTokens";
 import type { Adjudicator, Debate, Round, Team, Tournament, Venue } from "@/types";
+import { currentDrawRoundId, getPublicSiteSettings, isRoundDrawPublic } from "@/lib/publicFeatures";
 
 export const runtime = "nodejs";
 
@@ -66,10 +67,11 @@ export async function GET(
     if (requestedRoundSeq !== undefined && rounds.length === 0) {
       return NextResponse.json({ error: "Round not found." }, { status: 404 });
     }
+    // Without the draws scope, only rounds on the public draw page (the draw mode decides).
+    const drawMode = getPublicSiteSettings(tournamentData.preferences).drawMode;
+    const currentRoundId = currentDrawRoundId(allRounds);
     const visibleRounds = rounds.filter((round) =>
-      scope === "read:draws" ||
-      (tournamentData.preferences?.publicDraw !== false &&
-        (round.drawStatus === "confirmed" || round.drawStatus === "released"))
+      scope === "read:draws" || isRoundDrawPublic(round, drawMode, currentRoundId)
     );
     const roundIds = new Set(visibleRounds.map((round) => round.id));
     const debates = activeRecords(debatesSnapshot.docs)

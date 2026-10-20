@@ -29,7 +29,28 @@ export type ReleasePreferences = Pick<
   | "publicInstitutionsList"
   | "publicAdjudicatorCore"
   | "publicBreakingAdjudicators"
+  | PublicSiteReleasePreference
 >;
+
+/**
+ * Public-site switches released from the same panel (their values are read through
+ * getPublicSiteSettings in lib/publicFeatures.ts).
+ */
+export const PUBLIC_SITE_RELEASE_KEYS = {
+  adjudicatorTab: "releaseAdjudicatorTab",
+  ballots: "releaseBallots",
+  privateBallots: "releasePrivateBallots",
+  breakCategoryTabs: "releaseBreakCategoryTabs",
+  recordPages: "publicRecordPages",
+  sideAllocations: "publicSideAllocations",
+  bracket: "publicBracket",
+  diversity: "publicDiversity",
+  vetoStatistics: "publicVetoStatistics",
+  feedbackProgress: "publicFeedbackProgress",
+} as const satisfies Record<string, keyof TournamentPreferences>;
+
+export type PublicSiteReleaseKind = keyof typeof PUBLIC_SITE_RELEASE_KEYS;
+type PublicSiteReleasePreference = (typeof PUBLIC_SITE_RELEASE_KEYS)[PublicSiteReleaseKind];
 
 /** Release switches that map one-to-one onto a boolean preference. */
 export type BooleanReleaseKind =
@@ -39,7 +60,8 @@ export type BooleanReleaseKind =
   | "participants"
   | "institutions"
   | "adjudicatorCore"
-  | "breakingAdjudicators";
+  | "breakingAdjudicators"
+  | PublicSiteReleaseKind;
 
 const RELEASE_PREFERENCE_KEYS = {
   teamTab: "releaseTeamTab",
@@ -49,6 +71,7 @@ const RELEASE_PREFERENCE_KEYS = {
   institutions: "publicInstitutionsList",
   adjudicatorCore: "publicAdjudicatorCore",
   breakingAdjudicators: "publicBreakingAdjudicators",
+  ...PUBLIC_SITE_RELEASE_KEYS,
 } as const satisfies Record<BooleanReleaseKind, keyof ReleasePreferences>;
 
 export function getPublicRelease(preferences?: Partial<TournamentPreferences> | null): PublicRelease {

@@ -7,6 +7,8 @@
  * - `{name}` is a placeholder. Plurals are `key_one` / `key_other` (+ other CLDR categories).
  * - `<b>…</b>` / `<n>…</n>` mark spans the component styles (bold text, numbers).
  */
+import { publicSiteEn } from "@/lib/i18n/messages/publicSite.en";
+
 export const en = {
   "common.tournament": "Tournament",
   "common.cancel": "Cancel",
@@ -425,4 +427,5 @@ export const en = {
   "register.receivedTeam": "Thank you. The tournament's organisers will review your team.",
   "register.receivedAdjudicator": "Thank you. The tournament's organisers will review your registration.",
   "register.another": "Register another",
+  ...publicSiteEn,
 } as const;

@@ -32,6 +32,8 @@ import {
 import { feedbackPathsForRound, isFeedbackPathAllowed } from "@/lib/feedback/paths";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { ScoresheetsPanel } from "@/features/tournament/components/public/PublicSitePanels";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 type PanelRole = "chair" | "panellist" | "trainee";
 
@@ -49,6 +51,7 @@ export default function TeamPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    ballots,
     feedback,
     addFeedback,
     syncPrivatePortal,
@@ -865,6 +868,35 @@ export default function TeamPrivatePortalPage() {
             })}
           </div>
         )}
+
+        {/* Tabbycat private_ballots_released: this team's own scoresheets. */}
+        {getPublicSiteSettings(tournament?.preferences).privateBallots && (() => {
+          const withSheets = [...teamDebates]
+            .sort((left, right) => left.roundSeq - right.roundSeq)
+            .map((debate) => ({ debate, ballot: ballots.find((ballot) => ballot.debateId === debate.id && ballot.confirmed && !ballot.discarded) }))
+            .filter(({ ballot }) => ballot && (ballot.sheets?.length || Object.keys(ballot.speakerScores || {}).length > 0));
+          if (withSheets.length === 0) return null;
+          const sides = (tournament?.format === "bp" ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
+          return (
+            <section className="mt-6 bg-white border border-[#d0d7de] rounded-lg overflow-hidden" aria-labelledby="team-scoresheets">
+              <h2 id="team-scoresheets" className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
+                {t("public.showScoresheets")}
+              </h2>
+              {withSheets.map(({ debate, ballot }) => (
+                <div key={debate.id}>
+                  <p className="px-3 pt-3 text-xs font-semibold text-gray-800">{roundsMap.get(debate.roundId)?.name ?? ""}</p>
+                  <ScoresheetsPanel
+                    debate={debate}
+                    ballot={ballot}
+                    sides={sides}
+                    teamName={(side) => debate.teams?.[side]?.teamName || "—"}
+                    replyPosition={tournament?.preferences?.replyScoresEnabled && tournament.format !== "bp" ? 4 : undefined}
+                  />
+                </div>
+              ))}
+            </section>
+          );
+        })()}
       </main>
 
       {/* FEEDBACK MODAL */}

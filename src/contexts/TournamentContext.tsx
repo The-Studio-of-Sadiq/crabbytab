@@ -100,6 +100,7 @@ import {
   replaceRoundRecords,
   PUBLIC_VIEW_POLL_MILLISECONDS,
   publishPublicViewCommand,
+  type PublicProjectionExtras,
   type PublicProjectionResponse,
 } from "@/features/tournament/application/publicView";
 import {
@@ -179,6 +180,8 @@ export interface TournamentContextType {
   localSaveError: string;
   /** Shared views: earlier rounds' public debates and ballots are still loading. */
   publicRoundsLoading: boolean;
+  /** Shared views: publish-time tabs and aggregates from the public projection (null until loaded / without a cloud copy). */
+  publicExtras: PublicProjectionExtras | null;
   /** A draw or auto-allocation running in the background, if any. */
   computeJob: { kind: ComputeKind; startedAt: number } | null;
   /** Stops the running draw or allocation; it then fails with ComputeCancelledError and saves nothing. */
@@ -674,6 +677,7 @@ export function TournamentProvider({
   });
   const [publicViewVersion, setPublicViewVersion] = useState<string | null>(null);
   const [publicRoundsLoading, setPublicRoundsLoading] = useState(false);
+  const [publicExtras, setPublicExtras] = useState<PublicProjectionExtras | null>(null);
   const applyPublicProjection = useCallback(
     (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
       const publicRounds = (result.collections.rounds || []) as Round[];
@@ -720,6 +724,7 @@ export function TournamentProvider({
       setBallotIntake([]);
       auditEventsRef.current = [];
       setAuditEvents([]);
+      setPublicExtras({ tabs: result.tabs ?? undefined, derived: result.derived ?? {} });
       setPublicViewVersion(result.version ?? null);
     },
     []
@@ -2886,6 +2891,7 @@ export function TournamentProvider({
         privateSyncMessage,
         localSaveError,
         publicRoundsLoading,
+        publicExtras,
         computeJob,
         cancelCompute,
         uploadToCloud,

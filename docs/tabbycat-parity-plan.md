@@ -229,7 +229,12 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
   motions, pairings + generate-draw, ballots, availabilities, check-ins, break eligibility +
   generate-break, speaker categories, teams/adjudicators/speakers/venues CRUD and standings,
   preformed panels, feedback, `/me`). Plan read **and** write endpoints with scoped tokens.
-- **#25**: diversity statistics for both admin and public views.
+- **#25**: diversity statistics for both admin and public views. *Public view done (wave 4–5
+  public-site PR): gender / region / category breakdowns, allocations by gender, speaker scores and
+  feedback by gender, plus public veto statistics; see
+  [public-pages-and-notifications.md](public-pages-and-notifications.md#public-site-settings-waves-45-tabbycat-public_features--tab_release--ui_options).
+  The admin diversity editor (imports/diversity) is unchanged; an admin statistics page is still open.*
+- **#26** (public non-private-URL ballot and feedback forms, public password): *follow-up PR.*
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
@@ -247,10 +252,11 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
 **Medium (workflow):** maximum margin; independent reply-score step; BP position cost `simple`;
 deterministic (unshuffled) Hungarian; `pullup_debates` and `draw_strength_rank` metrics; assistant
 access levels and permission groups; concurrent current rounds, round start times, preparation
-time, public schedule + iCal; three-state motion release (info slides first); public draw "current
+time, public schedule + iCal; three-state motion release (info slides first); ~~public draw "current
 round only"; public team/adjudicator record pages; public adjudicator tab; public and private
 scoresheets; public tab top-N limits; noindex control; public elimination bracket; anonymity
-(anonymous speakers, hidden institutions, code names shown/generated); email delivery webhooks;
+(anonymous speakers, hidden institutions, code names shown/generated)~~ *(done: public-site PR, see
+public-pages-and-notifications.md "Public-site settings")*; email delivery webhooks;
 CSV exports (participants, availability, break eligibility, conflicts); simulated results /
 demo tournament for rehearsals; registration breadth (institution/coach self-registration,
 auto-accept, over-allocation, slot transfers, name/code-name generators, region/phone/gender
@@ -258,8 +264,8 @@ fields); feedback score step, full team-feedback modes, intro text, unexpected a
 feedback views; venue room URL and category descriptions.
 
 **Low (polish):** custom side names (Gov/Opp…); toggles for the reply-speaker rule and for
-motions altogether; reverse public motion order; copy motions between rounds; cross-tournament
-motion statistics; team emoji and speakers in the draw; team references and institution prefixes;
+motions altogether; ~~reverse public motion order~~ *(done)*; copy motions between rounds; cross-tournament
+motion statistics; ~~team emoji and speakers in the draw~~ *(done)*; team references and institution prefixes;
 check-in event history; bulk check-in from the previous round; printed-ballot options; SMS and
 web push.
 

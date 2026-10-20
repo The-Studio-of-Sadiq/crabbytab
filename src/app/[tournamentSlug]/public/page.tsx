@@ -28,11 +28,16 @@ import {
   Users,
   Building2,
   Gavel,
+  Scale,
+  ArrowLeftRight,
+  Network,
+  ChartPie,
+  ClipboardCheck,
 } from "lucide-react";
-import { DebateSide } from "@/types";
+import type { DebateAdjudicatorSlot, DebateSide } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { calculateStandings } from "@/lib/standings/calculator";
-import { speakerRowsInCategory, speakersInCategory, sortSpeakerCategories } from "@/lib/speakerCategories";
+import { speakersInCategory, sortSpeakerCategories } from "@/lib/speakerCategories";
 import { formatMetricValue } from "@/lib/standings/metrics";
 import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
 import type { MessageKey } from "@/lib/i18n";
@@ -43,7 +48,6 @@ import {
   isTabRound,
 } from "@/lib/publicRelease";
 import { canShowAggregateTeamScores } from "@/lib/publicScoreVisibility";
-import { getPanelistNamesByScore } from "@/lib/adjudicators";
 import { computeMotionStatistics } from "@/lib/motionStatistics";
 import { buildPublicAdjudicatorLists, buildPublicInstitutions, buildPublicParticipants } from "@/lib/publicLists";
 import {
@@ -52,6 +56,22 @@ import {
   MotionStatisticsSummary,
   ParticipantsPanel,
 } from "@/features/tournament/components/public/PublicListPanels";
+import {
+  AdjudicatorTabPanel,
+  BracketPanel,
+  DiversityPanel,
+  FeedbackProgressPanel,
+  PublicPersonName,
+  PublicTeamName,
+  ScoresheetsPanel,
+  SideAllocationsPanel,
+  SplitMarker,
+  WelcomePanel,
+  splittingAdjudicators,
+} from "@/features/tournament/components/public/PublicSitePanels";
+import { usePublicExtras } from "@/features/tournament/components/public/usePublicExtras";
+import { getPublicSiteSettings, orderPublicMotions } from "@/lib/publicFeatures";
+import { publicRecordPath } from "@/lib/publicRecords";
 
 type PublicTab =
   | "draw"
@@ -64,7 +84,12 @@ type PublicTab =
   | "break"
   | "participants"
   | "institutions"
-  | "adjudicators";
+  | "adjudicators"
+  | "adjudicatorTab"
+  | "sideAllocations"
+  | "bracket"
+  | "diversity"
+  | "feedbackProgress";
 
 export default function PublicTournamentPage() {
   const params = useParams();
@@ -88,6 +113,12 @@ export default function PublicTournamentPage() {
     publicRoundsLoading,
   } = useTournament();
   const { t, plural, formatDecimal, formatList, formatNumber } = useI18n();
+  // "all" or a public speaker category id (Tabbycat's per-category speaker tabs).
+  const [speakerCategoryId, setSpeakerCategoryId] = useState("all");
+  // "all" or a break category id (Tabbycat's break category team tabs).
+  const [teamTabCategoryId, setTeamTabCategoryId] = useState("all");
+  const [openScoresheetDebateId, setOpenScoresheetDebateId] = useState<string | null>(null);
+  const extras = usePublicExtras();
 
   const getVenueCategory = (venueId?: string, venueName?: string): string | undefined => {
     if (!venueId && !venueName) return undefined;
@@ -97,27 +128,20 @@ export default function PublicTournamentPage() {
     return v?.category?.trim() || undefined;
   };
 
-  const getTraineeNames = (adjudicatorsSlot?: {
-    traineeNames?: string[];
-    traineeIds?: string[];
-  }): string[] => {
-    if (adjudicatorsSlot?.traineeNames && adjudicatorsSlot.traineeNames.length > 0) {
-      return adjudicatorsSlot.traineeNames;
-    }
-    if (adjudicatorsSlot?.traineeIds && adjudicatorsSlot.traineeIds.length > 0) {
-      return adjudicatorsSlot.traineeIds
-        .map((id) => adjudicators.find((a) => a.id === id)?.name || id)
-        .filter(Boolean);
-    }
-    return [];
-  };
-
   const isBP = tournament?.format === "bp";
   const formatLabel = tournament ? t(`format.${tournament.format}`) : t("common.tournament");
   const prefs = tournament?.preferences;
 
   // S1: Public toggles
-  const showPublicDraw = prefs?.publicDraw !== false;
+  const site = getPublicSiteSettings(prefs);
+  const showPublicDraw = site.drawMode !== "off";
+  const teamsById = new Map(teams.map((team) => [team.id, team]));
+  const adjudicatorsById = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
+  const teamHref = (teamId: string) => (site.recordPages && teamsById.has(teamId) ? publicRecordPath(tournamentSlug, "team", teamId) : undefined);
+  const adjudicatorHref = (adjudicatorId: string) =>
+    site.recordPages && adjudicatorsById.has(adjudicatorId) && !adjudicatorsById.get(adjudicatorId)?.anonymous
+      ? publicRecordPath(tournamentSlug, "adjudicator", adjudicatorId)
+      : undefined;
   const showPublicResults = prefs?.publicResults !== false;
   const hasPublicTeamSpeaks = rounds.some(
     (round) => round.resultsReleased && round.teamSpeaksReleased && !round.silent
@@ -126,29 +150,37 @@ export default function PublicTournamentPage() {
   const showPublicMotions = prefs?.publicMotions !== false;
   // Tournament-level releases (team/speaker/replies tab, break per category).
   const release = getPublicRelease(prefs);
+  // Tabs are computed when the view is published (top-N limits applied there); see lib/publicView/derived.ts.
   const tabRounds = isAnyTabReleased(release) ? rounds.filter(isTabRound) : [];
   const tabRoundIds = new Set(tabRounds.map((round) => round.id));
-  const tabStandings = tournament && tabRounds.length > 0
-    ? calculateStandings(
-        tournament,
-        tabRounds,
-        teams,
-        debates.filter((debate) => tabRoundIds.has(debate.roundId)),
-        ballots.filter((ballot) => ballot.confirmed && !ballot.discarded && tabRoundIds.has(ballot.roundId))
-      )
-    : { teams: [], speakers: [], replies: [] };
-  const showTeamTab = release.teamTab && tabRounds.length > 0;
-  const showSpeakerTab = release.speakerTab && tabRounds.length > 0;
-  const showRepliesTab = release.repliesTab && tabRounds.length > 0;
+  const publicTabs = extras.tabs;
+  const tabRoundCount = publicTabs?.roundCount ?? 0;
+  const breakCategoryTabIds = Object.keys(publicTabs?.breakCategoryTabs ?? {}).filter(
+    (categoryId) => (publicTabs?.breakCategoryTabs?.[categoryId]?.length ?? 0) > 0
+  );
+  const showTeamTab = tabRoundCount > 0 && ((release.teamTab && Boolean(publicTabs?.teamTab)) || breakCategoryTabIds.length > 0);
+  const showSpeakerTab = release.speakerTab && tabRoundCount > 0 && Boolean(publicTabs?.speakerTab);
+  const showRepliesTab = release.repliesTab && tabRoundCount > 0 && Boolean(publicTabs?.repliesTab);
+  const teamTabOptions = [
+    ...(release.teamTab && publicTabs?.teamTab ? [{ id: "all", name: t("public.allTeams") }] : []),
+    ...breakCategories
+      .filter((category) => breakCategoryTabIds.includes(category.id))
+      .sort((left, right) => left.seq - right.seq)
+      .map((category) => ({ id: category.id, name: category.name })),
+  ];
+  const selectedTeamTabId = teamTabOptions.some((option) => option.id === teamTabCategoryId)
+    ? teamTabCategoryId
+    : teamTabOptions[0]?.id ?? "all";
+  const teamTabRows = (selectedTeamTabId === "all" ? publicTabs?.teamTab : publicTabs?.breakCategoryTabs?.[selectedTeamTabId]) ?? [];
   // The projection only sends public categories; each one with speakers gets its own speaker tab.
   const publicSpeakerCategories = sortSpeakerCategories(
     (prefs?.speakerCategories ?? []).filter((category) => category.public)
   ).filter((category) => speakersInCategory(teams, category.id, prefs?.speakerCategories ?? []) > 0);
   const selectedSpeakerCategory = publicSpeakerCategories.find((category) => category.id === speakerCategoryId);
-  const speakerTabRows = selectedSpeakerCategory
-    ? speakerRowsInCategory(tabStandings.speakers, selectedSpeakerCategory.id, publicSpeakerCategories, selectedSpeakerCategory.limit)
-    : tabStandings.speakers;
-  const tabRankByTeamId = new Map(tabStandings.teams.map((row) => [row.teamId, row.rank]));
+  const speakerTabRows = (selectedSpeakerCategory
+    ? publicTabs?.speakerCategoryTabs?.[selectedSpeakerCategory.id]
+    : publicTabs?.speakerTab) ?? [];
+  const tabRankByTeamId = new Map((publicTabs?.teamTab ?? []).map((row) => [row.teamId, row.rank]));
   // The "extra" metrics the tab director chose to show (calculated, not used to rank).
   const teamExtra = resolveTeamExtra(prefs);
   const speakerExtra = resolveSpeakerExtra(prefs);
@@ -157,7 +189,18 @@ export default function PublicTournamentPage() {
   const showParticipants = release.participants;
   const showInstitutions = release.institutions;
   const showAdjudicatorLists = release.adjudicatorCore || release.breakingAdjudicators;
-  const participants = buildPublicParticipants(teams, adjudicators, release);
+  const participants = buildPublicParticipants(
+    teams,
+    adjudicators,
+    release,
+    site.breakCategoriesOnParticipants ? new Map(breakCategories.map((category) => [category.id, category.name])) : undefined
+  );
+  const derived = extras.derived;
+  const showAdjudicatorTab = site.adjudicatorTab && Boolean(derived.adjudicatorTab);
+  const showSideAllocations = site.sideAllocations && Boolean(derived.sideAllocations);
+  const showBracket = site.bracket && showPublicDraw && rounds.some((round) => round.stage === "elimination");
+  const showDiversity = site.diversity && Boolean(derived.diversity);
+  const showFeedbackProgress = site.feedbackProgress && Boolean(derived.feedbackProgress);
   const institutionRows = buildPublicInstitutions(institutions, teams, adjudicators, release);
   const adjudicatorLists = buildPublicAdjudicatorLists(adjudicators, release);
 
@@ -174,13 +217,26 @@ export default function PublicTournamentPage() {
   if (showParticipants) availableTabs.push("participants");
   if (showInstitutions) availableTabs.push("institutions");
   if (showAdjudicatorLists) availableTabs.push("adjudicators");
+  if (showAdjudicatorTab) availableTabs.push("adjudicatorTab");
+  if (showSideAllocations) availableTabs.push("sideAllocations");
+  if (showBracket) availableTabs.push("bracket");
+  if (showDiversity) availableTabs.push("diversity");
+  if (showFeedbackProgress) availableTabs.push("feedbackProgress");
 
   const [activeTab, setActiveTab] = useState<PublicTab>(availableTabs[0] || "draw");
   const [searchQuery, setSearchQuery] = useState("");
-  // "all" or a public speaker category id (Tabbycat's per-category speaker tabs).
-  const [speakerCategoryId, setSpeakerCategoryId] = useState("all");
   const [isMotionPresentation, setIsMotionPresentation] = useState(false);
   const [motionSlideIndex, setMotionSlideIndex] = useState(0);
+
+  // Rounds on the public draw page: the projection marks them ("drawPublic") under the draw mode
+  // (current round only, or every released draw); older views fall back to the draw status.
+  const isOnDrawPage = (round: (typeof rounds)[number]) =>
+    (round as typeof round & { drawPublic?: boolean }).drawPublic ??
+    (round.drawStatus === "confirmed" || round.drawStatus === "released");
+  const drawRounds = rounds.filter((round) => !round.cancelled && isOnDrawPage(round)).sort((left, right) => left.seq - right.seq);
+  const drawRound = drawRounds.find((round) => round.id === activeRound?.id) ?? drawRounds[drawRounds.length - 1];
+  const drawDebates = drawRound ? debates.filter((debate) => debate.roundId === drawRound.id) : [];
+  const showDrawAdjudicators = drawRound?.adjudicatorsRevealed === true;
 
   // Only released debates/rounds
   const releasedDebates = activeRound
@@ -195,9 +251,11 @@ export default function PublicTournamentPage() {
   const showPublicAdjudicators = activeRound?.adjudicatorsRevealed === true;
   const roundTeamSpeaksReleased = Boolean(roundResultsReleased && activeRound?.teamSpeaksReleased);
 
-  const releasedMotions = motions
-    .filter((motion) => motion.released === true)
-    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const releasedMotions = orderPublicMotions(
+    motions.filter((motion) => motion.released === true),
+    site.motionsOrder,
+    new Map(rounds.map((round) => [round.id, round.seq]))
+  );
 
   const publicRounds = rounds.filter((round) => round.resultsReleased && !round.silent);
   const publicRoundIds = new Set(publicRounds.map((round) => round.id));
@@ -246,6 +304,55 @@ export default function PublicTournamentPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMotionPresentation, releasedMotions.length]);
+
+  /** A team cell of the draw: emoji, public name (record link), and its speakers when shown in the draw. */
+  const renderDrawTeam = (slot: { teamId: string; teamName?: string } | undefined) => {
+    if (!slot?.teamId) return "—";
+    const team = teamsById.get(slot.teamId);
+    return (
+      <>
+        <PublicTeamName team={team} name={slot.teamName ?? team?.name} recordHref={teamHref(slot.teamId)} />
+        {site.showSpeakersInDraw && team && team.speakers.length > 0 && (
+          <span className="block text-[10px] font-normal text-gray-500">
+            {team.speakers.map((speaker, index) => (
+              <React.Fragment key={speaker.id}>
+                {index > 0 && ", "}
+                <PublicPersonName name={speaker.name} anonymous={speaker.anonymous} />
+              </React.Fragment>
+            ))}
+          </span>
+        )}
+      </>
+    );
+  };
+
+  /** Adjudicators in one panel role: redacted when anonymous, linked to records, splits marked. */
+  const panelMembers = (
+    slot: Partial<DebateAdjudicatorSlot> | undefined,
+    role: "chair" | "panellists" | "trainees",
+    splits: Set<string> = new Set()
+  ): React.ReactNode => {
+    const members =
+      role === "chair"
+        ? slot?.chairId || slot?.chairName ? [{ id: slot?.chairId, name: slot?.chairName ?? "" }] : []
+        : (role === "panellists" ? slot?.panellistIds ?? [] : slot?.traineeIds ?? []).map((id, index) => ({
+            id,
+            name: (role === "panellists" ? slot?.panellistNames : slot?.traineeNames)?.[index] ?? adjudicatorsById.get(id)?.name ?? "",
+          }));
+    if (members.length === 0) return "—";
+    return members.map((member, index) => {
+      const anonymous = member.id ? adjudicatorsById.get(member.id)?.anonymous === true : false;
+      const href = member.id ? adjudicatorHref(member.id) : undefined;
+      const label = <PublicPersonName name={member.name} anonymous={anonymous} />;
+      return (
+        <React.Fragment key={member.id ?? index}>
+          {index > 0 && ", "}
+          {href ? <Link href={href} className="hover:underline">{label}</Link> : label}
+          {member.id && splits.has(member.id) && <SplitMarker />}
+        </React.Fragment>
+      );
+    });
+  };
 
   if (loading) {
     return (
@@ -418,6 +525,11 @@ export default function PublicTournamentPage() {
               label: release.adjudicatorCore ? t("public.tab.adjudicationCore") : t("public.tab.breakingAdjudicators"),
               Icon: Gavel,
             },
+            { tab: "adjudicatorTab", show: showAdjudicatorTab, label: t("public.tab.adjudicatorTab"), Icon: Scale },
+            { tab: "sideAllocations", show: showSideAllocations, label: t("public.tab.sideAllocations"), Icon: ArrowLeftRight },
+            { tab: "bracket", show: showBracket, label: t("public.tab.bracket"), Icon: Network },
+            { tab: "diversity", show: showDiversity, label: t("public.tab.diversity"), Icon: ChartPie },
+            { tab: "feedbackProgress", show: showFeedbackProgress, label: t("public.tab.feedbackProgress"), Icon: ClipboardCheck },
           ] as const).filter((item) => item.show).map(({ tab, label, Icon }) => (
             <button
               key={tab}
@@ -442,29 +554,38 @@ export default function PublicTournamentPage() {
 
       {/* Main Public Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
+        <WelcomePanel message={site.welcomeMessage} staff={site.tournamentStaff} />
         {/* 1. Draw View */}
         {showPublicDraw && activeTab === "draw" && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              <span className="text-xs font-bold text-gray-500 uppercase me-1">{t("public.roundPicker")}</span>
-              {rounds.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setActiveRound(r)}
-                  className={`px-3 py-1 text-xs font-bold rounded border ${
-                    activeRound?.id === r.id
-                      ? "bg-blue-600 text-white border-blue-700"
-                      : "bg-white text-gray-700 border-gray-300"
-                  }`}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
+            {site.drawMode === "current" ? (
+              drawRound && (
+                <p className="text-xs font-bold text-gray-600">{t("public.currentRound", { round: drawRound.name })}</p>
+              )
+            ) : (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <span className="text-xs font-bold text-gray-500 uppercase me-1">{t("public.roundPicker")}</span>
+                {drawRounds.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setActiveRound(r)}
+                    aria-pressed={drawRound?.id === r.id}
+                    className={`px-3 py-1 text-xs font-bold rounded border ${
+                      drawRound?.id === r.id
+                        ? "bg-blue-600 text-white border-blue-700"
+                        : "bg-white text-gray-700 border-gray-300"
+                    }`}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {releasedDebates.length === 0 ? (
+            {drawDebates.length === 0 ? (
               <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-gray-500 text-xs">
-                {t("public.drawNotReleased", { round: activeRound?.name || t("public.thisRound") })}
+                {t("public.drawNotReleased", { round: drawRound?.name || activeRound?.name || t("public.thisRound") })}
               </div>
             ) : (
               <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
@@ -492,10 +613,8 @@ export default function PublicTournamentPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {releasedDebates.map((d, idx) => {
+                      {drawDebates.map((d, idx) => {
                         const venueCategory = getVenueCategory(d.venueId, d.venueName);
-                        const panellistNames = getPanelistNamesByScore(d.adjudicators, adjudicators);
-                        const traineeNames = getTraineeNames(d.adjudicators);
                         return (
                           <tr key={d.id} className="hover:bg-gray-50">
                             <td className="text-xs">
@@ -504,32 +623,22 @@ export default function PublicTournamentPage() {
                                 <span className="block text-[10px] text-blue-700">{venueCategory}</span>
                               )}
                             </td>
-                            {isBP ? (
-                              (["OG", "OO", "CG", "CO"] as DebateSide[]).map((side) => (
-                                <td key={side} className="text-xs font-semibold text-gray-900">
-                                  {d.teams?.[side]?.teamName || "—"}
-                                </td>
-                              ))
-                            ) : (
-                              (["AFF", "NEG"] as DebateSide[]).map((side) => (
-                                <td key={side} className="text-xs font-semibold text-gray-900">
-                                  {d.teams?.[side]?.teamName || "—"}
-                                  {sidesPending(d) && (
-                                    <span className="block text-[10px] font-normal text-gray-500">{t("common.sidesTbc")}</span>
-                                  )}
-                                </td>
-                              ))
-                            )}
+                            {(isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side) => (
+                              <td key={side} className="text-xs font-semibold text-gray-900">
+                                {renderDrawTeam(d.teams?.[side])}
+                                {!isBP && sidesPending(d) && (
+                                  <span className="block text-[10px] font-normal text-gray-500">{t("common.sidesTbc")}</span>
+                                )}
+                              </td>
+                            ))}
                             <td className="text-xs font-medium text-gray-900">
-                              {showPublicAdjudicators
-                                ? d.adjudicators?.chairName || "—"
-                                : t("common.tba")}
+                              {showDrawAdjudicators ? panelMembers(d.adjudicators, "chair") : t("common.tba")}
                             </td>
                             <td className="text-xs text-gray-700">
-                              {showPublicAdjudicators ? formatList(panellistNames) || "—" : t("common.tba")}
+                              {showDrawAdjudicators ? panelMembers(d.adjudicators, "panellists") : t("common.tba")}
                             </td>
                             <td className="text-xs text-gray-600">
-                              {showPublicAdjudicators ? formatList(traineeNames) || "—" : t("common.tba")}
+                              {showDrawAdjudicators ? panelMembers(d.adjudicators, "trainees") : t("common.tba")}
                             </td>
                           </tr>
                         );
@@ -601,11 +710,14 @@ export default function PublicTournamentPage() {
                       {releasedDebates.map((d) => {
                         const ballot = ballotMap.get(d.id);
                         const venueCategory = getVenueCategory(d.venueId, d.venueName);
-                        const panellistNames = getPanelistNamesByScore(d.adjudicators, adjudicators);
-                        const traineeNames = getTraineeNames(d.adjudicators);
+                        const splits = splittingAdjudicators(ballot);
+                        const canShowScoresheets = site.ballots && roundTeamSpeaksReleased && Boolean(ballot);
+                        const scoresheetsOpen = canShowScoresheets && openScoresheetDebateId === d.id;
+                        const sides = (isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
 
                         return (
-                          <tr key={d.id} className="hover:bg-gray-50">
+                          <React.Fragment key={d.id}>
+                          <tr className="hover:bg-gray-50">
                             <td className="text-xs">
                               <div className="font-bold text-gray-900">{d.venueName || "—"}</div>
                               {venueCategory && (
@@ -626,7 +738,9 @@ export default function PublicTournamentPage() {
                                           ? <ArrowUp className="inline w-3.5 h-3.5 me-1 text-emerald-600" aria-label={t("public.winningTeam")} />
                                           : <ArrowDown className="inline w-3.5 h-3.5 me-1 text-red-600" aria-label={t("public.losingTeam")} />
                                       )}
-                                      {tSlot?.teamName || "—"}
+                                      {tSlot?.teamId ? (
+                                        <PublicTeamName team={teamsById.get(tSlot.teamId)} name={tSlot.teamName} recordHref={teamHref(tSlot.teamId)} />
+                                      ) : "—"}
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
@@ -651,7 +765,9 @@ export default function PublicTournamentPage() {
                                           ? <ArrowUp className="inline w-3.5 h-3.5 me-1 text-emerald-600" aria-label={t("public.winningTeam")} />
                                           : <ArrowDown className="inline w-3.5 h-3.5 me-1 text-red-600" aria-label={t("public.losingTeam")} />
                                       )}
-                                      {tSlot?.teamName || "—"}
+                                      {tSlot?.teamId ? (
+                                        <PublicTeamName team={teamsById.get(tSlot.teamId)} name={tSlot.teamName} recordHref={teamHref(tSlot.teamId)} />
+                                      ) : "—"}
                                     </div>
                                     {tScore && (
                                       <div className="text-[11px] text-gray-500 font-mono">
@@ -666,19 +782,15 @@ export default function PublicTournamentPage() {
                             <td className="text-xs text-gray-700">
                               <span className="font-semibold text-gray-700">{t("public.chairLabel")}</span>{" "}
                               <span className="text-gray-900 font-medium">
-                                {showPublicAdjudicators
-                                  ? d.adjudicators?.chairName
-                                    ? `© ${d.adjudicators.chairName}`
-                                    : "—"
-                                  : t("common.tba")}
+                                {showPublicAdjudicators ? panelMembers(d.adjudicators, "chair", splits) : t("common.tba")}
                               </span>
                               <span className="mx-1.5 text-gray-300">|</span>
                               <span className="font-medium text-gray-700">{t("public.panellistsLabel")}</span>{" "}
-                              <span>{showPublicAdjudicators ? formatList(panellistNames) || "—" : t("common.tba")}</span>
+                              <span>{showPublicAdjudicators ? panelMembers(d.adjudicators, "panellists", splits) : t("common.tba")}</span>
                               <span className="mx-1.5 text-gray-300">|</span>
                               <span className="font-medium text-gray-700">{t("public.traineesLabel")}</span>{" "}
                               <span className="italic">
-                                {showPublicAdjudicators ? formatList(traineeNames) || "—" : t("common.tba")}
+                                {showPublicAdjudicators ? panelMembers(d.adjudicators, "trainees") : t("common.tba")}
                               </span>
                             </td>
                             <td className="text-center">
@@ -691,8 +803,32 @@ export default function PublicTournamentPage() {
                               >
                                 {ballot?.confirmed ? t("public.confirmed") : t("public.pending")}
                               </span>
+                              {canShowScoresheets && (
+                                <button
+                                  type="button"
+                                  aria-expanded={scoresheetsOpen}
+                                  onClick={() => setOpenScoresheetDebateId(scoresheetsOpen ? null : d.id)}
+                                  className="mt-1 block w-full text-[11px] font-semibold text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                                >
+                                  {scoresheetsOpen ? t("public.hideScoresheets") : t("public.showScoresheets")}
+                                </button>
+                              )}
                             </td>
                           </tr>
+                          {scoresheetsOpen && (
+                            <tr>
+                              <td colSpan={sides.length + 3} className="p-0">
+                                <ScoresheetsPanel
+                                  debate={d}
+                                  ballot={ballot}
+                                  sides={sides}
+                                  teamName={(side) => d.teams?.[side]?.teamName || t("public.noPublicName")}
+                                  replyPosition={prefs?.replyScoresEnabled && !isBP ? 4 : undefined}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -725,7 +861,9 @@ export default function PublicTournamentPage() {
                   {publicStandings.teams.map((row) => (
                     <tr key={row.teamId} className="hover:bg-gray-50">
                       <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
-                      <td className="font-bold text-gray-900 text-xs">{row.teamName}</td>
+                      <td className="font-bold text-gray-900 text-xs">
+                        <PublicTeamName team={teamsById.get(row.teamId)} name={row.teamName} recordHref={teamHref(row.teamId)} />
+                      </td>
                       <td className="text-xs text-gray-600">{row.institutionCode || "—"}</td>
                       {showAggregateTeamScores && <td className="text-end font-mono font-bold text-sm text-blue-600">{row.points}</td>}
                       {showAggregateTeamScores && (
@@ -746,15 +884,37 @@ export default function PublicTournamentPage() {
           </div>
         )}
 
-        {/* 3b. Released Team Tab */}
+        {/* 3b. Released Team Tab (and break category team tabs) */}
         {showTeamTab && activeTab === "teamTab" && (
           <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
               {t("public.tabTitle", {
                 tab: t("public.tab.teamTab"),
-                rounds: plural("public.completedRounds", tabRounds.length),
+                rounds: plural("public.completedRounds", tabRoundCount),
               })}
             </div>
+            {(teamTabOptions.length > 1 || (selectedTeamTabId === "all" && site.teamTabLimit > 0)) && (
+              <div role="group" aria-label={t("public.teamTabCategory")} className="flex flex-wrap items-center gap-1.5 border-b border-[#d0d7de] p-2">
+                {teamTabOptions.length > 1 && teamTabOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={selectedTeamTabId === option.id}
+                    onClick={() => setTeamTabCategoryId(option.id)}
+                    className={`rounded px-2.5 py-1 text-xs font-semibold border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      selectedTeamTabId === option.id
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {option.name}
+                  </button>
+                ))}
+                {selectedTeamTabId === "all" && site.teamTabLimit > 0 && (
+                  <span className="self-center text-[11px] text-gray-500">{t("public.topLimit", { limit: site.teamTabLimit })}</span>
+                )}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-start tabby-table">
                 <thead>
@@ -771,10 +931,12 @@ export default function PublicTournamentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tabStandings.teams.map((row) => (
+                  {teamTabRows.map((row) => (
                     <tr key={row.teamId} className="hover:bg-gray-50">
                       <td className="text-center font-mono font-bold text-xs">{row.rank}</td>
-                      <td className="font-bold text-gray-900 text-xs">{row.teamName}</td>
+                      <td className="font-bold text-gray-900 text-xs">
+                        <PublicTeamName team={teamsById.get(row.teamId)} name={row.teamName} recordHref={teamHref(row.teamId)} />
+                      </td>
                       <td className="text-xs text-gray-600">{row.institutionCode || "—"}</td>
                       <td className="text-end font-mono font-bold text-sm text-blue-600">
                         {isBP ? row.points : row.wins ?? row.points}
@@ -785,7 +947,7 @@ export default function PublicTournamentPage() {
                       <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageSpeakerScore, 2)}</td>
                       {teamExtra.map((metric) => (
                         <td key={metric} className="text-end font-mono text-xs text-gray-600">
-                          {formatMetricValue(row.metrics[metric])}
+                          {row.metrics[metric] !== undefined ? formatMetricValue(row.metrics[metric]!) : "—"}
                         </td>
                       ))}
                     </tr>
@@ -802,7 +964,7 @@ export default function PublicTournamentPage() {
             <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] font-bold text-xs text-gray-900">
               {t("public.tabTitle", {
                 tab: activeTab === "repliesTab" ? t("public.tab.repliesTab") : t("public.tab.speakerTab"),
-                rounds: plural("public.completedRounds", tabRounds.length),
+                rounds: plural("public.completedRounds", tabRoundCount),
               })}
             </div>
             {activeTab === "speakerTab" && publicSpeakerCategories.length > 0 && (
@@ -829,6 +991,12 @@ export default function PublicTournamentPage() {
                 ) : null}
               </div>
             )}
+            {((activeTab === "speakerTab" && !selectedSpeakerCategory && site.speakerTabLimit > 0) ||
+              (activeTab === "repliesTab" && site.repliesTabLimit > 0)) && (
+              <p className="border-b border-[#d0d7de] px-3 py-1.5 text-[11px] text-gray-500">
+                {t("public.topLimit", { limit: activeTab === "repliesTab" ? site.repliesTabLimit : site.speakerTabLimit })}
+              </p>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-start tabby-table">
                 <thead>
@@ -845,26 +1013,32 @@ export default function PublicTournamentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(activeTab === "repliesTab" ? tabStandings.replies : speakerTabRows).map((row) => (
+                  {(activeTab === "repliesTab" ? publicTabs?.repliesTab ?? [] : speakerTabRows).map((row) => (
                     <tr key={`${row.teamId}-${row.speakerId}`} className="hover:bg-gray-50">
                       <td className="text-center font-mono font-bold text-xs">
                         {row.ineligible ? <span title={t("public.unrankedHint")}>—</span> : row.rank}
                       </td>
                       <td className="font-bold text-gray-900 text-xs">
-                        {row.speakerName}
+                        <PublicPersonName name={row.speakerName} anonymous={row.anonymous} />
                         {row.ineligible && (
                           <span className="ms-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
                             {t("public.unranked")}
                           </span>
                         )}
                       </td>
-                      <td className="text-xs text-gray-600">{row.teamName}</td>
+                      <td className="text-xs text-gray-600">
+                        {row.anonymous ? (
+                          <span className="italic text-gray-500">{t("public.redacted")}</span>
+                        ) : (
+                          <PublicTeamName team={teamsById.get(row.teamId)} name={row.teamName} recordHref={teamHref(row.teamId)} />
+                        )}
+                      </td>
                       <td className="text-end font-mono font-semibold text-xs text-gray-800">{formatDecimal(row.totalScore, 1)}</td>
                       <td className="text-end font-mono text-xs text-gray-600">{formatDecimal(row.averageScore, 2)}</td>
                       <td className="text-end font-mono text-xs text-gray-600">{row.speechesCount}</td>
                       {activeTab !== "repliesTab" && speakerExtra.map((metric) => (
                         <td key={metric} className="text-end font-mono text-xs text-gray-600">
-                          {formatMetricValue(row.metrics[metric])}
+                          {row.metrics[metric] !== undefined ? formatMetricValue(row.metrics[metric]!) : "—"}
                         </td>
                       ))}
                     </tr>
@@ -934,6 +1108,21 @@ export default function PublicTournamentPage() {
                     {motionStatistics.get(m.id) && (
                       <MotionStatisticsSummary statistic={motionStatistics.get(m.id)!} isBP={isBP} />
                     )}
+                    {site.vetoStatistics && derived.vetoes?.[m.id] && (() => {
+                      const bySide = derived.vetoes[m.id]!;
+                      const entries = Object.entries(bySide) as Array<[DebateSide, number]>;
+                      const total = entries.reduce((sum, [, count]) => sum + count, 0);
+                      return (
+                        <p className="mt-2 text-xs text-gray-600">
+                          {t("public.vetoes", { count: total })}
+                          {entries.length > 1 && (
+                            <span className="ms-2 text-gray-500">
+                              {t("public.vetoesBySide", { sides: formatList(entries.map(([side, count]) => `${t(`side.${side}`)} ${count}`)) })}
+                            </span>
+                          )}
+                        </p>
+                      );
+                    })()}
                   </div>
                 );
               })
@@ -959,6 +1148,9 @@ export default function PublicTournamentPage() {
                         <th className="w-16 text-center">{t("public.col.seed")}</th>
                         <th>{t("public.col.team")}</th>
                         <th>{t("public.col.institution")}</th>
+                        {(derived.breakMetrics?.metricIds ?? []).map((metric) => (
+                          <th key={metric} className="text-end">{t(`metric.team.${metric}` as MessageKey)}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -967,8 +1159,18 @@ export default function PublicTournamentPage() {
                           <td className="text-center font-mono font-bold text-xs text-purple-700">
                             {b.seed}
                           </td>
-                          <td className="font-bold text-gray-900 text-xs">{b.team.name}</td>
+                          <td className="font-bold text-gray-900 text-xs">
+                            <PublicTeamName team={b.team} recordHref={teamHref(b.team.id)} />
+                          </td>
                           <td className="text-xs text-gray-600">{b.team.institutionName || "—"}</td>
+                          {(derived.breakMetrics?.metricIds ?? []).map((metric) => {
+                            const value = derived.breakMetrics?.teams[b.team.id]?.[metric];
+                            return (
+                              <td key={metric} className="text-end font-mono text-xs text-gray-600">
+                                {value !== undefined ? formatMetricValue(value) : "—"}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -979,7 +1181,27 @@ export default function PublicTournamentPage() {
           </div>
         )}
 
-        {showParticipants && activeTab === "participants" && <ParticipantsPanel participants={participants} />}
+        {showParticipants && activeTab === "participants" && (
+          <ParticipantsPanel
+            participants={participants}
+            showBreakCategories={site.breakCategoriesOnParticipants}
+            teamHref={teamHref}
+            adjudicatorHref={adjudicatorHref}
+          />
+        )}
+        {showAdjudicatorTab && activeTab === "adjudicatorTab" && derived.adjudicatorTab && (
+          <AdjudicatorTabPanel tab={derived.adjudicatorTab} recordHref={adjudicatorHref} />
+        )}
+        {showSideAllocations && activeTab === "sideAllocations" && derived.sideAllocations && (
+          <SideAllocationsPanel allocations={derived.sideAllocations} teamsById={teamsById} />
+        )}
+        {showBracket && activeTab === "bracket" && (
+          <BracketPanel rounds={rounds} debates={debates} ballots={ballots} teamsById={teamsById} isBP={isBP} teamHref={teamHref} />
+        )}
+        {showDiversity && activeTab === "diversity" && derived.diversity && <DiversityPanel diversity={derived.diversity} />}
+        {showFeedbackProgress && activeTab === "feedbackProgress" && derived.feedbackProgress && (
+          <FeedbackProgressPanel progress={derived.feedbackProgress} />
+        )}
         {showInstitutions && activeTab === "institutions" && <InstitutionsPanel institutions={institutionRows} />}
         {showAdjudicatorLists && activeTab === "adjudicators" && (
           <AdjudicatorListsPanel

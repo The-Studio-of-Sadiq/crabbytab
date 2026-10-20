@@ -37,6 +37,7 @@ import {
 } from "@/lib/feedback/questions";
 import { feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 
 export const runtime = "nodejs";
 
@@ -455,7 +456,8 @@ export async function POST(request: NextRequest) {
       assignedBallots.filter((ballot) => assignedDebates.has(ballot.debateId)),
       allRounds,
       actorType,
-      tournament.preferences?.publicResults !== false
+      tournament.preferences?.publicResults !== false,
+      getPublicSiteSettings(tournament.preferences).privateBallots
     );
     const feedback = feedbackSnapshot.docs.map((document) => ({
       ...document.data(),
