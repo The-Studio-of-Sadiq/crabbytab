@@ -25,6 +25,8 @@ export interface DialogProps {
   /** Leading icon shown next to the title. */
   icon?: React.ReactNode;
   className?: string;
+  /** Accessible name of the close button (translated by the caller); defaults to English. */
+  closeLabel?: string;
 }
 
 const sizeClasses = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-2xl" };
@@ -48,6 +50,7 @@ export function Dialog({
   dismissible = true,
   icon,
   className,
+  closeLabel = "Close dialog",
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -98,7 +101,7 @@ export function Dialog({
             )}
           </div>
           {dismissible && (
-            <IconButton label="Close dialog" icon={<X />} size="sm" onClick={close} className="-mr-2 -mt-1" />
+            <IconButton label={closeLabel} icon={<X />} size="sm" onClick={close} className="-mr-2 -mt-1" />
           )}
         </div>
         {children && <div className="min-h-0 overflow-y-auto px-5 pb-4 text-[13px]">{children}</div>}

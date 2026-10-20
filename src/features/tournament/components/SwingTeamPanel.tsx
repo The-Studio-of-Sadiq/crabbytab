@@ -12,6 +12,13 @@ import {
   withSwingRound,
   type SwingSpeakerInput,
 } from "@/features/tournament/application/swingTeams";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { PluralKey } from "@/lib/i18n";
+import { Alert } from "@/components/ui/Feedback";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+import { Input, Select } from "@/components/ui/Field";
 
 interface SwingTeamPanelProps {
   tournament: Tournament;
@@ -21,9 +28,9 @@ interface SwingTeamPanelProps {
   updateTeam: (team: Team) => Promise<void>;
 }
 
-const BYE_LABELS: Record<string, string> = {
-  lowest_ranked: "the lowest-ranked teams",
-  random: "randomly chosen teams",
+const BYE_MESSAGES: Record<string, PluralKey> = {
+  lowest_ranked: "tabroom.draw.swing.byesLowestRanked",
+  random: "tabroom.draw.swing.byesRandom",
 };
 
 /**
@@ -32,6 +39,7 @@ const BYE_LABELS: Record<string, string> = {
  * earlier swing team). Swing teams are drawn like any team but are not ranked in the tab.
  */
 export function SwingTeamPanel({ tournament, round, teams, addTeam, updateTeam }: SwingTeamPanelProps) {
+  const { t, plural } = useI18n();
   const speakerCount = tournament.preferences?.substantiveSpeakers ?? (tournament.format === "bp" ? 2 : 3);
   const field = useMemo(() => roundFieldSize(tournament, round, teams), [tournament, round, teams]);
   const needed = swingTeamsNeeded(field);
@@ -62,7 +70,7 @@ export function SwingTeamPanel({ tournament, round, teams, addTeam, updateTeam }
       await action();
       setStatus({ kind: "success", message: success });
     } catch (error) {
-      setStatus({ kind: "error", message: error instanceof Error ? error.message : "Could not save the swing team." });
+      setStatus({ kind: "error", message: error instanceof Error ? error.message : t("tabroom.draw.swing.saveFailed") });
     } finally {
       setBusy(false);
     }
@@ -86,43 +94,50 @@ export function SwingTeamPanel({ tournament, round, teams, addTeam, updateTeam }
       await addTeam(buildSwingTeam(input, (index) => `swing-${stamp}-s${index + 1}`));
       setName("");
       setSpeakers(Array.from({ length: speakerCount }, () => ({ name: "" })));
-    }, `${proposedName} added to ${round.name}. Generate the draw to place it.`);
+    }, t("tabroom.draw.swing.created", { team: proposedName, round: round.name }));
   };
 
+  const roundShort = round.abbreviation || round.name;
+
   return (
-    <details open={needed > 0} className="rounded border border-gray-200 bg-white px-3 py-2 text-xs">
-      <summary className="cursor-pointer font-semibold text-gray-800">
-        <Users className="mr-1 inline h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
-        Swing teams
+    <details open={needed > 0} className="rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+      <summary className={cn("cursor-pointer rounded-sm font-semibold text-fg", focusRing)}>
+        <Users className="mr-1 inline h-3.5 w-3.5 text-fg-subtle" aria-hidden="true" />
         {needed > 0
-          ? `: ${field.available} teams available, ${needed} short of full rooms`
-          : inRound.length > 0 ? `: ${inRound.length} in ${round.name}` : ""}
+          ? plural("tabroom.draw.swing.summaryShort", needed, { available: field.available })
+          : inRound.length > 0
+            ? t("tabroom.draw.swing.summaryInRound", { count: inRound.length, round: round.name })
+            : t("tabroom.draw.swing.summary")}
       </summary>
       <div className="mt-2 space-y-3">
         {needed > 0 && (
-          <p className="text-gray-700">
+          <p className="text-fg">
             {usesByes
-              ? `Without swing teams the draw gives byes to ${field.excess} of ${BYE_LABELS[byeMethod!] ?? "the teams"}. `
-              : `Without swing teams or byes the draw cannot fill every room. `}
-            Add {needed} swing team{needed === 1 ? "" : "s"} to fill the last room instead. Swing teams are drawn like any team,
-            their results count for their opponents, and they and their speakers are not ranked in the tab or the break.
+              ? plural(BYE_MESSAGES[byeMethod ?? ""] ?? "tabroom.draw.swing.byesOther", field.excess)
+              : t("tabroom.draw.swing.noByes")}{" "}
+            {plural("tabroom.draw.swing.addNeeded", needed)}
           </p>
         )}
 
         {inRound.length > 0 && (
-          <ul className="space-y-1" aria-label={`Swing teams in ${round.name}`}>
+          <ul className="space-y-1" aria-label={t("tabroom.draw.swing.inRoundAria", { round: round.name })}>
             {inRound.map((team) => (
               <li key={team.id} className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold">{team.name}</span>
-                <span className="text-gray-500">{team.speakers.map((speaker) => speaker.name).join(", ")}</span>
-                <button
-                  type="button"
+                <span className="font-semibold text-fg">{team.name}</span>
+                <span className="text-fg-muted">{team.speakers.map((speaker) => speaker.name).join(", ")}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
                   disabled={busy}
-                  onClick={() => void run(() => updateTeam(withoutSwingRound(team, round)), `${team.name} removed from ${round.name}.`)}
-                  className="rounded border border-gray-300 px-2 py-0.5 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  onClick={() =>
+                    void run(
+                      () => updateTeam(withoutSwingRound(team, round)),
+                      t("tabroom.draw.swing.removed", { team: team.name, round: round.name })
+                    )
+                  }
                 >
-                  Remove from {round.abbreviation || round.name}
-                </button>
+                  {t("tabroom.draw.swing.removeFrom", { round: roundShort })}
+                </Button>
               </li>
             ))}
           </ul>
@@ -130,77 +145,86 @@ export function SwingTeamPanel({ tournament, round, teams, addTeam, updateTeam }
 
         {reusable.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-gray-600">Earlier swing teams:</span>
+            <span className="text-fg-muted">{t("tabroom.draw.swing.earlier")}</span>
             {reusable.map((team) => (
-              <button
+              <Button
                 key={team.id}
-                type="button"
+                size="sm"
+                variant="secondary"
                 disabled={busy}
-                onClick={() => void run(() => updateTeam(withSwingRound(team, round)), `${team.name} added to ${round.name}.`)}
-                className="rounded border border-gray-300 px-2 py-0.5 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                onClick={() =>
+                  void run(
+                    () => updateTeam(withSwingRound(team, round)),
+                    t("tabroom.draw.swing.added", { team: team.name, round: round.name })
+                  )
+                }
               >
-                Use {team.name} in {round.abbreviation || round.name}
-              </button>
+                {t("tabroom.draw.swing.use", { team: team.name, round: roundShort })}
+              </Button>
             ))}
           </div>
         )}
 
-        <form onSubmit={create} className="space-y-2" aria-label="New swing team">
-          <label className="block max-w-xs font-semibold text-gray-700">
-            Swing team name
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={proposedName}
-              maxLength={100}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-normal"
-            />
-          </label>
+        <form onSubmit={create} className="space-y-2" aria-label={t("tabroom.draw.swing.formAria")}>
+          <Input
+            label={t("tabroom.draw.swing.name")}
+            wrapperClassName="max-w-xs space-y-1"
+            className="h-7 text-xs"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={proposedName}
+            maxLength={100}
+          />
           <fieldset className="space-y-1.5">
-            <legend className="font-semibold text-gray-700">Speakers ({speakerCount})</legend>
+            <legend className="text-xs font-medium text-fg">{t("tabroom.draw.swing.speakers", { count: speakerCount })}</legend>
             {rows.map((speaker, index) => (
               <div key={index} className="flex flex-col gap-1 sm:flex-row sm:items-center">
-                <label className="sm:w-56">
-                  <span className="sr-only">Speaker {index + 1} name</span>
-                  <input
-                    value={speaker.name}
-                    onChange={(event) => setSpeaker(index, { name: event.target.value, sourceSpeakerId: undefined })}
-                    placeholder={`Speaker ${index + 1} (reserve name)`}
-                    maxLength={100}
-                    className="w-full rounded border border-gray-300 px-2 py-1"
-                  />
-                </label>
-                <label className="flex items-center gap-1 text-gray-600">
-                  <span>or from a team:</span>
-                  <select
+                <Input
+                  aria-label={t("tabroom.draw.swing.speakerNameAria", { number: index + 1 })}
+                  wrapperClassName="sm:w-56"
+                  className="h-7 text-xs sm:w-56"
+                  value={speaker.name}
+                  onChange={(event) => setSpeaker(index, { name: event.target.value, sourceSpeakerId: undefined })}
+                  placeholder={t("tabroom.draw.swing.speakerPlaceholder", { number: index + 1 })}
+                  maxLength={100}
+                />
+                <label className="flex items-center gap-1 text-fg-muted">
+                  <span>{t("tabroom.draw.swing.fromTeam")}</span>
+                  <Select
                     value={speaker.sourceSpeakerId ?? ""}
                     onChange={(event) => {
                       const source = registeredSpeakers.find((item) => item.id === event.target.value);
                       setSpeaker(index, source ? { name: source.name, sourceSpeakerId: source.id } : { sourceSpeakerId: undefined });
                     }}
-                    className="max-w-[16rem] rounded border border-gray-300 px-1 py-1"
+                    className="h-7 max-w-[16rem] text-xs"
                   >
-                    <option value="">Reserve (not registered)</option>
+                    <option value="">{t("tabroom.draw.swing.reserve")}</option>
                     {registeredSpeakers.map((item) => (
                       <option key={item.id} value={item.id}>{item.name} ({item.teamName})</option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               </div>
             ))}
           </fieldset>
-          <button
+          <Button
             type="submit"
-            disabled={busy}
-            className="rounded bg-blue-600 px-3 py-1.5 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+            size="sm"
+            variant="primary"
+            loading={busy}
+            loadingText={t("tabroom.common.saving")}
           >
-            {busy ? "Saving…" : `Add swing team to ${round.abbreviation || round.name}`}
-          </button>
+            {t("tabroom.draw.swing.submit", { round: roundShort })}
+          </Button>
         </form>
         {status && (
-          <p role={status.kind === "error" ? "alert" : "status"} className={status.kind === "error" ? "text-red-700" : "text-emerald-700"}>
+          <Alert
+            tone={status.kind === "error" ? "danger" : "success"}
+            role={status.kind === "error" ? "alert" : "status"}
+            className="p-2 text-xs"
+          >
             {status.message}
-          </p>
+          </Alert>
         )}
       </div>
     </details>

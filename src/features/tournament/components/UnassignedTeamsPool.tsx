@@ -1,5 +1,10 @@
-import { ArrowRightLeft, GripVertical, Layers } from "lucide-react";
+"use client";
+
+import { ArrowRightLeft, GripVertical, Hand, Layers } from "lucide-react";
 import type { DragEvent } from "react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
 import type { DebateSide, Team } from "@/types";
 
 export interface TeamDragPayload {
@@ -29,6 +34,11 @@ interface UnassignedTeamsPoolProps {
   onReturnToPool?: () => void;
 }
 
+/** The `data-pick-key` of a pool team's Move button, so focus can return to it after a pick. */
+export function poolPickKey(teamId: string): string {
+  return `pool:${teamId}`;
+}
+
 export function UnassignedTeamsPool({
   teams,
   expanded,
@@ -43,91 +53,90 @@ export function UnassignedTeamsPool({
   onPick,
   onReturnToPool,
 }: UnassignedTeamsPoolProps) {
+  const { t } = useI18n();
+  const dragOver = dragOverTarget === "unassigned-pool";
   return (
     <div
       onDragOver={(event) => onDragOver(event, "unassigned-pool")}
       onDragLeave={(event) => onDragLeave(event, "unassigned-pool")}
       onDrop={onDrop}
-      className={`p-3 rounded-lg border transition ${
-        dragOverTarget === "unassigned-pool"
-          ? "bg-amber-50 border-amber-500 border-dashed ring-2 ring-amber-300"
-          : "bg-slate-50 border-slate-200"
-      }`}
+      className={cn(
+        "rounded-lg border p-3 transition-colors",
+        dragOver ? "border-dashed border-accent bg-accent-subtle ring-2 ring-accent" : "border-border bg-surface"
+      )}
     >
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <span className="text-xs font-bold text-gray-800 uppercase tracking-wide flex items-center space-x-1.5">
-            <Layers className="w-3.5 h-3.5 text-blue-600" />
-            <span>Unassigned Teams Pool ({teams.length})</span>
-          </span>
-          <span className="text-[11px] text-gray-500">
-            (Drag teams, or use Move then Place / Swap, to re-pair manually)
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg">
+            <Layers className="h-3.5 w-3.5 text-fg-subtle" aria-hidden="true" />
+            {t("tabroom.draw.pool.title", { count: teams.length })}
+          </h2>
+          <span className="text-[11px] text-fg-muted">
+            {dragOver ? t("tabroom.draw.pool.dropHere") : t("tabroom.draw.pool.hint")}
           </span>
         </div>
-        {pickedFromDebate && onReturnToPool && (
-          <button
-            type="button"
-            onClick={onReturnToPool}
-            className="inline-flex items-center gap-1 rounded border border-blue-600 bg-blue-600 px-2 py-1 text-[11px] font-bold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-          >
-            <ArrowRightLeft className="h-3 w-3" aria-hidden="true" />
-            Return picked team to pool
-          </button>
-        )}
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={onToggle}
-          className="text-xs text-blue-600 hover:underline font-semibold"
-        >
-          {expanded ? "Hide" : "Show"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {pickedFromDebate && onReturnToPool && (
+            <Button size="sm" variant="primary" onClick={onReturnToPool} data-place-target="">
+              <ArrowRightLeft aria-hidden="true" />
+              {t("tabroom.draw.pool.returnPicked")}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" aria-expanded={expanded} onClick={onToggle}>
+            {expanded ? t("tabroom.draw.pool.hide") : t("tabroom.draw.pool.show")}
+          </Button>
+        </div>
       </div>
 
       {expanded && (
         <div className="flex flex-wrap gap-2 pt-1">
-          {teams.map((team) => (
-            <div
-              key={team.id}
-              draggable
-              onDragStart={(event) =>
-                onDragStart(event, {
-                  type: "team",
-                  sourceType: "unassigned",
-                  teamId: team.id,
-                  teamName: team.name,
-                  institutionId: team.institutionId,
-                  institutionName: team.institutionName,
-                })
-              }
-              className={`inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white border rounded shadow-2xs hover:border-blue-500 hover:shadow-xs cursor-grab active:cursor-grabbing text-xs text-gray-900 transition ${
-                pickedTeamId === team.id ? "border-blue-500 ring-2 ring-blue-400" : "border-gray-300"
-              }`}
-            >
-              <GripVertical className="w-3 h-3 text-gray-400" aria-hidden="true" />
-              <span className="font-bold">{team.name}</span>
-              {team.isSwing && <span className="text-[10px] font-semibold text-gray-600">(swing)</span>}
-              {team.institutionName && (
-                <span className="text-[10px] text-gray-500">({team.institutionName})</span>
-              )}
-              {onPick && !pickedTeamId && (
-                <button
-                  type="button"
-                  onClick={() => onPick(team)}
-                  aria-label={`Pick ${team.name} to place in a debate`}
-                  className="ml-1 rounded border border-gray-300 px-1 text-[10px] font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  Move
-                </button>
-              )}
-              {pickedTeamId === team.id && <span className="text-[10px] font-bold text-blue-700">Picked</span>}
-            </div>
-          ))}
+          {teams.map((team) => {
+            const picked = pickedTeamId === team.id;
+            return (
+              <div
+                key={team.id}
+                draggable
+                onDragStart={(event) =>
+                  onDragStart(event, {
+                    type: "team",
+                    sourceType: "unassigned",
+                    teamId: team.id,
+                    teamName: team.name,
+                    institutionId: team.institutionId,
+                    institutionName: team.institutionName,
+                  })
+                }
+                className={cn(
+                  "inline-flex cursor-grab items-center gap-1.5 rounded-md border bg-surface px-2 py-1 text-xs text-fg transition-colors hover:border-accent active:cursor-grabbing",
+                  picked ? "border-accent bg-accent-subtle ring-2 ring-accent" : "border-border-strong"
+                )}
+              >
+                <GripVertical className="h-3 w-3 text-fg-subtle" aria-hidden="true" />
+                <span className="font-semibold">{team.name}</span>
+                {team.isSwing && <span className="text-[10px] font-medium text-fg-muted">{t("tabroom.draw.pool.swing")}</span>}
+                {team.institutionName && (
+                  <span className="text-[10px] text-fg-muted">({team.institutionName})</span>
+                )}
+                {onPick && !pickedTeamId && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => onPick(team)}
+                    aria-label={t("tabroom.draw.pool.pickAria", { team: team.name })}
+                    data-pick-key={poolPickKey(team.id)}
+                    className="ml-1 h-6 px-1.5 text-[11px]"
+                  >
+                    <Hand aria-hidden="true" />
+                    {t("tabroom.draw.slot.move")}
+                  </Button>
+                )}
+                {picked && <span className="text-[10px] font-semibold text-accent-text">{t("tabroom.draw.slot.picked")}</span>}
+              </div>
+            );
+          })}
 
           {teams.length === 0 && (
-            <span className="text-xs text-gray-400 italic">
-              All eligible teams are currently allocated to debate rooms.
-            </span>
+            <span className="text-xs italic text-fg-muted">{t("tabroom.draw.pool.empty")}</span>
           )}
         </div>
       )}

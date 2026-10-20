@@ -183,6 +183,11 @@ Translated:
   self check-in, feedback forms, tournament feedback questions and in-portal
   ballot entry
 - The language menu in the staff account menu
+- Tab-room pages (`tabroom.*`): draw, allocation, preformed panels, admin
+  check-ins, and the printable ballots and feedback sheets. Printed sheets use
+  the tournament's public language (`usePrintTranslator`), whatever language
+  the tab director's screen is in. Draw-check issues, allocator warnings and
+  venue/clash reasons from `src/lib/**` are still English.
 
 Not translated yet (English only):
 
