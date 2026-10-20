@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
-import type { Adjudicator, Debate, Round, Team, Tournament, Venue } from "@/types";
+import type { Adjudicator, BallotSubmission, Debate, Round, Team, Tournament, Venue } from "@/types";
 import { validateDraw } from "@/lib/draw/validateDraw";
 
 interface DrawCheckPanelProps {
@@ -13,14 +13,16 @@ interface DrawCheckPanelProps {
   teams: Team[];
   adjudicators: Adjudicator[];
   venues: Venue[];
+  /** Sides recorded on confirmed ballots (manual-ballot sides) count in the side history. */
+  ballots?: BallotSubmission[];
 }
 
 /** Lists what the draw check finds in the selected round's draw. Read-only. */
-export function DrawCheckPanel({ tournament, round, rounds, debates, teams, adjudicators, venues }: DrawCheckPanelProps) {
+export function DrawCheckPanel({ tournament, round, rounds, debates, teams, adjudicators, venues, ballots }: DrawCheckPanelProps) {
   const hasDraw = debates.some((debate) => debate.roundId === round.id);
   const issues = useMemo(
-    () => (hasDraw ? validateDraw({ tournament, round, rounds, debates, teams, adjudicators, venues }) : []),
-    [hasDraw, tournament, round, rounds, debates, teams, adjudicators, venues]
+    () => (hasDraw ? validateDraw({ tournament, round, rounds, debates, teams, adjudicators, venues, ballots }) : []),
+    [hasDraw, tournament, round, rounds, debates, teams, adjudicators, venues, ballots]
   );
   if (!hasDraw) return null;
 
