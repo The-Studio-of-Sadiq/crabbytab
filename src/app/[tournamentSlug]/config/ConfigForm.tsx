@@ -52,6 +52,7 @@ import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedba
 import { preliminaryFeedbackPaths } from "@/lib/feedback/paths";
 import { FeedbackPathsEditor } from "@/components/feedback/FeedbackPathsEditor";
 import { LOCALES } from "@/lib/i18n/config";
+import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -1792,19 +1793,6 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
               <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={prefs.publicDraw !== false}
-                  onChange={(e) => setPrefs((p) => ({ ...p, publicDraw: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <div>
-                  <span className="font-semibold text-gray-800 block">Public Draw Display</span>
-                  <span className="text-[11px] text-gray-500">Allow public viewers to see confirmed round pairings and room allocations.</span>
-                </div>
-              </label>
-
-              <label className="flex items-center space-x-2.5 p-3 rounded bg-gray-50 border border-gray-200 cursor-pointer">
-                <input
-                  type="checkbox"
                   checked={prefs.publicResults !== false}
                   onChange={(e) => setPrefs((p) => ({ ...p, publicResults: e.target.checked }))}
                   className="rounded border-gray-300 text-blue-600"
@@ -1930,6 +1918,8 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 Default for public pages, team and adjudicator portals. Viewers can still pick their own language.
               </span>
             </label>
+
+            <PublicSiteSettingsFields prefs={prefs} setPrefs={setPrefs} />
           </div>
         )}
 

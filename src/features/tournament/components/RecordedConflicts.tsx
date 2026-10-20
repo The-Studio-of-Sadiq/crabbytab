@@ -10,13 +10,13 @@ import { Select } from "@/components/ui/Field";
 import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import {
   addTeamInstitutionConflict,
-  conflictsCsv,
   describeConflict,
   listDeclaredConflicts,
   removeDeclaredConflict,
   type DeclaredConflict,
 } from "@/lib/csv/conflictsExport";
 import type { ConflictKind } from "@/lib/csv/conflictsImport";
+import { conflictsCsv } from "@/lib/csv/participantExports";
 import { csvFileStem } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 

@@ -1,13 +1,11 @@
 import type { Adjudicator, Institution, Team } from "@/types";
-import { toCsv } from "./exporters";
 import type { ConflictKind } from "./conflictsImport";
 import { normalizeName } from "./csvTable";
 
 /**
- * Every declared conflict as one list (Tabbycat's conflicts page and export), plus removal and
- * the team–institution additions the conflicts page offers. The CSV uses the import format
- * (`adjudicator,team,institution,other_adjudicator`), so an export can be edited and imported
- * again: adjudicators are written by name, or by email when their name is shared.
+ * Every declared conflict as one list (Tabbycat's conflicts page), plus removal and the
+ * team–institution additions the conflicts page offers. The CSV export is `conflictsCsv` in
+ * participantExports.ts.
  */
 
 export interface DeclaredConflict {
@@ -90,20 +88,6 @@ export function describeConflict(conflict: DeclaredConflict, data: ConflictData)
     case "team-institution":
       return `${name.team(conflict.teamId)} – ${name.institution(conflict.institutionId)}`;
   }
-}
-
-/** Conflicts CSV in the import format. */
-export function conflictsCsv(data: ConflictData): string {
-  const name = names(data);
-  return toCsv(
-    ["adjudicator", "team", "institution", "other_adjudicator"],
-    listDeclaredConflicts(data).map((conflict) => [
-      conflict.adjudicatorId ? name.adjudicator(conflict.adjudicatorId) : "",
-      conflict.teamId ? name.team(conflict.teamId) : "",
-      conflict.institutionId ? name.institution(conflict.institutionId) : "",
-      conflict.otherAdjudicatorId ? name.adjudicator(conflict.otherAdjudicatorId) : "",
-    ])
-  );
 }
 
 /** The adjudicators and teams that change when this conflict is removed (from both sides). */

@@ -5,6 +5,9 @@ import { Users2 } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import type { Adjudicator, Speaker, Team } from "@/types";
 import { formatDiversityCounts, panelDiversitySummary, participantRegion } from "@/lib/adjudicators/diversity";
+import { buildAdminDiversity } from "@/lib/publicView/derived";
+import { createPublicNamer } from "@/lib/publicView/names";
+import { DiversityPanel } from "@/features/tournament/components/public/PublicSitePanels";
 
 type Kind = "speakers" | "adjudicators";
 
@@ -36,7 +39,30 @@ function DiversityInput({ label, value, placeholder, disabled, onSave }: Diversi
 }
 
 export default function DiversityPage() {
-  const { teams, adjudicators, institutions, updateTeam, updateAdjudicator, isOwnerOrAdmin } = useTournament();
+  const {
+    tournament,
+    rounds,
+    debates,
+    ballots,
+    feedback,
+    teams,
+    adjudicators,
+    institutions,
+    updateTeam,
+    updateAdjudicator,
+    isOwnerOrAdmin,
+  } = useTournament();
+  const statistics = useMemo(
+    () =>
+      tournament
+        ? buildAdminDiversity(
+            tournament,
+            { rounds, teams, adjudicators, debates, ballots, institutions, feedback },
+            createPublicNamer(teams, adjudicators, { teamCodeNames: "off", participantCodeNames: "off" })
+          )
+        : undefined,
+    [tournament, rounds, teams, adjudicators, debates, ballots, institutions, feedback]
+  );
   const [kind, setKind] = useState<Kind>("speakers");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
@@ -199,6 +225,17 @@ export default function DiversityPage() {
           </tbody>
         </table>
       </div>
+
+      {tournament && (
+        <section aria-labelledby="diversity-statistics" className="space-y-2">
+          <h2 id="diversity-statistics" className="text-sm font-bold text-gray-900">Statistics</h2>
+          <p className="text-xs text-gray-600">
+            Over every round and confirmed ballot. The public page (released from the Public release panel) shows the
+            same breakdowns, limited to released results and announced panels.
+          </p>
+          {statistics && <DiversityPanel diversity={statistics} />}
+        </section>
+      )}
     </div>
   );
 }

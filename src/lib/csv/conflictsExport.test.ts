@@ -2,12 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { Adjudicator, Institution, Team } from "@/types";
 import {
   addTeamInstitutionConflict,
-  conflictsCsv,
   describeConflict,
   listDeclaredConflicts,
   removeDeclaredConflict,
 } from "./conflictsExport";
-import { planConflictsImport } from "./conflictsImport";
 
 const team = (id: string, name: string, extra: Partial<Team> = {}): Team => ({
   id, tournamentId: "t", name, speakers: [], breakCategories: [], speakerCategories: [], ...extra,
@@ -40,17 +38,6 @@ describe("declared conflicts", () => {
       "team-institution",
     ]);
     expect(describeConflict(conflicts[3], data)).toBe("Alpha A – Gamma, University");
-  });
-
-  it("exports a CSV the importer reads back as already recorded", () => {
-    const csv = conflictsCsv(data);
-    expect(csv.split("\r\n")[0]).toBe("adjudicator,team,institution,other_adjudicator");
-    // Shared names are written as emails; commas are quoted; formula-like cells are escaped.
-    expect(csv).toContain("sam1@example.org,,,sam2@example.org");
-    expect(csv).toContain('"Gamma, University"');
-    expect(csv).toContain("'=Beta");
-    const plan = planConflictsImport(csv.replace("'=Beta", "=Beta"), data);
-    expect(plan.rows.map((row) => row.status)).toEqual(["exists", "exists", "exists", "exists"]);
   });
 
   it("removes a conflict from both declaring sides", () => {

@@ -116,9 +116,9 @@ preview works like the participant imports: nothing is saved until confirmed, an
 block the import unless the valid rows only are imported.
 
 The same page lists every recorded conflict, removes one (from both sides for
-adjudicator–adjudicator conflicts), adds team–institution conflicts, and exports all conflicts as
-a CSV in this format (`src/lib/csv/conflictsExport.ts`). Adjudicators who share a name are
-exported by email, so the file imports back cleanly.
+adjudicator–adjudicator conflicts) and adds team–institution conflicts
+(`src/lib/csv/conflictsExport.ts`); its *Export conflicts CSV* button downloads the same file as
+the Data exports page.
 
 ## Room preferences CSV
 
@@ -152,6 +152,53 @@ with `'`) and a UTF-8 BOM for Excel.
 | Draw → Export CSV | The round's draw with adjudicators and motion | Tab room |
 | Feedback → Feedback CSV (admin only) | Every submission with source, comments and answers | Admins only |
 | Feedback → Scores CSV (admin only) | Base, test, feedback and blended adjudicator scores | Admins only |
+| Data exports → Teams | One row per team: speakers, institution, code name, emoji, seed, break categories, swing | Admins only |
+| Data exports → Speakers | One row per speaker: team, institution, email, gender, region, speaker categories | Admins only |
+| Data exports → Adjudicators | Institution, email, base/test score, trainee, independent, adjudication core, breaking | Admins only |
+| Data exports → Institutions | Name, code, region, team and adjudicator counts | Admins only |
+| Data exports → Availability | Every team, adjudicator and venue × every non-cancelled round: available yes/no | Admins only |
+| Data exports → Break eligibility | Team × break category: eligible, override, speaker-category rule and whether it is met, broke | Admins only |
+| Data exports → Conflicts | Adjudicator–team, adjudicator–adjudicator, adjudicator–institution, team–institution | Admins only |
+
+The **Data exports** page (admin sidebar) builds the participant, availability, break-eligibility
+and conflict files in the browser from the working copy (`src/lib/csv/participantExports.ts`).
+Private URL keys and passcodes are never exported; the files do hold email addresses.
+
+- Teams, speakers, adjudicators and institutions carry their `id`, so rows can be matched up again.
+- Availability applies the same rule as the draw: a round's own availability, else the check-in,
+  with the check-in expiry; venues use their tournament-wide flag.
+- The conflicts file uses the conflicts import's columns (`adjudicator`, `team`, `institution`,
+  `other_adjudicator`, plus a `type` column the import ignores), so it can be edited and imported
+  again (tested as a round trip). Records are named by name, or by email (adjudicators), code name
+  (teams) or code (institutions) where the name is shared. History conflicts (derived from past
+  rounds), an adjudicator's or team's own institution and the second copy of a mutual
+  adjudicator conflict are left out.
+
+## Rehearsal tools and demo tournaments
+
+Tabbycat's `generateresults`, `simulaterounds` and `generatefeedback` commands and its demo
+tournaments, for practising before an event.
+
+- **Load demo tournament** (tournament switcher, or `/tournaments/demo`; global administrators,
+  like any new tournament): a seeded BP (24 teams) or WSDC (16 teams) tournament with institutions,
+  speakers (some in ESL / novice categories), adjudicators with scores and a few conflicts, rooms,
+  preliminary and elimination rounds, motions and Open / ESL break categories
+  (`src/lib/rehearsal/demoTournament.ts`). It is saved as a new tournament on this device (never
+  overwriting one); its URL starts with `demo-` and its name with "Demo —".
+- **Rehearsal tools** (admin sidebar, `/[tournament]/rehearsal`): for a round with a draw,
+  *Simulate results* creates one random, valid, confirmed ballot per unresulted debate and
+  *Simulate feedback* one feedback submission per expected source/target pair along the configured
+  feedback paths, answering custom questions validly (`application/rehearsal.ts`).
+  - Seeded: the same seed on the same draw gives the same results.
+  - Ballots are validated with the ballot form's checks, built with its result builder (consensus
+    or voting, replies, BP ranks from totals so there are no low-point wins) and submitted through
+    `submitBallotCommand`, so the round's rules apply (a completed round asks for an override).
+  - Simulated records are marked "Simulated (rehearsal)". Debates that cannot be simulated
+    (postponed, already resulted, sides chosen on the ballot, a team without enough speakers, no
+    voting adjudicator) are listed, never silently dropped.
+  - Nothing runs automatically. On a tournament that is not a demo tournament each run needs the
+    tournament's short name typed as confirmation, and every run is recorded in the audit log
+    (`rehearsal.results_simulated`, `rehearsal.feedback_simulated`, with the seed).
 
 ## JSON backups
 

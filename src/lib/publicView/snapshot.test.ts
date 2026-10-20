@@ -13,6 +13,7 @@ import {
   latestPublicRoundId,
   parseSectionChunks,
   PUBLIC_BASE_SECTIONS,
+  PUBLIC_VIEW_FORMAT,
   roundSectionName,
   splitByRound,
   type PublicViewSections,
@@ -318,7 +319,7 @@ describe("chunking and roots", () => {
     });
     // Only round 1 is public (round 2's draw is a draft), so it is the only round section.
     expect(changedSections(null, first.root)).toEqual([...PUBLIC_BASE_SECTIONS, "round-r1"]);
-    expect(first.root).toMatchObject({ format: 2, roundIds: ["r1"] });
+    expect(first.root).toMatchObject({ format: PUBLIC_VIEW_FORMAT, roundIds: ["r1"] });
 
     const data = source();
     data.motions[1] = { ...data.motions[1], released: true };

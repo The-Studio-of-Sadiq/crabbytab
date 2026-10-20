@@ -328,6 +328,68 @@ export interface TournamentPreferences {
   allowSelfCheckIn?: boolean;
   /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
   speakerCategories?: SpeakerCategory[];
+
+  /*
+   * Public site (Tabbycat's public_features / tab_release / ui_options). Resolved with defaults by
+   * getPublicSiteSettings (src/lib/publicFeatures.ts); every field is optional so saved settings load.
+   */
+  /** Tabbycat `public_draw`. Absent: "all" unless the legacy `publicDraw` is false. */
+  publicDrawMode?: PublicDrawMode;
+  /** Tabbycat `public_record`: public team and adjudicator record pages. Absent = on. */
+  publicRecordPages?: boolean;
+  /** Tabbycat `adjudicators_tab_released` / `adjudicators_tab_shows`. Absent = unreleased / "final". */
+  releaseAdjudicatorTab?: boolean;
+  adjudicatorTabShows?: AdjudicatorTabShows;
+  /** Tabbycat `ballots_released`: public scoresheets for rounds whose results are public. */
+  releaseBallots?: boolean;
+  /** Tabbycat `private_ballots_released`: a team's own scoresheets on its private URL. */
+  releasePrivateBallots?: boolean;
+  /** Tabbycat `team/speaker/replies_tab_limit`: show only the top N ranks; absent or 0 = all. */
+  teamTabLimit?: number;
+  speakerTabLimit?: number;
+  repliesTabLimit?: number;
+  /** Tabbycat `break_category_tabs_released`: a team tab per break category. */
+  releaseBreakCategoryTabs?: boolean;
+  /** Tabbycat `public_break_metrics_to_show`: -1 (absent) = all precedence metrics, 0 = none. */
+  publicBreakMetrics?: number;
+  /** Tabbycat `public_break_categories`: break eligibility on the participants page. */
+  publicBreakCategories?: boolean;
+  /** Tabbycat `public_side_allocations`: the pre-allocated sides page. */
+  publicSideAllocations?: boolean;
+  /** Public elimination bracket built from released elimination draws. */
+  publicBracket?: boolean;
+  /** Tabbycat `public_diversity`. */
+  publicDiversity?: boolean;
+  /** Motion veto counts on the public motions page (needs `enableMotionVetoes`). */
+  publicVetoStatistics?: boolean;
+  /** Tabbycat `feedback_progress`: who has not submitted the feedback they owe. */
+  publicFeedbackProgress?: boolean;
+  /** Tabbycat `show_team_institutions` / `show_adjudicator_institutions`. Absent = shown. */
+  showTeamInstitutions?: boolean;
+  showAdjudicatorInstitutions?: boolean;
+  /** Tabbycat `team_code_names` / `participant_code_names`. Absent = "off". */
+  teamCodeNames?: TeamCodeNameMode;
+  participantCodeNames?: ParticipantCodeNameMode;
+  /** Tabbycat `show_emoji` / `show_speakers_in_draw` (absent = shown) / `show_splitting_adjudicators`. */
+  showEmoji?: boolean;
+  showSpeakersInDraw?: boolean;
+  showSplittingAdjudicators?: boolean;
+  /** Tabbycat `search_engine_indexing`. Absent = "all". */
+  searchEngineIndexing?: SearchEngineIndexing;
+  /** Tabbycat `welcome_message` / `tournament_staff`, shown as plain text on the public page. */
+  welcomeMessage?: string;
+  tournamentStaff?: string;
+  /** Tabbycat `public_motions_order`. Absent = "forward" (CrabbyTab's order before this setting). */
+  publicMotionsOrder?: PublicMotionsOrder;
+  /** Tabbycat `participant_ballots` / `participant_feedback` = "public": forms without a private URL. */
+  publicBallotForm?: boolean;
+  publicFeedbackForm?: boolean;
+  /**
+   * Tabbycat `public_use_password`. The password itself is kept server-side
+   * (`serverOnly/publicForms`), never in these preferences, which are public.
+   */
+  publicFormsUsePassword?: boolean;
+
   /**
    * Room categories with display options (Tabbycat VenueCategory). A room belongs to the category
    * named by Venue.category; categories without an entry here display with defaults.
@@ -357,6 +419,13 @@ export interface VenueConstraint {
   category: string;
   priority: number;
 }
+
+export type PublicDrawMode = "off" | "current" | "all";
+export type AdjudicatorTabShows = "test" | "final" | "all";
+export type TeamCodeNameMode = "off" | "all-tooltips" | "admin-tooltips-code" | "admin-tooltips-real" | "everywhere";
+export type ParticipantCodeNameMode = "off" | "everywhere";
+export type SearchEngineIndexing = "all" | "homepage-only" | "none";
+export type PublicMotionsOrder = "forward" | "reverse";
 
 export interface SpeakerCategory {
   id: string;
@@ -510,6 +579,10 @@ export interface Speaker {
    * every entry with resolveSpeakerCategoryRef, so both keep working.
    */
   categories?: string[];
+  /** Tabbycat Person.anonymous: name (and team) redacted on public pages. */
+  anonymous?: boolean;
+  /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
+  codeName?: string;
   /** Swing teams: the registered speaker this swing speaker stands in for, if any. */
   swingSourceSpeakerId?: string;
 }
@@ -585,6 +658,10 @@ export interface Adjudicator {
   adjCore?: boolean;
   /** Breaking adjudicator (shown on the public breaking adjudicators list when released). */
   breaking?: boolean;
+  /** Tabbycat Person.anonymous: name redacted on public pages. */
+  anonymous?: boolean;
+  /** Tabbycat Person.code_name, shown publicly when `participantCodeNames` is "everywhere". */
+  codeName?: string;
   venueRequirements?: VenueRequirements;
   /** Soft room preferences (Tabbycat venue constraints). */
   venueConstraints?: VenueConstraint[];
