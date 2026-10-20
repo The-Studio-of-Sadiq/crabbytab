@@ -1,6 +1,7 @@
 "use client";
 
 import type { TournamentPreferences } from "@/types";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox, Input, Textarea } from "@/components/ui/Field";
 
 type FeedbackOptions = Pick<
@@ -19,28 +20,29 @@ export function FeedbackOptionsFields({
   value: Partial<FeedbackOptions>;
   onChange: (change: Partial<FeedbackOptions>) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Input
-          label="Feedback score step"
+          label={t("results.feedback.options.scoreStep")}
           type="number"
           min={0.01}
           step={0.01}
           value={value.feedbackScoreStep ?? 1}
-          help="e.g. 1 for whole points, 0.5 for half points"
+          help={t("results.feedback.options.scoreStepHelp")}
           onChange={(event) => {
             const step = parseFloat(event.target.value);
             onChange({ feedbackScoreStep: Number.isFinite(step) && step > 0 ? step : 1 });
           }}
         />
         <Input
-          label="Important feedback threshold"
+          label={t("results.feedback.options.importantThreshold")}
           type="number"
           min={0}
           step={0.5}
           value={value.feedbackImportantThreshold ?? 2}
-          help="Feedback this far from the base score is listed as important"
+          help={t("results.feedback.options.importantThresholdHelp")}
           onChange={(event) => {
             const threshold = parseFloat(event.target.value);
             onChange({ feedbackImportantThreshold: Number.isFinite(threshold) && threshold >= 0 ? threshold : 2 });
@@ -48,16 +50,16 @@ export function FeedbackOptionsFields({
         />
       </div>
       <Textarea
-        label="Feedback introduction"
+        label={t("results.feedback.options.introduction")}
         rows={2}
         maxLength={2000}
         value={value.feedbackIntroduction ?? ""}
-        help="Shown above every feedback form in the private portals."
+        help={t("results.feedback.options.introductionHelp")}
         onChange={(event) => onChange({ feedbackIntroduction: event.target.value })}
       />
       <Checkbox
-        label="Show unexpected feedback"
-        description="List submissions that no feedback path expected (marked ?) in feedback progress."
+        label={t("results.feedback.options.showUnexpected")}
+        description={t("results.feedback.options.showUnexpectedHelp")}
         checked={value.showUnexpectedFeedback !== false}
         onChange={(event) => onChange({ showUnexpectedFeedback: event.target.checked })}
       />

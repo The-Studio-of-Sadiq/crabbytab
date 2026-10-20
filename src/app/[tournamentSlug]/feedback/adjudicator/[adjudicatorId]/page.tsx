@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, MessageSquareHeart, Save } from "lucide-react";
+import { ArrowLeft, Save } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   ADJ_SCORE_MAX,
@@ -20,35 +20,41 @@ import { agreementTally, analyzeFeedbackAnswers, type FeedbackQuestionAnalysis }
 import { questionsForFeedbackSource } from "@/lib/feedback/questions";
 import { MAX_SCORE_CHANGE_REASON_LENGTH } from "@/lib/feedback/scoreHistory";
 import { FeedbackReviewControls } from "@/features/tournament/components/FeedbackReviewControls";
-
-const ROLE_LABELS: Record<string, string> = { chair: "Chair", panellist: "Panellist", trainee: "Trainee" };
-
-const SCORE_FIELD_LABELS = { baseScore: "Base", testScore: "Test" } as const;
-
-function formatScore(value: number | undefined): string {
-  return value === undefined ? "none" : value.toFixed(1);
-}
-
-function formatTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? timestamp : date.toLocaleString();
-}
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Field";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { focusRing } from "@/components/ui/focus";
+import { cn } from "@/components/ui/cn";
 
 function AnalysisRow({ item }: { item: FeedbackQuestionAnalysis }) {
+  const { t, plural, formatNumber, formatDecimal } = useI18n();
   let detail: React.ReactNode;
   if (item.kind === "numeric") {
     detail = item.average === undefined
       ? "—"
-      : `Average ${item.average.toFixed(2)} (range ${item.min}–${item.max})`;
+      : t("results.feedback.detail.numericSummary", {
+          average: formatDecimal(item.average, 2),
+          min: item.min ?? "—",
+          max: item.max ?? "—",
+        });
   } else if (item.kind === "boolean") {
-    detail = item.answered ? `${item.yes} yes · ${item.no} no` : "—";
+    detail = item.answered ? t("results.feedback.detail.booleanSummary", { yes: item.yes, no: item.no }) : "—";
   } else if (item.kind === "choice") {
-    detail = item.answered ? item.counts.map(({ option, count }) => `${option}: ${count}`).join(" · ") : "—";
+    detail = item.answered
+      ? item.counts.map(({ option, count }) => t("results.feedback.detail.choiceCount", { option, count: formatNumber(count) })).join(" · ")
+      : "—";
   } else {
     detail = item.responses.length === 0 ? "—" : (
       <details>
-        <summary className="cursor-pointer text-blue-700">Show {item.responses.length} response(s)</summary>
-        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <summary className={cn("cursor-pointer rounded-sm text-accent-text", focusRing)}>
+          {plural("results.feedback.detail.showResponses", item.responses.length)}
+        </summary>
+        <ul className="mt-1 list-disc space-y-0.5 ps-4">
           {item.responses.map((response, index) => (
             <li key={index} className="whitespace-pre-wrap">{response}</li>
           ))}
@@ -57,11 +63,11 @@ function AnalysisRow({ item }: { item: FeedbackQuestionAnalysis }) {
     );
   }
   return (
-    <tr>
-      <td className="text-xs font-semibold text-gray-900">{item.question.label}</td>
-      <td className="text-center font-mono text-xs">{item.answered}</td>
-      <td className="text-xs text-gray-800">{detail}</td>
-    </tr>
+    <TR>
+      <TD className="font-medium">{item.question.label}</TD>
+      <TD numeric>{formatNumber(item.answered)}</TD>
+      <TD>{detail}</TD>
+    </TR>
   );
 }
 
@@ -69,6 +75,16 @@ function parseScore(value: string): number | undefined | "invalid" {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= ADJ_SCORE_MIN && parsed <= ADJ_SCORE_MAX ? parsed : "invalid";
+}
+
+function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="text-xs font-medium text-fg-muted">{label}</div>
+      <div className="mt-2 font-mono text-2xl font-semibold tabular-nums tracking-tight text-fg">{value}</div>
+      {detail && <p className="mt-0.5 text-xs text-fg-muted">{detail}</p>}
+    </div>
+  );
 }
 
 export default function AdjudicatorFeedbackDetailPage() {
@@ -85,6 +101,17 @@ export default function AdjudicatorFeedbackDetailPage() {
     reviewFeedback,
     isOwnerOrAdmin,
   } = useTournament();
+  const { t, plural, formatNumber, formatDecimal, formatDateTime } = useI18n();
+  const roleLabel = (role: string) =>
+    role === "team"
+      ? t("results.feedback.role.team")
+      : role === "chair"
+      ? t("role.chair")
+      : role === "panellist"
+      ? t("role.panellist")
+      : role === "trainee"
+      ? t("role.trainee")
+      : role;
   const adjudicator = adjudicators.find((item) => item.id === adjudicatorId);
   const preferences = tournament?.preferences;
   const [baseDraft, setBaseDraft] = useState<string | null>(null);
@@ -128,16 +155,25 @@ export default function AdjudicatorFeedbackDetailPage() {
   );
   const roundsById = useMemo(() => new Map(rounds.map((round) => [round.id, round])), [rounds]);
 
+  const backLink = (
+    <Link href={`/${tournament?.slug}/feedback`} className={buttonClasses({ variant: "ghost", size: "sm", className: "-ms-2.5" })}>
+      <ArrowLeft className="rtl:-scale-x-100" aria-hidden="true" />
+      {t("results.feedback.back")}
+    </Link>
+  );
+
   if (!adjudicator) {
     return (
-      <div className="space-y-3">
-        <Link href={`/${tournament?.slug}/feedback`} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700">
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to Feedback
-        </Link>
-        <p role="alert" className="text-sm text-gray-700">This adjudicator no longer exists.</p>
+      <div className="space-y-4">
+        {backLink}
+        <Alert tone="warning" role="alert" title={t("results.feedback.detail.notFound")} />
       </div>
     );
   }
+
+  const optionalScore = (value: number | undefined) =>
+    value === undefined ? t("results.feedback.detail.none") : formatDecimal(value, 1);
+  const percent = (fraction: number) => formatNumber(fraction, { style: "percent", maximumFractionDigits: 0 });
 
   const weight = normalizeFeedbackWeight(activeRound?.feedbackWeight);
   const handleSaveScores = async (event: React.FormEvent) => {
@@ -148,7 +184,7 @@ export default function AdjudicatorFeedbackDetailPage() {
     if (base === undefined || base === "invalid" || test === "invalid") {
       setMessage({
         kind: "error",
-        text: `Scores must be between ${ADJ_SCORE_MIN} and ${ADJ_SCORE_MAX}; the base score is required.`,
+        text: t("results.feedback.detail.rangeError", { min: ADJ_SCORE_MIN, max: ADJ_SCORE_MAX }),
       });
       return;
     }
@@ -158,247 +194,262 @@ export default function AdjudicatorFeedbackDetailPage() {
       setBaseDraft(null);
       setTestDraft(null);
       setReasonDraft("");
-      setMessage({ kind: "success", text: "Scores saved." });
+      setMessage({ kind: "success", text: t("results.feedback.detail.saved") });
     } catch (error) {
-      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Could not save the scores." });
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : t("results.feedback.detail.saveFailed") });
     } finally {
       setSaving(false);
     }
   };
 
+  const blendedDetail = t(
+    preFeedbackScore(adjudicator) === adjudicator.testScore
+      ? "results.feedback.detail.blendedDetailTest"
+      : "results.feedback.detail.blendedDetailBase",
+    {
+      feedbackShare: percent(weight),
+      otherShare: percent(1 - weight),
+      round: activeRound?.name ?? t("results.feedback.detail.defaultWeight"),
+    }
+  );
+
   return (
     <div className="space-y-6">
-      <div className="border-b border-[#d0d7de] pb-4 space-y-2">
-        <Link
-          href={`/${tournament?.slug}/feedback`}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to Feedback
-        </Link>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-gray-900">
-          <MessageSquareHeart className="h-6 w-6 text-pink-600" /> {adjudicator.name}
-        </h1>
-        <p className="text-xs text-gray-500">
-          {adjudicator.institutionName ?? "Independent"}
-          {adjudicator.trainee ? " · Trainee" : ""}
-        </p>
+      <div className="space-y-2">
+        {backLink}
+        <PageHeader
+          title={adjudicator.name}
+          description={adjudicator.institutionName ?? t("common.independent")}
+          meta={adjudicator.trainee ? <Badge>{t("role.trainee")}</Badge> : undefined}
+        />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-gray-500">Base score</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{adjudicator.baseScore.toFixed(1)}</div>
-        </div>
-        <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-gray-500">Test score</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{adjudicator.testScore?.toFixed(1) ?? "—"}</div>
-          <div className="text-[11px] text-gray-500">Used instead of the base score when set</div>
-        </div>
-        <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-gray-500">Feedback (weighted)</div>
-          <div className="mt-1 text-2xl font-bold text-pink-700">{summary ? summary.average.toFixed(2) : "—"}</div>
-          <div className="text-[11px] text-gray-500">
-            {summary ? `${summary.count} counted · ${summary.scaledAverage.toFixed(2)} on the 1–10 scale` : "No counted feedback"}
-          </div>
-        </div>
-        <div className="rounded-lg border border-[#d0d7de] bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-gray-500">Feedback-weighted score</div>
-          <div className="mt-1 text-2xl font-bold text-indigo-700">
-            {blendAdjudicatorScore(adjudicator, summary?.scaledAverage, activeRound?.feedbackWeight).toFixed(2)}
-          </div>
-          <div className="text-[11px] text-gray-500">
-            {Math.round(weight * 100)}% feedback ({activeRound?.name ?? "default weight"}), {Math.round((1 - weight) * 100)}%{" "}
-            {preFeedbackScore(adjudicator) === adjudicator.testScore ? "test" : "base"} score
-          </div>
-        </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile label={t("results.feedback.detail.baseScore")} value={formatDecimal(adjudicator.baseScore, 1)} />
+        <StatTile
+          label={t("results.feedback.detail.testScore")}
+          value={adjudicator.testScore === undefined ? "—" : formatDecimal(adjudicator.testScore, 1)}
+          detail={t("results.feedback.detail.testScoreHint")}
+        />
+        <StatTile
+          label={t("results.feedback.detail.feedbackWeighted")}
+          value={summary ? formatDecimal(summary.average, 2) : "—"}
+          detail={
+            summary
+              ? plural("results.feedback.detail.feedbackDetail", summary.count, { scaled: formatDecimal(summary.scaledAverage, 2) })
+              : t("results.feedback.detail.noCounted")
+          }
+        />
+        <StatTile
+          label={t("results.feedback.detail.blendedScore")}
+          value={formatDecimal(blendAdjudicatorScore(adjudicator, summary?.scaledAverage, activeRound?.feedbackWeight), 2)}
+          detail={blendedDetail}
+        />
       </div>
 
       {isOwnerOrAdmin && (
-        <form onSubmit={handleSaveScores} className="flex flex-wrap items-end gap-3 rounded-lg border border-[#d0d7de] bg-white p-4">
-          <label className="text-xs font-semibold text-gray-700">
-            Base score
-            <input
-              type="number"
-              step={0.5}
-              min={ADJ_SCORE_MIN}
-              max={ADJ_SCORE_MAX}
-              required
-              value={baseDraft ?? String(adjudicator.baseScore)}
-              onChange={(event) => setBaseDraft(event.target.value)}
-              className="mt-1 block w-24 rounded border border-gray-300 px-2 py-1 font-mono text-xs"
-            />
-          </label>
-          <label className="text-xs font-semibold text-gray-700">
-            Test score
-            <input
-              type="number"
-              step={0.5}
-              min={ADJ_SCORE_MIN}
-              max={ADJ_SCORE_MAX}
-              value={testDraft ?? (adjudicator.testScore === undefined ? "" : String(adjudicator.testScore))}
-              onChange={(event) => setTestDraft(event.target.value)}
-              placeholder="None"
-              className="mt-1 block w-24 rounded border border-gray-300 px-2 py-1 font-mono text-xs"
-            />
-          </label>
-          <label className="min-w-[12rem] flex-1 text-xs font-semibold text-gray-700">
-            Reason (optional)
-            <input
-              type="text"
-              maxLength={MAX_SCORE_CHANGE_REASON_LENGTH}
-              value={reasonDraft}
-              onChange={(event) => setReasonDraft(event.target.value)}
-              placeholder="e.g. Adjusted after round 3 feedback"
-              className="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-xs"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={saving || (baseDraft === null && testDraft === null)}
-            className="inline-flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save scores"}
-          </button>
-          <span className="text-[11px] text-gray-500">Leave the test score empty to use the base score.</span>
-          {message && (
-            <p role={message.kind === "error" ? "alert" : "status"} className={`w-full text-xs ${message.kind === "error" ? "text-red-700" : "text-emerald-700"}`}>
-              {message.text}
-            </p>
-          )}
-        </form>
+        <Card>
+          <CardHeader title={t("results.feedback.detail.editTitle")} description={t("results.feedback.detail.testHelp")} />
+          <CardBody>
+            <form onSubmit={handleSaveScores} className="flex flex-wrap items-end gap-3">
+              <Input
+                label={t("results.feedback.detail.baseScore")}
+                wrapperClassName="w-28"
+                className="font-mono"
+                type="number"
+                step={0.5}
+                min={ADJ_SCORE_MIN}
+                max={ADJ_SCORE_MAX}
+                required
+                value={baseDraft ?? String(adjudicator.baseScore)}
+                onChange={(event) => setBaseDraft(event.target.value)}
+              />
+              <Input
+                label={t("results.feedback.detail.testScore")}
+                wrapperClassName="w-28"
+                className="font-mono"
+                type="number"
+                step={0.5}
+                min={ADJ_SCORE_MIN}
+                max={ADJ_SCORE_MAX}
+                value={testDraft ?? (adjudicator.testScore === undefined ? "" : String(adjudicator.testScore))}
+                onChange={(event) => setTestDraft(event.target.value)}
+                placeholder={t("results.feedback.detail.testPlaceholder")}
+              />
+              <Input
+                label={t("results.feedback.detail.reason")}
+                wrapperClassName="min-w-[12rem] flex-1"
+                type="text"
+                maxLength={MAX_SCORE_CHANGE_REASON_LENGTH}
+                value={reasonDraft}
+                onChange={(event) => setReasonDraft(event.target.value)}
+                placeholder={t("results.feedback.detail.reasonPlaceholder")}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                loading={saving}
+                loadingText={t("results.feedback.saving")}
+                disabled={baseDraft === null && testDraft === null}
+              >
+                <Save aria-hidden="true" />
+                {t("results.feedback.detail.saveScores")}
+              </Button>
+              {message && (
+                <Alert
+                  className="w-full"
+                  tone={message.kind === "error" ? "danger" : "success"}
+                  role={message.kind === "error" ? "alert" : "status"}
+                  title={message.text}
+                />
+              )}
+            </form>
+          </CardBody>
+        </Card>
       )}
 
-      <section className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white" aria-labelledby="score-history">
-        <h2 id="score-history" className="border-b border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs font-bold uppercase text-gray-900">
-          Score history by round
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="tabby-table w-full text-left">
-            <thead>
-              <tr>
-                <th>Round</th>
-                <th>Role</th>
-                <th className="text-center">Received</th>
-                <th className="text-center">Counted</th>
-                <th className="text-right">Round avg</th>
-                <th className="text-right">Score after round</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((row) => (
-                <tr key={row.roundId}>
-                  <td className="text-xs font-semibold text-gray-900">{row.roundName}</td>
-                  <td className="text-xs text-gray-700">
-                    {row.role ? ROLE_LABELS[row.role] : "Not allocated"}
-                    {row.debateId && debatesById.get(row.debateId)?.venueName ? ` · ${debatesById.get(row.debateId)?.venueName}` : ""}
-                  </td>
-                  <td className="text-center font-mono text-xs">{row.received}</td>
-                  <td className="text-center font-mono text-xs">{row.summary?.count ?? 0}</td>
-                  <td className="text-right font-mono text-xs text-pink-700">{row.summary ? row.summary.average.toFixed(2) : "—"}</td>
-                  <td className="text-right font-mono text-xs font-bold text-indigo-700">{row.cumulativeScore.toFixed(2)}</td>
-                </tr>
-              ))}
-              {history.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-xs text-gray-400">No rounds yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <Card>
+        <CardHeader title={t("results.feedback.detail.historyTitle")} />
+        <TableContainer className="rounded-none rounded-b-lg border-0">
+          <Table>
+            <THead>
+              <TR>
+                <TH>{t("results.feedback.field.round")}</TH>
+                <TH>{t("results.feedback.detail.col.role")}</TH>
+                <TH align="right">{t("results.feedback.detail.col.received")}</TH>
+                <TH align="right">{t("results.feedback.detail.col.counted")}</TH>
+                <TH align="right">{t("results.feedback.detail.col.roundAverage")}</TH>
+                <TH align="right">{t("results.feedback.detail.col.scoreAfter")}</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {history.map((row) => {
+                const venue = row.debateId ? debatesById.get(row.debateId)?.venueName : undefined;
+                const role = row.role ? roleLabel(row.role) : t("results.feedback.detail.notAllocated");
+                return (
+                  <TR key={row.roundId}>
+                    <TD className="font-medium">{row.roundName}</TD>
+                    <TD className="text-fg-muted">
+                      {venue ? t("results.feedback.detail.roleWithVenue", { role, venue }) : role}
+                    </TD>
+                    <TD numeric>{formatNumber(row.received)}</TD>
+                    <TD numeric>{formatNumber(row.summary?.count ?? 0)}</TD>
+                    <TD numeric>{row.summary ? formatDecimal(row.summary.average, 2) : "—"}</TD>
+                    <TD numeric className="font-semibold">{formatDecimal(row.cumulativeScore, 2)}</TD>
+                  </TR>
+                );
+              })}
+              {history.length === 0 && <TableEmpty colSpan={6}>{t("results.feedback.noRounds")}</TableEmpty>}
+            </TBody>
+          </Table>
+        </TableContainer>
+      </Card>
 
-      <section className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white" aria-labelledby="score-changes">
-        <h2 id="score-changes" className="border-b border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs font-bold uppercase text-gray-900">
-          Base and test score changes
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="tabby-table w-full text-left">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Score</th>
-                <th>Change</th>
-                <th>By</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
+      <Card>
+        <CardHeader title={t("results.feedback.detail.changesTitle")} />
+        <TableContainer className="rounded-none rounded-b-lg border-0">
+          <Table>
+            <THead>
+              <TR>
+                <TH>{t("results.feedback.detail.col.when")}</TH>
+                <TH>{t("results.feedback.field.score")}</TH>
+                <TH>{t("results.feedback.detail.col.change")}</TH>
+                <TH>{t("results.feedback.detail.col.by")}</TH>
+                <TH>{t("results.feedback.detail.col.reason")}</TH>
+              </TR>
+            </THead>
+            <TBody>
               {scoreChanges.map((change, index) => (
-                <tr key={`${change.timestamp}-${change.field}-${index}`}>
-                  <td className="whitespace-nowrap text-xs text-gray-700">{formatTime(change.timestamp)}</td>
-                  <td className="text-xs font-semibold text-gray-900">{SCORE_FIELD_LABELS[change.field]}</td>
-                  <td className="font-mono text-xs">
-                    {formatScore(change.previous)} → <span className="font-bold">{formatScore(change.value)}</span>
-                  </td>
-                  <td className="text-xs text-gray-700">{change.actorName || change.actorId || "Unknown"}</td>
-                  <td className="text-xs text-gray-700">{change.reason || "—"}</td>
-                </tr>
+                <TR key={`${change.timestamp}-${change.field}-${index}`}>
+                  <TD className="whitespace-nowrap text-fg-muted">{formatDateTime(change.timestamp) || change.timestamp}</TD>
+                  <TD className="font-medium">
+                    {t(change.field === "baseScore" ? "results.feedback.detail.fieldBase" : "results.feedback.detail.fieldTest")}
+                  </TD>
+                  <TD className="font-mono text-xs">
+                    {optionalScore(change.previous)} <span aria-hidden="true" className="inline-block rtl:-scale-x-100">→</span>
+                    <span className="sr-only"> {t("results.feedback.detail.changedTo")} </span>{" "}
+                    <span className="font-semibold">{optionalScore(change.value)}</span>
+                  </TD>
+                  <TD className="text-fg-muted">{change.actorName || change.actorId || t("results.feedback.unknown")}</TD>
+                  <TD className="text-fg-muted">{change.reason || "—"}</TD>
+                </TR>
               ))}
               {scoreChanges.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-xs text-gray-400">
-                    No changes recorded yet. Changes made before score history existed are not listed.
-                  </td>
-                </tr>
+                <TableEmpty colSpan={5}>{t("results.feedback.detail.changesEmpty")}</TableEmpty>
               )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            </TBody>
+          </Table>
+        </TableContainer>
+      </Card>
 
       {answerAnalysis.map((group) => (
-        <section
-          key={group.sourceType}
-          className="overflow-hidden rounded-lg border border-[#d0d7de] bg-white"
-          aria-labelledby={`answers-${group.sourceType}`}
-        >
-          <h2 id={`answers-${group.sourceType}`} className="border-b border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs font-bold uppercase text-gray-900">
-            Answers from {group.sourceType === "team" ? "teams" : "adjudicators"} ({group.count} counted)
-          </h2>
-          <p className="border-b border-gray-100 px-3 py-2 text-xs text-gray-700">
-            Agreed with the decision: {group.agreement.answered
-              ? `${group.agreement.agree} agree · ${group.agreement.disagree} disagree`
-              : "no answers"}
-            <span className="ml-1 text-[11px] text-gray-500">(confirmed, not ignored feedback only; answers never change the score)</span>
+        <Card key={group.sourceType}>
+          <CardHeader
+            title={plural(
+              group.sourceType === "team" ? "results.feedback.detail.answersFromTeams" : "results.feedback.detail.answersFromAdjudicators",
+              group.count
+            )}
+            description={t("results.feedback.detail.answersNote")}
+          />
+          <p className="px-4 py-3 text-[13px] text-fg">
+            {group.agreement.answered
+              ? t("results.feedback.detail.agreementSummary", {
+                  agree: group.agreement.agree,
+                  disagree: group.agreement.disagree,
+                })
+              : t("results.feedback.detail.agreementNone")}
           </p>
           {group.questions.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="tabby-table w-full text-left">
-                <thead>
-                  <tr>
-                    <th>Question</th>
-                    <th className="text-center">Answered</th>
-                    <th>Summary</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <TableContainer className="rounded-none rounded-b-lg border-0 border-t">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>{t("results.feedback.detail.col.question")}</TH>
+                    <TH align="right">{t("results.feedback.detail.col.answered")}</TH>
+                    <TH>{t("results.feedback.detail.col.summary")}</TH>
+                  </TR>
+                </THead>
+                <TBody>
                   {group.questions.map((item) => <AnalysisRow key={item.question.id} item={item} />)}
-                </tbody>
-              </table>
-            </div>
+                </TBody>
+              </Table>
+            </TableContainer>
           )}
-        </section>
+        </Card>
       ))}
 
-      <section className="space-y-2" aria-labelledby="received-feedback">
-        <h2 id="received-feedback" className="text-sm font-bold text-gray-900">Feedback received ({received.length})</h2>
+      <section className="space-y-3" aria-labelledby="received-feedback">
+        <h2 id="received-feedback" className="text-[15px] font-semibold text-fg">
+          {t("results.feedback.detail.receivedTitle", { count: received.length })}
+        </h2>
         {received.length === 0 ? (
-          <p className="rounded-lg border border-[#d0d7de] bg-white p-6 text-center text-xs text-gray-500">No feedback yet.</p>
+          <EmptyState title={t("results.feedback.detail.receivedEmpty")} />
         ) : (
           received.map((item) => {
             const key = feedbackWeightKey(item, debatesById.get(item.debateId));
             const sourceWeight = key ? preferences?.feedbackSourceWeights?.[key] ?? 1 : 1;
+            const [sourceRole, targetRole] = key ? key.split("_on_") : [];
+            const from = t("results.feedback.detail.receivedFrom", {
+              round: roundsById.get(item.roundId)?.name ?? t("results.feedback.detail.unlinkedRound"),
+              source: item.sourceName || t("results.feedback.unknown"),
+            });
             return (
-              <article key={item.id} className="rounded-lg border border-[#d0d7de] bg-white p-3 text-xs">
+              <article key={item.id} className="rounded-lg border border-border bg-surface p-3 text-[13px]">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>
-                    <span className="font-bold text-pink-700">{item.score}</span>
-                    <span className="mx-1.5 text-gray-400">·</span>
-                    {roundsById.get(item.roundId)?.name ?? "Unlinked round"} · from {item.sourceName || "Unknown"}
-                    {key ? ` (${key.replace(/_/g, " ")}, weight ${sourceWeight})` : ""}
-                  </span>
+                  <p className="text-fg-muted">
+                    <span className="font-mono font-semibold text-fg">{formatNumber(item.score)}</span>
+                    <span className="mx-1.5 text-fg-subtle" aria-hidden="true">·</span>
+                    {key && sourceRole && targetRole
+                      ? t("results.feedback.detail.receivedFromWeighted", {
+                          from,
+                          path: t("results.feedback.pathLabel", { source: roleLabel(sourceRole), target: roleLabel(targetRole) }),
+                          weight: formatNumber(sourceWeight),
+                        })
+                      : from}
+                  </p>
                   <FeedbackReviewControls submission={item} canEdit={isOwnerOrAdmin} onReview={reviewFeedback} />
                 </div>
-                {item.comments?.trim() && <p className="mt-1 whitespace-pre-wrap text-gray-800">{item.comments}</p>}
+                {item.comments?.trim() && <p className="mt-1 whitespace-pre-wrap text-fg">{item.comments}</p>}
               </article>
             );
           })

@@ -535,3 +535,65 @@ textarea {
     color: black;
   }
 }
+
+/*
+ * High-contrast projector palette for the general-assembly display (/[slug]/display): pure black
+ * canvas, white text, a yellow accent, and saturated side colours with visible borders, so a draw
+ * stays legible on washed-out projectors and from the back of a hall. It applies regardless of the
+ * viewer's light/dark choice.
+ */
+.theme-projector {
+  --color-background: 0 0 0;
+  --color-surface: 16 16 18;
+  --color-muted: 39 39 42;
+  --color-border: 82 82 91;
+  --color-border-strong: 161 161 170;
+  --color-fg: 255 255 255;
+  --color-fg-muted: 228 228 231;
+  --color-fg-subtle: 190 190 198;
+
+  --color-accent: 250 204 21;
+  --color-accent-hover: 253 224 71;
+  --color-accent-fg: 0 0 0;
+  --color-accent-subtle: 66 52 4;
+  --color-accent-text: 253 224 71;
+
+  --color-success: 74 222 128;
+  --color-success-subtle: 5 46 22;
+  --color-success-border: 34 197 94;
+  --color-warning: 253 224 71;
+  --color-warning-subtle: 66 52 4;
+  --color-warning-border: 202 138 4;
+  --color-danger: 252 165 165;
+  --color-danger-solid: 220 38 38;
+  --color-danger-subtle: 69 10 10;
+  --color-danger-border: 239 68 68;
+  --color-info: 125 211 252;
+  --color-info-subtle: 8 37 56;
+  --color-info-border: 14 165 233;
+
+  --color-overlay: 0 0 0;
+
+  --side-og-fg: 254 202 202;
+  --side-og-bg: 127 29 29;
+  --side-og-border: 248 113 113;
+  --side-oo-fg: 191 219 254;
+  --side-oo-bg: 30 58 138;
+  --side-oo-border: 96 165 250;
+  --side-cg-fg: 254 240 138;
+  --side-cg-bg: 113 63 18;
+  --side-cg-border: 250 204 21;
+  --side-co-fg: 233 213 255;
+  --side-co-bg: 88 28 135;
+  --side-co-border: 192 132 252;
+  --side-aff-fg: 187 247 208;
+  --side-aff-bg: 20 83 45;
+  --side-aff-border: 74 222 128;
+  --side-neg-fg: 244 244 245;
+  --side-neg-bg: 63 63 70;
+  --side-neg-border: 212 212 216;
+
+  color-scheme: dark;
+  background-color: rgb(var(--color-background));
+  color: rgb(var(--color-fg));
+}

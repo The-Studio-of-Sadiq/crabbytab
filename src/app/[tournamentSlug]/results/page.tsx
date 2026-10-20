@@ -1,10 +1,11 @@
 "use client";
 
-import { sideLabel } from "@/lib/sideNames";
-import { formatScore } from "@/lib/scoreDisplay";
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
 import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFormatScore } from "@/features/tournament/components/results/useFormatScore";
 import {
   ArrowDown,
   ArrowRight,
@@ -31,8 +32,8 @@ import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
 import { checkResultsRelease } from "@/features/tournament/application/stateGuards";
-import { INTAKE_STATUS_LABELS, INTAKE_STATUS_ORDER } from "@/features/tournament/application/ballotIntake";
-import { INTAKE_STATUS_TONES, useRoundIntake } from "@/features/tournament/components/ballot/useRoundIntake";
+import { INTAKE_STATUS_ORDER } from "@/features/tournament/application/ballotIntake";
+import { INTAKE_STATUS_KEYS, INTAKE_STATUS_TONES, useRoundIntake } from "@/features/tournament/components/ballot/useRoundIntake";
 import {
   getRoundCompletionBlockers,
   setRoundCompletion,
@@ -44,21 +45,34 @@ const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
 
 /** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
 function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
+  const { t, plural } = useI18n();
+  const formatScore = useFormatScore();
   const won = score ? (isBP ? score.rank === 1 : Boolean(score.win)) : false;
   return (
     <TD>
       <div className="flex items-center gap-1 font-medium">
         {score &&
           (won ? (
-            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-success" aria-label="Winning team" />
+            <>
+              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
+              <span className="sr-only">{t("results.overview.winningTeam")}</span>
+            </>
           ) : (
-            <ArrowDown className="h-3.5 w-3.5 shrink-0 text-danger" aria-label="Losing team" />
+            <>
+              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />
+              <span className="sr-only">{t("results.overview.losingTeam")}</span>
+            </>
           ))}
         <span>{teamName || "—"}</span>
       </div>
       {score && (
         <div className="font-mono text-[11px] text-fg-muted">
-          {isBP ? `${score.points} pts` : score.win ? "WIN" : "LOSS"} · {formatScore(score.totalSpeakerScore)} spks
+          {isBP
+            ? plural("results.overview.points", score.points)
+            : score.win
+              ? t("results.overview.win")
+              : t("results.overview.loss")}{" "}
+          · {t("results.overview.speaksValue", { score: formatScore(score.totalSpeakerScore) })}
         </div>
       )}
     </TD>
@@ -106,10 +120,11 @@ export default function ResultsOverviewPage() {
     proceedToNextEliminationRound,
     isOwnerOrAdmin,
   } = useTournament();
+  const { t, plural, formatList } = useI18n();
 
   const isBP = tournament?.format === "bp";
   // [side, full name] in the tournament's side names (sideNames).
-  const sides = (isBP ? BP_SIDES : TWO_TEAM_SIDES).map((side) => [side, sideLabel(side, tournament?.preferences, "full")] as const);
+  const sides = (isBP ? BP_SIDES : TWO_TEAM_SIDES).map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
   const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
@@ -124,7 +139,8 @@ export default function ResultsOverviewPage() {
       ballotMap.set(b.debateId, b);
     }
   });
-  const needsCheckLabel = tournament?.preferences?.ballotDoubleEntry ? "Awaiting check" : "Draft";
+  const doubleEntry = Boolean(tournament?.preferences?.ballotDoubleEntry);
+  const needsCheckLabel = doubleEntry ? t("results.overview.status.awaitingCheck") : t("results.overview.status.draft");
 
   const confirmedCount = roundDebates.filter(
     (d) => d.byeTeamId || ballotMap.get(d.id)?.confirmed
@@ -154,7 +170,7 @@ export default function ResultsOverviewPage() {
       await updateRound(setRoundCompletion(activeRound, pendingCompletion, debates, ballots));
       setPendingCompletion(null);
     } catch (error) {
-      setCompletionError(error instanceof Error ? error.message : "The round status could not be saved. Please try again.");
+      setCompletionError(error instanceof Error ? error.message : t("results.overview.completionSaveFailed"));
     } finally {
       setIsSavingCompletion(false);
     }
@@ -168,7 +184,7 @@ export default function ResultsOverviewPage() {
       await proceedToNextEliminationRound(activeRound.id);
       setPendingAdvancement(false);
     } catch (error) {
-      setAdvancementError(error instanceof Error ? error.message : "Could not advance this elimination round.");
+      setAdvancementError(error instanceof Error ? error.message : t("results.overview.advanceFailed"));
     } finally {
       setIsAdvancingRound(false);
     }
@@ -177,19 +193,19 @@ export default function ResultsOverviewPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Results & ballot entry"
-        description="Enter and verify speaker scores, team rankings, and paperless e-ballots."
+        title={t("results.overview.title")}
+        description={t("results.overview.description")}
         actions={
           <Link href={`/${tournament?.slug}/print/ballots`} className={buttonClasses({ variant: "secondary" })}>
             <Printer aria-hidden="true" />
-            Print ballot sheets
+            {t("results.overview.printBallots")}
           </Link>
         }
       />
       <CurrentRoundsBar what="results" />
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div role="group" aria-label="Select round" className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
+        <div role="group" aria-label={t("results.overview.selectRound")} className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
           {rounds.map((r) => {
             const rDebates = debates.filter((d) => d.roundId === r.id);
             const rConfirmed = rDebates.filter((d) => ballotMap.get(d.id)?.confirmed).length;
@@ -214,7 +230,7 @@ export default function ResultsOverviewPage() {
                 {isComplete && (
                   <>
                     <CheckCircle2 className={cn("h-3 w-3", isActive ? "text-background" : "text-success")} aria-hidden="true" />
-                    <span className="sr-only">(all ballots confirmed)</span>
+                    <span className="sr-only">{t("results.overview.allConfirmedSr")}</span>
                   </>
                 )}
               </button>
@@ -224,26 +240,29 @@ export default function ResultsOverviewPage() {
 
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-xs font-medium tabular-nums text-fg">
-            {confirmedCount} of {roundDebates.length} confirmed
+            {t("results.overview.confirmedCount", { confirmed: confirmedCount, total: roundDebates.length })}
           </span>
-          <ProgressBar value={confirmedCount} max={roundDebates.length} label="Confirmed ballots" className="w-36" />
+          <ProgressBar value={confirmedCount} max={roundDebates.length} label={t("results.overview.confirmedBallots")} className="w-36" />
         </div>
       </div>
 
       {intakeSummary.debates > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
-          <span className="font-medium text-fg">Paper ballots</span>
+          <span className="font-medium text-fg">{t("results.overview.paperBallots")}</span>
           <span className="tabular-nums">
-            {intakeSummary.sheetsReceived} of {intakeSummary.sheetsExpected} sheets received
+            {t("results.overview.sheetsReceived", {
+              received: intakeSummary.sheetsReceived,
+              expected: intakeSummary.sheetsExpected,
+            })}
           </span>
           {INTAKE_STATUS_ORDER.filter((status) => intakeSummary.counts[status] > 0).map((status) => (
             <StatusPill key={status} tone={INTAKE_STATUS_TONES[status]}>
-              {INTAKE_STATUS_LABELS[status]} <span className="tabular-nums">{intakeSummary.counts[status]}</span>
+              {t(INTAKE_STATUS_KEYS[status])} <span className="tabular-nums">{intakeSummary.counts[status]}</span>
             </StatusPill>
           ))}
           <Link href={`/${tournament?.slug}/results/intake`} className={buttonClasses({ variant: "ghost", size: "sm" })}>
             <Inbox aria-hidden="true" />
-            Ballot intake
+            {t("results.overview.ballotIntake")}
           </Link>
         </div>
       )}
@@ -251,12 +270,16 @@ export default function ResultsOverviewPage() {
       {roundDebates.length === 0 ? (
         <EmptyState
           icon={<FileText />}
-          title={`No debates in ${activeRound?.name ?? "this round"}`}
-          description="Generate the draw before entering ballots and results for this round."
+          title={
+            activeRound
+              ? t("results.overview.empty.title", { round: activeRound.name })
+              : t("results.overview.empty.titleNoRound")
+          }
+          description={t("results.overview.empty.description")}
           action={
             <Link href={`/${tournament?.slug}/draw`} className={buttonClasses({ variant: "primary" })}>
-              Go to draw generation
-              <ArrowRight aria-hidden="true" />
+              {t("results.overview.empty.action")}
+              <ArrowRight className="rtl:-scale-x-100" aria-hidden="true" />
             </Link>
           }
         />
@@ -265,16 +288,16 @@ export default function ResultsOverviewPage() {
           <Table>
             <THead>
               <TR>
-                <TH className="w-28">Venue</TH>
+                <TH className="w-28">{t("results.overview.col.venue")}</TH>
                 {sides.map(([side, label]) => (
                   <TH key={side}>
                     {label} <span className="text-fg-subtle">({sideLabel(side, tournament?.preferences)})</span>
                   </TH>
                 ))}
-                <TH>Adjudicators</TH>
-                <TH className="w-36">Status</TH>
+                <TH>{t("results.overview.col.adjudicators")}</TH>
+                <TH className="w-36">{t("results.overview.col.status")}</TH>
                 <TH align="right" className="w-32">
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">{t("results.overview.col.actions")}</span>
                 </TH>
               </TR>
             </THead>
@@ -289,22 +312,24 @@ export default function ResultsOverviewPage() {
                   const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
                   return (
                     <TR key={debate.id}>
-                      <TD className="font-medium text-fg-muted">Bye</TD>
+                      <TD className="font-medium text-fg-muted">{t("results.overview.bye")}</TD>
                       <TD colSpan={sides.length} className="font-medium">
-                        {byeTeam?.teamName || "Team"}
+                        {byeTeam?.teamName || t("results.overview.byeTeamFallback")}
                       </TD>
-                      <TD className="text-fg-muted">No adjudicator</TD>
+                      <TD className="text-fg-muted">{t("results.overview.noAdjudicator")}</TD>
                       <TD>
-                        <StatusPill tone="info">Bye · {debate.byeResult === "win" ? "Win" : "Absent"}</StatusPill>
+                        <StatusPill tone="info">
+                          {debate.byeResult === "win" ? t("results.overview.byeWin") : t("results.overview.byeAbsent")}
+                        </StatusPill>
                       </TD>
-                      <TD align="right" className="text-xs text-fg-muted">No ballot required</TD>
+                      <TD align="right" className="text-xs text-fg-muted">{t("results.overview.noBallotRequired")}</TD>
                     </TR>
                   );
                 }
 
                 return (
                   <TR key={debate.id}>
-                    <TD className="font-medium">{debate.venueName || "Unassigned"}</TD>
+                    <TD className="font-medium">{debate.venueName || t("results.overview.unassignedVenue")}</TD>
                     {sides.map(([side]) => (
                       <TeamResultCell
                         key={side}
@@ -315,18 +340,24 @@ export default function ResultsOverviewPage() {
                     ))}
                     <TD className="text-xs">
                       <div>
-                        <span className="text-fg-muted">Chair: </span>
+                        <span className="text-fg-muted">{t("results.overview.chairLabel")} </span>
                         {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
                       </div>
-                      <div className="text-fg-muted">Panellists: {panelistNames.join(", ") || "—"}</div>
+                      <div className="text-fg-muted">
+                        {t("results.overview.panellists", { names: panelistNames.length ? formatList(panelistNames) : "—" })}
+                      </div>
                     </TD>
                     <TD>
                       <StatusPill tone={isConfirmed ? "success" : isDraft ? "warning" : "neutral"}>
-                        {isConfirmed ? "Confirmed" : isDraft ? needsCheckLabel : "Unsubmitted"}
+                        {isConfirmed
+                          ? t("results.overview.status.confirmed")
+                          : isDraft
+                            ? needsCheckLabel
+                            : t("results.overview.status.unsubmitted")}
                       </StatusPill>
                       {isConfirmed && pendingDebateIds.has(debate.id) && (
                         <span className="mt-1 block text-[11px] font-medium text-warning">
-                          New version {needsCheckLabel.toLowerCase()}
+                          {doubleEntry ? t("results.overview.newVersionAwaitingCheck") : t("results.overview.newVersionDraft")}
                         </span>
                       )}
                     </TD>
@@ -336,7 +367,7 @@ export default function ResultsOverviewPage() {
                         className={buttonClasses({ variant: ballot ? "secondary" : "primary", size: "sm" })}
                       >
                         <Edit aria-hidden="true" />
-                        {ballot ? "Edit ballot" : "Enter ballot"}
+                        {ballot ? t("results.overview.editBallot") : t("results.overview.enterBallot")}
                       </Link>
                     </TD>
                   </TR>
@@ -349,12 +380,15 @@ export default function ResultsOverviewPage() {
 
       {activeRound && isOwnerOrAdmin && (
         <Card>
-          <CardHeader title="Round publication" description={`Public visibility and lifecycle for ${activeRound.name}.`} />
+          <CardHeader
+            title={t("results.overview.publication.title")}
+            description={t("results.overview.publication.description", { round: activeRound.name })}
+          />
           <div className="divide-y divide-border">
             <div className="px-4 py-3">
               <Checkbox
-                label="Silent round"
-                description="Hide this round's results and team outcomes from the public tab."
+                label={t("results.overview.silent.label")}
+                description={t("results.overview.silent.description")}
                 checked={Boolean(activeRound.silent)}
                 onChange={(event) =>
                   updateRound({
@@ -368,13 +402,13 @@ export default function ResultsOverviewPage() {
             </div>
 
             <ControlRow
-              title="Round results"
+              title={t("results.overview.results.title")}
               status={
                 activeRound.resultsReleased
-                  ? "Round results are published."
+                  ? t("results.overview.results.published")
                   : !releaseBlocker
-                  ? "Ballots are saved; publish when ready."
-                  : "Confirm every ballot or record a bye before publishing."
+                  ? t("results.overview.results.ready")
+                  : t("results.overview.results.blocked")
               }
               action={
                 <Button
@@ -383,19 +417,19 @@ export default function ResultsOverviewPage() {
                   disabled={!activeRound.resultsReleased && Boolean(releaseBlocker)}
                 >
                   {activeRound.resultsReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                  {activeRound.resultsReleased ? "Unpublish round results" : "Publish round results"}
+                  {activeRound.resultsReleased ? t("results.overview.results.unpublish") : t("results.overview.results.publish")}
                 </Button>
               }
             />
 
             <ControlRow
-              title="Team speaks"
+              title={t("results.overview.speaks.title")}
               status={
                 activeRound.teamSpeaksReleased
-                  ? "Team scores are published for this round."
+                  ? t("results.overview.speaks.published")
                   : !releaseBlocker
-                  ? "Publish team scores separately when ready."
-                  : "Confirm every ballot or record a bye before publishing team scores."
+                  ? t("results.overview.speaks.ready")
+                  : t("results.overview.speaks.blocked")
               }
               action={
                 <Button
@@ -404,23 +438,25 @@ export default function ResultsOverviewPage() {
                   disabled={!activeRound.teamSpeaksReleased && Boolean(releaseBlocker)}
                 >
                   {activeRound.teamSpeaksReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                  {activeRound.teamSpeaksReleased ? "Unpublish team speaks" : "Publish team speaks"}
+                  {activeRound.teamSpeaksReleased ? t("results.overview.speaks.unpublish") : t("results.overview.speaks.publish")}
                 </Button>
               }
             />
 
             {activeRound.stage === "preliminary" && !activeRound.cancelled && (
               <ControlRow
-                title="Round completion"
+                title={t("results.overview.completion.title")}
                 status={
                   activeRound.completed
-                    ? "This round is marked complete."
+                    ? t("results.overview.completion.done")
                     : completionBlockers.length === 0
-                    ? "Every debate has a confirmed ballot; the round can be completed."
-                    : `${completionBlockers.length} debate${completionBlockers.length === 1 ? "" : "s"} still blocking completion: ${completionBlockers
-                        .slice(0, 3)
-                        .map((blocker) => blocker.message)
-                        .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`
+                    ? t("results.overview.completion.ready")
+                    : plural("results.overview.completion.blocked", completionBlockers.length, {
+                        details: `${completionBlockers
+                          .slice(0, 3)
+                          .map((blocker) => blocker.message)
+                          .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`,
+                      })
                 }
                 error={pendingCompletion === null ? completionError : undefined}
                 action={
@@ -430,7 +466,7 @@ export default function ResultsOverviewPage() {
                     disabled={!activeRound.completed && completionBlockers.length > 0}
                   >
                     <CheckCircle2 aria-hidden="true" />
-                    {activeRound.completed ? "Reopen round" : "Complete round"}
+                    {activeRound.completed ? t("results.overview.completion.reopen") : t("results.overview.completion.complete")}
                   </Button>
                 }
               />
@@ -438,26 +474,26 @@ export default function ResultsOverviewPage() {
 
             {activeRound.stage === "elimination" && (
               <ControlRow
-                title="Elimination"
+                title={t("results.overview.elimination.title")}
                 status={
                   activeRound.eliminationAdvanced
-                    ? "This round is complete; losing teams have been eliminated."
-                    : "Advance once every ballot in this round is confirmed."
+                    ? t("results.overview.elimination.done")
+                    : t("results.overview.elimination.ready")
                 }
                 error={advancementError}
                 action={
                   activeRound.eliminationAdvanced ? (
-                    <StatusPill tone="success">Advanced</StatusPill>
+                    <StatusPill tone="success">{t("results.overview.elimination.advanced")}</StatusPill>
                   ) : (
                     <Button
                       variant="primary"
                       onClick={() => setPendingAdvancement(true)}
                       disabled={!allBallotsConfirmed}
                       loading={isAdvancingRound}
-                      loadingText="Advancing..."
+                      loadingText={t("results.overview.elimination.advancing")}
                     >
-                      <ArrowRight aria-hidden="true" />
-                      Proceed to next round
+                      <ArrowRight className="rtl:-scale-x-100" aria-hidden="true" />
+                      {t("results.overview.elimination.proceed")}
                     </Button>
                   )
                 }
@@ -468,33 +504,35 @@ export default function ResultsOverviewPage() {
       )}
       {pendingPublication !== null && activeRound && (
         <ReleaseActionDialog
-          title={pendingPublication ? "Publish round results?" : "Unpublish round results?"}
+          title={pendingPublication ? t("results.overview.results.publishTitle") : t("results.overview.results.unpublishTitle")}
           description={pendingPublication
-            ? `Publishing ${activeRound.name} makes its team outcomes visible on the public tab. Team scores are controlled separately.`
-            : `Unpublishing ${activeRound.name} hides its outcomes from the public tab.`}
-          confirmLabel={pendingPublication ? "Publish results" : "Unpublish results"}
+            ? t("results.overview.results.publishDescription", { round: activeRound.name })
+            : t("results.overview.results.unpublishDescription", { round: activeRound.name })}
+          confirmLabel={pendingPublication ? t("results.overview.results.publishConfirm") : t("results.overview.results.unpublishConfirm")}
           apply={() => updateRound({ ...activeRound, resultsReleased: pendingPublication })}
           onClose={() => setPendingPublication(null)}
         />
       )}
       {pendingTeamSpeaksPublication !== null && activeRound && (
         <ReleaseActionDialog
-          title={pendingTeamSpeaksPublication ? "Publish team speaks?" : "Unpublish team speaks?"}
+          title={pendingTeamSpeaksPublication ? t("results.overview.speaks.publishTitle") : t("results.overview.speaks.unpublishTitle")}
           description={pendingTeamSpeaksPublication
-            ? `Publishing team speaks for ${activeRound.name} makes team score values available on the public tab.`
-            : `Unpublishing team speaks for ${activeRound.name} hides its team score values from the public tab.`}
-          confirmLabel={pendingTeamSpeaksPublication ? "Publish team speaks" : "Unpublish team speaks"}
+            ? t("results.overview.speaks.publishDescription", { round: activeRound.name })
+            : t("results.overview.speaks.unpublishDescription", { round: activeRound.name })}
+          confirmLabel={pendingTeamSpeaksPublication ? t("results.overview.speaks.publish") : t("results.overview.speaks.unpublish")}
           apply={() => updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication })}
           onClose={() => setPendingTeamSpeaksPublication(null)}
         />
       )}
       {pendingCompletion !== null && activeRound && (
         <ConfirmActionDialog
-          title={pendingCompletion ? `Complete ${activeRound.name}?` : `Reopen ${activeRound.name}?`}
+          title={pendingCompletion
+            ? t("results.overview.completion.completeTitle", { round: activeRound.name })
+            : t("results.overview.completion.reopenTitle", { round: activeRound.name })}
           description={pendingCompletion
-            ? "Completed rounds count towards break liveness in adjudicator allocation. You can reopen the round later."
-            : "Reopening marks the round as in progress again so ballots can be corrected before completing it."}
-          confirmLabel={pendingCompletion ? "Yes, complete round" : "Yes, reopen round"}
+            ? t("results.overview.completion.completeDescription")
+            : t("results.overview.completion.reopenDescription")}
+          confirmLabel={pendingCompletion ? t("results.overview.completion.completeConfirm") : t("results.overview.completion.reopenConfirm")}
           onConfirm={confirmCompletion}
           onCancel={() => {
             setPendingCompletion(null);
@@ -506,9 +544,9 @@ export default function ResultsOverviewPage() {
       )}
       {pendingAdvancement && activeRound?.stage === "elimination" && (
         <ConfirmActionDialog
-          title="Proceed with elimination results?"
-          description={`Advancing ${activeRound.name} marks every non-advancing team eliminated and activates the next pre-created elimination round.`}
-          confirmLabel="Proceed to next round"
+          title={t("results.overview.elimination.confirmTitle")}
+          description={t("results.overview.elimination.confirmDescription", { round: activeRound.name })}
+          confirmLabel={t("results.overview.elimination.proceed")}
           onConfirm={handleProceedToNextRound}
           onCancel={() => setPendingAdvancement(false)}
           isBusy={isAdvancingRound}

@@ -11,6 +11,7 @@ import {
   type IntakeSummary,
 } from "@/features/tournament/application/ballotIntake";
 import type { Tone } from "@/components/ui/Badge";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 /** Paper-ballot status rows and counts for one round, from the tournament context. */
 export function useRoundIntake(roundId: string | undefined): {
@@ -44,4 +45,15 @@ export const INTAKE_STATUS_TONES: Record<DebateIntakeStatus, Tone> = {
   awaiting_check: "warning",
   disputed: "danger",
   confirmed: "success",
+};
+
+/** Display names for intake statuses (the English labels in ballotIntake.ts are not translated). */
+export const INTAKE_STATUS_KEYS: Record<DebateIntakeStatus, MessageKey> = {
+  missing: "results.intake.status.missing",
+  partial: "results.intake.status.partial",
+  received: "results.intake.status.received",
+  entered: "results.intake.status.entered",
+  awaiting_check: "results.intake.status.awaiting_check",
+  disputed: "results.intake.status.disputed",
+  confirmed: "results.intake.status.confirmed",
 };

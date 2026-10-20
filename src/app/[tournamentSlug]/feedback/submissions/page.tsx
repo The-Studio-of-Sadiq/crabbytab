@@ -3,10 +3,16 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { ArrowLeft, MessageSquareHeart, Users2 } from "lucide-react";
+import { ArrowLeft, Lock, MessageSquareHeart, Users2 } from "lucide-react";
 import { FeedbackSubmission } from "@/types";
 import { FeedbackReviewControls } from "@/features/tournament/components/FeedbackReviewControls";
 import { filterFeedbackSubmissions, type FeedbackFilters } from "@/lib/feedback/filters";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Checkbox, Select } from "@/components/ui/Field";
+import { EmptyState } from "@/components/ui/Feedback";
+import { TabPanel, Tabs } from "@/components/ui/Tabs";
 
 type FeedbackKind = "team" | "adjudicator";
 
@@ -14,15 +20,18 @@ function isTeamFeedback(submission: FeedbackSubmission): boolean {
   return submission.targetType === "team" || Boolean(submission.targetTeamId || submission.targetTeamName);
 }
 
-function displayAnswer(answer: unknown): string {
-  if (typeof answer === "string") return answer;
-  if (answer === null || answer === undefined) return "—";
-  if (typeof answer === "number" || typeof answer === "boolean") return String(answer);
-  return JSON.stringify(answer) ?? String(answer);
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">{label}</dt>
+      <dd className="mt-0.5 text-[13px] text-fg">{children}</dd>
+    </div>
+  );
 }
 
 export default function FeedbackSubmissionsPage() {
   const { tournament, feedback, rounds, debates, adjudicators, reviewFeedback, isOwnerOrAdmin } = useTournament();
+  const { t, formatNumber, formatDateTime } = useI18n();
   const baseScores = useMemo(() => new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator.baseScore])), [adjudicators]);
   const importantThreshold = tournament?.preferences?.feedbackImportantThreshold ?? 2;
   const [activeKind, setActiveKind] = useState<FeedbackKind>("team");
@@ -46,242 +55,223 @@ export default function FeedbackSubmissionsPage() {
     }
     return [...byKey].sort((a, b) => a[1].localeCompare(b[1]));
   }, [feedback]);
-  const filterSelect = "rounded border border-gray-300 bg-white px-2 py-1 text-xs";
   const roundNames = new Map(rounds.map((round) => [round.id, round.name]));
   const debatesById = new Map(debates.map((debate) => [debate.id, debate]));
 
+  const displayAnswer = (answer: unknown): string => {
+    if (typeof answer === "string") return answer;
+    if (answer === null || answer === undefined) return "—";
+    if (typeof answer === "number") return formatNumber(answer);
+    if (typeof answer === "boolean") return answer ? t("feedbackQuestions.yes") : t("feedbackQuestions.no");
+    return JSON.stringify(answer) ?? String(answer);
+  };
+
+  const backLink = (
+    <Link href={`/${tournament?.slug}/feedback`} className={buttonClasses({ variant: "ghost", size: "sm", className: "-ms-2.5" })}>
+      <ArrowLeft className="rtl:-scale-x-100" aria-hidden="true" />
+      {t("results.feedback.back")}
+    </Link>
+  );
+
   if (!feedbackEnabled) {
     return (
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-12 text-center max-w-xl mx-auto my-12 shadow-xs space-y-3">
-        <h2 className="text-lg font-bold text-gray-900">Feedback System Disabled</h2>
-        <p className="text-xs text-gray-600">
-          Feedback submissions are hidden while feedback is disabled in the tournament configuration.
-        </p>
+      <div className="space-y-6">
+        {backLink}
+        <PageHeader title={t("results.feedback.submissions.title")} />
+        <EmptyState
+          icon={<Lock />}
+          title={t("results.feedback.disabledTitle")}
+          description={t("results.feedback.submissions.disabledBody")}
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="border-b border-[#d0d7de] pb-4">
-        <Link
-          href={`/${tournament?.slug}/feedback`}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 mb-3"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to Feedback
-        </Link>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
-          <MessageSquareHeart className="w-6 h-6 text-pink-600" />
-          Individual Feedback Forms
-        </h1>
-        <p className="text-xs text-gray-500 mt-1">
-          Review each submitted team and adjudicator feedback form.
-        </p>
+      <div className="space-y-2">
+        {backLink}
+        <PageHeader
+          title={t("results.feedback.submissions.title")}
+          description={t("results.feedback.submissions.description")}
+        />
       </div>
 
-      <div className="flex items-center gap-2 border-b border-[#d0d7de] pb-3">
-        <button
-          type="button"
-          onClick={() => setActiveKind("team")}
-          aria-pressed={activeKind === "team"}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-md ${
-            activeKind === "team" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
-        >
-          <Users2 className="w-3.5 h-3.5" />
-          Team Feedback ({teamFeedback.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveKind("adjudicator")}
-          aria-pressed={activeKind === "adjudicator"}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-md ${
-            activeKind === "adjudicator" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
-        >
-          <MessageSquareHeart className="w-3.5 h-3.5" />
-          Adjudicator Feedback ({adjudicatorFeedback.length})
-        </button>
-      </div>
+      <Tabs<FeedbackKind>
+        id="feedback-kind"
+        ariaLabel={t("results.feedback.submissions.tabsLabel")}
+        value={activeKind}
+        onValueChange={setActiveKind}
+        items={[
+          { value: "team", label: t("results.feedback.submissions.tabTeam"), icon: <Users2 aria-hidden="true" />, count: teamFeedback.length },
+          {
+            value: "adjudicator",
+            label: t("results.feedback.submissions.tabAdjudicator"),
+            icon: <MessageSquareHeart aria-hidden="true" />,
+            count: adjudicatorFeedback.length,
+          },
+        ]}
+      />
 
-      <div className="flex flex-wrap items-end gap-3" role="group" aria-label="Filter feedback">
-        <label className="text-[11px] font-semibold text-gray-600">
-          Round
-          <select
-            value={filters.roundId ?? ""}
-            onChange={(event) => setFilters({ ...filters, roundId: event.target.value || undefined })}
-            className={`mt-0.5 block ${filterSelect}`}
-          >
-            <option value="">All rounds</option>
-            {[...rounds].sort((a, b) => a.seq - b.seq).map((round) => (
-              <option key={round.id} value={round.id}>{round.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-[11px] font-semibold text-gray-600">
-          About adjudicator
-          <select
-            value={filters.targetAdjudicatorId ?? ""}
-            onChange={(event) => setFilters({ ...filters, targetAdjudicatorId: event.target.value || undefined })}
-            className={`mt-0.5 block ${filterSelect}`}
-          >
-            <option value="">Anyone</option>
-            {[...adjudicators].sort((a, b) => a.name.localeCompare(b.name)).map((adjudicator) => (
-              <option key={adjudicator.id} value={adjudicator.id}>{adjudicator.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-[11px] font-semibold text-gray-600">
-          Source type
-          <select
-            value={filters.sourceType ?? ""}
-            onChange={(event) => setFilters({
+      <div className="flex flex-wrap items-end gap-3" role="group" aria-label={t("results.feedback.filters.label")}>
+        <Select
+          label={t("results.feedback.filters.round")}
+          wrapperClassName="w-40"
+          value={filters.roundId ?? ""}
+          onChange={(event) => setFilters({ ...filters, roundId: event.target.value || undefined })}
+        >
+          <option value="">{t("results.feedback.filters.allRounds")}</option>
+          {[...rounds].sort((a, b) => a.seq - b.seq).map((round) => (
+            <option key={round.id} value={round.id}>{round.name}</option>
+          ))}
+        </Select>
+        <Select
+          label={t("results.feedback.filters.aboutAdjudicator")}
+          wrapperClassName="w-48"
+          value={filters.targetAdjudicatorId ?? ""}
+          onChange={(event) => setFilters({ ...filters, targetAdjudicatorId: event.target.value || undefined })}
+        >
+          <option value="">{t("results.feedback.filters.anyone")}</option>
+          {[...adjudicators].sort((a, b) => a.name.localeCompare(b.name)).map((adjudicator) => (
+            <option key={adjudicator.id} value={adjudicator.id}>{adjudicator.name}</option>
+          ))}
+        </Select>
+        <Select
+          label={t("results.feedback.filters.sourceType")}
+          wrapperClassName="w-48"
+          value={filters.sourceType ?? ""}
+          onChange={(event) => setFilters({
+            ...filters,
+            sourceType: event.target.value === "team" || event.target.value === "adjudicator" ? event.target.value : undefined,
+            sourceId: undefined,
+          })}
+        >
+          <option value="">{t("results.feedback.filters.sourceTypeAll")}</option>
+          <option value="team">{t("results.feedback.filters.teams")}</option>
+          <option value="adjudicator">{t("results.feedback.filters.adjudicators")}</option>
+        </Select>
+        <Select
+          label={t("results.feedback.filters.from")}
+          wrapperClassName="w-48"
+          value={filters.sourceId ? `${filters.sourceType ?? ""}:${filters.sourceId}` : ""}
+          onChange={(event) => {
+            const [type, ...rest] = event.target.value.split(":");
+            setFilters({
               ...filters,
-              sourceType: event.target.value === "team" || event.target.value === "adjudicator" ? event.target.value : undefined,
-              sourceId: undefined,
-            })}
-            className={`mt-0.5 block ${filterSelect}`}
-          >
-            <option value="">Teams and adjudicators</option>
-            <option value="team">Teams</option>
-            <option value="adjudicator">Adjudicators</option>
-          </select>
-        </label>
-        <label className="text-[11px] font-semibold text-gray-600">
-          From
-          <select
-            value={filters.sourceId ? `${filters.sourceType ?? ""}:${filters.sourceId}` : ""}
-            onChange={(event) => {
-              const [type, ...rest] = event.target.value.split(":");
-              setFilters({
-                ...filters,
-                sourceType: type === "team" || type === "adjudicator" ? type : undefined,
-                sourceId: rest.join(":") || undefined,
-              });
-            }}
-            className={`mt-0.5 block ${filterSelect}`}
-          >
-            <option value="">Anyone</option>
-            {sources
-              .filter(([key]) => !filters.sourceType || key.startsWith(`${filters.sourceType}:`))
-              .map(([key, name]) => (
-                <option key={key} value={key}>
-                  {name} ({key.startsWith("team:") ? "team" : "adjudicator"})
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="text-[11px] font-semibold text-gray-600">
-          Status
-          <select
-            value={filters.status ?? ""}
-            onChange={(event) => setFilters({
-              ...filters,
-              status: event.target.value === "counted" || event.target.value === "ignored" || event.target.value === "unconfirmed"
-                ? event.target.value
-                : undefined,
-            })}
-            className={`mt-0.5 block ${filterSelect}`}
-          >
-            <option value="">Any status</option>
-            <option value="counted">Counted</option>
-            <option value="unconfirmed">Unconfirmed</option>
-            <option value="ignored">Ignored</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-600" title={`Score more than ${importantThreshold} away from the adjudicator's base score (Tabbycat's important feedback)`}>
-          <input
-            type="checkbox"
-            checked={filters.important === true}
-            onChange={(event) => setFilters({ ...filters, important: event.target.checked || undefined })}
-          />
-          Important only (±{importantThreshold} from base score)
-        </label>
+              sourceType: type === "team" || type === "adjudicator" ? type : undefined,
+              sourceId: rest.join(":") || undefined,
+            });
+          }}
+        >
+          <option value="">{t("results.feedback.filters.anyone")}</option>
+          {sources
+            .filter(([key]) => !filters.sourceType || key.startsWith(`${filters.sourceType}:`))
+            .map(([key, name]) => (
+              <option key={key} value={key}>
+                {t(key.startsWith("team:") ? "results.feedback.filters.sourceOptionTeam" : "results.feedback.filters.sourceOptionAdjudicator", { name })}
+              </option>
+            ))}
+        </Select>
+        <Select
+          label={t("results.feedback.filters.status")}
+          wrapperClassName="w-36"
+          value={filters.status ?? ""}
+          onChange={(event) => setFilters({
+            ...filters,
+            status: event.target.value === "counted" || event.target.value === "ignored" || event.target.value === "unconfirmed"
+              ? event.target.value
+              : undefined,
+          })}
+        >
+          <option value="">{t("results.feedback.filters.anyStatus")}</option>
+          <option value="counted">{t("results.feedback.filters.counted")}</option>
+          <option value="unconfirmed">{t("results.feedback.review.unconfirmed")}</option>
+          <option value="ignored">{t("results.feedback.review.ignored")}</option>
+        </Select>
+        <Checkbox
+          className="pb-1.5"
+          label={t("results.feedback.filters.importantOnly", { threshold: importantThreshold })}
+          description={t("results.feedback.filters.importantHint", { threshold: importantThreshold })}
+          checked={filters.important === true}
+          onChange={(event) => setFilters({ ...filters, important: event.target.checked || undefined })}
+        />
         {Object.values(filters).some(Boolean) && (
-          <button type="button" onClick={() => setFilters({})} className="text-xs font-semibold text-blue-700 underline">
-            Clear filters
-          </button>
+          <Button variant="ghost" onClick={() => setFilters({})}>
+            {t("results.feedback.filters.clear")}
+          </Button>
         )}
-        <span className="text-[11px] text-gray-500">
-          Showing {filteredFeedback.length} of {feedback.length}
+        <span role="status" className="pb-1.5 text-xs text-fg-muted">
+          {t("results.feedback.filters.showing", { shown: filteredFeedback.length, total: feedback.length })}
         </span>
       </div>
 
-      {selectedFeedback.length === 0 ? (
-        <div className="bg-white border border-[#d0d7de] rounded-lg p-10 text-center text-xs text-gray-500">
-          No {activeKind} feedback forms match.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {selectedFeedback.map((submission) => {
-            const debate = debatesById.get(submission.debateId);
-            const targetName = isTeamFeedback(submission)
-              ? submission.targetTeamName || "Team"
-              : submission.targetAdjudicatorName || "Adjudicator";
-            const submittedAt = submission.timestamp
-              ? new Date(submission.timestamp).toLocaleString()
-              : "Date unavailable";
+      <TabPanel id="feedback-kind" value={activeKind}>
+        {selectedFeedback.length === 0 ? (
+          <EmptyState
+            icon={<MessageSquareHeart />}
+            title={t(activeKind === "team" ? "results.feedback.submissions.emptyTeam" : "results.feedback.submissions.emptyAdjudicator")}
+          />
+        ) : (
+          <div className="space-y-3">
+            {selectedFeedback.map((submission) => {
+              const debate = debatesById.get(submission.debateId);
+              const targetName = isTeamFeedback(submission)
+                ? submission.targetTeamName || t("results.feedback.role.team")
+                : submission.targetAdjudicatorName || t("results.feedback.adjudicatorFallback");
+              const submittedAt = submission.timestamp
+                ? formatDateTime(submission.timestamp) || submission.timestamp
+                : t("results.feedback.submissions.dateUnavailable");
 
-            return (
-              <article
-                key={submission.id}
-                className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#f6f8fa] border-b border-[#d0d7de]">
-                  <div className="text-xs text-gray-700">
-                    <span className="font-bold text-gray-900">{targetName}</span>
-                    <span className="mx-1.5 text-gray-400">·</span>
-                    <span>Submitted by {submission.sourceName || "Unknown"}</span>
-                  </div>
-                  <span className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                    <span>{submittedAt}</span>
-                    <FeedbackReviewControls submission={submission} canEdit={isOwnerOrAdmin} onReview={reviewFeedback} />
-                  </span>
-                </div>
-                <div className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-                  <div>
-                    <div className="font-semibold text-gray-500 uppercase text-[10px]">Round</div>
-                    <div className="mt-0.5 text-gray-900">{roundNames.get(submission.roundId) || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-500 uppercase text-[10px]">Venue / Debate</div>
-                    <div className="mt-0.5 text-gray-900">
-                      {debate?.venueName || (submission.debateId === "direct-feedback" ? "Direct feedback" : "—")}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-500 uppercase text-[10px]">Score</div>
-                    <div className="mt-0.5 font-bold text-pink-700">{submission.score}</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-500 uppercase text-[10px]">Decision Agreement</div>
-                    <div className="mt-0.5 text-gray-900">
-                      {submission.agreeWithDecision === undefined
-                        ? "Not provided"
-                        : submission.agreeWithDecision
-                        ? "Agreed"
-                        : "Disagreed"}
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-4">
-                    <div className="font-semibold text-gray-500 uppercase text-[10px]">Comments</div>
-                    <p className="mt-0.5 whitespace-pre-wrap text-gray-800">
-                      {submission.comments?.trim() || "No comments provided."}
+              return (
+                <article key={submission.id} className="rounded-lg border border-border bg-surface">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+                    <p className="text-[13px] text-fg-muted">
+                      <span className="font-semibold text-fg">{targetName}</span>
+                      <span className="mx-1.5 text-fg-subtle" aria-hidden="true">·</span>
+                      {t("results.feedback.submissions.submittedBy", {
+                        source: submission.sourceName || t("results.feedback.unknown"),
+                      })}
                     </p>
-                  </div>
-                  {submission.answers && Object.entries(submission.answers).map(([question, answer]) => (
-                    <div key={question} className="sm:col-span-2">
-                      <div className="font-semibold text-gray-500 uppercase text-[10px]">{question}</div>
-                      <p className="mt-0.5 whitespace-pre-wrap text-gray-800">{displayAnswer(answer)}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+                      <span>{submittedAt}</span>
+                      <FeedbackReviewControls submission={submission} canEdit={isOwnerOrAdmin} onReview={reviewFeedback} />
                     </div>
-                  ))}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+                  </div>
+                  <dl className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <Field label={t("results.feedback.field.round")}>{roundNames.get(submission.roundId) || "—"}</Field>
+                    <Field label={t("results.feedback.field.venue")}>
+                      {debate?.venueName ||
+                        (submission.debateId === "direct-feedback" ? t("results.feedback.submissions.directFeedback") : "—")}
+                    </Field>
+                    <Field label={t("results.feedback.field.score")}>
+                      <span className="font-mono font-semibold">{formatNumber(submission.score)}</span>
+                    </Field>
+                    <Field label={t("results.feedback.field.agreement")}>
+                      {submission.agreeWithDecision === undefined
+                        ? t("results.feedback.submissions.notProvided")
+                        : submission.agreeWithDecision
+                        ? t("results.feedback.submissions.agreed")
+                        : t("results.feedback.submissions.disagreed")}
+                    </Field>
+                    <Field label={t("results.feedback.field.comments")} className="sm:col-span-2 lg:col-span-4">
+                      <span className="whitespace-pre-wrap">
+                        {submission.comments?.trim() || (
+                          <span className="text-fg-muted">{t("results.feedback.submissions.noComments")}</span>
+                        )}
+                      </span>
+                    </Field>
+                    {submission.answers && Object.entries(submission.answers).map(([question, answer]) => (
+                      <Field key={question} label={question} className="sm:col-span-2">
+                        <span className="whitespace-pre-wrap">{displayAnswer(answer)}</span>
+                      </Field>
+                    ))}
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </TabPanel>
     </div>
   );
 }

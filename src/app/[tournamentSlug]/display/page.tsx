@@ -16,19 +16,31 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
 import { getLocalStore } from "@/lib/offline/localStore";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
+import type { MessageKey } from "@/lib/i18n";
 
 type DisplayView = "rooms" | "teams" | "motions";
 
-const VIEW_LABELS: Record<DisplayView, string> = {
-  rooms: "Draw by room",
-  teams: "Draw by team",
-  motions: "Motion reveal",
+const VIEW_LABELS: Record<DisplayView, MessageKey> = {
+  rooms: "results.display.view.rooms",
+  teams: "results.display.view.teams",
+  motions: "results.display.view.motions",
 };
+
+/** View toggles: the selected view is filled and marked with aria-pressed, not by colour alone. */
+const toggleClasses = (active: boolean) =>
+  cn(
+    "px-3 py-1.5 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+    active ? "bg-accent text-accent-fg" : "bg-surface text-fg hover:bg-muted"
+  );
 
 export default function DisplayPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
   const { tournament, activeRound, debates, motions, isOwnerOrAdmin } = useTournament();
+  const { t, plural, formatList } = useI18n();
   const [scale, setScale] = useState(1);
   const [autoScroll, setAutoScroll] = useState(true);
   const [view, setView] = useState<DisplayView>("rooms");
@@ -132,71 +144,79 @@ export default function DisplayPage() {
   }, [autoScroll, view, roundDebates.length]);
 
   const drawHidden = (
-    <div className="bg-[#22272e] border border-gray-700 rounded-lg p-10 text-center text-gray-400 flex flex-col items-center justify-center space-y-2">
-      <Lock className="w-8 h-8 text-gray-500" aria-hidden="true" />
-      <p className="font-semibold text-base">Public draw display is currently disabled.</p>
-      <p className="text-xs text-gray-500">
-        The tournament organizers have not released this round or public draw visibility is turned off.
-      </p>
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-border bg-surface p-10 text-center">
+      <Lock className="h-8 w-8 text-fg-subtle" aria-hidden="true" />
+      <p className="text-base font-semibold">{t("results.display.drawHiddenTitle")}</p>
+      <p className="text-sm text-fg-muted">{t("results.display.drawHiddenBody")}</p>
     </div>
   );
 
+  /** "Motion 2 · Reference" when a round has several motions; otherwise just the reference. */
+  const motionLabel = (index: number, reference?: string) => {
+    if (roundMotions.length > 1) {
+      return reference
+        ? t("results.display.motionNumberWithReference", { number: index + 1, reference })
+        : t("results.display.motionNumber", { number: index + 1 });
+    }
+    return reference ?? "";
+  };
+
+  // `theme-projector` (globals.css) is a high-contrast palette for projection: black canvas,
+  // white text, yellow accent, saturated side colours. It ignores the viewer's light/dark choice.
   return (
-    <div className="min-h-screen text-white p-4 sm:p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-6">
+    <div className="theme-projector min-h-screen bg-background p-4 text-fg sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <div className="text-sm uppercase tracking-widest text-gray-400 flex items-center space-x-2">
-            <Monitor className="w-4 h-4" aria-hidden="true" />
-            <span>General assembly display</span>
+          <div className="flex items-center gap-2 text-sm uppercase tracking-widest text-fg-muted">
+            <Monitor className="h-4 w-4" aria-hidden="true" />
+            <span>{t("results.display.eyebrow")}</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold mt-1">
-            {tournament?.name} — {activeRound?.name || "No round"}
+          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
+            {t("results.display.heading", {
+              tournament: tournament?.name ?? "",
+              round: activeRound?.name || t("results.display.noRound"),
+            })}
           </h1>
           {view !== "motions" && releasedHeaderMotion && (
-            <p className="text-lg text-gray-300 mt-2 italic">{releasedHeaderMotion.text}</p>
+            <p className="mt-2 text-lg italic text-fg-muted">{releasedHeaderMotion.text}</p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="Display view" className="flex rounded overflow-hidden border border-gray-600">
+          <div
+            role="group"
+            aria-label={t("results.display.viewGroup")}
+            className="flex divide-x divide-border-strong overflow-hidden rounded-md border border-border-strong rtl:divide-x-reverse"
+          >
             {(Object.keys(VIEW_LABELS) as DisplayView[]).map((item) => (
               <button
                 key={item}
                 type="button"
                 onClick={() => setView(item)}
                 aria-pressed={view === item}
-                className={`px-3 py-1 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  view === item ? "bg-blue-600 text-white" : "bg-gray-700 hover:bg-gray-600"
-                }`}
+                className={toggleClasses(view === item)}
               >
-                {VIEW_LABELS[item]}
+                {t(VIEW_LABELS[item])}
               </button>
             ))}
           </div>
-          <button
-            type="button"
+          <Button
             onClick={() => setScale((s) => Math.max(0.8, s - 0.1))}
-            aria-label="Decrease text size"
-            className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
+            aria-label={t("results.display.textSmaller")}
+            title={t("results.display.textSmaller")}
           >
             A−
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => setScale((s) => Math.min(1.6, s + 0.1))}
-            aria-label="Increase text size"
-            className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
+            aria-label={t("results.display.textLarger")}
+            title={t("results.display.textLarger")}
           >
             A+
-          </button>
+          </Button>
           {view !== "motions" && (
-            <button
-              type="button"
-              onClick={() => setAutoScroll((v) => !v)}
-              aria-pressed={autoScroll}
-              className="px-3 py-1 bg-gray-700 rounded text-sm hover:bg-gray-600"
-            >
-              {autoScroll ? "Pause scroll" : "Auto-scroll"}
-            </button>
+            <Button onClick={() => setAutoScroll((v) => !v)} aria-pressed={autoScroll}>
+              {autoScroll ? t("results.display.pauseScroll") : t("results.display.autoScroll")}
+            </Button>
           )}
         </div>
       </div>
@@ -205,46 +225,44 @@ export default function DisplayPage() {
         <section
           ref={revealRef}
           tabIndex={-1}
-          aria-label="Motion reveal"
+          aria-label={t("results.display.view.motions")}
           aria-live="polite"
-          className="flex min-h-[calc(100vh-12rem)] flex-col rounded-lg border border-gray-700 bg-[#111820] focus:outline-none"
+          className="flex min-h-[calc(100vh-12rem)] flex-col rounded-lg border border-border bg-surface focus:outline-none"
           style={{ fontSize: `${scale}rem` }}
         >
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10 text-center sm:px-14">
             {!showMotions ? (
-              <p className="text-gray-400">Motions are not public for this tournament.</p>
+              <p className="text-fg-muted">{t("results.display.motionsNotPublic")}</p>
             ) : roundMotions.length === 0 || !revealStep ? (
-              <p className="text-gray-400">
-                {isOwnerOrAdmin
-                  ? "No motions are assigned to this round on this device."
-                  : "No motions have been released for this round yet."}
+              <p className="text-fg-muted">
+                {isOwnerOrAdmin ? t("results.display.noMotionsStaff") : t("results.display.noMotionsPublic")}
               </p>
             ) : revealStep.kind === "cover" ? (
               <>
-                <p className="text-sm font-bold uppercase tracking-widest text-amber-300">{activeRound?.name}</p>
+                <p className="text-sm font-bold uppercase tracking-widest text-accent-text">{activeRound?.name}</p>
                 <p className="text-4xl font-bold sm:text-6xl">
                   {infoSlidesOnly
-                    ? roundMotions.length === 1 ? "Information slide" : "Information slides"
-                    : roundMotions.length === 1 ? "The motion" : `${roundMotions.length} motions`}
+                    ? plural("results.display.infoSlidesCover", roundMotions.length)
+                    : plural("results.display.motionsCover", roundMotions.length)}
                 </p>
-                <p className="text-sm text-gray-400">Press → or Space to reveal.</p>
+                <p className="text-sm text-fg-muted">{t("results.display.pressToReveal")}</p>
               </>
             ) : revealStep.kind === "info" ? (
-              <div className="w-full max-w-4xl text-left">
-                <p className="mb-3 text-sm font-bold uppercase text-amber-300">
-                  Information slide{roundMotions.length > 1 ? ` · Motion ${revealStep.index + 1}` : ""}
+              <div className="w-full max-w-4xl text-start">
+                <p className="mb-3 text-sm font-bold uppercase text-accent-text">
+                  {roundMotions.length > 1
+                    ? t("results.display.infoSlideForMotion", { number: revealStep.index + 1 })
+                    : t("results.display.infoSlide")}
                 </p>
-                <p className="whitespace-pre-line text-xl leading-relaxed text-gray-100 sm:text-2xl">
+                <p className="whitespace-pre-line text-xl leading-relaxed sm:text-2xl">
                   {revealStep.motion.infoSlide}
                 </p>
               </div>
             ) : (
               <>
                 {(roundMotions.length > 1 || revealStep.motion.reference) && (
-                  <p className="text-sm font-bold uppercase text-amber-300">
-                    {roundMotions.length > 1 ? `Motion ${revealStep.index + 1}` : ""}
-                    {roundMotions.length > 1 && revealStep.motion.reference ? " · " : ""}
-                    {revealStep.motion.reference}
+                  <p className="text-sm font-bold uppercase text-accent-text">
+                    {motionLabel(revealStep.index, revealStep.motion.reference)}
                   </p>
                 )}
                 <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">{revealStep.motion.text}</p>
@@ -253,64 +271,75 @@ export default function DisplayPage() {
             {isOwnerOrAdmin && revealStep && revealStep.kind !== "cover" && (
               revealStep.kind === "info" ? motionsStatus === "not_released" : revealStep.motion.released !== true
             ) && (
-              <p className="rounded border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-xs font-semibold text-amber-200">
+              <p className="rounded-md border border-warning-border bg-warning-subtle px-2 py-1 text-xs font-semibold text-warning">
                 {revealStep.kind === "info"
-                  ? "Staff preview: this round's info slides are not released yet."
-                  : "Staff preview: this motion is not released publicly yet."}
+                  ? t("results.display.previewInfoSlides")
+                  : t("results.display.previewMotion")}
               </p>
             )}
           </div>
-          <div className="flex items-center justify-between border-t border-white/15 px-5 py-3 text-sm">
-            <button
-              type="button"
+          <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 text-sm">
+            <Button
+              variant="ghost"
+              size="lg"
+              className="text-fg"
               onClick={() => setRevealIndex((index) => nextRevealStep(index, "ArrowLeft", revealSteps.length))}
               disabled={revealIndex === 0}
-              className="inline-flex items-center gap-1 rounded px-3 py-2 font-semibold text-gray-200 hover:bg-white/10 disabled:opacity-40"
             >
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Back
-            </button>
-            <span className="text-gray-400">
-              Step {Math.min(revealIndex, revealSteps.length - 1) + 1} of {revealSteps.length} · ← → to move, Esc to exit
+              <ChevronLeft className="rtl:-scale-x-100" aria-hidden="true" /> {t("results.display.back")}
+            </Button>
+            <span className="text-center text-fg-muted">
+              {t("results.display.stepStatus", {
+                step: Math.min(revealIndex, revealSteps.length - 1) + 1,
+                total: revealSteps.length,
+              })}
             </span>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="lg"
+              className="text-fg"
               onClick={() => setRevealIndex((index) => nextRevealStep(index, "ArrowRight", revealSteps.length))}
               disabled={revealIndex >= revealSteps.length - 1}
-              className="inline-flex items-center gap-1 rounded px-3 py-2 font-semibold text-gray-200 hover:bg-white/10 disabled:opacity-40"
             >
-              Next <ChevronRight className="h-4 w-4" aria-hidden="true" />
-            </button>
+              {t("results.display.next")} <ChevronRight className="rtl:-scale-x-100" aria-hidden="true" />
+            </Button>
           </div>
         </section>
       ) : (
         <div
           id="display-scroll"
-          className="overflow-y-auto max-h-[calc(100vh-11rem)] pr-2"
+          className="max-h-[calc(100vh-11rem)] overflow-y-auto pe-2"
           style={{ fontSize: `${scale}rem` }}
         >
           {!showDraw ? (
             drawHidden
           ) : roundDebates.length === 0 ? (
-            <p className="text-gray-400">No draw for this round yet.</p>
+            <p className="text-fg-muted">{t("results.display.noDraw")}</p>
           ) : view === "teams" ? (
-            <div className="overflow-x-auto rounded-lg border border-gray-700">
-              <table className="w-full text-left">
-                <caption className="sr-only">Draw sorted by team name</caption>
-                <thead className="bg-[#2d333b] text-sm uppercase text-gray-400">
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-start">
+                <caption className="sr-only">{t("results.display.byTeamCaption")}</caption>
+                <thead className="bg-muted text-sm uppercase tracking-wide text-fg-muted">
                   <tr>
-                    <th scope="col" className="px-4 py-2">Team</th>
-                    <th scope="col" className="px-4 py-2">Side</th>
-                    <th scope="col" className="px-4 py-2">Room</th>
-                    <th scope="col" className="px-4 py-2">Against</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.team")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.side")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.room")}</th>
+                    <th scope="col" className="px-4 py-2 text-start">{t("results.display.column.against")}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-700">
+                <tbody className="divide-y divide-border">
                   {alphabeticalRows.map((row) => (
-                    <tr key={row.teamId} className="bg-[#22272e]">
-                      <th scope="row" className="px-4 py-2 font-semibold">{row.teamName}</th>
-                      <td className="px-4 py-2">{row.side ? <SideBadge side={row.side} preferences={prefs} /> : row.bye ? "Bye" : "Sides at the debate"}</td>
-                      <td className="px-4 py-2 text-blue-300">{row.bye ? "—" : row.venueName || "TBA"}</td>
-                      <td className="px-4 py-2 text-gray-300">{row.opponents.join(", ") || "—"}</td>
+                    <tr key={row.teamId} className="bg-surface">
+                      <th scope="row" className="px-4 py-2 text-start font-semibold">{row.teamName}</th>
+                      <td className="px-4 py-2">
+                        {row.side
+                          ? <SideBadge side={row.side} preferences={prefs} />
+                          : row.bye ? t("results.display.bye") : t("results.display.sidesAtDebate")}
+                      </td>
+                      <td className="px-4 py-2 font-semibold text-accent-text">
+                        {row.bye ? "—" : row.venueName || t("common.tba")}
+                      </td>
+                      <td className="px-4 py-2 text-fg-muted">{row.opponents.length ? formatList(row.opponents) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -323,32 +352,34 @@ export default function DisplayPage() {
                   ? Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId)
                   : undefined;
                 return (
-                  <div key={debate.id} className="bg-[#2d333b] rounded-lg p-4 border border-gray-700">
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                      <span className="font-bold text-blue-300">
-                        {debate.byeTeamId ? "Bye" : debate.venueName || `Room ${debate.roomRank}`}
-                      </span>
-                      <span className="text-sm text-gray-400">
+                  <div key={debate.id} className="rounded-lg border border-border bg-surface p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-accent-text">
                         {debate.byeTeamId
-                          ? "No adjudicator required"
-                          : `Chair: ${showAdjudicators ? debate.adjudicators?.chairName || "TBA" : "TBA"}`}
+                          ? t("results.display.bye")
+                          : debate.venueName || t("results.display.roomFallback", { rank: debate.roomRank })}
+                      </span>
+                      <span className="text-sm text-fg-muted">
+                        {debate.byeTeamId
+                          ? t("results.display.noAdjudicatorNeeded")
+                          : t("results.display.chair", {
+                              name: showAdjudicators ? debate.adjudicators?.chairName || t("common.tba") : t("common.tba"),
+                            })}
                       </span>
                     </div>
                     {debate.byeTeamId ? (
-                      <div className="bg-[#22272e] rounded p-4">
-                        <div className="font-semibold">{byeTeam?.teamName || "Team"}</div>
-                        <div className="mt-1 text-sm text-gray-400">
-                          {debate.byeResult === "win" ? "Full win awarded" : "Absent — no standings result"}
+                      <div className="rounded-md border border-border bg-muted p-4">
+                        <div className="font-semibold">{byeTeam?.teamName || t("results.display.teamFallback")}</div>
+                        <div className="mt-1 text-sm text-fg-muted">
+                          {debate.byeResult === "win" ? t("results.display.byeWin") : t("results.display.byeAbsent")}
                         </div>
                       </div>
                     ) : (
-                      <div
-                        className={`grid gap-3 grid-cols-1 sm:grid-cols-2 ${isBP ? "xl:grid-cols-4" : ""}`}
-                      >
+                      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", isBP && "xl:grid-cols-4")}>
                         {sides.map((side) => (
-                          <div key={side} className="bg-[#22272e] rounded p-3">
+                          <div key={side} className="rounded-md border border-border bg-muted p-3">
                             {sidesPending(debate)
-                              ? <span className="text-[11px] font-semibold uppercase text-gray-400">Sides at the debate</span>
+                              ? <span className="text-[11px] font-semibold uppercase text-fg-muted">{t("results.display.sidesAtDebate")}</span>
                               : <SideBadge side={side} preferences={prefs} />}
                             <div className="mt-2 font-semibold">{debate.teams[side]?.teamName || "—"}</div>
                           </div>
@@ -358,12 +389,12 @@ export default function DisplayPage() {
                     {showAdjudicators && !debate.byeTeamId &&
                       ((debate.adjudicators?.panellistNames?.length || 0) > 0 ||
                         (debate.adjudicators?.traineeNames?.length || 0) > 0) && (
-                      <div className="mt-3 space-y-1 text-sm text-gray-400">
+                      <div className="mt-3 space-y-1 text-sm text-fg-muted">
                         {debate.adjudicators?.panellistNames?.length ? (
-                          <p>Panellists: {debate.adjudicators.panellistNames.join(", ")}</p>
+                          <p>{t("results.display.panellists", { names: formatList(debate.adjudicators.panellistNames) })}</p>
                         ) : null}
                         {debate.adjudicators?.traineeNames?.length ? (
-                          <p>Trainees: {debate.adjudicators.traineeNames.join(", ")}</p>
+                          <p>{t("results.display.trainees", { names: formatList(debate.adjudicators.traineeNames) })}</p>
                         ) : null}
                       </div>
                     )}
