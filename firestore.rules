@@ -30,6 +30,17 @@ service cloud.firestore {
           get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "dataEntry";
       }
 
+      // Staff access (docs/staff-access.md): a data-entry assistant's direct live writes also need
+      // the permission. `permissions` is derived from their groups by the staff route; staff
+      // documents written before groups existed have none and keep every assistant permission.
+      // The tournament's assistantAccess "none" switches assistants off.
+      function assistantMay(permission) {
+        let staff = get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data;
+        let preferences = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.get("preferences", {});
+        return preferences.get("assistantAccess", "all_areas") != "none" &&
+          (staff.get("permissions", null) == null || permission in staff.permissions);
+      }
+
       allow read: if isTournamentAdmin() || isAssignedAssistant();
       // Only global admins create tournaments (matches the hub's Create button).
       allow create: if isGlobalAdmin();
@@ -110,15 +121,15 @@ service cloud.firestore {
       }
 
       match /ballots/{ballotId} {
-        allow create: if isAssignedAssistant() && isAssistantBallot(ballotId);
+        allow create: if isAssignedAssistant() && isAssistantBallot(ballotId) && assistantMay("results.enter");
       }
 
       match /teams/{teamId} {
-        allow update: if isAssignedAssistant() && isAssistantCheckIn();
+        allow update: if isAssignedAssistant() && isAssistantCheckIn() && assistantMay("checkins.edit");
       }
 
       match /adjudicators/{adjudicatorId} {
-        allow update: if isAssignedAssistant() && isAssistantCheckIn();
+        allow update: if isAssignedAssistant() && isAssistantCheckIn() && assistantMay("checkins.edit");
       }
 
       // Conflicting cloud versions are append-only recovery records.

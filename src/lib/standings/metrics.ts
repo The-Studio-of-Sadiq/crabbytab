@@ -14,11 +14,14 @@ export const TEAM_METRIC_LABELS: Record<TeamMetricId, string> = {
   margin_sum: "Total margin",
   margin_avg: "Average margin",
   draw_strength_wins: "Draw strength (opponents' wins)",
+  draw_strength: "Draw strength (opponents' points)",
   draw_strength_speaks: "Draw strength (opponents' speaks)",
+  draw_strength_rank: "Draw strength (opponents' mean rank)",
   firsts: "1sts",
   seconds: "2nds",
   thirds: "3rds",
   pullups: "Times pulled up",
+  pullup_debates: "Debates with a pull-up",
   wbw: "Who-beat-whom",
   num_adjs: "Votes/ballots carried",
   num_iron: "Iron-person speeches",
@@ -32,6 +35,14 @@ export const SPEAKER_METRIC_LABELS: Record<SpeakerMetricId, string> = {
   speeches_count: "Speeches given",
   reply_sum: "Total reply score",
   reply_avg: "Average reply score",
+  reply_stddev: "Reply score standard deviation",
+  reply_count: "Replies given",
+  team_points: "Team points",
+  team_wins: "Team wins",
+  firsts: "Team 1sts",
+  seconds: "Team 2nds",
+  thirds: "Team 3rds",
+  num_adjs: "Team votes/ballots carried",
 };
 
 /** 1 = higher value ranks better; -1 = lower value ranks better. */
@@ -45,12 +56,17 @@ export const TEAM_METRIC_DIRECTION: Record<TeamMetricId, 1 | -1> = {
   margin_sum: 1,
   margin_avg: 1,
   draw_strength_wins: 1,
+  draw_strength: 1,
   draw_strength_speaks: 1,
+  // A lower mean opponent rank is a harder draw (Tabbycat: ascending).
+  draw_strength_rank: -1,
   firsts: 1,
   seconds: 1,
   thirds: 1,
-  // Fewer pull-ups ranks higher, as in Tabbycat.
-  pullups: -1,
+  // Tabbycat's npullups and pullup_debates are not ascending: more ranks higher
+  // (standings/teams.py; BaseMetricAnnotator.ascending defaults to False).
+  pullups: 1,
+  pullup_debates: 1,
   wbw: 1,
   num_adjs: 1,
   // Fewer debates with a duplicate speech ranks higher, as in Tabbycat.
@@ -65,6 +81,14 @@ export const SPEAKER_METRIC_DIRECTION: Record<SpeakerMetricId, 1 | -1> = {
   speeches_count: 1,
   reply_sum: 1,
   reply_avg: 1,
+  reply_stddev: -1,
+  reply_count: 1,
+  team_points: 1,
+  team_wins: 1,
+  firsts: 1,
+  seconds: 1,
+  thirds: 1,
+  num_adjs: 1,
 };
 
 export const ALL_TEAM_METRICS = Object.keys(TEAM_METRIC_LABELS) as TeamMetricId[];
@@ -72,11 +96,22 @@ export const ALL_SPEAKER_METRICS = Object.keys(SPEAKER_METRIC_LABELS) as Speaker
 
 /** Metrics that only make sense in a given format; used to grey out choices in the UI. */
 export const BP_ONLY_TEAM_METRICS: TeamMetricId[] = ["firsts", "seconds", "thirds"];
-export const TWO_TEAM_ONLY_TEAM_METRICS: TeamMetricId[] = ["margin_sum", "margin_avg", "num_adjs"];
+/**
+ * Two-team only. BP preliminary rounds record no wins (as in Tabbycat), so wins and the
+ * draw strength built on them are always 0 in BP; use points and draw_strength there.
+ */
+export const TWO_TEAM_ONLY_TEAM_METRICS: TeamMetricId[] = ["margin_sum", "margin_avg", "num_adjs", "wins", "draw_strength_wins"];
+export const BP_ONLY_SPEAKER_METRICS: SpeakerMetricId[] = ["firsts", "seconds", "thirds"];
+export const TWO_TEAM_ONLY_SPEAKER_METRICS: SpeakerMetricId[] = ["team_wins", "num_adjs"];
 /** Metrics that may appear more than once in a precedence chain (Tabbycat allows repeated who-beat-whom). */
 export const REPEATABLE_TEAM_METRICS: TeamMetricId[] = ["wbw"];
 /** Metrics that only make sense as a tiebreak and so are not offered as "extra" display columns. */
 export const RANKING_ONLY_TEAM_METRICS: TeamMetricId[] = ["wbw"];
+/**
+ * Metrics that can only be displayed, never ranked on: draw strength by rank is computed from the
+ * ranking itself (Tabbycat's extra_only).
+ */
+export const EXTRA_ONLY_TEAM_METRICS: TeamMetricId[] = ["draw_strength_rank"];
 
 /** Tabbycat normalises votes carried to a panel of this size (NumberOfAdjudicatorsMetricAnnotator). */
 export const VOTES_NORMALISED_PANEL_SIZE = 3;
@@ -133,11 +168,25 @@ export interface TeamRoundAccum {
   votesPossible?: number;
   /** The team gave an iron-person (duplicate) speech in this debate. */
   ironed?: boolean;
+  /** Some team in this debate was pulled up (Tabbycat's debate "pullup" flag). */
+  pullupDebate?: boolean;
+  /**
+   * The round's weight (Tabbycat Round.weight; absent = 1). Draw strength multiplies opponents'
+   * points by it, as Tabbycat's PointsMetricAnnotator does.
+   */
+  roundWeight?: number;
+}
+
+/** Points this team earned, each round's points multiplied by its weight (Tabbycat's points metric). */
+export function weightedPoints(rounds: TeamRoundAccum[]): number {
+  return rounds.reduce((sum, round) => sum + round.points * (round.roundWeight ?? 1), 0);
 }
 
 export interface TeamMetricContext {
   /** Every other team's own wins / speaks_sum, for draw strength. */
   opponentWins: Map<string, number>;
+  /** Every other team's round-weighted points, for Tabbycat's draw_strength. */
+  opponentPoints: Map<string, number>;
   opponentSpeaksSum: Map<string, number>;
 }
 
@@ -164,6 +213,7 @@ export function computeTeamMetrics(
 
   const opponentIds = rounds.flatMap((r) => r.opponentTeamIds);
   const drawStrengthWins = opponentIds.reduce((s, id) => s + (ctx.opponentWins.get(id) ?? 0), 0);
+  const drawStrength = opponentIds.reduce((s, id) => s + (ctx.opponentPoints.get(id) ?? 0), 0);
   const drawStrengthSpeaks = opponentIds.reduce((s, id) => s + (ctx.opponentSpeaksSum.get(id) ?? 0), 0);
 
   return {
@@ -176,11 +226,15 @@ export function computeTeamMetrics(
     margin_sum: marginSum,
     margin_avg: mean(rounds.filter((r) => !r.bye).map((r) => r.margin)),
     draw_strength_wins: drawStrengthWins,
+    draw_strength: drawStrength,
     draw_strength_speaks: drawStrengthSpeaks,
+    // Filled in by the calculator once every team is ranked; NaN (shown as "—") without opponents.
+    draw_strength_rank: Number.NaN,
     firsts,
     seconds,
     thirds,
     pullups,
+    pullup_debates: rounds.filter((r) => r.pullupDebate).length,
     // Filled in by the calculator, which needs every team's standing to evaluate it.
     wbw: 0,
     num_adjs: votesCarried,
@@ -203,14 +257,49 @@ export function trimmedMean(scores: number[], trim: number): number {
   return mean(kept);
 }
 
+/**
+ * The speaker's team's results over the same preliminary rounds, as Tabbycat's speaker metrics
+ * team_points, team_wins, firsts/seconds/thirds and num_adjs: these count every debate of the
+ * team, whether or not this speaker spoke in it.
+ */
+export interface SpeakerTeamResults {
+  points: number;
+  wins: number;
+  firsts: number;
+  seconds: number;
+  thirds: number;
+  votesCarried: number;
+}
+
+export const NO_TEAM_RESULTS: SpeakerTeamResults = { points: 0, wins: 0, firsts: 0, seconds: 0, thirds: 0, votesCarried: 0 };
+
+/**
+ * The speaker team metrics from the team's rounds. Points are not multiplied by round weights:
+ * Tabbycat's speaker team_points sums TeamScore.points directly.
+ */
+export function speakerTeamResults(rounds: TeamRoundAccum[] | undefined): SpeakerTeamResults {
+  if (!rounds || rounds.length === 0) return NO_TEAM_RESULTS;
+  const metrics = computeTeamMetrics(rounds, { opponentWins: new Map(), opponentPoints: new Map(), opponentSpeaksSum: new Map() });
+  return {
+    points: rounds.reduce((sum, round) => sum + round.points, 0),
+    wins: metrics.wins,
+    firsts: metrics.firsts,
+    seconds: metrics.seconds,
+    thirds: metrics.thirds,
+    votesCarried: metrics.num_adjs,
+  };
+}
+
 export function computeSpeakerMetrics(
   substantiveScores: number[],
   replyScores: number[],
-  trim: number
+  trim: number,
+  team: SpeakerTeamResults = NO_TEAM_RESULTS
 ): Record<SpeakerMetricId, number> {
   const sum = substantiveScores.reduce((a, b) => a + b, 0);
   const replySum = replyScores.reduce((a, b) => a + b, 0);
 
+  // Speech ranks (Tabbycat's srank) are added with ranked ballots; see the scoring formats work.
   return {
     speaks_sum: sum,
     speaks_avg: mean(substantiveScores),
@@ -219,5 +308,13 @@ export function computeSpeakerMetrics(
     speeches_count: substantiveScores.length,
     reply_sum: replySum,
     reply_avg: mean(replyScores),
+    reply_stddev: popStdDev(replyScores),
+    reply_count: replyScores.length,
+    team_points: team.points,
+    team_wins: team.wins,
+    firsts: team.firsts,
+    seconds: team.seconds,
+    thirds: team.thirds,
+    num_adjs: team.votesCarried,
   };
 }

@@ -102,6 +102,11 @@ Opt in per event on the email page:
 | `notifyDrawReleased` | each allocated adjudicator | the draw is visible **and** panels are revealed |
 | `notifyTeamPoints` | each team's speakers | results are released, the round is not silent and public results are on |
 | `notifyBallotReceipt` | the submitting adjudicator | they submit a ballot from their private URL |
+| `notifyMotionsReleased` | speakers and (revealed) adjudicators in the round | the round's motions are released and its draw is visible |
+| `notifyBallotConfirmed` | every adjudicator of the debate | the tab room confirms its result (running rounds only) |
+
+Wording, Reply-To, registration emails, delivery status and SMS: see
+[email-notifications.md](email-notifications.md).
 
 How it works:
 

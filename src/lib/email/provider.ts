@@ -4,6 +4,10 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** Reply-To header (the tournament's email settings). */
+  replyTo?: string;
+  /** Extra headers, e.g. X-CrabbyTab-Ref for delivery webhooks. */
+  headers?: Record<string, string>;
 }
 
 export interface EmailProvider {
@@ -51,6 +55,8 @@ class SmtpEmailProvider implements EmailProvider {
       to: message.to,
       subject: message.subject,
       text: message.text,
+      ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+      ...(message.headers ? { headers: message.headers } : {}),
     });
   }
 }

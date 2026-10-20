@@ -2,6 +2,9 @@ import { Adjudicator, Debate, Round, Team } from "@/types";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
 import { getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
 
+/** Header naming the tournament and campaign of a message, echoed by delivery webhooks. */
+export const DELIVERY_REF_HEADER = "X-CrabbyTab-Ref";
+
 export const MAX_CAMPAIGN_RECIPIENTS = 100;
 
 export const EMAIL_RECIPIENT_GROUPS = [
@@ -40,6 +43,21 @@ export interface EmailRecipient {
   result?: string;
   points?: string;
   ballot?: string;
+  /** Motions released (motions_released). */
+  motions?: string;
+  /** Registration emails: the registered team or adjudicator, a link, and allocated places. */
+  entry?: string;
+  url?: string;
+  teamsAllocated?: string;
+  adjudicatorsAllocated?: string;
+}
+
+/** Headers added to every message of a send (docs/email-notifications.md). */
+export interface EmailSendOptions {
+  /** Reply-To header value, from the tournament's email settings. */
+  replyTo?: string;
+  /** Delivery reference `{tournamentId}/{campaignId}`, sent as X-CrabbyTab-Ref for delivery webhooks. */
+  ref?: string;
 }
 
 export interface EmailCampaignResult {
@@ -72,6 +90,8 @@ export interface StoredEmailCampaign {
   retryInProgress?: boolean;
   /** Set when the campaign was sent automatically (draw release, results, ballot receipt). */
   notificationKey?: string;
+  /** Latest provider delivery status per address (delivery webhook), keyed by `deliveryKey(email)`. */
+  delivery?: Record<string, { event: string; at: string; reason?: string }>;
 }
 
 function describeSendError(error: unknown): string {
@@ -306,6 +326,11 @@ export function renderEmailTemplate(
     result: recipient.result || "",
     points: recipient.points || "",
     ballot: recipient.ballot || "",
+    motions: recipient.motions || "",
+    entry: recipient.entry || "",
+    url: recipient.url || "",
+    teams_allocated: recipient.teamsAllocated || "",
+    adjudicators_allocated: recipient.adjudicatorsAllocated || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {
@@ -321,7 +346,8 @@ export function prepareEmailMessages(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): EmailMessage[] {
   if (recipients.length === 0) {
     throw new EmailCampaignInputError("No recipients with email addresses were found.");
@@ -381,6 +407,8 @@ export function prepareEmailMessages(
       to: recipient.email,
       subject,
       text: renderEmailTemplate(bodyTemplate, recipient, tournamentName, roundName),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+      ...(options.ref ? { headers: { [DELIVERY_REF_HEADER]: options.ref } } : {}),
     };
   });
 }
@@ -391,14 +419,16 @@ export async function sendEmailCampaign(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): Promise<EmailCampaignResult> {
   const messages = prepareEmailMessages(
     recipients,
     tournamentName,
     roundName,
     subjectTemplate,
-    bodyTemplate
+    bodyTemplate,
+    options
   );
 
   const results: EmailCampaignResult["results"] = [];
