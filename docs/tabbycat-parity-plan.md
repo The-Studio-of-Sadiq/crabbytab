@@ -78,6 +78,8 @@ means the sync/publish hardening PR that added this section.
 | 3 data (DebateXML import, CSV exports, backup restore) | FIXED | #14 | `debateXmlImport.ts`, `csv/exporters.ts`, `tournamentBackup.ts` |
 | 3 notifications, QR slips, self check-in | FIXED | #16 | `api/tournaments/[id]/notifications`, `lib/qr/qrcode.ts` |
 | 3 team break eligibility and speaker categories | FIXED | #11 | `TeamCategoryFields.tsx`; CSV `break_categories` |
+| 3 import preview, duplicates, institution auto-create, conflicts CSV (wave 3 #12) | FIXED | wave 3 #12 | `csv/importPlan.ts` (preview, row errors/warnings, skip/update/create, valid-rows-only, new institutions with editable codes), `csv/conflictsImport.ts` (all four conflict types; team–institution conflicts honoured by the allocator); venue/motion CSVs still import without preview |
+| 3 speaker categories as entities (wave 3 #13) | FIXED | wave 3 #13 | `lib/speakerCategories.ts`: name/slug/public/limit/seq in `preferences.speakerCategories`, labels resolved on read (no migration writes), category-ranked admin filter and public tabs, break eligibility rule applied on confirmation |
 | 4.1 sync model B (Firestore source of truth) | PARTIAL | #24, #25, #27, #30, wave 2 #6 | step 1 live: ballots, debates (draw/allocation) and teams/adjudicators (check-ins) are written per record (field-level `mergeFields` batches) and read through current-round `onSnapshot` listeners on admin devices, with the SDK's `persistentLocalCache` queuing offline writes (`liveSync.ts`, `liveSession.ts`, `liveRepository.ts`, [live-collaboration.md](./live-collaboration.md)); settings, rounds, motions, rooms, breaks, feedback and audit stay upload/download; assistants not live yet (rules allow their unconfirmed-ballot and check-in writes); no rules emulator tests |
 | 4.2 split `TournamentContext`, memoize value | OPEN | — | ~2.6k lines; provider value is an inline object |
 | 4.3 bound local `auditEvents` | OPEN | — | no limit |
@@ -166,7 +168,8 @@ the last place as reserves despite its code saying they all break (`breakqual/ba
 in database order.
 
 **Wave 3 — P2/P3.** #11 staff invitations; #12 import preview, duplicate detection,
-institution auto-create, conflicts CSV; #13 speaker categories as entities driving eligibility;
+institution auto-create, conflicts CSV (*done, see data-import-export.md*); #13 speaker categories
+as entities driving eligibility (*done, see standings-and-breaks.md*);
 #14 self-registration (after #6); #15 draw-editor history / side-balance / pull-up flags, draw
 details, keyboard placement; #16 manual-ballot sides, swing teams; #17 feedback number/checkbox
 questions, configurable paths, base-score history.

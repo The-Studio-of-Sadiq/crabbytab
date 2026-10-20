@@ -31,6 +31,7 @@ import {
 } from "@/features/tournament/application/breaks";
 import { eliminationByeCount } from "@/lib/draw/elimination";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { SpeakerCategoryEligibilityPanel } from "@/features/tournament/components/SpeakerCategoryEligibilityPanel";
 
 const OVERRIDE_OPTIONS: BreakTeamOverride[] = [
   "include",
@@ -413,6 +414,8 @@ export default function BreakPage() {
                 )}
               </div>
             </div>
+
+            <SpeakerCategoryEligibilityPanel category={selectedCategory} />
 
             {cutoffTies.map((tie) => (
               <div

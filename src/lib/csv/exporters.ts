@@ -53,7 +53,10 @@ export function teamStandingsCsv(rows: TeamStandingRow[]): string {
 }
 
 /** Speaker or reply standings with one column per round (several speeches in a round are joined). */
-export function speakerStandingsCsv(rows: SpeakerStandingRow[], options: { reply?: boolean } = {}): string {
+export function speakerStandingsCsv(
+  rows: SpeakerStandingRow[],
+  options: { reply?: boolean; categoryNames?: (refs: string[]) => string[] } = {}
+): string {
   const roundSeqs = [...new Set(rows.flatMap((row) => row.scoresByRound.map((score) => score.roundSeq)))].sort((a, b) => a - b);
   const fields = [
     "Rank",
@@ -73,7 +76,7 @@ export function speakerStandingsCsv(rows: SpeakerStandingRow[], options: { reply
       row.speakerName,
       row.teamName,
       row.institutionCode,
-      ...(options.reply ? [] : [(row.categories ?? []).join("; ")]),
+      ...(options.reply ? [] : [(options.categoryNames?.(row.categories ?? []) ?? row.categories ?? []).join("; ")]),
       row.speechesCount,
       fixed(row.totalScore, 2),
       fixed(row.averageScore, 2),

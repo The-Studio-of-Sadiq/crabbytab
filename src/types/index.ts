@@ -218,6 +218,19 @@ export interface TournamentPreferences {
   notifyTeamPoints?: boolean;
   /** Teams and adjudicators may mark themselves available for the current round from their private portal. */
   allowSelfCheckIn?: boolean;
+  /** Speaker categories (ESL, novice, ...), like Tabbycat's SpeakerCategory. See lib/speakerCategories. */
+  speakerCategories?: SpeakerCategory[];
+}
+
+export interface SpeakerCategory {
+  id: string;
+  name: string;
+  slug: string;
+  seq: number;
+  /** Shown as its own speaker tab on the public page once the speaker tab is released. */
+  public: boolean;
+  /** Public category tab shows at most this many ranks; absent or 0 = no limit. */
+  limit?: number;
 }
 
 export interface Tournament {
@@ -346,7 +359,11 @@ export interface Speaker {
   gender?: string;
   /** Overrides the institution region for diversity displays. */
   region?: string;
-  categories?: string[]; // e.g. ["esl", "novice"]
+  /**
+   * Speaker category ids. Older data and imports hold names or slugs ("esl"); readers resolve
+   * every entry with resolveSpeakerCategoryRef, so both keep working.
+   */
+  categories?: string[];
 }
 
 export interface Team {
@@ -363,7 +380,10 @@ export interface Team {
   institutionName?: string;
   speakers: Speaker[];
   breakCategories: string[]; // IDs of eligible break categories
-  speakerCategories: string[]; // e.g. ["esl", "novice"]
+  /** Legacy team-wide speaker category labels, used for speakers without their own `categories`. */
+  speakerCategories: string[];
+  /** Institutions whose adjudicators must not judge this team (Tabbycat's team–institution conflicts). */
+  institutionConflictIds?: string[];
   seed?: number;
   emoji?: string;
   checkedIn?: boolean;
@@ -616,6 +636,14 @@ export interface BreakCategory {
   teamOverrides?: Record<string, BreakTeamOverride>;
   /** The break as it was when it was last generated for this category. */
   generatedBreak?: GeneratedBreak;
+  /** Eligibility derived from speaker categories, applied on request from the Break page. */
+  speakerCategoryRule?: SpeakerCategoryEligibilityRule;
+}
+
+export interface SpeakerCategoryEligibilityRule {
+  speakerCategoryId: string;
+  /** Speakers who must be in the category; absent = every speaker on the team. */
+  minimumSpeakers?: number;
 }
 
 /**

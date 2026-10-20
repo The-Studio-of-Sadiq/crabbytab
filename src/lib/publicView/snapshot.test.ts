@@ -90,6 +90,33 @@ describe("buildPublicProjection", () => {
     expect(projection.collections.motions.map((motion) => motion.id)).toEqual(["m1"]);
   });
 
+  it("publishes only public speaker categories, as ids", () => {
+    const projection = buildPublicProjection(
+      {
+        ...tournament,
+        preferences: {
+          ...(tournament.preferences as object),
+          speakerCategories: [
+            { id: "cat-esl", name: "ESL", slug: "esl", seq: 1, public: true },
+            { id: "cat-novice", name: "Novice", slug: "novice", seq: 2, public: false },
+          ],
+        },
+      },
+      source({
+        teams: [
+          { id: "team-a", name: "Alpha", speakerCategories: ["novice", "ESL"], speakers: [{ id: "s1", name: "Ann", categories: ["cat-novice", "esl"] }, { id: "s2", name: "Bo" }] },
+          { id: "team-b", name: "Beta", speakers: [] },
+        ],
+      })
+    );
+    expect(projection.tournament.preferences.speakerCategories).toEqual([
+      { id: "cat-esl", name: "ESL", slug: "esl", seq: 1, public: true },
+    ]);
+    const alpha = projection.collections.teams[0];
+    expect(alpha.speakerCategories).toEqual(["cat-esl"]);
+    expect(alpha.speakers).toEqual([{ id: "s1", name: "Ann", categories: ["cat-esl"] }, { id: "s2", name: "Bo" }]);
+  });
+
   it("hides unrevealed panels and unreleased speaker scores", () => {
     const projection = buildPublicProjection(tournament, source());
     expect(projection.collections.debates[0].adjudicators).toEqual({

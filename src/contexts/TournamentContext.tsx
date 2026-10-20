@@ -47,7 +47,7 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
 import { createRoundCommand, updateRoundCommand } from "@/features/tournament/application/rounds";
-import { createEntityId, createTournamentEntityCommands } from "@/features/tournament/application/entities";
+import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
 import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
 import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
@@ -253,6 +253,8 @@ export interface TournamentContextType {
   discardBallot: (ballotId: string) => Promise<void>;
   addInstitution: (inst: Omit<Institution, "id" | "tournamentId">) => Promise<void>;
   addInstitutions: (institutions: Omit<Institution, "id" | "tournamentId">[]) => Promise<void>;
+  /** Creates and updates institutions, teams and adjudicators in one write per collection (previewed imports). */
+  saveEntityBatch: (batch: EntityBatch, source: string) => Promise<void>;
   updateInstitution: (inst: Institution) => Promise<void>;
   deleteInstitution: (instId: string) => Promise<void>;
   addTeam: (team: Omit<Team, "id" | "tournamentId">) => Promise<void>;
@@ -1662,6 +1664,7 @@ export function TournamentProvider({
   });
 
   const {
+    saveEntityBatch,
     addInstitutions: addInstitutionsCommand,
     updateInstitution: updateInstitutionCommand,
     deleteInstitution: deleteInstitutionCommand,
@@ -2903,6 +2906,7 @@ export function TournamentProvider({
         discardBallot,
         addInstitution,
         addInstitutions,
+        saveEntityBatch,
         updateInstitution,
         deleteInstitution,
         addTeam,

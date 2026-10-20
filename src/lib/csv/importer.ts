@@ -53,7 +53,7 @@ export interface VenueCsvRow {
   near_tab_room?: string | boolean;
 }
 
-function getField(row: Record<string, string>, ...aliases: string[]): string {
+export function getField(row: Record<string, string>, ...aliases: string[]): string {
   for (const alias of aliases) {
     if (row[alias] !== undefined) return row[alias];
     const lowerAlias = alias.toLowerCase();
@@ -90,15 +90,199 @@ function parseVenueRequirements(row: Record<string, string>, rowNumber: number):
   return Object.values(requirements).some((value) => value !== undefined) ? requirements : undefined;
 }
 
-function speakerCategories(row: Record<string, string>, position: number): Pick<Speaker, "categories"> {
-  const categories = parseCategoryList(
-    getField(row, `speaker${position}_categories`, `Speaker ${position} Categories`, `speaker${position}_category`)
-  );
-  return categories.length > 0 ? { categories } : {};
+/** Problems found in one CSV row. Errors stop the row being imported; warnings do not. */
+export interface ImportIssue {
+  severity: "error" | "warning";
+  message: string;
+}
+
+/** Runs one field parser, turning a thrown error into a row error. */
+function collect<T>(issues: ImportIssue[], parse: () => T): T | undefined {
+  try {
+    return parse();
+  } catch (error) {
+    issues.push({ severity: "error", message: error instanceof Error ? error.message : String(error) });
+    return undefined;
+  }
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function checkEmail(email: string, who: string, issues: ImportIssue[]): string | undefined {
+  const trimmed = email.trim();
+  if (!trimmed) return undefined;
+  if (!EMAIL_PATTERN.test(trimmed)) {
+    issues.push({ severity: "error", message: `${who} email "${trimmed}" is not a valid address.` });
+  }
+  return trimmed;
 }
 
 /**
- * Parses CSV text to Teams and Speakers array.
+ * Splits a category cell ("ESL; Novice") into names, keeping the organiser's spelling and
+ * dropping repeats that differ only in case.
+ */
+export function splitCategoryNames(raw: string): string[] {
+  const names: string[] = [];
+  for (const part of raw.split(/[,;|]/)) {
+    const name = part.trim().replace(/\s+/g, " ");
+    if (name && !names.some((existing) => existing.toLowerCase() === name.toLowerCase())) names.push(name);
+  }
+  return names;
+}
+
+export type TeamDraft = Omit<Team, "id" | "tournamentId">;
+
+export interface ParsedTeamRow {
+  team: TeamDraft;
+  issues: ImportIssue[];
+  /** Speaker category names per speaker, as written (resolved to category ids by the import plan). */
+  speakerCategoryNames: string[][];
+}
+
+/** Speaker columns read from a team row: speaker1 … speaker5. */
+const MAX_SPEAKER_COLUMNS = 5;
+
+/**
+ * Parses one team row without inventing data: a missing name or missing speakers are left for
+ * the caller to report. Speaker ids are blank for the caller to assign.
+ */
+export function parseTeamRow(
+  row: Record<string, string>,
+  rowNumber: number,
+  breakCategories: BreakCategory[] = []
+): ParsedTeamRow {
+  const issues: ImportIssue[] = [];
+  const name = getField(row, "name", "team", "Team", "team_name", "Team Name").trim().replace(/\s+/g, " ");
+
+  const speakers: Speaker[] = [];
+  const speakerCategoryNames: string[][] = [];
+  for (let position = 1; position <= MAX_SPEAKER_COLUMNS; position += 1) {
+    const speakerName = getField(row, `speaker${position}`, `Speaker${position}`, `speaker_${position}`, `Speaker ${position}`).trim();
+    const email = getField(row, `speaker${position}_email`, `Speaker ${position} Email`);
+    const categoryCell = getField(row, `speaker${position}_categories`, `Speaker ${position} Categories`, `speaker${position}_category`);
+    if (!speakerName) {
+      if (email.trim() || categoryCell.trim()) {
+        issues.push({ severity: "error", message: `Speaker ${position} has an email or categories but no name.` });
+      }
+      continue;
+    }
+    const categories = parseCategoryList(categoryCell);
+    speakers.push({
+      id: "",
+      name: speakerName.replace(/\s+/g, " "),
+      email: checkEmail(email, `Speaker ${position}`, issues),
+      ...(categories.length > 0 ? { categories } : {}),
+    });
+    speakerCategoryNames.push(splitCategoryNames(categoryCell));
+  }
+
+  const breakRefs = parseCategoryList(getField(row, "break_categories", "Break Categories", "break_category"));
+  const resolvedBreaks = resolveBreakCategoryRefs(breakRefs, breakCategories);
+  if (resolvedBreaks.unknown.length > 0) {
+    issues.push({
+      severity: "error",
+      message: `Unknown break categor${resolvedBreaks.unknown.length === 1 ? "y" : "ies"} on CSV row ${rowNumber}: ${resolvedBreaks.unknown.join(", ")}. Create ${resolvedBreaks.unknown.length === 1 ? "it" : "them"} on the Break page first.`,
+    });
+  }
+
+  const category = getField(row, "category", "Category").trim();
+  const institutionName = getField(row, "institution", "Institution", "inst", "Inst").trim();
+  const team: TeamDraft = {
+    name,
+    codeName: getField(row, "code", "Code").trim() || undefined,
+    divisionId: getField(row, "division_id", "divisionId", "division").trim() || undefined,
+    divisionName: getField(row, "division", "Division", "division_id", "divisionId").trim() || undefined,
+    institutionName: institutionName || undefined,
+    venueRequirements: collect(issues, () => parseVenueRequirements(row, rowNumber)),
+    speakers,
+    breakCategories: resolvedBreaks.ids,
+    speakerCategories: category ? [category.toLowerCase()] : [],
+    checkedIn: true,
+  };
+  return { team, issues, speakerCategoryNames };
+}
+
+export type AdjudicatorDraft = Omit<Adjudicator, "id" | "tournamentId">;
+
+export const DEFAULT_ADJUDICATOR_SCORE = 5;
+
+export function parseAdjudicatorRow(
+  row: Record<string, string>,
+  rowNumber: number
+): { adjudicator: AdjudicatorDraft; issues: ImportIssue[] } {
+  const issues: ImportIssue[] = [];
+  const name = getField(row, "name", "Name", "adjudicator", "Adjudicator", "judge", "Judge").trim().replace(/\s+/g, " ");
+  const scoreRaw = getField(row, "score", "Score", "rating", "Rating", "baseScore").trim();
+  const score = scoreRaw ? Number(scoreRaw) : DEFAULT_ADJUDICATOR_SCORE;
+  if (!Number.isFinite(score)) {
+    issues.push({ severity: "error", message: `Invalid score value on CSV row ${rowNumber}: ${scoreRaw}` });
+  }
+  const adjudicator: AdjudicatorDraft = {
+    name,
+    email: checkEmail(getField(row, "email", "Email"), "The", issues),
+    institutionName: getField(row, "institution", "Institution", "inst", "Inst").trim() || undefined,
+    baseScore: Number.isFinite(score) ? score : DEFAULT_ADJUDICATOR_SCORE,
+    trainee: collect(issues, () => parseCsvFlag(getField(row, "trainee", "Trainee"), "trainee", rowNumber)) ?? false,
+    independent:
+      collect(issues, () => parseCsvFlag(getField(row, "independent", "Independent", "indep"), "independent", rowNumber)) ?? false,
+    preformedPanelId: getField(row, "preformed_panel_id", "preformedPanelId").trim() || undefined,
+    gender: getField(row, "gender", "Gender").trim() || undefined,
+    region: getField(row, "region", "Region").trim() || undefined,
+    venueRequirements: collect(issues, () => parseVenueRequirements(row, rowNumber)),
+    checkedIn: true,
+    conflicts: [],
+  };
+  return { adjudicator, issues };
+}
+
+export type InstitutionDraft = Omit<Institution, "id" | "tournamentId">;
+
+/** Institution name abbreviated to a code, as the add-institution form does. */
+export function deriveInstitutionCode(name: string): string {
+  return name.trim().substring(0, 4).toUpperCase();
+}
+
+export function parseInstitutionRow(
+  row: Record<string, string>,
+  rowNumber: number
+): { institution: InstitutionDraft; issues: ImportIssue[] } {
+  const issues: ImportIssue[] = [];
+  const extraFields = (row as Record<string, string> & { __parsed_extra?: string[] }).__parsed_extra ?? [];
+  const values = [
+    getField(row, "name", "Name", "institution", "Institution", "institution name", "Institution Name"),
+    getField(row, "code", "Code", "abbr", "Abbr", "institution code", "Institution Code"),
+    getField(row, "region", "Region"),
+    ...extraFields,
+  ];
+  // Older exports wrote names such as "University, City" unquoted: the extra cells belong to the name.
+  const name = (extraFields.length > 0
+    ? values.slice(0, -2).map((value) => value.trim()).join(", ")
+    : values[0].trim()).replace(/\s+/g, " ");
+  const code = (extraFields.length > 0 ? values[values.length - 2] : values[1])?.trim();
+  const region = (extraFields.length > 0 ? values[values.length - 1] : values[2])?.trim();
+  if (extraFields.length > 0) {
+    issues.push({ severity: "warning", message: `Unquoted commas: the name was read as "${name}".` });
+  }
+  return {
+    institution: {
+      name,
+      code: code || deriveInstitutionCode(name),
+      region: region || undefined,
+      venueRequirements: collect(issues, () => parseVenueRequirements(row, rowNumber)),
+    },
+    issues,
+  };
+}
+
+function throwFirstError(issues: ImportIssue[]): void {
+  const error = issues.find((issue) => issue.severity === "error");
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Parses CSV text to Teams and Speakers array, filling a missing name or speakers with
+ * placeholders. Kept for fixtures and tests; the Teams page imports through the previewed
+ * plan in importPlan.ts, which reports those gaps instead.
  *
  * Optional columns: `speakerN_categories` (e.g. "esl; novice") and
  * `break_categories` (names, slugs or ids of the tournament's break
@@ -111,55 +295,15 @@ export function parseTeamsCsv(
   breakCategories: BreakCategory[] = []
 ): Team[] {
   const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
-  const teams: Team[] = [];
-
-  parsed.data.forEach((row, idx) => {
-    const name = getField(row, "name", "team", "Team") || `Team ${idx + 1}`;
-    const instName = getField(row, "institution", "Institution", "inst", "Inst");
-    const speakers: Speaker[] = [];
-
-    // Extract speaker 1, 2, 3, etc.
-    const spk1 = getField(row, "speaker1", "Speaker1", "speaker_1", "Speaker 1");
-    if (spk1) speakers.push({ id: `spk-${Date.now()}-${idx}-1`, name: spk1.trim(), email: getField(row, "speaker1_email", "Speaker 1 Email"), ...speakerCategories(row, 1) });
-
-    const spk2 = getField(row, "speaker2", "Speaker2", "speaker_2", "Speaker 2");
-    if (spk2) speakers.push({ id: `spk-${Date.now()}-${idx}-2`, name: spk2.trim(), email: getField(row, "speaker2_email", "Speaker 2 Email"), ...speakerCategories(row, 2) });
-
-    const spk3 = getField(row, "speaker3", "Speaker3", "speaker_3", "Speaker 3");
-    if (spk3) speakers.push({ id: `spk-${Date.now()}-${idx}-3`, name: spk3.trim(), email: getField(row, "speaker3_email", "Speaker 3 Email"), ...speakerCategories(row, 3) });
-
-    // If no numbered speakers, check single speakers column or default
-    if (speakers.length === 0) {
-      speakers.push({ id: `spk-${Date.now()}-${idx}-1`, name: `${name} Speaker 1` });
-      speakers.push({ id: `spk-${Date.now()}-${idx}-2`, name: `${name} Speaker 2` });
-    }
-
-    const category = getField(row, "category", "Category");
-    const breakRefs = parseCategoryList(getField(row, "break_categories", "Break Categories", "break_category"));
-    const resolvedBreaks = resolveBreakCategoryRefs(breakRefs, breakCategories);
-    if (resolvedBreaks.unknown.length > 0) {
-      throw new Error(
-        `Unknown break categor${resolvedBreaks.unknown.length === 1 ? "y" : "ies"} on CSV row ${idx + 2}: ${resolvedBreaks.unknown.join(", ")}. Create ${resolvedBreaks.unknown.length === 1 ? "it" : "them"} on the Break page first.`
-      );
-    }
-
-    teams.push({
-      id: `team-${Date.now()}-${idx}`,
-      tournamentId,
-      name: name.trim(),
-      codeName: getField(row, "code", "Code") || undefined,
-      divisionId: getField(row, "division_id", "divisionId", "division") || undefined,
-      divisionName: getField(row, "division", "Division", "division_id", "divisionId") || undefined,
-      institutionName: instName.trim() || undefined,
-      venueRequirements: parseVenueRequirements(row, idx + 2),
-      speakers,
-      breakCategories: resolvedBreaks.ids,
-      speakerCategories: category ? [category.toLowerCase().trim()] : [],
-      checkedIn: true,
-    });
+  return parsed.data.map((row, idx) => {
+    const { team, issues } = parseTeamRow(row, idx + 2, breakCategories);
+    throwFirstError(issues);
+    const name = team.name || `Team ${idx + 1}`;
+    const speakers = team.speakers.length > 0
+      ? team.speakers.map((speaker, position) => ({ ...speaker, id: `spk-${Date.now()}-${idx}-${position + 1}` }))
+      : [1, 2].map((position) => ({ id: `spk-${Date.now()}-${idx}-${position}`, name: `${name} Speaker ${position}` }));
+    return { ...team, id: `team-${Date.now()}-${idx}`, tournamentId, name, speakers };
   });
-
-  return teams;
 }
 
 /**
@@ -167,38 +311,16 @@ export function parseTeamsCsv(
  */
 export function parseAdjudicatorsCsv(csvContent: string, tournamentId: string): Adjudicator[] {
   const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
-  const adjs: Adjudicator[] = [];
-
-  parsed.data.forEach((row, idx) => {
-    const name = getField(row, "name", "Name", "adjudicator", "Adjudicator", "judge", "Judge") || `Judge ${idx + 1}`;
-    const scoreRaw = getField(row, "score", "Score", "rating", "Rating", "baseScore") || "5.0";
-    const scoreVal = parseFloat(scoreRaw) || 5.0;
-
-    const traineeRaw = getField(row, "trainee", "Trainee").toLowerCase();
-    const isTrainee = traineeRaw === "true" || traineeRaw === "yes" || traineeRaw === "1";
-
-    const indepRaw = getField(row, "independent", "Independent", "indep").toLowerCase();
-    const isIndep = indepRaw === "true" || indepRaw === "yes" || indepRaw === "1";
-
-    adjs.push({
+  return parsed.data.map((row, idx) => {
+    const { adjudicator, issues } = parseAdjudicatorRow(row, idx + 2);
+    throwFirstError(issues);
+    return {
+      ...adjudicator,
       id: `adj-${Date.now()}-${idx}`,
       tournamentId,
-      name: name.trim(),
-      email: getField(row, "email", "Email") || undefined,
-      institutionName: getField(row, "institution", "Institution", "inst", "Inst").trim() || undefined,
-      baseScore: scoreVal,
-      trainee: isTrainee,
-      independent: isIndep,
-      preformedPanelId: getField(row, "preformed_panel_id", "preformedPanelId").trim() || undefined,
-      gender: getField(row, "gender", "Gender").trim() || undefined,
-      region: getField(row, "region", "Region").trim() || undefined,
-      venueRequirements: parseVenueRequirements(row, idx + 2),
-      checkedIn: true,
-      conflicts: [],
-    });
+      name: adjudicator.name || `Judge ${idx + 1}`,
+    };
   });
-
-  return adjs;
 }
 
 /**
@@ -247,35 +369,18 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
  */
 export function parseInstitutionsCsv(csvContent: string, tournamentId: string): Institution[] {
   const parsed = Papa.parse<Record<string, string>>(csvContent, { header: true, skipEmptyLines: true });
-  const insts: Institution[] = [];
-
-  parsed.data.forEach((row, idx) => {
-    const extraFields = (row as Record<string, string> & { __parsed_extra?: string[] }).__parsed_extra ?? [];
-    const values = [
-      getField(row, "name", "Name", "institution", "Institution", "institution name", "Institution Name"),
-      getField(row, "code", "Code", "abbr", "Abbr", "institution code", "Institution Code"),
-      getField(row, "region", "Region"),
-      ...extraFields,
-    ];
-    const name = extraFields.length > 0
-      ? values.slice(0, -2).map((value) => value.trim()).join(", ")
-      : values[0].trim();
-    const code = extraFields.length > 0 ? values[values.length - 2] : values[1];
-    const region = extraFields.length > 0 ? values[values.length - 1] : values[2];
-    const institutionName = name || `Institution ${idx + 1}`;
-    const institutionCode = code?.trim() || institutionName.substring(0, 4).toUpperCase();
-
-    insts.push({
+  return parsed.data.map((row, idx) => {
+    const { institution, issues } = parseInstitutionRow(row, idx + 2);
+    throwFirstError(issues);
+    const name = institution.name || `Institution ${idx + 1}`;
+    return {
+      ...institution,
       id: `inst-${Date.now()}-${idx}`,
       tournamentId,
-      name: institutionName,
-      code: institutionCode,
-      region: region?.trim() || undefined,
-      venueRequirements: parseVenueRequirements(row, idx + 2),
-    });
+      name,
+      code: institution.code || deriveInstitutionCode(name),
+    };
   });
-
-  return insts;
 }
 
 /**

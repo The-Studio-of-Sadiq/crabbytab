@@ -31,7 +31,9 @@ import {
   Monitor,
   Shield,
   Shuffle,
+  ShieldAlert,
   Sliders,
+  Tags,
   Trophy,
   UserCheck,
   Users,
@@ -168,6 +170,8 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
         <NavLink href={`${base}/imports/diversity`} icon={Users} label="Diversity" />
         {!isDataEntryAssistant && (
           <>
+            <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label="Speaker categories" />
+            <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label="Conflicts" />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label="Venues" />
             <NavLink href={`${base}/imports/motions`} icon={Lightbulb} label="Motions" />
           </>

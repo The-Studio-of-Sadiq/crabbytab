@@ -150,6 +150,11 @@ function declaredInstitutionMatches(institutionId: string, team: Team): boolean 
   );
 }
 
+/** The team declared a conflict with the adjudicator's institution (Tabbycat's team–institution conflict). */
+function teamDeclaresInstitution(adj: Adjudicator, team: Team): boolean {
+  return Boolean(adj.institutionId && team.institutionConflictIds?.includes(adj.institutionId)) && !sharesInstitution(adj, team);
+}
+
 /**
  * Calculates conflict penalty between an adjudicator and a debate's teams/institutions,
  * and (when given) the other adjudicators on the same panel.
@@ -195,6 +200,12 @@ export function calculateAdjDebateConflict(
         hasInstitutionalClash = true;
         reasons.push(`Declared institutional clash with ${team.name}`);
       }
+    }
+
+    if (teamDeclaresInstitution(adj, team)) {
+      penalty += weights.DECLARED_INSTITUTION_CONFLICT;
+      hasInstitutionalClash = true;
+      reasons.push(`${team.name} declared a clash with ${adj.institutionName || "the adjudicator's institution"}`);
     }
 
     // 3. Past debate history clash (adjudicated this team in earlier rounds)
@@ -257,6 +268,9 @@ function teamConflictCosts(
       ) {
         costs.institution += weights.DECLARED_INSTITUTION_CONFLICT;
       }
+    }
+    if (options.respectInstitutionConflicts && teamDeclaresInstitution(adj, team)) {
+      costs.institution += weights.DECLARED_INSTITUTION_CONFLICT;
     }
     if (options.respectHistoryConflicts && pastAdjTeams.get(adj.id)?.has(team.id)) {
       costs.history += weights.REPEAT_TEAM;

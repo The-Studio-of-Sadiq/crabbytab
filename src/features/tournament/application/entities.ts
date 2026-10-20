@@ -54,6 +54,16 @@ export interface EntityCommandDependencies {
   };
 }
 
+/** Records created and updated together, e.g. by a previewed CSV import. Ids are already assigned. */
+export interface EntityBatch {
+  institutionsCreated?: Institution[];
+  institutionsUpdated?: Institution[];
+  teamsCreated?: Team[];
+  teamsUpdated?: Team[];
+  adjudicatorsCreated?: Adjudicator[];
+  adjudicatorsUpdated?: Adjudicator[];
+}
+
 export function createEntityId(prefix: string): string {
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -389,7 +399,81 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     });
   };
 
+  /**
+   * Saves a batch with one write per collection, so a large import cannot be half-applied by
+   * later saves overwriting earlier ones, and records one audit event for the whole batch.
+   * Updated records must exist; created ones must not.
+   */
+  const saveEntityBatch = async (batch: EntityBatch, source: string) => {
+    const merge = <T extends { id: string }>(current: T[], created: T[] = [], updated: T[] = [], noun: string): T[] | undefined => {
+      if (created.length === 0 && updated.length === 0) return undefined;
+      const ids = new Set(current.map((item) => item.id));
+      const missing = updated.find((item) => !ids.has(item.id));
+      if (missing) throw new Error(`Cannot update ${noun} ${missing.id}: it no longer exists. Reload and preview the import again.`);
+      const clash = created.find((item) => ids.has(item.id));
+      if (clash) throw new Error(`Cannot create ${noun} ${clash.id}: the id is already used.`);
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      return [...current.map((item) => byId.get(item.id) ?? item), ...created];
+    };
+    const nextInstitutions = merge(
+      institutions,
+      batch.institutionsCreated?.map((item) => ({ ...item, tournamentId })),
+      batch.institutionsUpdated,
+      "institution"
+    );
+    const nextTeams = merge(
+      teams,
+      batch.teamsCreated?.map((item) => ({
+        ...item,
+        tournamentId,
+        privateUrlKey: item.privateUrlKey || generatePrivateKey("team"),
+        privatePasscode: item.privatePasscode || generatePrivateKey(),
+      })),
+      batch.teamsUpdated,
+      "team"
+    );
+    const nextAdjudicators = merge(
+      adjudicators,
+      batch.adjudicatorsCreated?.map((item) => ({
+        ...item,
+        tournamentId,
+        privateUrlKey: item.privateUrlKey || generatePrivateKey("adj"),
+        privatePasscode: item.privatePasscode || generatePrivateKey(),
+      })),
+      batch.adjudicatorsUpdated,
+      "adjudicator"
+    );
+    if (!nextInstitutions && !nextTeams && !nextAdjudicators) return;
+    if (nextInstitutions) repositories.institutions.save(nextInstitutions);
+    if (nextTeams) repositories.teams.save(nextTeams);
+    if (nextAdjudicators) repositories.adjudicators.save(nextAdjudicators);
+    const ids = (items: { id: string }[] = []) => items.map((item) => item.id);
+    const counts = (noun: string, created: unknown[] = [], updated: unknown[] = []) => [
+      ...(created.length ? [`${created.length} ${noun}(s) added`] : []),
+      ...(updated.length ? [`${updated.length} ${noun}(s) updated`] : []),
+    ];
+    await recordAuditEvent({
+      action: "entities.batch_saved",
+      category: "tournament",
+      summary: `${source}: ${[
+        ...counts("institution", batch.institutionsCreated, batch.institutionsUpdated),
+        ...counts("team", batch.teamsCreated, batch.teamsUpdated),
+        ...counts("adjudicator", batch.adjudicatorsCreated, batch.adjudicatorsUpdated),
+      ].join(", ")}`,
+      details: {
+        source,
+        institutionsCreated: ids(batch.institutionsCreated),
+        institutionsUpdated: ids(batch.institutionsUpdated),
+        teamsCreated: ids(batch.teamsCreated),
+        teamsUpdated: ids(batch.teamsUpdated),
+        adjudicatorsCreated: ids(batch.adjudicatorsCreated),
+        adjudicatorsUpdated: ids(batch.adjudicatorsUpdated),
+      },
+    });
+  };
+
   return {
+    saveEntityBatch,
     addInstitutions,
     updateInstitution,
     deleteInstitution,
