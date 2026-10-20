@@ -1,0 +1,48 @@
+{
+  "name": "australs-voting",
+  "title": "Australs Voting Cup",
+  "description": "Two-team Australs rules, 20 teams from unevenly sized institutions (forces institution swaps), 3-adjudicator voting panels with split decisions, reply speeches, an iron-person speech.",
+  "style": "australs",
+  "format": "two_team",
+  "seed": 4242,
+  "rounds": {
+    "played": 4,
+    "total": 5
+  },
+  "drawRounds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "standingsAfterRounds": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "allocationRound": 4,
+  "unavailableTeams": {},
+  "breakCategories": [
+    {
+      "id": "BC1",
+      "name": "Open",
+      "general": true,
+      "breakSize": 4,
+      "reserveSize": 2,
+      "priority": 2,
+      "rule": "standard"
+    },
+    {
+      "id": "BC2",
+      "name": "Novice",
+      "general": false,
+      "breakSize": 2,
+      "reserveSize": 1,
+      "priority": 1,
+      "rule": "standard"
+    }
+  ],
+  "tabbycatPreferences": {}
+}

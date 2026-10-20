@@ -1,0 +1,48 @@
+{
+  "name": "twoteam-odd-ties",
+  "title": "Odd Ties Invitational",
+  "description": "Two-team, 19 teams (a bye every round), ranked on wins only so standings and the break are full of ties, fold pairing with pull-up-from-top, a cap of three debates on one side.",
+  "style": "australs",
+  "format": "two_team",
+  "seed": 1919,
+  "rounds": {
+    "played": 4,
+    "total": 5
+  },
+  "drawRounds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "standingsAfterRounds": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "allocationRound": 4,
+  "unavailableTeams": {},
+  "breakCategories": [
+    {
+      "id": "BC1",
+      "name": "Open",
+      "general": true,
+      "breakSize": 6,
+      "reserveSize": 2,
+      "priority": 1,
+      "rule": "standard"
+    }
+  ],
+  "tabbycatPreferences": {
+    "standings__team_standings_precedence": [
+      "wins"
+    ],
+    "draw_rules__draw_odd_bracket": "pullup_top",
+    "draw_rules__draw_pairing_method": "fold",
+    "draw_rules__max_times_per_side": 3,
+    "draw_rules__bye_team_selection": "lowest",
+    "draw_rules__bye_team_results": "none"
+  }
+}
