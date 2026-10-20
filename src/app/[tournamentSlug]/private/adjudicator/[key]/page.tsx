@@ -29,7 +29,12 @@ import { consensusTeamScores } from "@/lib/ballots/result";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
 import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
-import { questionsForFeedbackSource, validateFeedbackAnswers } from "@/lib/feedback/questions";
+import {
+  isFeedbackEnabledForRound,
+  questionsForFeedbackSource,
+  validateFeedbackAnswers,
+} from "@/lib/feedback/questions";
+import { feedbackPathsForRound, isFeedbackPathAllowed } from "@/lib/feedback/paths";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 
@@ -825,6 +830,16 @@ export default function AdjudicatorPrivatePortalPage() {
                   });
                 }
               });
+              const myRole: PanelRole | undefined = isChair ? "chair" : isPanellist ? "panellist" : isTrainee ? "trainee" : undefined;
+              const feedbackPaths = feedbackPathsForRound(tournament?.preferences, round);
+              const feedbackOpen = feedbackEnabled && isFeedbackEnabledForRound(
+                debate,
+                round,
+                tournament?.preferences?.feedbackInEliminationRounds !== false
+              );
+              const ratedCoJudges = myRole
+                ? coJudges.filter((target) => isFeedbackPathAllowed(feedbackPaths, myRole, target.role))
+                : [];
 
               return (
                 <div
@@ -950,7 +965,7 @@ export default function AdjudicatorPrivatePortalPage() {
                     </div>
 
                     {/* Section: Action 2 - Adjudicator Feedback */}
-                    {feedbackEnabled && (
+                    {feedbackOpen && (
                       <div className="pt-3 border-t border-gray-100 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
@@ -966,9 +981,13 @@ export default function AdjudicatorPrivatePortalPage() {
                           <p className="text-[11px] text-gray-500 italic">
                             {t("adjPortal.solo")}
                           </p>
+                        ) : ratedCoJudges.length === 0 ? (
+                          <p className="text-[11px] text-gray-500 italic">
+                            {t("adjPortal.noFeedbackPath")}
+                          </p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            {coJudges.map((target) => {
+                            {ratedCoJudges.map((target) => {
                               const submitted = hasSubmittedFeedback(target.id, debate.id);
                               const pastFb = getSubmittedFeedback(target.id, debate.id);
 
@@ -1002,6 +1021,7 @@ export default function AdjudicatorPrivatePortalPage() {
                           </div>
                         )}
 
+                        {feedbackPaths.onTeams && (
                         <div className="pt-3 border-t border-gray-100 space-y-2.5">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
@@ -1042,6 +1062,7 @@ export default function AdjudicatorPrivatePortalPage() {
                             })}
                           </div>
                         </div>
+                        )}
                       </div>
                     )}
                   </div>

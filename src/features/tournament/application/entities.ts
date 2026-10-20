@@ -16,6 +16,7 @@ import {
   checkVenueDeletion,
   enforceGuards,
 } from "./stateGuards";
+import { scoreChangesBetween, withScoreHistory } from "@/lib/feedback/scoreHistory";
 
 export interface EntityAuditEvent {
   action: string;
@@ -49,6 +50,9 @@ export interface EntityCommandDependencies {
   recordAuditEvent(event: EntityAuditEvent): Promise<void>;
   createId(prefix: string): string;
   generatePrivateKey(prefix?: string): string;
+  /** Who is editing, stamped on base/test score history entries. */
+  currentActor?(): { id?: string; name?: string };
+  now?(): string;
   cloudRepository?: {
     saveMotion(motion: Motion): Promise<void>;
   };
@@ -87,6 +91,22 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     createId,
     generatePrivateKey,
   } = dependencies;
+  const scoreChangeContext = (reason?: string) => {
+    const actor = dependencies.currentActor?.();
+    return {
+      timestamp: dependencies.now?.() ?? new Date().toISOString(),
+      actorId: actor?.id,
+      actorName: actor?.name,
+      reason,
+    };
+  };
+  // Audit events record score changes as entries of their own, not the whole history each time.
+  const auditSafeAdjudicator = ({
+    privateUrlKey: _privateUrlKey,
+    privatePasscode: _privatePasscode,
+    scoreHistory: _scoreHistory,
+    ...safe
+  }: Adjudicator) => safe;
 
   /** Returns the created records (with their new ids). */
   const addInstitutions = async (data: Omit<Institution, "id" | "tournamentId">[]): Promise<Institution[]> => {
@@ -238,24 +258,27 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     return created;
   };
 
-  const updateAdjudicator = async (adjudicator: Adjudicator) => {
+  /**
+   * Saves one adjudicator. Base/test score changes are appended to its score history with
+   * the editor, the time and the optional reason.
+   */
+  const updateAdjudicator = async (adjudicator: Adjudicator, options: { scoreChangeReason?: string } = {}) => {
     const previous = adjudicators.find((item) => item.id === adjudicator.id);
+    const context = scoreChangeContext(options.scoreChangeReason);
+    const saved = withScoreHistory(previous, adjudicator, context);
     repositories.adjudicators.save(
-      adjudicators.map((item) => (item.id === adjudicator.id ? adjudicator : item))
+      adjudicators.map((item) => (item.id === adjudicator.id ? saved : item))
     );
-    const withoutPrivateAccess = ({
-      privateUrlKey: _privateUrlKey,
-      privatePasscode: _privatePasscode,
-      ...safe
-    }: Adjudicator) => safe;
+    const scoreChanges = scoreChangesBetween(previous, adjudicator, context);
     await recordAuditEvent({
       action: "adjudicator.updated",
       category: "tournament",
       summary: `Adjudicator ${adjudicator.name} updated`,
       details: {
         adjudicatorId: adjudicator.id,
-        previous: previous ? withoutPrivateAccess(previous) : undefined,
-        current: withoutPrivateAccess(adjudicator),
+        previous: previous ? auditSafeAdjudicator(previous) : undefined,
+        current: auditSafeAdjudicator(saved),
+        ...(scoreChanges.length ? { scoreChanges } : {}),
       },
     });
   };
@@ -263,21 +286,18 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
   /** Saves several adjudicators in one write so later changes cannot overwrite earlier ones. */
   const updateAdjudicators = async (changed: Adjudicator[]) => {
     if (changed.length === 0) return;
-    const byId = new Map(changed.map((item) => [item.id, item]));
+    const context = scoreChangeContext();
+    const previousById = new Map(adjudicators.map((item) => [item.id, item]));
+    const byId = new Map(changed.map((item) => [item.id, withScoreHistory(previousById.get(item.id), item, context)]));
     const previous = adjudicators.filter((item) => byId.has(item.id));
     repositories.adjudicators.save(adjudicators.map((item) => byId.get(item.id) ?? item));
-    const withoutPrivateAccess = ({
-      privateUrlKey: _privateUrlKey,
-      privatePasscode: _privatePasscode,
-      ...safe
-    }: Adjudicator) => safe;
     await recordAuditEvent({
       action: "adjudicators.updated",
       category: "tournament",
       summary: `${changed.length} adjudicator(s) updated`,
       details: {
-        previous: previous.map(withoutPrivateAccess),
-        current: changed.map(withoutPrivateAccess),
+        previous: previous.map(auditSafeAdjudicator),
+        current: [...byId.values()].map(auditSafeAdjudicator),
       },
     });
   };

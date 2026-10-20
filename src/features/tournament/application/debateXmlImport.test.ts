@@ -61,7 +61,13 @@ function votingTournament(): DebateXmlArchiveInput {
         { id: "q-team", label: "Was the chair clear?", type: "yes_no", required: true },
         { id: "q-scale", label: "Rate the oral", type: "scale", required: false, min: 1, max: 5 },
       ],
-      adjudicatorFeedbackQuestions: [{ id: "q-adj", label: "Comments on <panel>", type: "text", required: false }],
+      adjudicatorFeedbackQuestions: [
+        { id: "q-adj", label: "Comments on <panel>", type: "text", required: false },
+        { id: "q-int", label: "Minutes late", type: "integer", required: false, min: 0 },
+        { id: "q-float", label: "Decimal", type: "float", required: false },
+        { id: "q-box", label: "Gave an oral", type: "checkbox", required: false },
+        { id: "q-iscale", label: "Agreement", type: "integer_scale", required: false, min: 1, max: 5 },
+      ],
     },
   } as unknown as Tournament;
   const rules: BallotRules = { format: tournament.format, preferences: tournament.preferences };
@@ -312,7 +318,7 @@ describe("DebateXML import", () => {
       ballots: 2,
       votingBallots: 1,
       feedback: 2,
-      feedbackQuestions: 3,
+      feedbackQuestions: 7,
     });
 
     expect(collections.teams.map((team) => team.id)).toEqual(original.teams.map((team) => team.id));
@@ -374,6 +380,10 @@ describe("DebateXML import", () => {
     expect(collections.feedback[0].comments).toBeUndefined();
     expect(collections.feedback[1]).toMatchObject({ sourceType: "adjudicator", ignored: true, answers: { "q-adj": "Fine, & clear" } });
     expect(tournament.preferences.teamFeedbackQuestions?.[1]).toMatchObject({ id: "q-scale", min: 1, max: 5 });
+    // Tabbycat types: i, f, bc and is come back as the same CrabbyTab types; "scale" travels as a bounded float.
+    expect(tournament.preferences.teamFeedbackQuestions?.[1]).toMatchObject({ type: "float" });
+    expect(tournament.preferences.adjudicatorFeedbackQuestions?.map((question) => question.type))
+      .toEqual(["text", "integer", "float", "checkbox", "integer_scale"]);
   });
 
   it("reads a Tabbycat-style BP archive with panel-signed consensus ballots", () => {

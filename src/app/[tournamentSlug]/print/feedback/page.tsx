@@ -2,10 +2,47 @@
 
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { questionsForFeedbackSource } from "@/lib/feedback/questions";
+import type { FeedbackQuestion } from "@/types";
+import {
+  integerScaleChoices,
+  isFeedbackEnabledForRound,
+  numericBoundsText,
+  questionsForFeedbackSource,
+} from "@/lib/feedback/questions";
+import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
+import { expectedFeedbackForDebate } from "@/lib/feedback/progress";
+
+const ROLE_LABELS = { team: "Team", chair: "Chair", panellist: "Panellist", trainee: "Trainee" } as const;
+
+function PrintedAnswer({ question }: { question: FeedbackQuestion }) {
+  switch (question.type) {
+    case "select_one":
+    case "select_many":
+      return <p>{question.options?.map((option) => `□ ${option}`).join("     ")}</p>;
+    case "yes_no":
+      return <p>[ ] Yes    [ ] No</p>;
+    case "checkbox":
+      return <p>[ ] Tick if true</p>;
+    case "integer_scale":
+      return <p>Circle one: {integerScaleChoices(question).join("   ")}</p>;
+    case "scale":
+    case "integer":
+    case "float": {
+      const bounds = numericBoundsText(question);
+      const kind = question.type === "integer" ? "Whole number" : "Number";
+      return <p>{kind}{bounds ? ` ${bounds}` : ""}: ______________</p>;
+    }
+    default:
+      return <div className={`feedback-print-writing${question.type === "textarea" ? " feedback-print-writing-tall" : ""}`} />;
+  }
+}
 
 export default function PrintableFeedbackPage() {
   const { tournament, activeRound, debates, teams, adjudicators } = useTournament();
+  const preferences = tournament?.preferences;
+  const paths = feedbackPathsForRound(preferences, activeRound ?? undefined);
+  const roundOpen = Boolean(activeRound) && preferences?.feedbackEnabled !== false &&
+    isFeedbackEnabledForRound({ postponed: false }, activeRound ?? undefined, preferences?.feedbackInEliminationRounds !== false);
   const roundDebates = activeRound
     ? debates
         .filter((debate) => debate.roundId === activeRound.id && !debate.byeTeamId)
@@ -13,21 +50,26 @@ export default function PrintableFeedbackPage() {
     : [];
   const teamMap = new Map(teams.map((team) => [team.id, team]));
   const adjudicatorMap = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
-  const questions = questionsForFeedbackSource("team", tournament?.preferences);
-  const forms = roundDebates.flatMap((debate) => {
-    const panelIds = [
-      debate.adjudicators?.chairId,
-      ...(debate.adjudicators?.panellistIds ?? []),
-    ].filter((id): id is string => Boolean(id));
-    const panel = panelIds.map((id) => adjudicatorMap.get(id)?.name ?? id);
-    const participatingTeams = Object.values(debate.teams)
-      .filter((slot) => slot?.teamId)
-      .map((slot) => teamMap.get(slot.teamId))
-      .filter((team): team is NonNullable<typeof team> => team !== undefined);
-    return participatingTeams.flatMap((team) =>
-      panel.map((adjudicatorName) => ({ debate, team, adjudicatorName }))
-    );
-  });
+  const questionsBySource = {
+    team: questionsForFeedbackSource("team", preferences),
+    adjudicator: questionsForFeedbackSource("adjudicator", preferences),
+  };
+  // One form per expected submission, so the printed set matches what the progress tracker expects.
+  const forms = roundOpen
+    ? roundDebates.flatMap((debate) =>
+        expectedFeedbackForDebate(debate, paths).map((item) => ({
+          debate,
+          item,
+          sourceName: item.sourceType === "team"
+            ? teamMap.get(item.sourceId)?.name ?? item.sourceId
+            : adjudicatorMap.get(item.sourceId)?.name ?? item.sourceId,
+          targetName: adjudicatorMap.get(item.targetAdjudicatorId)?.name ?? item.targetAdjudicatorId,
+        }))
+      )
+    : [];
+  const teamForms = forms.filter((form) => form.item.sourceType === "team").length;
+  const minScore = preferences?.feedbackMinScore ?? 1;
+  const maxScore = preferences?.feedbackMaxScore ?? 10;
 
   return (
     <>
@@ -39,8 +81,9 @@ export default function PrintableFeedbackPage() {
             </Link>
             <h1 className="mt-2 text-2xl font-bold text-gray-900">Print feedback forms</h1>
             <p className="mt-1 text-sm text-gray-600">
-              {activeRound?.name ?? "No active round"} · {forms.length} team-to-adjudicator forms
+              {activeRound?.name ?? "No active round"} · {teamForms} team and {forms.length - teamForms} adjudicator forms
             </p>
+            <p className="mt-1 text-xs text-gray-500">Feedback paths: {describeFeedbackPaths(paths)}.</p>
           </div>
           <button
             type="button"
@@ -52,7 +95,10 @@ export default function PrintableFeedbackPage() {
           </button>
         </div>
         {!activeRound && <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Select a round first.</p>}
-        {roundDebates.length > 0 && forms.length === 0 && (
+        {activeRound && !roundOpen && (
+          <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">Feedback is not collected in this round.</p>
+        )}
+        {roundOpen && roundDebates.length > 0 && forms.length === 0 && (
           <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
             Allocate adjudicators before printing feedback forms.
           </p>
@@ -60,36 +106,27 @@ export default function PrintableFeedbackPage() {
       </main>
 
       <section className="print-only printable-feedback">
-        {forms.map(({ debate, team, adjudicatorName }, index) => (
-          <article className="print-feedback-sheet" key={`${debate.id}-${team.id}-${adjudicatorName}-${index}`}>
+        {forms.map(({ debate, item, sourceName, targetName }) => (
+          <article
+            className="print-feedback-sheet"
+            key={`${debate.id}-${item.sourceType}-${item.sourceId}-${item.targetAdjudicatorId}`}
+          >
             <header>
               <h1>{tournament?.name} · Adjudicator Feedback</h1>
               <p>{activeRound?.name} · {debate.venueName || `Room ${debate.roomRank}`}</p>
             </header>
             <dl>
-              <div><dt>Team</dt><dd>{team.name}</dd></div>
-              <div><dt>Adjudicator</dt><dd>{adjudicatorName}</dd></div>
+              <div><dt>From</dt><dd>{sourceName} ({ROLE_LABELS[item.sourceRole]})</dd></div>
+              <div><dt>Adjudicator</dt><dd>{targetName} ({ROLE_LABELS[item.targetRole]})</dd></div>
             </dl>
             <div className="feedback-print-score">
-              <strong>Overall rating ({tournament?.preferences?.feedbackMinScore ?? 1}–{tournament?.preferences?.feedbackMaxScore ?? 10})</strong>
-              <span>Circle one: {Array.from(
-                { length: (tournament?.preferences?.feedbackMaxScore ?? 10) - (tournament?.preferences?.feedbackMinScore ?? 1) + 1 },
-                (_, scoreIndex) => scoreIndex + (tournament?.preferences?.feedbackMinScore ?? 1)
-              ).join("   ")}</span>
+              <strong>Overall rating ({minScore}–{maxScore})</strong>
+              <span>Circle one: {Array.from({ length: maxScore - minScore + 1 }, (_, index) => index + minScore).join("   ")}</span>
             </div>
-            {questions.map((question) => (
+            {questionsBySource[item.sourceType].map((question) => (
               <section key={question.id} className="feedback-print-question">
                 <strong>{question.label}{question.required ? " *" : ""}</strong>
-                {question.type === "select_one" || question.type === "select_many"
-                  ? <p>{question.options?.map((option) => `□ ${option}`).join("     ")}</p>
-                  : question.type === "yes_no"
-                  ? <p>[ ] Yes    [ ] No</p>
-                  : question.type === "scale"
-                  ? <p>Circle one: {Array.from(
-                      { length: Math.max(0, (question.max ?? 5) - (question.min ?? 1) + 1) },
-                      (_, scoreIndex) => scoreIndex + (question.min ?? 1)
-                    ).join("   ")}</p>
-                  : <div className="feedback-print-writing" />}
+                <PrintedAnswer question={question} />
               </section>
             ))}
             <section className="feedback-print-question">

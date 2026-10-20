@@ -1,5 +1,6 @@
 import type { Tournament, TournamentFormat } from "@/types";
 import { CLOUD_COLLECTIONS, type CloudCollectionName, type CloudRecord } from "@/features/tournament/collections";
+import { isAdjudicatorScoreChange } from "@/lib/feedback/scoreHistory";
 
 export const TOURNAMENT_BACKUP_FORMAT = "crabbytab-tournament-backup-v1";
 
@@ -216,6 +217,10 @@ export function validateTournamentBackup(value: unknown, expectedTournamentId?: 
     check("warning", "adjudicators", record.id, "teams", conflicts.map((conflict) => conflict.teamId as string | undefined), "team");
     check("warning", "adjudicators", record.id, "adjudicators", conflicts.map((conflict) => conflict.adjudicatorId as string | undefined), "adjudicator");
     check("warning", "adjudicators", record.id, "institutions", conflicts.map((conflict) => conflict.institutionId as string | undefined), "institution");
+    if (fields.scoreHistory !== undefined &&
+      (!Array.isArray(fields.scoreHistory) || !fields.scoreHistory.every(isAdjudicatorScoreChange))) {
+      add({ severity: "warning", collection: "adjudicators", recordId: record.id, message: "The base/test score history is malformed." });
+    }
   }
   for (const record of collections.motions) {
     check("warning", "motions", record.id, "rounds", stringsIn(asFields(record).rounds), "round");

@@ -6,6 +6,7 @@ import {
   type SideRecord,
 } from "@/lib/ballots/result";
 import { defaultPreferences, slugify } from "@/lib/setup/presets";
+import { integerScaleChoices } from "@/lib/feedback/questions";
 import type {
   Adjudicator,
   AdjudicatorConflict,
@@ -355,10 +356,10 @@ interface RawRound {
 const QUESTION_TYPES: Record<string, FeedbackQuestionType> = {
   t: "text",
   tl: "textarea",
-  i: "scale",
-  is: "scale",
-  f: "scale",
-  bc: "yes_no",
+  i: "integer",
+  is: "integer_scale",
+  f: "float",
+  bc: "checkbox",
   bs: "yes_no",
   ss: "select_one",
   ms: "select_many",
@@ -560,7 +561,8 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
     const question: FeedbackQuestion = {
       id,
       label,
-      type,
+      // An integer scale without usable bounds cannot list its choices; keep it as a number box.
+      type: type === "integer_scale" && integerScaleChoices({ min, max }).length === 0 ? "integer" : type,
       required: isTrue(attr(element, "required")),
       ...(options.length ? { options } : {}),
       ...(min !== undefined ? { min } : {}),
@@ -1163,8 +1165,10 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
 }
 
 function coerceAnswer(text: string, type: FeedbackQuestionType): FeedbackAnswer {
-  if (type === "yes_no") return text === "true" || text === "1" ? true : text === "false" || text === "0" ? false : text;
-  if (type === "scale") {
+  if (type === "yes_no" || type === "checkbox") {
+    return text === "true" || text === "1" ? true : text === "false" || text === "0" ? false : text;
+  }
+  if (type === "scale" || type === "integer" || type === "float" || type === "integer_scale") {
     const value = Number(text);
     return text !== "" && Number.isFinite(value) ? value : text;
   }

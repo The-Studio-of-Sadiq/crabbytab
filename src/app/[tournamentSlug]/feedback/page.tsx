@@ -17,7 +17,7 @@ import {
 import { adjudicatorScoresCsv, csvFileStem, feedbackSubmissionsCsv } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
-import type { FeedbackAnswer, FeedbackPath, FeedbackWeightKey } from "@/types";
+import type { FeedbackAnswer, FeedbackWeightKey } from "@/types";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { validateFeedbackAnswers, questionsForFeedbackSource } from "@/lib/feedback/questions";
 import {
@@ -28,6 +28,7 @@ import {
   isFeedbackCountedForScore,
 } from "@/lib/feedback/scores";
 import { feedbackSourcesForTarget, roundFeedbackProgress } from "@/lib/feedback/progress";
+import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adminFeedbackLinkError } from "@/features/tournament/application/feedback";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -54,7 +55,6 @@ export default function FeedbackPage() {
   const feedbackEnabled = preferences?.feedbackEnabled !== false;
   const minScore = preferences?.feedbackMinScore ?? 1;
   const maxScore = preferences?.feedbackMaxScore ?? 10;
-  const path: FeedbackPath = preferences?.feedbackPath ?? "two_way";
 
   const [showModal, setShowModal] = useState(false);
   const [targetAdjId, setTargetAdjId] = useState("");
@@ -100,7 +100,13 @@ export default function FeedbackPage() {
     [debates, targetAdjId, entryRoundId]
   );
   const entryDebate = entryDebateId ? debatesById.get(entryDebateId) : undefined;
-  const sourceOptions = entryDebate && targetAdjId ? feedbackSourcesForTarget(entryDebate, targetAdjId, path) : [];
+  const sourceOptions = entryDebate && targetAdjId
+    ? feedbackSourcesForTarget(
+        entryDebate,
+        targetAdjId,
+        feedbackPathsForRound(preferences, roundsById.get(entryDebate.roundId))
+      )
+    : [];
   const sourceName = (type: "team" | "adjudicator", id: string) =>
     type === "team" ? teamsById.get(id)?.name ?? "Team" : adjudicatorsById.get(id)?.name ?? "Adjudicator";
 
@@ -221,9 +227,15 @@ export default function FeedbackPage() {
   const progress = useMemo(
     () =>
       progressRound
-        ? roundFeedbackProgress(progressRound, debates, feedback, path, preferences?.feedbackInEliminationRounds !== false)
+        ? roundFeedbackProgress(
+            progressRound,
+            debates,
+            feedback,
+            feedbackPathsForRound(preferences, progressRound),
+            preferences?.feedbackInEliminationRounds !== false
+          )
         : undefined,
-    [progressRound, debates, feedback, path, preferences?.feedbackInEliminationRounds]
+    [progressRound, debates, feedback, preferences]
   );
 
   // ─── Source weights ───
@@ -383,7 +395,8 @@ export default function FeedbackPage() {
                 {progress.outstanding.filter((item) => item.sourceType === "adjudicator").length} adjudicators).
               </p>
               <p className="text-[11px] text-gray-500">
-                Teams are expected to rate the chair; adjudicators follow the “{path.replace(/_/g, " ")}” feedback path.
+                Expected in {progressRound?.name ?? "this round"}:{" "}
+                {describeFeedbackPaths(feedbackPathsForRound(preferences, progressRound))}. Change the paths in Settings.
               </p>
               {progress.outstanding.length > 0 && (
                 <ul className="divide-y divide-gray-100 rounded border border-gray-200 max-h-72 overflow-y-auto">

@@ -309,6 +309,7 @@ export const bn: Catalogue = {
   "adjPortal.traineeNoBallot": "প্রশিক্ষণার্থীরা পর্যবেক্ষণ করতে পারেন, তবে ব্যালট জমা দিতে পারেন না।",
   "adjPortal.feedbackOnAdjudicators": "অন্য বিচারকদের নিয়ে ফিডব্যাক জমা দিন",
   "adjPortal.solo": "এই প্যানেলে আর কোনো বিচারক নেই (একক বিচার)।",
+  "adjPortal.noFeedbackPath": "এই প্যানেলে আপনার ভূমিকা থেকে টুর্নামেন্ট ফিডব্যাক নেয় না।",
   "adjPortal.rate": "রেটিং দিন",
   "adjPortal.feedbackOnTeams": "দলগুলো নিয়ে ফিডব্যাক জমা দিন",
   "adjPortal.modalAdjudicatorTitle": "বিচারক ফিডব্যাক জমা দিন",

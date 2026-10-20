@@ -99,6 +99,41 @@ describe("tournament entity commands", () => {
     });
   });
 
+  it("records base and test score changes with the editor, time and reason", async () => {
+    const adjudicator = makeAdjudicator();
+    const { dependencies, auditEvents, repositories } = createDependencies({
+      adjudicators: [adjudicator],
+      currentActor: () => ({ id: "uid-1", name: "Tab Director" }),
+      now: () => "2026-10-20T10:00:00.000Z",
+    });
+    const commands = createTournamentEntityCommands(dependencies);
+
+    await commands.updateAdjudicator({ ...adjudicator, baseScore: 7, testScore: 6 }, { scoreChangeReason: "Test marked" });
+
+    const [saved] = repositories.adjudicators.save.mock.calls[0][0] as Adjudicator[];
+    const entry = { timestamp: "2026-10-20T10:00:00.000Z", actorId: "uid-1", actorName: "Tab Director", reason: "Test marked" };
+    expect(saved.scoreHistory).toEqual([
+      { field: "baseScore", previous: 5, value: 7, ...entry },
+      { field: "testScore", value: 6, ...entry },
+    ]);
+    expect(auditEvents[0].details).toMatchObject({ scoreChanges: saved.scoreHistory });
+    expect(JSON.stringify(auditEvents[0].details?.current)).not.toContain("scoreHistory");
+  });
+
+  it("records score changes from bulk edits and keeps the stored history", async () => {
+    const adjudicator = makeAdjudicator({
+      scoreHistory: [{ field: "baseScore", previous: 4, value: 5, timestamp: "earlier" }],
+    });
+    const { dependencies, repositories } = createDependencies({ adjudicators: [adjudicator], now: () => "later" });
+    const commands = createTournamentEntityCommands(dependencies);
+
+    await commands.updateAdjudicators([{ ...adjudicator, baseScore: 3, scoreHistory: undefined }]);
+
+    const [saved] = repositories.adjudicators.save.mock.calls[0][0] as Adjudicator[];
+    expect(saved.scoreHistory?.map((change) => `${change.previous}->${change.value}@${change.timestamp}`))
+      .toEqual(["4->5@earlier", "5->3@later"]);
+  });
+
   it("writes updated motions to cloud before local state and audit", async () => {
     const { dependencies, calls } = createDependencies({
       cloudRepository: {

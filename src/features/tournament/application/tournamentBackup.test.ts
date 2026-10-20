@@ -140,6 +140,20 @@ describe("tournament file backup", () => {
     expect(() => parseTournamentBackup(backupOf(collections), tournament.id)).toThrow('Refers to break category "novice"');
   });
 
+  it("keeps adjudicator score history in backups and warns when it is malformed", () => {
+    const collections = populated();
+    const history = [{ field: "baseScore", previous: 4, value: 5, timestamp: "2026-10-20T10:00:00.000Z", reason: "Test" }];
+    collections.adjudicators[0] = record({ ...collections.adjudicators[0], scoreHistory: history });
+    const valid = validateTournamentBackup(backupOf(collections), tournament.id);
+    expect(valid.issues).toEqual([]);
+    expect((valid.backup?.collections.adjudicators[0] as unknown as { scoreHistory: unknown }).scoreHistory).toEqual(history);
+
+    collections.adjudicators[0] = record({ ...collections.adjudicators[0], scoreHistory: [{ field: "rank" }] });
+    expect(validateTournamentBackup(backupOf(collections), tournament.id).issues).toEqual([
+      expect.objectContaining({ severity: "warning", collection: "adjudicators", recordId: "j1" }),
+    ]);
+  });
+
   it("diffs a backup against the current data", () => {
     const current = populated();
     current.teams[0] = record({ ...current.teams[0], name: "Alpha (renamed)" });

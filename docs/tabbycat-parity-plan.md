@@ -70,6 +70,9 @@ means the sync/publish hardening PR that added this section.
 | 3 blind double entry, version history, entered/checked by | FIXED | #10 | `ballotEntry.ts`, `BallotDiffDialog`, `BallotHistory` |
 | 3 vetoes, veto stats, motions by round, forfeits | FIXED | #10 | `BallotSubmission.vetoes` / `forfeitSide`; vetoes in analytics |
 | 3 feedback progress, weights, ignore/confirm, detail page, debate-linked, base/test scores | FIXED | #12 | `lib/feedback/*`, `feedback/adjudicator` page |
+| 3 feedback question types (integer box, float box, checkbox, integer scale) | FIXED | wave 3 #17 | `lib/feedback/questions.ts`; validated client-side and in `api/private/sync` and `data-entry-sync`; printed; DebateXML `i`/`f`/`bc`/`is` |
+| 3 configurable feedback paths, separate elimination paths | FIXED | wave 3 #17 | `lib/feedback/paths.ts` drives progress, portals (client and server), tab-room entry and printed forms |
+| 3 base/test score history, per-question answer analysis | FIXED | wave 3 #17 | `lib/feedback/scoreHistory.ts` (`Adjudicator.scoreHistory`, in backups); `lib/feedback/answers.ts`; `feedback/adjudicator` page |
 | 3 conflicts UI; conflicts wiped on institution change | FIXED | #12 | `AdjudicatorConflictsEditor`, `changeAdjudicatorInstitution` |
 | 3 diversity | PARTIAL | #12 | fields, editor badges, per-panel summary done; no diversity stats page |
 | 3 round lifecycle and release | PARTIAL | #11, #16 | completion and per-tab/list release flags done; no motions-tab release; format change not guarded after draws exist |
@@ -175,7 +178,8 @@ as entities driving eligibility (*done, see standings-and-breaks.md*);
 #14 self-registration (*done: public team/adjudicator form, institution representative links, quotas,
 custom questions, review queue whose approvals write live; see [registration.md](registration.md)*); #15 draw-editor history / side-balance / pull-up flags, draw
 details, keyboard placement; #16 manual-ballot sides, swing teams; #17 feedback number/checkbox
-questions, configurable paths, base-score history. *#15 and #16 done: see [draw-generation.md](draw-generation.md)
+questions, configurable paths, base-score history (*done: see
+[adjudicator-allocation.md](adjudicator-allocation.md#feedback-paths)*). *#15 and #16 done: see [draw-generation.md](draw-generation.md)
 ("Sides chosen on the ballot", "Swing teams", "Draw editor"). Tabbycat has no automatic swing
 exclusion; CrabbyTab leaves swing teams out of standings and breaks itself.*
 

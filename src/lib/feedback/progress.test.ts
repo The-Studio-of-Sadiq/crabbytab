@@ -38,7 +38,8 @@ describe("expected feedback", () => {
     expect(pairs(expectedFeedbackForDebate(debate(), "two_way"))).toEqual([
       "aff>chair", "neg>chair", "chair>wing", "chair>trainee", "wing>chair", "trainee>chair",
     ]);
-    expect(expectedFeedbackForDebate(debate(), "everyone")).toHaveLength(8);
+    // "everyone": both teams on all three adjudicators, and six adjudicator pairs.
+    expect(expectedFeedbackForDebate(debate(), "everyone")).toHaveLength(12);
   });
 
   it("expects nothing from byes, postponed debates or a debate without adjudicators", () => {
@@ -97,8 +98,9 @@ describe("feedback sources for admin entry", () => {
       .toEqual(["aff", "neg"]);
     expect(feedbackSourcesForTarget(debate(), "chair", "two_way").map((item) => item.sourceId))
       .toEqual(["aff", "neg", "wing", "trainee"]);
+    // Teams rate only the chair under the presets other than "everyone".
     expect(feedbackSourcesForTarget(debate(), "wing", "chairs_to_panel").map((item) => item.sourceId))
-      .toEqual(["aff", "neg", "chair"]);
+      .toEqual(["chair"]);
     expect(feedbackSourcesForTarget(debate(), "stranger", "everyone")).toEqual([]);
   });
 });

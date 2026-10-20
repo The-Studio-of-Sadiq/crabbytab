@@ -310,6 +310,7 @@ export const en = {
   "adjPortal.traineeNoBallot": "Trainees may observe but cannot submit ballots.",
   "adjPortal.feedbackOnAdjudicators": "Submit Feedback on Other Adjudicators",
   "adjPortal.solo": "No other adjudicators on this panel (solo adjudication).",
+  "adjPortal.noFeedbackPath": "The tournament does not collect feedback from your role on this panel.",
   "adjPortal.rate": "Rate",
   "adjPortal.feedbackOnTeams": "Submit Feedback on Teams",
   "adjPortal.modalAdjudicatorTitle": "Submit Adjudicator Feedback",
