@@ -145,3 +145,44 @@ describe("tournament entity commands", () => {
     expect(repositories.motions.save).not.toHaveBeenCalled();
   });
 });
+describe("saveEntityBatch", () => {
+  it("saves each collection once and records one audit event", async () => {
+    const existingTeam = { ...makeTeam(), id: "team-1", tournamentId: "tournament-1" };
+    const { dependencies, auditEvents, repositories } = createDependencies({ teams: [existingTeam] });
+    const commands = createTournamentEntityCommands(dependencies);
+
+    await commands.saveEntityBatch(
+      {
+        institutionsCreated: [{ id: "inst-1", tournamentId: "", name: "Oxford", code: "OXF" }],
+        teamsCreated: [{ ...makeTeam({ name: "New" }), id: "team-2", tournamentId: "" }],
+        teamsUpdated: [{ ...existingTeam, name: "Renamed" }],
+      },
+      "Teams CSV import"
+    );
+
+    expect(repositories.institutions.save).toHaveBeenCalledTimes(1);
+    expect(repositories.teams.save).toHaveBeenCalledTimes(1);
+    expect(repositories.adjudicators.save).not.toHaveBeenCalled();
+    expect(repositories.teams.save).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "team-1", name: "Renamed" }),
+      expect.objectContaining({ id: "team-2", tournamentId: "tournament-1", privateUrlKey: "team-secret", privatePasscode: "key-secret" }),
+    ]);
+    expect(auditEvents).toEqual([
+      expect.objectContaining({
+        action: "entities.batch_saved",
+        summary: "Teams CSV import: 1 institution(s) added, 1 team(s) added, 1 team(s) updated",
+      }),
+    ]);
+    expect(JSON.stringify(auditEvents)).not.toContain("secret");
+  });
+
+  it("refuses to update a record that no longer exists, saving nothing", async () => {
+    const { dependencies, repositories, auditEvents } = createDependencies();
+    const commands = createTournamentEntityCommands(dependencies);
+    await expect(
+      commands.saveEntityBatch({ adjudicatorsUpdated: [makeAdjudicator()] }, "Conflicts CSV import")
+    ).rejects.toThrow(/adjudicator adj-1: it no longer exists/);
+    expect(repositories.adjudicators.save).not.toHaveBeenCalled();
+    expect(auditEvents).toEqual([]);
+  });
+});

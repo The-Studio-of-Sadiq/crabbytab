@@ -95,6 +95,23 @@ after the institution cap (a capped team is never part of a tie).
 The Break page lists the tied teams with a "Tied" status and explains how to resolve it; the
 Generate button stays disabled until it is resolved.
 
+## Speaker categories in standings and breaks
+
+Speaker categories are entities (see [data-import-export.md](data-import-export.md#speaker-categories)).
+
+- **Standings → Speakers** filters by speaker category id (older label data resolves by name). A
+  filtered list is ranked within the category, as Tabbycat's category tabs are: equal overall ranks
+  stay tied and unranked speakers stay unranked. The CSV export writes category names.
+- **Public speaker tab**: once the speaker tab is released, every *public* category with speakers
+  gets its own view, ranked within the category and cut at the category's limit. The public data
+  only carries public category ids, so membership of a private category (e.g. novice) is never
+  published.
+- **Break eligibility**: a non-general break category can carry a rule — every speaker, or at least
+  N speakers, in a speaker category (e.g. an ESL break). The Break page shows how many teams would
+  gain or lose eligibility and applies it only on confirmation, as one batch with an audit event.
+  The rule is not re-applied automatically, so manual eligibility edits are kept until the next
+  apply. Speakers without their own categories use the team's legacy labels.
+
 ## Ballot mode per stage
 
 Like Tabbycat's `ballots_per_debate_prelim` / `ballots_per_debate_elim`, two-team tournaments can

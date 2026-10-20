@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 
 import type { BreakCategory } from "@/types";
-import { formatCategoryList, parseCategoryList, selectableBreakCategories } from "@/lib/teamCategories";
+import { selectableBreakCategories } from "@/lib/teamCategories";
+import { resolveSpeakerCategoryIds, type SpeakerCategoryView } from "@/lib/speakerCategories";
 
 /** Checkboxes for a team's eligibility in non-general break categories. */
 export function BreakEligibilityField({
@@ -52,34 +53,53 @@ export function BreakEligibilityField({
   );
 }
 
-/** Comma-separated category labels (e.g. "esl, novice") for one speaker. */
+/**
+ * Toggle buttons for one speaker's categories. Stores category ids; a category still derived from
+ * old labels (not yet saved) is stored by its slug, which keeps resolving once it is saved.
+ */
 export function SpeakerCategoriesInput({
   id,
   label,
+  categories,
   value,
   onChange,
 }: {
   id: string;
   label: string;
+  categories: SpeakerCategoryView[];
   value: string[] | undefined;
   onChange: (categories: string[]) => void;
 }) {
-  const [text, setText] = useState(formatCategoryList(value));
+  const selected = resolveSpeakerCategoryIds(value, categories);
+  if (categories.length === 0) {
+    return <p id={id} className="text-[11px] text-gray-500">No speaker categories yet (add them under Speaker categories).</p>;
+  }
+  const refFor = (category: SpeakerCategoryView) => (category.unsaved ? category.slug : category.id);
   return (
-    <>
-      <label htmlFor={id} className="sr-only">{label}</label>
-      <input
-        id={id}
-        type="text"
-        value={text}
-        placeholder="Categories, e.g. esl, novice"
-        onChange={(event) => {
-          setText(event.target.value);
-          onChange(parseCategoryList(event.target.value));
-        }}
-        onBlur={() => setText(formatCategoryList(parseCategoryList(text)))}
-        className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-      />
-    </>
+    <div id={id} role="group" aria-label={label} className="flex flex-wrap gap-1">
+      {categories.map((category) => {
+        const on = selected.includes(category.id);
+        return (
+          <button
+            key={category.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() =>
+              onChange(
+                categories
+                  .filter((item) => (item.id === category.id ? !on : selected.includes(item.id)))
+                  .map(refFor)
+              )
+            }
+            className={`rounded border px-2 py-0.5 text-[11px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {on ? "✓ " : ""}
+            {category.name}
+          </button>
+        );
+      })}
+    </div>
   );
 }

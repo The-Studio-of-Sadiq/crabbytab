@@ -4,6 +4,7 @@ How CrabbyTab moves tournament data in and out. The logic is pure and tested:
 
 - DebateXML export: `src/features/tournament/application/debateXml.ts`
 - DebateXML import: `src/features/tournament/application/debateXmlImport.ts`
+- CSV imports with preview: `src/lib/csv/importPlan.ts`, conflicts: `src/lib/csv/conflictsImport.ts`
 - CSV exports: `src/lib/csv/exporters.ts`
 - JSON backup, validation, merge and replace: `src/features/tournament/application/tournamentBackup.ts`
 
@@ -49,6 +50,84 @@ Decisions and limits:
 - Untrusted input: 10 MB limit, files with a DOCTYPE or entity declarations are refused, only
   attributes and text nodes are read, and record counts are capped.
 - An export → import → export round trip produces an identical archive (tested).
+
+## CSV imports: institutions, teams, adjudicators
+
+Institutions, Teams and Adjudicators → Import CSV. Upload a file or paste text, then **Preview
+import**. Nothing is saved until **Import** is pressed, and the save is one write per collection
+(teams and adjudicators go through the live-sync path like any other edit). Logic:
+`src/lib/csv/importPlan.ts` (plan and commit), `csvTable.ts` (reading), `importer.ts` (row parsers).
+
+Reading: a UTF-8 BOM and spaces around column names are removed, blank rows (including rows of
+empty cells) are skipped, quoted commas, quotes and newlines stay inside the value, and nothing is
+evaluated (formulas and markup are kept as text). Files over 5 MB, an empty file, a header with no
+rows, repeated column names, a missing `name` column and an unclosed quote stop the whole import.
+Unknown columns are listed as ignored. Row numbers are spreadsheet rows (the header is row 1).
+
+| Kind | Columns |
+| --- | --- |
+| Institutions | `name` (required), `code`, `region`, venue requirement columns |
+| Teams | `name` (required), `institution`, `code`, `speaker1`…`speaker5`, `speakerN_email`, `speakerN_categories`, `break_categories`, `division`, `division_id`, `category` (legacy team-wide label), venue requirement columns |
+| Adjudicators | `name` (required), `email`, `institution`, `score` (default 5), `trainee`, `independent`, `gender`, `region`, `preformed_panel_id`, venue requirement columns |
+
+Each row is shown with what will happen and why:
+
+- **Errors** (row cannot be imported): missing name, invalid email, score or yes/no flag, unknown
+  break category, a speaker email or categories without a speaker name, wrong number of cells. A
+  file with errors is refused unless **Import the valid rows only** is ticked; there are no silent
+  partial imports.
+- **Warnings**: no speakers (placeholder speakers "Team Speaker 1"… are created and the warning
+  says to rename them), fewer speakers than the format uses, a speaker email already used by
+  another speaker, an adjudicator with the same name at another institution, a short row.
+- **Duplicates**: names are compared ignoring case and repeated spaces. Institutions match an
+  existing one by name or code, teams by name, adjudicators by email, else by name and
+  institution. A match defaults to **Skip**; it can be switched to **Update existing** or
+  **Create** anyway. A repeat inside the file defaults to Skip.
+- **Updates** change only the cells that are filled: blank cells keep the existing value, speakers
+  are updated by position and keep their ids (ballots refer to them), and an adjudicator who
+  changes institution keeps their other conflicts.
+- **Unknown institutions** are listed with a derived code (first four letters, made unique) that can
+  be edited before importing; they are created with the import. Unticking one keeps its name on the
+  rows without linking it (no institution conflicts then). `Independent`, `Unaffiliated`, `None`
+  and `-` mean no institution. An adjudicator marked independent is not linked to an institution.
+- **Speaker categories** in `speakerN_categories` are matched to the tournament's speaker
+  categories by name or slug; unknown names are created (not public) and listed in the preview.
+
+Each import is one `entities.batch_saved` audit event listing the created and updated ids.
+Venue and motion CSVs still import directly, without this preview.
+
+## Conflicts CSV
+
+Setup → Conflicts. Each row fills exactly two of `adjudicator`, `team`, `institution`,
+`other_adjudicator` (logic: `src/lib/csv/conflictsImport.ts`):
+
+| Filled | Conflict | Stored as |
+| --- | --- | --- |
+| adjudicator + team | adjudicator–team | `{ teamId, type: "personal" }` on the adjudicator |
+| adjudicator + other_adjudicator | adjudicator–adjudicator | `{ adjudicatorId, type: "personal" }` on the first adjudicator |
+| adjudicator + institution | adjudicator–institution | `{ institutionId, type: "institution" }` on the adjudicator |
+| team + institution | team–institution | `Team.institutionConflictIds`; adjudicators from that institution clash with the team in allocation |
+
+Adjudicators are found by name or email, teams by name or code, institutions by name or code. A
+name that matches two records is an error (use the email or code). Unknown names, an adjudicator
+paired with themselves and rows with the wrong columns are errors; conflicts that already exist
+(including an adjudicator's own institution) or repeat in the file are shown and skipped. The
+preview works like the participant imports: nothing is saved until confirmed, and rows with errors
+block the import unless the valid rows only are imported. Team–institution conflicts are not yet
+editable outside this import.
+
+## Speaker categories
+
+Setup → Speaker categories (`src/lib/speakerCategories.ts`), like Tabbycat's SpeakerCategory: a
+name, slug, order, whether it has a public speaker tab, and a public limit (the category tab shows
+ranks up to that number; 0 shows everyone). They are stored in `preferences.speakerCategories`.
+
+Speakers reference categories by id in `Speaker.categories`. Older tournaments stored free-text
+labels there (and team-wide labels in `Team.speakerCategories`); nothing is rewritten: every entry
+is resolved by id, slug or name, and labels that match no category appear as unsaved categories
+until the list is saved. CSV imports and the team editor write ids. A category can be deleted only
+when no speaker is in it. DebateXML export writes the category names; import keeps the names, which
+resolve the same way.
 
 ## CSV exports
 

@@ -31,6 +31,7 @@ import {
 import { DebateSide } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { calculateStandings } from "@/lib/standings/calculator";
+import { speakerRowsInCategory, speakersInCategory, sortSpeakerCategories } from "@/lib/speakerCategories";
 import { formatMetricValue } from "@/lib/standings/metrics";
 import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
 import type { MessageKey } from "@/lib/i18n";
@@ -138,6 +139,14 @@ export default function PublicTournamentPage() {
   const showTeamTab = release.teamTab && tabRounds.length > 0;
   const showSpeakerTab = release.speakerTab && tabRounds.length > 0;
   const showRepliesTab = release.repliesTab && tabRounds.length > 0;
+  // The projection only sends public categories; each one with speakers gets its own speaker tab.
+  const publicSpeakerCategories = sortSpeakerCategories(
+    (prefs?.speakerCategories ?? []).filter((category) => category.public)
+  ).filter((category) => speakersInCategory(teams, category.id, prefs?.speakerCategories ?? []) > 0);
+  const selectedSpeakerCategory = publicSpeakerCategories.find((category) => category.id === speakerCategoryId);
+  const speakerTabRows = selectedSpeakerCategory
+    ? speakerRowsInCategory(tabStandings.speakers, selectedSpeakerCategory.id, publicSpeakerCategories, selectedSpeakerCategory.limit)
+    : tabStandings.speakers;
   const tabRankByTeamId = new Map(tabStandings.teams.map((row) => [row.teamId, row.rank]));
   // The "extra" metrics the tab director chose to show (calculated, not used to rank).
   const teamExtra = resolveTeamExtra(prefs);
@@ -167,6 +176,8 @@ export default function PublicTournamentPage() {
 
   const [activeTab, setActiveTab] = useState<PublicTab>(availableTabs[0] || "draw");
   const [searchQuery, setSearchQuery] = useState("");
+  // "all" or a public speaker category id (Tabbycat's per-category speaker tabs).
+  const [speakerCategoryId, setSpeakerCategoryId] = useState("all");
   const [isMotionPresentation, setIsMotionPresentation] = useState(false);
   const [motionSlideIndex, setMotionSlideIndex] = useState(0);
 
@@ -793,6 +804,30 @@ export default function PublicTournamentPage() {
                 rounds: plural("public.completedRounds", tabRounds.length),
               })}
             </div>
+            {activeTab === "speakerTab" && publicSpeakerCategories.length > 0 && (
+              <div role="group" aria-label={t("public.speakerCategory")} className="flex flex-wrap gap-1.5 border-b border-[#d0d7de] p-2">
+                {[{ id: "all", name: t("public.allSpeakers") }, ...publicSpeakerCategories].map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    aria-pressed={(selectedSpeakerCategory?.id ?? "all") === category.id}
+                    onClick={() => setSpeakerCategoryId(category.id)}
+                    className={`rounded px-2.5 py-1 text-xs font-semibold border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      (selectedSpeakerCategory?.id ?? "all") === category.id
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {category.name}
+                  </button>
+                ))}
+                {selectedSpeakerCategory?.limit ? (
+                  <span className="self-center text-[11px] text-gray-500">
+                    {t("public.categoryLimit", { limit: selectedSpeakerCategory.limit, category: selectedSpeakerCategory.name })}
+                  </span>
+                ) : null}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-start tabby-table">
                 <thead>
@@ -809,7 +844,7 @@ export default function PublicTournamentPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(activeTab === "repliesTab" ? tabStandings.replies : tabStandings.speakers).map((row) => (
+                  {(activeTab === "repliesTab" ? tabStandings.replies : speakerTabRows).map((row) => (
                     <tr key={`${row.teamId}-${row.speakerId}`} className="hover:bg-gray-50">
                       <td className="text-center font-mono font-bold text-xs">
                         {row.ineligible ? <span title={t("public.unrankedHint")}>—</span> : row.rank}

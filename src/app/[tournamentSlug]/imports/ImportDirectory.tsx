@@ -4,7 +4,6 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
-import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv } from "@/lib/csv/importer";
 import {
   Users,
   Users2,
@@ -14,11 +13,6 @@ import {
   Trash2,
   Edit2,
   Search,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Sparkles,
-  ExternalLink,
   Key,
 } from "lucide-react";
 import { Team, Adjudicator, Institution } from "@/types";
@@ -33,6 +27,8 @@ import {
 import { participantRegion } from "@/lib/adjudicators/diversity";
 import { AdjudicatorConflictsEditor } from "@/features/tournament/components/AdjudicatorConflictsEditor";
 import { BreakEligibilityField, SpeakerCategoriesInput } from "@/features/tournament/components/TeamCategoryFields";
+import { CsvImportDialog } from "@/features/tournament/components/CsvImportDialog";
+import { effectiveSpeakerCategories, speakerCategoryNames, speakerCategoryRefs } from "@/lib/speakerCategories";
 
 export default function ImportDirectory({
   category,
@@ -50,15 +46,12 @@ export default function ImportDirectory({
     institutions,
     breakCategories,
     addTeam,
-    addTeams,
     updateTeam,
     deleteTeam,
     addAdjudicator,
-    addAdjudicators,
     updateAdjudicators,
     deleteAdjudicator,
     addInstitution,
-    addInstitutions,
     updateInstitution,
     deleteInstitution,
   } = useTournament();
@@ -84,9 +77,6 @@ export default function ImportDirectory({
   const [editingInst, setEditingInst] = useState<Institution | null>(null);
 
   const [showCsvModal, setShowCsvModal] = useState(false);
-  const [csvText, setCsvText] = useState("");
-  const [csvImportError, setCsvImportError] = useState("");
-  const [isImportingCsv, setIsImportingCsv] = useState(false);
 
   // New Institution Form State
   const [instName, setInstName] = useState("");
@@ -103,7 +93,6 @@ export default function ImportDirectory({
   const [newSpk2Email, setNewSpk2Email] = useState("");
   const [newSpk3, setNewSpk3] = useState("");
   const [newSpk3Email, setNewSpk3Email] = useState("");
-  const [newCategory, setNewCategory] = useState("");
   const [newBreakCategories, setNewBreakCategories] = useState<string[]>([]);
   const [newSpeakerCategories, setNewSpeakerCategories] = useState<string[][]>([[], [], []]);
   const setNewSpeakerCategoriesAt = (index: number, categories: string[]) =>
@@ -118,6 +107,10 @@ export default function ImportDirectory({
   const [newAdjTrainee, setNewAdjTrainee] = useState(false);
 
   const isBP = tournament?.format === "bp";
+  const speakerCategories = useMemo(
+    () => effectiveSpeakerCategories(tournament?.preferences.speakerCategories, teams),
+    [tournament?.preferences.speakerCategories, teams]
+  );
 
   // Institution count maps
   const instTeamCount = useMemo(() => {
@@ -234,7 +227,7 @@ export default function ImportDirectory({
       institutionName: selectedInst ? selectedInst.name : undefined,
       speakers,
       breakCategories: newBreakCategories,
-      speakerCategories: newCategory ? [newCategory.trim().toLowerCase()] : [],
+      speakerCategories: [],
       checkedIn: true,
     });
 
@@ -247,7 +240,6 @@ export default function ImportDirectory({
     setNewSpk2Email("");
     setNewSpk3("");
     setNewSpk3Email("");
-    setNewCategory("");
     setNewBreakCategories([]);
     setNewSpeakerCategories([[], [], []]);
     setShowAddTeamModal(false);
@@ -317,77 +309,6 @@ export default function ImportDirectory({
       return;
     }
     setEditingAdj(null);
-  };
-
-  // CSV Import Handler
-  const handleCsvImport = async () => {
-    if (!csvText.trim()) return;
-    setIsImportingCsv(true);
-    setCsvImportError("");
-    try {
-      if (activeTab === "institutions") {
-        const parsed = parseInstitutionsCsv(csvText, tournament?.id || "");
-        await addInstitutions(parsed.map(({ name, code, region }) => ({ name, code, region })));
-      } else if (activeTab === "teams") {
-        const parsed = parseTeamsCsv(csvText, tournament?.id || "", breakCategories);
-        const matchedTeams = parsed.map((team) => {
-          // Match institution from existing list if possible
-          if (team.institutionName) {
-            const matchedInst = institutions.find(
-              (inst) =>
-                inst.name.toLowerCase() === team.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === team.institutionName?.toLowerCase()
-            );
-            if (matchedInst) {
-              return { ...team, institutionId: matchedInst.id, institutionName: matchedInst.name };
-            }
-          }
-          return team;
-        });
-        await addTeams(matchedTeams);
-      } else {
-        const parsed = parseAdjudicatorsCsv(csvText, tournament?.id || "");
-        const matchedAdjudicators = parsed.map((adjudicator) => {
-          if (adjudicator.institutionName && !adjudicator.independent) {
-            const matchedInst = institutions.find(
-              (inst) =>
-                inst.name.toLowerCase() === adjudicator.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === adjudicator.institutionName?.toLowerCase()
-            );
-            if (matchedInst) {
-              return {
-                ...adjudicator,
-                institutionId: matchedInst.id,
-                institutionName: matchedInst.name,
-                conflicts: [{ institutionId: matchedInst.id, type: "institution" as const }],
-              };
-            }
-          }
-          return adjudicator;
-        });
-        await addAdjudicators(matchedAdjudicators);
-      }
-      setCsvText("");
-      setShowCsvModal(false);
-    } catch (error) {
-      setCsvImportError(error instanceof Error ? error.message : "Could not import CSV data.");
-    } finally {
-      setIsImportingCsv(false);
-    }
-  };
-
-  const handleCsvFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setCsvText(await file.text());
-      setCsvImportError("");
-    } catch (error) {
-      setCsvImportError(error instanceof Error ? error.message : "Could not read the selected CSV file.");
-    } finally {
-      event.target.value = "";
-    }
   };
 
   return (
@@ -520,12 +441,15 @@ export default function ImportDirectory({
                       {team.speakers?.map((s) => s.name).join(", ") || "—"}
                     </td>
                     <td>
-                      {team.speakerCategories?.map((c) => (
+                      {speakerCategoryNames(
+                        team.speakers.flatMap((speaker) => speakerCategoryRefs(speaker, team)),
+                        speakerCategories
+                      ).map((name) => (
                         <span
-                          key={c}
+                          key={name}
                           className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold bg-blue-100 text-blue-800 uppercase mr-1"
                         >
-                          {c}
+                          {name}
                         </span>
                       ))}
                     </td>
@@ -973,6 +897,7 @@ export default function ImportDirectory({
                     <SpeakerCategoriesInput
                       id="new-speaker-1-categories"
                       label="Speaker 1 categories"
+                      categories={speakerCategories}
                       value={newSpeakerCategories[0]}
                       onChange={(categories) => setNewSpeakerCategoriesAt(0, categories)}
                     />
@@ -998,6 +923,7 @@ export default function ImportDirectory({
                     <SpeakerCategoriesInput
                       id="new-speaker-2-categories"
                       label="Speaker 2 categories"
+                      categories={speakerCategories}
                       value={newSpeakerCategories[1]}
                       onChange={(categories) => setNewSpeakerCategoriesAt(1, categories)}
                     />
@@ -1026,6 +952,7 @@ export default function ImportDirectory({
                     <SpeakerCategoriesInput
                       id="new-speaker-3-categories"
                       label="Speaker 3 categories"
+                      categories={speakerCategories}
                       value={newSpeakerCategories[2]}
                       onChange={(categories) => setNewSpeakerCategoriesAt(2, categories)}
                     />
@@ -1038,17 +965,6 @@ export default function ImportDirectory({
                   categories={breakCategories}
                   value={newBreakCategories}
                   onChange={setNewBreakCategories}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Team Speaker Category (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. ESL or Novice"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
                 />
               </div>
 
@@ -1172,7 +1088,8 @@ export default function ImportDirectory({
                       <SpeakerCategoriesInput
                         id={`edit-speaker-${idx}-categories`}
                         label={`${spk.name || `Speaker ${idx + 1}`} categories`}
-                        value={spk.categories}
+                        categories={speakerCategories}
+                        value={speakerCategoryRefs(spk, editingTeam)}
                         onChange={(categories) => {
                           const newSpeakers = [...editingTeam.speakers];
                           newSpeakers[idx] = { ...spk, categories: categories.length > 0 ? categories : undefined };
@@ -1506,81 +1423,11 @@ export default function ImportDirectory({
         </div>
       )}
 
-      {/* CSV Import Modal */}
-      {showCsvModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-2 flex items-center space-x-2">
-              <Upload className="w-5 h-5 text-blue-600" />
-              <span>
-                Import{" "}
-                {activeTab === "institutions"
-                  ? "Institutions"
-                  : activeTab === "teams"
-                  ? "Teams"
-                  : "Adjudicators"}{" "}
-                from CSV
-              </span>
-            </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              {activeTab === "institutions"
-                ? "Upload a Google Sheets .csv file or paste CSV text with columns: name, code, region. Commas in institution names are supported."
-                : activeTab === "teams"
-                ? "Paste CSV text formatted with columns: name, institution, speaker1, speaker2 (optional: speaker1_categories, break_categories)"
-                : "Paste CSV text formatted with columns: name, institution, score, trainee"}
-            </p>
-
-            <div className="mb-3">
-              <label className="inline-flex cursor-pointer items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 rounded text-xs font-semibold text-gray-800 shadow-2xs">
-                <Upload className="w-3.5 h-3.5 text-blue-600" />
-                <span>Choose CSV File</span>
-                <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} className="sr-only" />
-              </label>
-              {csvText && <span className="ml-2 text-xs text-gray-500">CSV loaded</span>}
-            </div>
-
-            <textarea
-              rows={8}
-              placeholder={
-                activeTab === "institutions"
-                  ? "name,code,region\nOxford Union Society,Oxford,UK\nHarvard Debating Union,Harvard,USA"
-                  : activeTab === "teams"
-                  ? "name,institution,speaker1,speaker2\nOxford A,Oxford,Jane Doe,John Smith\nCambridge B,Cambridge,Alice,Bob"
-                  : "name,institution,score,trainee\nEleanor Vance,Oxford,8.5,false\nDavid Kim,Independent,6.0,true"
-              }
-              value={csvText}
-              onChange={(e) => {
-                setCsvText(e.target.value);
-                setCsvImportError("");
-              }}
-              className="w-full border border-gray-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-            />
-
-            {csvImportError && <p role="alert" className="text-xs text-red-700 mb-3">{csvImportError}</p>}
-
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCsvModal(false);
-                  setCsvImportError("");
-                }}
-                className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCsvImport}
-                disabled={!csvText.trim() || isImportingCsv}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
-              >
-                {isImportingCsv ? "Importing..." : "Import CSV Data"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CsvImportDialog
+        kind={activeTab === "adjs" ? "adjudicators" : activeTab}
+        open={showCsvModal}
+        onClose={() => setShowCsvModal(false)}
+      />
     </div>
   );
 }

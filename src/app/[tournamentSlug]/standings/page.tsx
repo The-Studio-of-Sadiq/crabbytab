@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { exportStandingsToCsv } from "@/lib/csv/importer";
 import { csvFileStem, speakerStandingsCsv } from "@/lib/csv/exporters";
@@ -15,6 +15,7 @@ import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/c
 import { Award, Download, Medal, Printer, Search, Users } from "lucide-react";
 import { SPEAKER_METRIC_LABELS, TEAM_METRIC_LABELS, formatMetricValue } from "@/lib/standings/metrics";
 import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
+import { effectiveSpeakerCategories, speakerCategoryNames, speakerRowsInCategory, speakersInCategory } from "@/lib/speakerCategories";
 
 type StandingsTab = "teams" | "speakers" | "replies";
 
@@ -33,6 +34,7 @@ export default function StandingsPage() {
     speakerStandings,
     replyStandings,
     breakCategories,
+    teams,
   } = useTournament();
 
   const [activeTab, setActiveTab] = useState<StandingsTab>("teams");
@@ -44,15 +46,19 @@ export default function StandingsPage() {
   const teamExtra = resolveTeamExtra(tournament?.preferences);
   const speakerExtra = resolveSpeakerExtra(tournament?.preferences);
 
-  // Teams filter by break category (ids); speakers by speaker category (labels such as ESL/novice).
+  // Teams filter by break category; speakers by speaker category (ids, with older labels resolved).
   // The two are different lists, so each tab offers its own options.
-  const speakerCategoryOptions = Array.from(
-    new Set(speakerStandings.flatMap((row) => row.categories || []).filter(Boolean))
-  ).sort((left, right) => left.localeCompare(right));
+  const speakerCategories = useMemo(
+    () => effectiveSpeakerCategories(tournament?.preferences.speakerCategories, teams),
+    [tournament?.preferences.speakerCategories, teams]
+  );
+  const categoryNames = (refs: string[]) => speakerCategoryNames(refs, speakerCategories);
   const categoryOptions = activeTab === "teams"
     ? breakCategories.map((category) => ({ value: category.id, label: category.name }))
     : activeTab === "speakers"
-      ? speakerCategoryOptions.map((category) => ({ value: category, label: category }))
+      ? speakerCategories
+          .filter((category) => speakersInCategory(teams, category.id, speakerCategories) > 0)
+          .map((category) => ({ value: category.id, label: category.name }))
       : [];
   const changeTab = (tab: StandingsTab) => {
     setActiveTab(tab);
@@ -70,23 +76,22 @@ export default function StandingsPage() {
     return t.breakCategories && t.breakCategories.includes(selectedCategory);
   });
 
-  // Filter Speaker Standings
-  const filteredSpeakers = speakerStandings.filter((s) => {
-    const matchesSearch =
+  // Filter Speaker Standings; a category is ranked within itself, as Tabbycat's category tabs are.
+  const speakersInView = selectedCategory === "all"
+    ? speakerStandings
+    : speakerRowsInCategory(speakerStandings, selectedCategory, speakerCategories);
+  const filteredSpeakers = speakersInView.filter(
+    (s) =>
       s.speakerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.teamName.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-    if (selectedCategory === "all") return true;
-    return s.categories && s.categories.includes(selectedCategory);
-  });
+      s.teamName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleExport = () => {
     const name = tournament?.name || "Tournament";
     if (activeTab === "teams") {
       exportStandingsToCsv(teamStandings, name);
     } else if (activeTab === "speakers") {
-      downloadCsv(`${csvFileStem(name)}_Speaker_Standings.csv`, speakerStandingsCsv(speakerStandings));
+      downloadCsv(`${csvFileStem(name)}_Speaker_Standings.csv`, speakerStandingsCsv(speakerStandings, { categoryNames }));
     } else {
       downloadCsv(`${csvFileStem(name)}_Reply_Standings.csv`, speakerStandingsCsv(replyStandings, { reply: true }));
     }
@@ -259,7 +264,9 @@ export default function StandingsPage() {
                     </TD>
                     <TD className="font-medium">
                       {spk.speakerName}
-                      {spk.categories?.length > 0 && <Badge className="ml-2 uppercase">{spk.categories.join(", ")}</Badge>}
+                      {categoryNames(spk.categories ?? []).length > 0 && (
+                        <Badge className="ml-2 uppercase">{categoryNames(spk.categories ?? []).join(", ")}</Badge>
+                      )}
                       {spk.ineligible && <Badge className="ml-2">Unranked: missed speeches</Badge>}
                     </TD>
                     <TD>{spk.teamName}</TD>

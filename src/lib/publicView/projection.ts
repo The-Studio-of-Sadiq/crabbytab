@@ -18,6 +18,7 @@ import {
   isTabRound,
   redactUnreleasedBreak,
 } from "@/lib/publicRelease";
+import { resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
 
 /** Collections the public projection is derived from. */
 export const PUBLIC_SOURCE_COLLECTIONS = [
@@ -96,6 +97,12 @@ export function buildPublicProjection(
 ): PublicProjection {
   const tournamentData = tournamentRecord as Partial<Tournament> & SourceRecord;
   const preferences = (tournamentData.preferences || {}) as Partial<Tournament["preferences"]>;
+  // Only public speaker categories leave the server, and only as ids: who is in a private
+  // category (e.g. novice) stays private.
+  const publicSpeakerCategories = (Array.isArray(preferences.speakerCategories) ? preferences.speakerCategories : [])
+    .filter((category) => category.public === true);
+  const publicCategoryIds = (refs: unknown): string[] =>
+    Array.isArray(refs) ? resolveSpeakerCategoryIds(refs.filter((ref): ref is string => typeof ref === "string"), publicSpeakerCategories) : [];
   const tournament = {
     ...pick(tournamentData, [
       "name",
@@ -114,6 +121,9 @@ export function buildPublicProjection(
     ownerId: "",
     admins: {},
   } as Tournament;
+  if (tournament.preferences) {
+    tournament.preferences = { ...tournament.preferences, speakerCategories: publicSpeakerCategories };
+  }
 
   const allRounds = active(source.rounds) as unknown as Round[];
   const isDrawPublished = (round: Round) =>
@@ -258,13 +268,17 @@ export function buildPublicProjection(
         "institutionId",
         "institutionName",
         "breakCategories",
-        "speakerCategories",
         "seed",
         "emoji",
       ]), release),
       id: team.id,
+      speakerCategories: publicCategoryIds(team.speakerCategories),
       speakers: Array.isArray(team.speakers)
-        ? team.speakers.map((speaker) => pick(speaker, ["id", "name", "categories"]))
+        ? team.speakers.map((speaker) => ({
+            ...pick(speaker, ["id", "name"]),
+            // Kept absent when absent, so the team-wide fallback still applies.
+            ...(speaker.categories !== undefined ? { categories: publicCategoryIds(speaker.categories) } : {}),
+          }))
         : [],
     }));
 

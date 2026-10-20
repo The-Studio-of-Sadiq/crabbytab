@@ -988,3 +988,14 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(res[0].traineeIds).toHaveLength(0);
   });
 });
+
+describe("team–institution conflicts", () => {
+  it("treats an adjudicator from an institution the team declared as an institutional clash", () => {
+    const judge = createAdj("j1", "Judge", 5, true, "i2");
+    const team = { ...createTeam("t1", "Team", "i1"), institutionConflictIds: ["i2"] };
+    const result = calculateAdjDebateConflict(judge, [team]);
+    expect(result.hasInstitutionalClash).toBe(true);
+    expect(result.reasons).toEqual(["Team declared a clash with Inst i2"]);
+    expect(calculateAdjDebateConflict(judge, [createTeam("t2", "Other", "i1")]).hasClash).toBe(false);
+  });
+});

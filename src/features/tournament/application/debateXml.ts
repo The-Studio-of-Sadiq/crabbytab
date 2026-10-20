@@ -5,6 +5,7 @@ import {
   substantiveSpeakerCount,
   TWO_TEAM_SIDES,
 } from "@/lib/ballots/result";
+import { effectiveSpeakerCategories, resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -139,10 +140,9 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
   }
   const divisionIds = new Map([...divisionDefinitions.keys()].map((id) => [id, ids.allocate("division", id)]));
 
-  const speakerCategoryNames = [...new Set(input.teams.flatMap((team) => [
-    ...team.speakerCategories,
-    ...team.speakers.flatMap((speaker) => speaker.categories || []),
-  ]))];
+  // Speakers hold category ids (older data: names); both resolve to the category entities.
+  const speakerCategoryList = effectiveSpeakerCategories(input.tournament.preferences?.speakerCategories, input.teams);
+  const speakerCategoryNames = [...new Set(speakerCategoryList.map((category) => category.name))];
   const speakerCategoryIds = new Map(speakerCategoryNames.map((name) => [name, ids.allocate("speaker_category", name)]));
   if (input.teams.length < 2) throw new Error("DebateXML requires at least two teams.");
   if (input.adjudicators.length < 1) throw new Error("DebateXML requires at least one adjudicator.");
@@ -279,8 +279,8 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
       const divisionKey = team.divisionId || team.divisionName;
       const divisionId = divisionKey ? divisionIds.get(divisionKey) : undefined;
       const speakers = team.speakers.map((speaker) => {
-        const speakerCategoryRefs = (speaker.categories || [])
-          .map((category) => speakerCategoryIds.get(category))
+        const speakerCategoryRefs = resolveSpeakerCategoryIds(speaker.categories, speakerCategoryList)
+          .map((id) => speakerCategoryIds.get(speakerCategoryList.find((category) => category.id === id)?.name ?? ""))
           .filter((id): id is string => Boolean(id))
           .join(" ");
         return `<speaker${attribute("id", speakerIds.get(speaker.id))}${attribute("name", speaker.name)}${attribute("institutions", institutionRef(team.institutionId, team.institutionName))}${attribute("categories", speakerCategoryRefs)}>${escapeXml(speaker.name)}</speaker>`;
