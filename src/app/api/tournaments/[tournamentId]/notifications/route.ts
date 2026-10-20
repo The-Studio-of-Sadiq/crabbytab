@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorizeTournamentEmailRequest, EmailAuthorizationError } from "@/lib/email/authorize";
 import { EmailCampaignInputError } from "@/lib/email/messaging";
 import { ROUND_NOTIFICATION_EVENTS, type RoundNotificationEvent } from "@/lib/email/notifications";
-import { baselineRoundNotifications, sendNextRoundNotification } from "@/lib/email/notificationService";
+import {
+  baselineBallotConfirmations,
+  baselineRoundNotifications,
+  sendNextRoundNotification,
+} from "@/lib/email/notificationService";
 import { EmailProviderConfigError } from "@/lib/email/provider";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 
@@ -36,7 +40,8 @@ export async function POST(
         ROUND_NOTIFICATION_EVENTS.includes(event as RoundNotificationEvent)
       )
     : [];
-  if (body.action !== "send" && !(body.action === "baseline" && events.length > 0)) {
+  const baselineBallots = Array.isArray(body.events) && body.events.includes("ballot_confirmed");
+  if (body.action !== "send" && !(body.action === "baseline" && (events.length > 0 || baselineBallots))) {
     return NextResponse.json({ error: "Invalid notification request." }, { status: 400 });
   }
 
@@ -44,7 +49,8 @@ export async function POST(
     const user = await authorizeTournamentEmailRequest(request, tournamentId);
     const firestore = getAdminFirestore();
     if (body.action === "baseline") {
-      const skipped = await baselineRoundNotifications(firestore, tournamentId, events);
+      const skipped = (events.length > 0 ? await baselineRoundNotifications(firestore, tournamentId, events) : 0) +
+        (baselineBallots ? await baselineBallotConfirmations(firestore, tournamentId) : 0);
       return NextResponse.json({ skipped }, { headers: { "Cache-Control": "no-store" } });
     }
     const result = await sendNextRoundNotification({
