@@ -234,7 +234,10 @@ REST API 2 of 66; models 26 / 28 / 8 (of 62); draw generators 8/8; break rules 4
   feedback by gender, plus public veto statistics; see
   [public-pages-and-notifications.md](public-pages-and-notifications.md#public-site-settings-waves-45-tabbycat-public_features--tab_release--ui_options).
   The admin diversity editor (imports/diversity) is unchanged; an admin statistics page is still open.*
-- **#26** (public non-private-URL ballot and feedback forms, public password): *follow-up PR.*
+- **#26** (public non-private-URL ballot and feedback forms, public password): *done; see
+  [public-pages-and-notifications.md](public-pages-and-notifications.md#public-ballot-and-feedback-forms-26-tabbycat-participant_ballots--participant_feedback--public).
+  Submissions are unconfirmed until the tab room confirms them; Tabbycat's public forms are addressed by
+  numeric ids, CrabbyTab's by the public projection's names.*
 
 ### C. Wave 5 — gaps on no earlier roadmap (implement after wave 4)
 **High (results or whole formats):**
@@ -273,7 +276,7 @@ web push.
 Feedback paths as boolean flags (more flexible; only "panellists on each other but not trainees"
 is inexpressible); per-round result releases instead of a global switch; barcodes from entity ids;
 one role-gated route tree instead of admin/assistant/public trees; per-round side pre-allocation;
-no public forms addressed by numeric ids (private URL + passcode is deliberate); Django plumbing,
+private URL + passcode stays the default (public forms are opt-in, #26, and not addressed by numeric ids); Django plumbing,
 cache commands and legacy ballot views; SendGrid-specific configuration.
 
 ## Where CrabbyTab stands

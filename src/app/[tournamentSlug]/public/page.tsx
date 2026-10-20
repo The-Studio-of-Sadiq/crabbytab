@@ -555,6 +555,20 @@ export default function PublicTournamentPage() {
       {/* Main Public Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
         <WelcomePanel message={site.welcomeMessage} staff={site.tournamentStaff} />
+        {(site.ballotForm || site.feedbackForm) && (
+          <div className="flex flex-wrap gap-2">
+            {site.ballotForm && (
+              <Link href={`/${encodeURIComponent(tournamentSlug)}/public/ballot`} className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                {t("publicForms.ballotLink")}
+              </Link>
+            )}
+            {site.feedbackForm && prefs?.feedbackEnabled !== false && (
+              <Link href={`/${encodeURIComponent(tournamentSlug)}/public/feedback`} className="rounded-md border border-blue-600 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                {t("publicForms.feedbackLink")}
+              </Link>
+            )}
+          </div>
+        )}
         {/* 1. Draw View */}
         {showPublicDraw && activeTab === "draw" && (
           <div className="space-y-4">

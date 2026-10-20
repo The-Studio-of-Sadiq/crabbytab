@@ -69,6 +69,33 @@ or all), diversity or feedback progress is on (`needsPublicFeedback`); otherwise
 same collections as before. The new `tabs` and `derived` base sections are cached like the others;
 views published before them read as having none until the next publish (view format 3).
 
+### Public ballot and feedback forms (#26, Tabbycat `participant_ballots` / `participant_feedback` = "public")
+
+`publicBallotForm` and `publicFeedbackForm` open `/[slug]/public/ballot` and `/[slug]/public/feedback`
+**in addition to** private URLs, which keep working. The pages are built from the cached public
+projection (rounds whose draw is public and whose panel has been announced); submitting posts to
+`POST /api/public/tournaments/[slug]/submissions`.
+
+- **Same rules as private URLs.** The route runs the shared participant-submission pipeline
+  (`src/lib/participantSubmissions.ts`, also used by `/api/private/sync`): the participant must be on
+  the debate, only voting adjudicators submit ballots, feedback must follow the round's feedback
+  paths and questions, and scores are validated against the tournament's ranges.
+- **Nothing counts until the tab room says so.** Anyone can pick a name on a public form, so public
+  ballots are saved unconfirmed with `submitterType: "public"` (they never supersede an existing
+  ballot) and public feedback is saved unconfirmed (confirm it on the feedback submissions page).
+  With ballot receipts on, the named adjudicator is emailed a receipt, which also flags impersonation.
+- **Password (`public_use_password`).** With `publicFormsUsePassword`, submissions need the
+  tournament password. It is set under Settings → Public Visibility and stored only as a salted
+  scrypt hash in `tournaments/{id}/serverOnly/publicForms` (admin route
+  `GET/PUT /api/tournaments/[id]/public-forms`), never in the published preferences. While no
+  password is set, the forms refuse submissions.
+- **Abuse protection.** A hidden honeypot field and a minimum fill time (as the registration form),
+  a 32 KB body limit, per-address-per-tournament (60/h), per-address (120/h) and per-tournament
+  (3000/h) submission limits, and at most 20 wrong passwords per address per hour.
+- **Limits.** Debates whose sides are chosen on the ballot ("manual ballot" sides) and anonymous
+  adjudicators (no public name) must use private URLs. The ballot form records speaker scores,
+  replies and ranks; vetoes and forfeits are left to private URLs and the tab room.
+
 ### When public pages change
 
 Public pages show the last **published** cloud copy, never an organiser device's local state.

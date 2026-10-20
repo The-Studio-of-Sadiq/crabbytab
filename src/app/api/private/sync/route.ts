@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FieldPath, FieldValue, type QuerySnapshot } from "firebase-admin/firestore";
-import {
-  Adjudicator,
-  BallotSubmission,
-  FeedbackSubmission,
-  Round,
-  Team,
-  Tournament,
-} from "@/types";
+import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { Round, Tournament } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
   checkPrivateApiRateLimit,
@@ -16,28 +9,16 @@ import {
   recordPrivateFailure,
 } from "@/lib/privateTeamRateLimit";
 import { passcodesMatch } from "@/lib/passcode";
-import { buildPrivateBallot } from "@/lib/privateBallot";
-import {
-  filterTeamVisibleDebates,
-  getPrivatePortalBallots,
-  sanitizeTeamPrivateDebate,
-} from "@/lib/privatePortalBallots";
-import { planPrivateBallotWrites, selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
-import { loadBallotsForDebates, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
-import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
+import { getPrivatePortalBallots, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
+import { loadBallotsForDebates } from "@/lib/privateParticipantData";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
-import { validateFeedbackScore } from "@/lib/scoring/validator";
-import {
-  canSubmitParticipantFeedback,
-  isFeedbackAnswerRecord,
-  isFeedbackEnabledForRound,
-  questionsForFeedbackSource,
-  validateFeedbackAnswers,
-} from "@/lib/feedback/questions";
-import { feedbackPathsForRound } from "@/lib/feedback/paths";
-import { adjudicatorRoleInDebate } from "@/lib/feedback/scores";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import {
+  applyParticipantSubmissions,
+  loadParticipantAssignments,
+  type ParticipantSubmissionInput,
+} from "@/lib/participantSubmissions";
 
 export const runtime = "nodejs";
 
@@ -148,265 +129,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid private link or passcode." }, { status: 403 });
     }
 
-    // Only this participant's debates (via the debates' participant index) and their teams.
-    const [{ debates: participantDebates }, feedbackRoundsSnapshot] = await Promise.all([
-      loadParticipantDebates(tournamentRef, actorDocument.id),
-      tournamentRef.collection("rounds").get(),
-    ]);
-    const roundById = new Map(
-      feedbackRoundsSnapshot.docs
-        .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => [document.id, { ...document.data(), id: document.id } as Round])
-    );
+    // Only this participant's debates in published draws, and their teams.
+    const { roundById, assignedDebates, teams } = await loadParticipantAssignments(tournamentRef, actorType, actorDocument.id);
     if (checkIn) {
       const refusal = selfCheckInError(tournament.preferences, [...roundById.values()], checkIn);
       if (refusal) return NextResponse.json({ error: refusal }, { status: 403 });
     }
 
-    // The index only narrows the read; assignment is checked from the debates themselves.
-    const actorDebates = selectAssignedDebates(participantDebates, actorType, actorDocument.id);
-    // Participants never see (or submit for) debates from unpublished draws.
-    const assignedDebates = new Map(
-      filterTeamVisibleDebates(actorDebates.values(), roundById).map((debate) => [debate.id, debate])
-    );
-    const teams: Map<string, Team> = await loadTeamsById(
+    const submitted = await applyParticipantSubmissions({
+      firestore,
       tournamentRef,
-      [...assignedDebates.values()].flatMap((debate) =>
-        Object.values(debate.teams || {}).flatMap((slot) => (slot?.teamId ? [slot.teamId] : []))
-      )
-    );
-
-    const batch = firestore.batch();
-    let uploadedCount = 0;
-    const ballotSubmissions: BallotSubmission[] = [];
-    for (const item of pending as unknown[]) {
-      if (!isRecord(item) || !isRecord(item.record)) {
-        return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
-      }
-      const collectionName = item.collection;
-      const record = item.record;
-      const debateId = record.debateId;
-      if (
-        (collectionName !== "ballots" && collectionName !== "feedback") ||
-        !validDocumentId(record.id) ||
-        typeof debateId !== "string" ||
-        !assignedDebates.has(debateId)
-      ) {
-        return NextResponse.json({ error: "An offline submission is not valid for this adjudicator." }, { status: 403 });
-      }
-
-      if (collectionName === "ballots") {
-        if (actorType !== "adjudicator") {
-          return NextResponse.json({ error: "Teams cannot submit ballots." }, { status: 403 });
-        }
-        const debate = assignedDebates.get(debateId)!;
-        const canVote =
-          !actor.trainee &&
-          (debate.adjudicators?.chairId === actorDocument.id ||
-            debate.adjudicators?.panellistIds?.includes(actorDocument.id));
-        if (!canVote) {
-          return NextResponse.json({ error: "Only the chair or a voting panellist may submit a ballot." }, { status: 403 });
-        }
-        let ballot: BallotSubmission;
-        try {
-          ballot = buildPrivateBallot(record, {
-            tournament,
-            adjudicator: { ...actor, id: actorDocument.id } as Adjudicator,
-            debate,
-            teams,
-            tournamentId,
-          });
-        } catch (error) {
-          return NextResponse.json(
-            { error: error instanceof Error ? error.message : "The ballot is invalid." },
-            { status: 400 }
-          );
-        }
-        ballotSubmissions.push(ballot);
-      } else {
-        const debate = assignedDebates.get(debateId)!;
-        const panel = debate.adjudicators;
-        const targetType = record.targetType === undefined
-          ? "adjudicator"
-          : record.targetType === "adjudicator" || record.targetType === "team"
-            ? record.targetType
-            : undefined;
-        if (!targetType) {
-          return NextResponse.json({ error: "Feedback target type is invalid." }, { status: 400 });
-        }
-        const targetAdjudicatorId = typeof record.targetAdjudicatorId === "string"
-          ? record.targetAdjudicatorId
-          : undefined;
-        const targetTeamId = typeof record.targetTeamId === "string"
-          ? record.targetTeamId
-          : undefined;
-        const score = record.score;
-        const answers = record.answers === undefined ? {} : record.answers;
-        const targetAdjudicatorIsAssigned =
-          typeof targetAdjudicatorId === "string" &&
-          (panel.chairId === targetAdjudicatorId ||
-            panel.panellistIds?.includes(targetAdjudicatorId) ||
-            panel.traineeIds?.includes(targetAdjudicatorId));
-        const targetTeamSlot = typeof targetTeamId === "string"
-          ? Object.values(debate.teams || {}).find((slot) => slot?.teamId === targetTeamId)
-          : undefined;
-        const sourceIsAuthorized =
-          record.sourceType === actorType &&
-          record.sourceId === actorDocument.id &&
-          (actorType === "adjudicator" || Object.values(debate.teams || {}).some((slot) => slot?.teamId === actorDocument.id));
-        const panelVisibleToActor =
-          actorType === "adjudicator" || roundById.get(debate.roundId)?.adjudicatorsRevealed === true;
-        const targetIsAuthorized = targetType === "adjudicator"
-          ? targetAdjudicatorIsAssigned && panelVisibleToActor && targetAdjudicatorId !== actorDocument.id
-          : targetType === "team" && Boolean(targetTeamSlot) &&
-            (actorType !== "team" || targetTeamId !== actorDocument.id);
-        const targetId = targetType === "adjudicator" ? targetAdjudicatorId : targetTeamId;
-        const targetIsChair = Boolean(targetAdjudicatorId && panel.chairId === targetAdjudicatorId);
-        const round = roundById.get(debate.roundId);
-        const sourceRole = actorType === "adjudicator" ? adjudicatorRoleInDebate(debate, actorDocument.id) : "team";
-        const targetRole = targetAdjudicatorId ? adjudicatorRoleInDebate(debate, targetAdjudicatorId) : undefined;
-        const feedbackAllowed = Boolean(sourceRole) && canSubmitParticipantFeedback({
-          sourceType: actorType,
-          sourceId: actorDocument.id,
-          sourceIsChair: sourceRole === "chair",
-          sourceRole,
-          targetType,
-          targetId: targetId || "",
-          targetIsChair,
-          targetRole,
-          path: feedbackPathsForRound(tournament.preferences, round),
-        });
-        if (
-          !sourceIsAuthorized ||
-          !targetIsAuthorized ||
-          !feedbackAllowed ||
-          tournament.preferences?.feedbackEnabled === false ||
-          !isFeedbackEnabledForRound(
-            debate,
-            round,
-            tournament.preferences?.feedbackInEliminationRounds !== false
-          )
-        ) {
-          return NextResponse.json({ error: "Feedback does not match this participant or debate." }, { status: 403 });
-        }
-        if (
-          typeof score !== "number" ||
-          !validateFeedbackScore(score, tournament.preferences).valid ||
-          (record.comments !== undefined &&
-            (typeof record.comments !== "string" || record.comments.length > 5000)) ||
-          (record.agreeWithDecision !== undefined && typeof record.agreeWithDecision !== "boolean") ||
-          !isFeedbackAnswerRecord(answers) ||
-          Boolean(validateFeedbackAnswers(
-            questionsForFeedbackSource(actorType, tournament.preferences),
-            answers
-          ))
-        ) {
-          return NextResponse.json({ error: "Feedback contains invalid details." }, { status: 400 });
-        }
-        const feedback: FeedbackSubmission = {
-          id: record.id,
-          tournamentId,
-          roundId: debate.roundId,
-          debateId: debate.id,
-          targetType,
-          ...(targetType === "adjudicator" ? {
-            targetAdjudicatorId: targetAdjudicatorId!,
-            targetAdjudicatorName:
-              panel.chairId === targetAdjudicatorId
-                ? panel.chairName || ""
-                : panel.panellistIds?.includes(targetAdjudicatorId as string)
-                  ? panel.panellistNames?.[panel.panellistIds.indexOf(targetAdjudicatorId as string)] || ""
-                  : panel.traineeNames?.[panel.traineeIds?.indexOf(targetAdjudicatorId as string) ?? -1] || "",
-          } : {
-            targetTeamId: targetTeamId!,
-            targetTeamName: teams.get(targetTeamId as string)?.name || targetTeamSlot?.teamName || "",
-          }),
-          sourceType: actorType,
-          sourceId: actorDocument.id,
-          sourceName: actor.name,
-          score,
-          ...(typeof record.agreeWithDecision === "boolean"
-            ? { agreeWithDecision: record.agreeWithDecision }
-            : {}),
-          ...(typeof record.comments === "string" ? { comments: record.comments } : {}),
-          ...(Object.keys(answers).length > 0 ? { answers } : {}),
-          confirmed: true,
-          timestamp: new Date().toISOString(),
-        };
-        const feedbackRef = tournamentRef.collection("feedback").doc(feedback.id);
-        const existingFeedback = await feedbackRef.get();
-        if (
-          existingFeedback.exists &&
-          existingFeedback.data()?.sourceId !== actorDocument.id
-        ) {
-          return NextResponse.json(
-            { error: "The feedback identifier is already in use." },
-            { status: 403 }
-          );
-        }
-        batch.set(feedbackRef, feedback);
-      }
-      uploadedCount += 1;
-    }
-
-    let writtenBallots: BallotSubmission[] = [];
-    if (ballotSubmissions.length > 0) {
-      const ballotCollection = tournamentRef.collection("ballots");
-      const committed = await firestore.runTransaction(async (transaction) => {
-        const debateIds = [...new Set(ballotSubmissions.map((ballot) => ballot.debateId))];
-        const existingBallotsByDebate = new Map<string, QuerySnapshot>();
-        for (const debateId of debateIds) {
-          const snapshot = await transaction.get(
-            ballotCollection.where("debateId", "==", debateId)
-          );
-          existingBallotsByDebate.set(debateId, snapshot);
-        }
-        const existingSubmissions = await Promise.all(
-          ballotSubmissions.map((ballot) => transaction.get(ballotCollection.doc(ballot.id)))
-        );
-        if (existingSubmissions.some(
-          (snapshot) => snapshot.exists && snapshot.data()?.submitterId !== actorDocument.id
-        )) {
-          return false;
-        }
-
-        const plan = planPrivateBallotWrites(
-          ballotSubmissions,
-          new Map(debateIds.map((debateId) => [
-            debateId,
-            existingBallotsByDebate.get(debateId)!.docs.map((document) => ({
-              id: document.id,
-              data: document.data() as Partial<BallotSubmission>,
-            })),
-          ])),
-          // Completed, published or advanced rounds keep their result: a late chair's ballot waits for the tab room.
-          new Set(debateIds.filter((debateId) =>
-            isRoundLockedForPortalBallots(roundById.get(assignedDebates.get(debateId)?.roundId ?? ""))
-          ))
-        );
-        const existingById = new Map(
-          [...existingBallotsByDebate.values()].flatMap((snapshot) =>
-            snapshot.docs.map((document) => [document.id, document.data() as Partial<BallotSubmission>] as const)
-          )
-        );
-        for (const id of plan.discardExistingIds) {
-          transaction.update(ballotCollection.doc(id), supersededBallotUpdate(existingById.get(id) ?? {}));
-        }
-        for (const ballot of plan.writes) {
-          transaction.set(ballotCollection.doc(ballot.id), ballot);
-        }
-        writtenBallots = plan.writes;
-        return true;
-      });
-      if (!committed) {
-        return NextResponse.json(
-          { error: "This ballot identifier belongs to another adjudicator." },
-          { status: 403 }
-        );
-      }
-    }
-
-    if (uploadedCount > 0) await batch.commit();
+      tournament,
+      tournamentId,
+      actorType,
+      actorDocument,
+      actor: actor as ParticipantSubmissionInput["actor"],
+      assignedDebates,
+      teams,
+      roundById,
+      pending: pending as unknown[],
+    });
+    if (!submitted.ok) return NextResponse.json({ error: submitted.error }, { status: submitted.status });
+    const { uploadedCount, writtenBallots } = submitted;
     // Self check-in for the current round. The version bump makes a later upload of an older local
     // copy record a sync conflict instead of silently overwriting the participant's check-in.
     let actorAvailability = {

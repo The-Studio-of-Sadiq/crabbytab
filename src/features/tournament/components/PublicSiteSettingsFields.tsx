@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import { useTournament } from "@/contexts/TournamentContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
 import { createSeededRng, randomSeed } from "@/lib/draw/rng";
@@ -179,6 +180,33 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
       </section>
 
       <section className="space-y-3">
+        <h4 className="text-xs font-bold uppercase tracking-wide text-gray-700">Public ballot and feedback forms</h4>
+        <p className="text-[11px] text-gray-500">
+          Forms on the public site, in addition to private URLs (Tabbycat&apos;s &quot;publicly accessible form&quot;). Anyone
+          can choose a name, so submissions are saved unconfirmed for the tab room, only for rounds whose draw and
+          adjudicators are public, and are rate-limited per network.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Checkbox
+            label="Public ballot form"
+            checked={site.ballotForm}
+            onChange={(event) => set("publicBallotForm", event.target.checked || undefined)}
+          />
+          <Checkbox
+            label="Public feedback form"
+            checked={site.feedbackForm}
+            onChange={(event) => set("publicFeedbackForm", event.target.checked || undefined)}
+          />
+          <Checkbox
+            label="Require a password"
+            checked={site.formsUsePassword}
+            onChange={(event) => set("publicFormsUsePassword", event.target.checked || undefined)}
+          />
+        </div>
+        <PublicFormPasswordControl required={site.formsUsePassword} />
+      </section>
+
+      <section className="space-y-3">
         <h4 className="text-xs font-bold uppercase tracking-wide text-gray-700">Public homepage</h4>
         <Select
           label="Search engines"
@@ -262,6 +290,99 @@ function CodeNameTools({ usesCodeNames }: { usesCodeNames: boolean }) {
         </Button>
       </div>
       {status && <p role="status" className="text-gray-600">{status}</p>}
+    </div>
+  );
+}
+
+/** Sets or clears the public form password, stored server-side as a hash (never in preferences). */
+function PublicFormPasswordControl({ required }: { required: boolean }) {
+  const { tournament, isOwnerOrAdmin } = useTournament();
+  const { user } = useAuth();
+  const [state, setState] = useState<{ passwordSet: boolean; updatedAt: string | null } | null>(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const tournamentId = tournament?.id;
+
+  useEffect(() => {
+    if (!user || !tournamentId || !isOwnerOrAdmin) return;
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}/public-forms`, {
+          headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+          cache: "no-store",
+        });
+        const result = (await response.json().catch(() => ({}))) as { passwordSet?: boolean; updatedAt?: string | null; error?: string };
+        if (!active) return;
+        if (response.ok) setState({ passwordSet: result.passwordSet === true, updatedAt: result.updatedAt ?? null });
+        else setMessage(result.error || "Could not read the password setting.");
+      } catch {
+        if (active) setMessage("Could not read the password setting.");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user, tournamentId, isOwnerOrAdmin]);
+
+  const save = async (next: string | null) => {
+    if (!user || !tournamentId) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}/public-forms`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${await user.getIdToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: next }),
+        cache: "no-store",
+      });
+      const result = (await response.json().catch(() => ({}))) as { passwordSet?: boolean; updatedAt?: string | null; error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not save the password.");
+      setState({ passwordSet: result.passwordSet === true, updatedAt: result.updatedAt ?? null });
+      setPassword("");
+      setMessage(next === null ? "Password removed." : "Password saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save the password.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isOwnerOrAdmin) return null;
+  if (!user) {
+    return <p className="text-[11px] text-gray-500">Sign in with cloud sync to set the form password.</p>;
+  }
+  return (
+    <div className="rounded border border-gray-200 bg-gray-50 p-3 space-y-2 text-xs">
+      <p className="text-gray-700">
+        {state === null
+          ? "Checking the password…"
+          : state.passwordSet
+            ? `A password is set${state.updatedAt ? ` (changed ${new Date(state.updatedAt).toLocaleString()})` : ""}.`
+            : required
+              ? "No password is set yet: the forms refuse submissions until one is."
+              : "No password is set."}
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Input
+          type="password"
+          label="New password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          wrapperClassName="w-56"
+        />
+        <Button type="button" size="sm" variant="secondary" disabled={busy || password.trim().length === 0} onClick={() => void save(password)}>
+          Save password
+        </Button>
+        {state?.passwordSet && (
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void save(null)}>
+            Remove password
+          </Button>
+        )}
+      </div>
+      {message && <p role="status" className="text-gray-600">{message}</p>}
     </div>
   );
 }

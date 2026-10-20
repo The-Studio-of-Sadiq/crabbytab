@@ -8,6 +8,7 @@
  * - `<b>…</b>` / `<n>…</n>` mark spans the component styles (bold text, numbers).
  */
 import { publicSiteEn } from "@/lib/i18n/messages/publicSite.en";
+import { publicFormsEn } from "@/lib/i18n/messages/publicForms.en";
 
 export const en = {
   "common.tournament": "Tournament",
@@ -428,4 +429,5 @@ export const en = {
   "register.receivedAdjudicator": "Thank you. The tournament's organisers will review your registration.",
   "register.another": "Register another",
   ...publicSiteEn,
+  ...publicFormsEn,
 } as const;
