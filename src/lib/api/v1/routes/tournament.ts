@@ -5,7 +5,7 @@ import { notFound } from "../errors";
 import { defineRoute, listOf, slugParam } from "../router";
 import { s } from "../schema";
 import { asType, serializeTournament } from "../serializers";
-import { idSchema } from "./shared";
+import { idSchema, requirePublicRelease } from "./shared";
 
 const slugOnly = s.object({ slug: slugParam });
 
@@ -80,9 +80,10 @@ export const tournamentReadRoutes = [
     summary: "List feedback questions",
     description:
       "Custom feedback questions with who is asked each one (teams, adjudicators or both). " +
-      "`fromTeams=true` / `fromAdjudicators=true` (Tabbycat's from_team / from_adj) list only the questions those sources are asked.",
+      "`fromTeams=true` / `fromAdjudicators=true` (Tabbycat's from_team / from_adj) list only the questions those sources are asked. " +
+      "Public tokens and anonymous clients may read them too (as in Tabbycat; the forms show them).",
     tag: "feedback",
-    auth: { kind: "token", resource: "tournament", access: "read" },
+    auth: { kind: "token", resource: "tournament", access: "read", public: true },
     params: slugOnly,
     query: s.object({ fromTeams: s.optional(s.boolean()), fromAdjudicators: s.optional(s.boolean()) }),
     response: listOf(feedbackQuestionSchema),
@@ -103,7 +104,7 @@ export const tournamentReadRoutes = [
     operationId: "getFeedbackQuestion",
     summary: "Get one feedback question",
     tag: "feedback",
-    auth: { kind: "token", resource: "tournament", access: "read" },
+    auth: { kind: "token", resource: "tournament", access: "read", public: true },
     params: s.object({ slug: slugParam, questionId: idSchema("Question id.") }),
     response: feedbackQuestionSchema,
     async handler(context) {
@@ -119,9 +120,10 @@ export const tournamentReadRoutes = [
     summary: "List speaker score criteria and scales",
     description:
       "The speaker and reply score scales. CrabbyTab scores each speech with one number; when " +
-      "per-criterion scoring is configured, its criteria are listed under `criteria`.",
+      "per-criterion scoring is configured, its criteria are listed under `criteria`. Public tokens " +
+      "and anonymous clients may read them (as in Tabbycat; ballot forms show the scales).",
     tag: "tournaments",
-    auth: { kind: "token", resource: "tournament", access: "read" },
+    auth: { kind: "token", resource: "tournament", access: "read", public: true },
     params: slugOnly,
     response: s.object({
       speakerScore: s.object({ min: s.number(), max: s.number(), step: s.number() }),
@@ -179,15 +181,21 @@ export const tournamentReadRoutes = [
     path: "/tournaments/{slug}/speaker-categories/{categoryId}/eligibility",
     operationId: "getSpeakerCategoryEligibility",
     summary: "List the speakers in a speaker category",
+    description:
+      "Public tokens and anonymous clients: public categories only, once the participants list is " +
+      "released (Tabbycat `public_participants`); anonymous speakers are left out.",
     tag: "speaker-categories",
-    auth: { kind: "token", resource: "participants", access: "read" },
+    auth: { kind: "token", resource: "participants", access: "read", public: true },
     params: s.object({ slug: slugParam, categoryId: idSchema("Speaker category id.") }),
     response: s.object({ categoryId: s.string(), speakerIds: s.array(s.string()) }),
     async handler(context) {
+      // The public view carries public categories only, so a private one is not found.
+      requirePublicRelease(context, "participants", "The participants list");
       const categories = context.tournament.preferences?.speakerCategories ?? [];
       if (!categories.some((item) => item.id === context.params.categoryId)) throw notFound("Speaker category");
       const teams = (await context.data.all("teams")).map((record) => asType<Team>(record));
       const speakerIds = teams.flatMap((team) => (team.speakers ?? [])
+        .filter((speaker) => !(context.data.view === "public" && speaker.anonymous === true))
         .filter((speaker) =>
           resolveSpeakerCategoryIds(speakerCategoryRefs(speaker, team), categories).includes(context.params.categoryId)
         )

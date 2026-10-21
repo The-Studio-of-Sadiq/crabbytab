@@ -12,7 +12,8 @@ queue, and an approval creates the team or adjudicator with the ordinary entity 
 **Settings**
 - *Accept registrations* on/off, plus optional opening and closing times. The public form is at
   `/register/{slug}` (shown with a copy button).
-- Which kinds may register (teams, adjudicators), and *Institution representatives only*.
+- Which kinds may register (teams, adjudicators, institutions), and **who can register teams and
+  adjudicators** (see "Registration channels" below).
 - Speakers per team (minimum and maximum, 1–6) and the speaker category labels registrants may
   tick (e.g. ESL, Novice). Approved speakers carry the labels in `Speaker.categories`.
 - Limits, counted over submissions that are not rejected (0 = none): teams and adjudicators per
@@ -59,6 +60,16 @@ Settings added for the source-level audit's registration items:
   the coach becomes the institution's representative with those limits and receives the "Places
   allocated" email with their link. Institution registrations never count against any limit and
   are always reviewed. A representative link cannot register another institution.
+  **Institution registration email** (Tabbycat `institution_registration_email_*`): when an
+  institution registers, its contact gets the "Institution registered" email (template on the Email
+  page, always sent, like the places email) with a link to the coach page at once. Until places are
+  allocated the link only shows that contact's own places request ("Awaiting places" on the
+  Representatives tab): it cannot register teams or adjudicators, transfer places, or see what
+  others registered for the institution. Allocating places keeps that link working alongside the new
+  one in the places email; **New link** and **Revoke** stop both. The link is only emailed, never
+  shown to whoever filled the form, so it reaches the address the tab room approves. When the
+  institution and email already have a representative, nothing is issued and the ordinary
+  "Registration received" email applies.
 - **Registration confirmation** (`registration_confirmation`): *Always* (default, as before),
   *Only open registrations* (registrations through a representative link are accepted at once), or
   *Never*. An accepted registration is created by the server directly in the live `teams` /
@@ -75,10 +86,23 @@ Settings added for the source-level audit's registration items:
   places between the two representatives' limits in one transaction; places already used, and
   unlimited places, cannot be given away.
 - **Team names** (`team_name_generator`): as registered, institution + letter, institution +
-  number, or institution + speaker initials, always unused in the tournament. **Code names**
+  number, or institution + speaker initials, always unused in the tournament. With a generator, the
+  public form does not ask for a team name (Tabbycat); the review queue shows such a registration
+  by its speakers until approval names it. **Code names**
   (`code_name_generator`): none, emoji, or speakers' last names. Applied when a registration is
   approved or accepted (`src/lib/registration/names.ts`).
-- **Form fields**: phone and gender for speakers and adjudicators, region for institutions. Phones
+- **Registration channels** (Tabbycat `open_team_registration`, `open_adj_registration`,
+  `institution_participant_registration`): *Open team registration* and *Open adjudicator
+  registration* let teams / adjudicators register on the public form without a link, separately;
+  *Representatives register participants* lets representative links register teams and
+  adjudicators. Settings saved before these switches read as before: open registration follows the
+  old *Institution representatives only* switch (for both kinds), and representative links always
+  register. The server checks the channel on every submission (`src/lib/registration/access.ts`).
+- **Form fields**: phone and gender for speakers and adjudicators, region for institutions.
+  Speaker **email** and **speaker categories**, and adjudicator **email**, can be switched off
+  (Tabbycat `reg_speaker_fields` / `reg_adjudicator_fields`); they are asked unless switched off.
+  Values for a switched-off field are ignored by the server; an adjudicator registered without an
+  email gets none (it can be added later). Phones
   must be international (`+country code`). On approval they are copied to the real fields
   (`Speaker.phone/gender`, `Adjudicator.phone/gender`), so gender appears on the diversity page.
   Phones are organiser-only: assistant data and public pages leave them out.
@@ -101,6 +125,12 @@ Settings added for the source-level audit's registration items:
   ignores values for fields the form no longer shows. The review queue lists the chosen values.
 - **Per-form messages** shown above the team, adjudicator and institution forms, and extra
   **question sets** for institutions and for each speaker (asked once per speaker).
+- **Coach questions** (Tabbycat `reg-coach-questions`, setting `coachQuestions`): asked of the
+  person registering an institution (its contact, Tabbycat's coach) on the institution form,
+  separately from the questions about the institution. Answers are validated like the other
+  question sets and stored with the request (`institutionRequest.coachAnswers`); the review queue
+  shows them. Settings saved before this have none. The answers stay on the registration and are
+  not copied onto the institution's coach record.
 
 ## Team invitations
 

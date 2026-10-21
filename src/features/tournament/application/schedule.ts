@@ -242,6 +242,45 @@ export function groupPreliminaryRounds(rounds: Round[], panels: number): Round[]
   });
 }
 
+/**
+ * Schedule slots for newly created preliminary rounds (Tabbycat: round creation assigns schedule
+ * groups from prelim_panels). New rounds fill the last existing preliminary slot up to `panels`
+ * rounds, then open the next slot; existing rounds are never regrouped. Default names
+ * ("Round 5" / "R5") follow the slot ("Round 3 (B)" / "R3B"); custom names are kept. With one panel
+ * per slot nothing changes, so tournaments that never set prelim_panels create rounds as before.
+ * `renameDefaults: false` keeps a name the organiser typed.
+ */
+export function slotNewPreliminaryRounds(
+  existing: Round[],
+  created: Round[],
+  panels: number,
+  { renameDefaults = true }: { renameDefaults?: boolean } = {}
+): Round[] {
+  const size = Math.max(1, Math.min(26, Math.floor(panels)));
+  if (size <= 1) return created;
+  const prelims = existing.filter((round) => round.stage === "preliminary" && !round.cancelled).sort(bySeq);
+  const firstSeq = (prelims[0] ?? [...created].sort(bySeq)[0])?.seq ?? 1;
+  const last = prelims.at(-1);
+  let slot = last ? scheduleGroupOf(last) : firstSeq;
+  let filled = last ? prelims.filter((round) => scheduleGroupOf(round) === slot).length : 0;
+  return [...created].sort(bySeq).map((round) => {
+    if (round.stage !== "preliminary" || round.cancelled) return round;
+    if (filled >= size) {
+      slot += 1;
+      filled = 0;
+    }
+    const letter = String.fromCharCode(65 + filled);
+    filled += 1;
+    const group = slot - firstSeq + 1;
+    return {
+      ...round,
+      scheduleGroup: slot,
+      name: renameDefaults && DEFAULT_ROUND_NAME.test(round.name) ? `Round ${group} (${letter})` : round.name,
+      abbreviation: renameDefaults && DEFAULT_ROUND_ABBREVIATION.test(round.abbreviation) ? `R${group}${letter}` : round.abbreviation,
+    };
+  });
+}
+
 /** What changing a round's slot would break; empty when the change is safe. */
 export function checkScheduleGroupChange(round: Round, scheduleGroup: number, rounds: Round[], debates: Debate[]): string[] {
   if (!Number.isInteger(scheduleGroup) || scheduleGroup < 1) return ["A schedule slot is a whole number from 1."];

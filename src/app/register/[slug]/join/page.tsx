@@ -16,6 +16,8 @@ interface InvitationView {
   maxSpeakers: number;
   speakerCategories: string[];
   speakerFields: Array<"phone" | "gender">;
+  /** Absent from servers before the email switch: asked. */
+  askEmail?: boolean;
 }
 
 async function readJson<T>(response: Response): Promise<T & { error?: string }> {
@@ -85,7 +87,7 @@ export default function TeamInvitationPage() {
           token,
           speaker: {
             name,
-            email,
+            ...(invitation.askEmail !== false ? { email } : {}),
             categories,
             ...(invitation.speakerFields.includes("phone") ? { phone } : {}),
             ...(invitation.speakerFields.includes("gender") ? { gender } : {}),
@@ -131,7 +133,9 @@ export default function TeamInvitationPage() {
             ) : (
               <form onSubmit={(event) => void submit(event)} className="space-y-3">
                 <Input label={t("register.join.name")} required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
-                <Input label={t("register.join.email")} type="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+                {invitation.askEmail !== false && (
+                  <Input label={t("register.join.email")} type="email" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+                )}
                 {invitation.speakerFields.includes("phone") && (
                   <Input label={t("register.join.phone")} type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" />
                 )}

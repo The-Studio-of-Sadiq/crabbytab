@@ -1,6 +1,7 @@
 import type { Round, Speaker, Team, Tournament } from "@/types";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { getEligibleTeamsForRound } from "@/lib/draw/generator";
+import { teamsInDebateFor } from "@/lib/debateSides";
 
 /**
  * Swing teams: a composite team formed for a round to fill a room when the field does not divide
@@ -33,7 +34,7 @@ export function roundFieldSize(
   teams: Team[],
   now = Date.now()
 ): { available: number; teamsPerDebate: number; excess: number } {
-  const teamsPerDebate = tournament.format === "bp" ? 4 : 2;
+  const teamsPerDebate = teamsInDebateFor(tournament);
   const available = getEligibleTeamsForRound(teams, round).filter((team) =>
     isAvailableForRound(team, round, tournament.preferences?.checkInExpiresAfterHours, now)
   ).length;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Debate, Round } from "@/types";
+import { Adjudicator, Debate, Round, Team } from "@/types";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import {
   checkPrivateFailureLimit,
@@ -9,8 +9,15 @@ import {
 } from "@/lib/privateTeamRateLimit";
 import { findTeamsByPrivateKey, matchPrivateTeamCredential } from "@/lib/privateSpeakerAccess";
 import { getPublicRelease, redactUnreleasedBreak } from "@/lib/publicRelease";
-import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
-import { loadParticipantDebates, loadPortalVenues } from "@/lib/privateParticipantData";
+import {
+  createPortalNamer,
+  filterTeamVisibleDebates,
+  portalUsesParticipantCodeNames,
+  renamePortalDebate,
+  sanitizeTeamPrivateDebate,
+} from "@/lib/privatePortalBallots";
+import { getPublicSiteSettings, publicUsesTeamCodeNames } from "@/lib/publicFeatures";
+import { loadParticipantDebates, loadPortalVenues, portalRoundProjection } from "@/lib/privateParticipantData";
 
 export const runtime = "nodejs";
 
@@ -125,13 +132,48 @@ export async function POST(request: NextRequest) {
       tournamentRef,
       debates.filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
     );
-    const safeDebates = debates.map((debate) =>
+    const sanitized = debates.map((debate) =>
       sanitizeTeamPrivateDebate(
         debate,
         roundsById.get(debate.roundId),
         tournamentData.preferences?.publicResults !== false
       )
     );
+    // Code-name modes rename other teams (and, with participant code names everywhere, the panel)
+    // exactly as the private sync route does, so the portal never shows a real name the public
+    // site hides. Only the teams and adjudicators in these debates are read.
+    const siteSettings = getPublicSiteSettings(tournamentData.preferences);
+    const renameTeams = publicUsesTeamCodeNames(siteSettings.teamCodeNames);
+    const renameAdjudicators = portalUsesParticipantCodeNames(tournamentData.preferences);
+    let safeDebates = sanitized;
+    if (renameTeams || renameAdjudicators) {
+      const teamIds = new Set<string>();
+      const adjudicatorIds = new Set<string>();
+      for (const debate of sanitized) {
+        for (const slot of Object.values(debate.teams || {})) if (slot?.teamId) teamIds.add(slot.teamId);
+        const panel = debate.adjudicators;
+        if (renameAdjudicators && panel) {
+          if (panel.chairId) adjudicatorIds.add(panel.chairId);
+          for (const id of [...(panel.panellistIds ?? []), ...(panel.traineeIds ?? [])]) adjudicatorIds.add(id);
+        }
+      }
+      const read = async <T,>(collection: string, ids: Set<string>) => {
+        if (ids.size === 0) return [] as T[];
+        const snapshots = await firestore.getAll(...[...ids].map((id) => tournamentRef.collection(collection).doc(id)));
+        return snapshots.filter((snapshot) => snapshot.exists).map((snapshot) => ({ ...snapshot.data(), id: snapshot.id }) as T);
+      };
+      const [teams, adjudicators] = await Promise.all([
+        read<Team>("teams", teamIds),
+        read<Adjudicator>("adjudicators", adjudicatorIds),
+      ]);
+      const namer = createPortalNamer({
+        preferences: tournamentData.preferences,
+        viewer: { type: "team", id: teamDocument.id },
+        teams,
+        adjudicators,
+      });
+      safeDebates = sanitized.map((debate) => renamePortalDebate(debate, namer));
+    }
 
     return NextResponse.json({
       team: {
@@ -172,7 +214,8 @@ export async function POST(request: NextRequest) {
         format: tournamentData.format,
         preferences: tournamentData.preferences,
       },
-      rounds,
+      // Only the fields the portal needs: never preformed panels, preallocated sides or the draw seed.
+      rounds: rounds.map((round) => portalRoundProjection(round as unknown as Record<string, unknown> & { id: string })),
       debates: safeDebates,
       venues,
       feedback: feedbackSnapshot.docs.map((document) => ({

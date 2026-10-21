@@ -31,6 +31,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox, Input, Select } from "@/components/ui/Field";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { isTwoTeamFormat } from "@/lib/debateSides";
 
 /**
  * Settings for how ballots record results (Tabbycat's winners_in_ballots, speakers_in_ballots,
@@ -83,7 +84,8 @@ const box = "rounded-lg border border-border bg-muted/40 p-3";
 
 export function ResultsRulesSettings({ prefs, onChange, format, shapeLocked }: ResultsRulesSettingsProps) {
   const { t } = useI18n();
-  const twoTeam = format !== "bp";
+  // Winner declarations, forfeits and the like are two-team settings (not BP or N teams per room).
+  const twoTeam = isTwoTeamFormat(format);
   const criteria = scoreCriteriaFor(prefs);
   const criteriaErrors = validateScoreCriteria(criteria);
   const lockedNote = t("results.rules.locked");

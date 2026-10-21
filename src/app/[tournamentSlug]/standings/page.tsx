@@ -18,7 +18,8 @@ import { Input, Select } from "@/components/ui/Field";
 import { TabPanel, Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { Award, Download, Medal, Printer, Search, Users } from "lucide-react";
-import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
+import { resolveSpeakerExtra, resolveTeamExtra, resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { breakCategoryStandings } from "@/lib/standings/categoryStandings";
 import { calculateStandingsAsOf } from "@/lib/standings/asOfRound";
 import { roundBreakLiveness } from "@/lib/breakqual/liveness";
 import { BreakLivenessBadges } from "@/features/tournament/components/BreakLivenessBadges";
@@ -96,8 +97,8 @@ export default function StandingsPage() {
   const teamMatches = (teamId: string, storedName: string, query: string) =>
     storedName.toLowerCase().includes(query) || (teamsById.get(teamId)?.codeName ?? "").toLowerCase().includes(query);
   /** Same digits as `formatMetricValue`: integers as they are, anything else to two decimals. */
-  const formatMetric = (value: number | undefined) =>
-    value === undefined || !Number.isFinite(value)
+  const formatMetric = (value: number | null | undefined) =>
+    value === undefined || value === null || !Number.isFinite(value)
       ? "—"
       : Number.isInteger(value)
         ? formatNumber(value, { useGrouping: false })
@@ -123,6 +124,7 @@ export default function StandingsPage() {
   const replyStandings = asOfStandings?.replies ?? allReplyStandings;
 
   const isBP = tournament?.format === "bp";
+  const poly = tournament?.format === "poly";
   // "Extra" metrics: calculated and shown, but not used to rank (Tabbycat's *_extra_metrics).
   const teamExtra = resolveTeamExtra(tournament?.preferences);
   const speakerExtra = resolveSpeakerExtra(tournament?.preferences);
@@ -146,16 +148,25 @@ export default function StandingsPage() {
     setSelectedCategory("all");
   };
 
-  // Filter Team Standings
-  const filteredTeams = teamStandings.filter((row) => {
-    const matchesSearch =
+  // A break category is ranked among its own teams (Tabbycat's standings by break category), then
+  // searched, so the ranks shown stay the category's ranks.
+  const selectedBreakCategory = activeTab === "teams" ? breakCategories.find((category) => category.id === selectedCategory) : undefined;
+  const teamsInView = useMemo(
+    () => selectedBreakCategory
+      ? breakCategoryStandings(
+          teamStandings,
+          selectedBreakCategory,
+          teamsById,
+          resolveTeamPrecedence(tournament?.format ?? "two_team", tournament?.preferences)
+        )
+      : teamStandings,
+    [selectedBreakCategory, teamStandings, teamsById, tournament?.format, tournament?.preferences]
+  );
+  const filteredTeams = teamsInView.filter(
+    (row) =>
       teamMatches(row.teamId, row.teamName, searchQuery.toLowerCase()) ||
-      (row.institutionCode || "").toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-    if (selectedCategory === "all") return true;
-    return row.breakCategories && row.breakCategories.includes(selectedCategory);
-  });
+      (row.institutionCode || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Filter Speaker Standings; a category is ranked within itself, as Tabbycat's category tabs are.
   const speakersInView = selectedCategory === "all"
@@ -346,11 +357,12 @@ export default function StandingsPage() {
                         {team.roundResults.map((r, rIdx) => (
                           <Badge
                             key={rIdx}
-                            tone={isBP ? bpPointTone(r.points) : r.win ? "success" : "danger"}
+                            tone={isBP ? bpPointTone(r.points) : poly ? "neutral" : r.win ? "success" : "danger"}
                             className="w-6 justify-center px-0 font-mono"
                             title={plural("results.standings.roundResult", r.points, { round: r.roundSeq, side: r.side })}
                           >
-                            {isBP ? formatNumber(r.points) : t(r.win ? "results.standings.winShort" : "results.standings.lossShort")}
+                            {/* N teams per room: the points the room's rank earned (none on score-only ballots). */}
+                            {isBP || poly ? formatNumber(r.points) : t(r.win ? "results.standings.winShort" : "results.standings.lossShort")}
                           </Badge>
                         ))}
                       </div>

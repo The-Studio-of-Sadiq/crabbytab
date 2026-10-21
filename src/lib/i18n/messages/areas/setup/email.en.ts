@@ -119,6 +119,7 @@ export const emailEn = {
   "setup.email.eventTeamPointsWhen": "Each team's speakers, once a round's results are released.",
   "setup.email.eventBallotReceipt": "Ballot receipt",
   "setup.email.eventBallotReceiptWhen": "The adjudicator who submitted a ballot through their private URL.",
+  "setup.email.eventBallotReceiptWhenAll": "The adjudicator who submitted a ballot through their private URL or the public form; the debate's adjudicators when the tab room enters and confirms a result. Not for BP elimination rounds.",
   "setup.email.eventBallotConfirmed": "Ballot confirmed",
   "setup.email.eventBallotConfirmedWhen": "The debate's adjudicators, when the tab room confirms its result.",
   "setup.email.eventMotionsReleased": "Motions released",
@@ -137,6 +138,9 @@ export const emailEn = {
   "setup.email.eventSlotsAllocated": "Places allocated",
   "setup.email.eventSlotsAllocatedWhen":
     "An institution representative, when their link is sent with team or adjudicator places.",
+  "setup.email.eventInstitutionRegistered": "Institution registered",
+  "setup.email.eventInstitutionRegisteredWhen":
+    "The contact of an institution that registers, with a link to follow the registration (always sent).",
 
   // Automatic notifications panel
   "setup.email.autoTitle": "Automatic notifications",
@@ -157,6 +161,8 @@ export const emailEn = {
   "setup.email.notifyBallotReceipt": "Ballot receipts",
   "setup.email.notifyBallotReceiptHelp":
     "Adjudicators who submit a ballot from their private URL get a copy of what they submitted.",
+  "setup.email.notifyBallotReceiptAllHelp":
+    "Adjudicators who submit a ballot from their private URL or the public form get a copy of what they submitted, and when the tab room or an assistant enters and confirms a result, the debate's adjudicators get a copy (as Tabbycat). Not sent for BP elimination rounds.",
   "setup.email.notificationsOn": "{label} notifications are on. They take effect after the next cloud upload.",
   "setup.email.notificationsOnSkipped_one":
     "{label} notifications are on. They take effect after the next cloud upload; {count} already-released item will not be emailed.",

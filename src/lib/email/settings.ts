@@ -22,6 +22,7 @@ export const TEMPLATE_EVENTS = [
   "registration_received",
   "registration_approved",
   "slots_allocated",
+  "institution_registered",
 ] as const;
 export type TemplateEvent = (typeof TEMPLATE_EVENTS)[number];
 
@@ -44,12 +45,12 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
   draw_teams: {
     label: "Draw released (teams)",
     when: "Each team's speakers, once the draw is confirmed or released.",
-    variables: ["team", "side", "debate", "venue", "venue_url", "chair", "panellists"],
+    variables: ["team", "long_name", "side", "debate", "venue", "venue_url", "chair", "panellists"],
   },
   draw_adjudicators: {
     label: "Draw released (adjudicators)",
     when: "Each adjudicator on a panel, once panels are revealed.",
-    variables: ["debate", "venue", "venue_url", "chair", "panellists"],
+    variables: ["debate", "venue", "venue_url", "chair", "panellists", "position", "private_url", "key"],
   },
   team_points: {
     label: "Team results",
@@ -58,12 +59,12 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
   },
   ballot_receipt: {
     label: "Ballot receipt",
-    when: "The adjudicator who submitted a ballot through their private URL.",
+    when: "The adjudicator who submitted a ballot through their private URL or the public form; the debate's adjudicators when the tab room enters and confirms a result (not BP elimination rounds).",
     variables: ["debate", "venue", "ballot"],
   },
   ballot_confirmed: {
     label: "Ballot confirmed",
-    when: "The debate's adjudicators, when the tab room confirms its result.",
+    when: "The debate's adjudicators when the tab room confirms its result; with voting ballots, each voting adjudicator gets their own scoresheet.",
     variables: ["debate", "venue", "ballot"],
   },
   motions_released: {
@@ -74,17 +75,17 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
   private_url: {
     label: "Private URL (landing page)",
     when: "Sent from the compose form to teams or adjudicators.",
-    variables: ["team", "private_url", "passcode"],
+    variables: ["team", "private_url", "passcode", "key"],
   },
   feedback_url: {
     label: "Feedback URL",
     when: "Sent from the compose form to teams or adjudicators.",
-    variables: ["team", "private_url", "passcode"],
+    variables: ["team", "private_url", "passcode", "key"],
   },
   team_registration: {
     label: "Team registration details",
     when: "Sent from the compose form to teams: tells each speaker who is registered on their team.",
-    variables: ["team", "speakers", "code_name", "emoji", "break_categories"],
+    variables: ["team", "long_name", "speakers", "code_name", "emoji", "break_categories"],
   },
   registration_received: {
     label: "Registration received",
@@ -100,6 +101,11 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
     label: "Places allocated",
     when: "An institution representative, when their link is sent with team or adjudicator places.",
     variables: ["institution", "teams_allocated", "adjudicators_allocated", "url"],
+  },
+  institution_registered: {
+    label: "Institution registered",
+    when: "The contact of an institution that registers, with a link to follow the registration (always sent).",
+    variables: ["institution", "url"],
   },
 };
 
@@ -162,6 +168,12 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<TemplateEvent, EmailTemplate> = {
     subject: "{{tournament}} — places for {{institution}}",
     body:
       "Hi {{name}},\n\n{{institution}} has {{teams_allocated}} team place(s) and {{adjudicators_allocated}} adjudicator place(s) at {{tournament}}.\n\nRegister your teams and adjudicators with your personal link:\n{{url}}\n\nKeep the link private: anyone with it can register entries for your institution.\n\nTournament Staff",
+  },
+  // Tabbycat's institution_registration_email_subject / _body, with CrabbyTab's variable names.
+  institution_registered: {
+    subject: "Institution registered for {{tournament}}",
+    body:
+      "Hi {{name}},\n\n{{institution}} has been registered for {{tournament}}. You can follow your registration here:\n{{url}}\n\nOnce the tab room allocates your places, the same link lets you register your teams and adjudicators. Keep it private.\n\nTournament Staff",
   },
 };
 

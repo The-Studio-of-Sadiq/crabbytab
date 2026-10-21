@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BallotSubmission, DebateSide, Motion, TeamScoreEntry } from "@/types";
-import { computeMotionStatistics } from "./motionStatistics";
+import { computeMotionRoundStatistics, computeMotionStatistics, countMotionVetoes } from "./motionStatistics";
 
 const motion = (id: string): Motion => ({ id, tournamentId: "t1", text: id, rounds: [], released: true });
 
@@ -78,5 +78,31 @@ describe("computeMotionStatistics", () => {
     expect(stat.debatesCounted).toBe(0);
     expect(stat.positions.every((position) => position.averagePoints === null)).toBe(true);
     expect(stat.balance.pValue).toBeNull();
+  });
+});
+
+describe("computeMotionRoundStatistics", () => {
+  // Regression: a motion reused in two rounds was reported once, mixing both rounds' results.
+  it("splits a reused motion into one row per round", () => {
+    const reused = { ...motion("m1"), rounds: ["r1", "r2"] };
+    const unused = motion("m2");
+    const debates = [
+      { id: "d1", motionId: "m1", roundId: "r1" },
+      { id: "d2", motionId: "m1", roundId: "r2" },
+      { id: "d3", motionId: "m1", roundId: "r2" },
+    ];
+    const ballots = [
+      ballot("d1", { AFF: score("AFF", 1, { win: true }), NEG: score("NEG", 0) }),
+      ballot("d2", { AFF: score("AFF", 0), NEG: score("NEG", 1, { win: true }) }, { roundId: "r2", vetoes: { AFF: "m2" } }),
+      ballot("d3", { AFF: score("AFF", 0), NEG: score("NEG", 1, { win: true }) }, { roundId: "r2" }),
+    ];
+    const rows = computeMotionRoundStatistics([unused, reused], debates, ballots, false, ["r1", "r2"]);
+    expect(rows.map((row) => [row.motion.id, row.roundId, row.debatesCounted, row.positions.map((p) => p.wins)])).toEqual([
+      ["m1", "r1", 1, [1, 0]],
+      ["m1", "r2", 2, [0, 2]],
+      ["m2", undefined, 0, [0, 0]],
+    ]);
+    expect(countMotionVetoes(ballots, "m2", "r2")).toBe(1);
+    expect(countMotionVetoes(ballots, "m2", "r1")).toBe(0);
   });
 });

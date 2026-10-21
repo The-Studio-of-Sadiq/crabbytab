@@ -31,6 +31,9 @@ import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { focusRing } from "@/components/ui/focus";
 import { cn } from "@/components/ui/cn";
+import { mayEditAdjudicatorScores } from "@/lib/staffPermissions";
+import { describeConflict, listDeclaredConflicts } from "@/lib/csv/conflictsExport";
+import { CONFLICT_KIND_KEYS } from "@/features/tournament/components/RecordedConflicts";
 
 function AnalysisRow({ item }: { item: FeedbackQuestionAnalysis }) {
   const { t, plural, formatNumber, formatDecimal } = useI18n();
@@ -97,11 +100,18 @@ export default function AdjudicatorFeedbackDetailPage() {
     activeRound,
     debates,
     adjudicators,
+    teams,
+    institutions,
     feedback,
     updateAdjudicatorScores,
     reviewFeedback,
     isOwnerOrAdmin,
+    isDataEntryAssistant,
+    staffPermissions,
   } = useTournament();
+  // Staff with adjudicators.scores_edit change scores here too; the data-entry sync applies them.
+  const canEditScores = mayEditAdjudicatorScores({ isOwnerOrAdmin, isDataEntryAssistant, permissions: staffPermissions });
+  const canSeeConflicts = isOwnerOrAdmin || staffPermissions.includes("conflicts.view");
   const { t, plural, formatNumber, formatDecimal, formatDateTime } = useI18n();
   const roleLabel = (role: string) =>
     role === "team"
@@ -155,15 +165,29 @@ export default function AdjudicatorFeedbackDetailPage() {
     [adjudicator?.scoreHistory]
   );
   const roundsById = useMemo(() => new Map(rounds.map((round) => [round.id, round])), [rounds]);
+  // The adjudicator's recorded conflicts (Tabbycat's adjudicator record lists them too).
+  const conflicts = useMemo(() => {
+    if (!canSeeConflicts) return [];
+    const data = { teams, adjudicators, institutions };
+    return listDeclaredConflicts(data)
+      .filter((conflict) => conflict.adjudicatorId === adjudicatorId || conflict.otherAdjudicatorId === adjudicatorId)
+      .map((conflict) => ({ key: conflict.key, kind: conflict.kind, label: describeConflict(conflict, data) }));
+  }, [canSeeConflicts, teams, adjudicators, institutions, adjudicatorId]);
   const roundsTested = useMemo(
     () => testedRounds(adjudicators, debates).get(adjudicatorId) ?? new Set<string>(),
     [adjudicators, debates, adjudicatorId]
   );
 
+  // The record stays reachable with feedback switched off (from the adjudicator list), so it links
+  // back there instead of to the hidden feedback page.
+  const feedbackEnabled = preferences?.feedbackEnabled !== false;
   const backLink = (
-    <Link href={`/${tournament?.slug}/feedback`} className={buttonClasses({ variant: "ghost", size: "sm", className: "-ms-2.5" })}>
+    <Link
+      href={feedbackEnabled ? `/${tournament?.slug}/feedback` : `/${tournament?.slug}/imports/adjudicators`}
+      className={buttonClasses({ variant: "ghost", size: "sm", className: "-ms-2.5" })}
+    >
       <ArrowLeft className="rtl:-scale-x-100" aria-hidden="true" />
-      {t("results.feedback.back")}
+      {feedbackEnabled ? t("results.feedback.back") : t("results.feedback.detail.backToAdjudicators")}
     </Link>
   );
 
@@ -259,7 +283,32 @@ export default function AdjudicatorFeedbackDetailPage() {
         />
       </div>
 
-      {isOwnerOrAdmin && (
+      {canSeeConflicts && (
+        <Card>
+          <CardHeader
+            title={t("results.feedback.detail.conflictsTitle")}
+            description={t("results.feedback.detail.conflictsDescription", {
+              institution: adjudicator.institutionName ?? t("common.independent"),
+            })}
+          />
+          <CardBody>
+            {conflicts.length === 0 ? (
+              <p className="text-[13px] text-fg-muted">{t("results.feedback.detail.conflictsEmpty")}</p>
+            ) : (
+              <ul className="space-y-1 text-[13px]">
+                {conflicts.map((conflict) => (
+                  <li key={conflict.key}>
+                    <span className="text-fg-muted">{t(CONFLICT_KIND_KEYS[conflict.kind])}: </span>
+                    <span className="font-medium text-fg">{conflict.label}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {canEditScores && (
         <Card>
           <CardHeader title={t("results.feedback.detail.editTitle")} description={t("results.feedback.detail.testHelp")} />
           <CardBody>

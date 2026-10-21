@@ -1,5 +1,6 @@
 import { ballotMatchesDebate } from "@/lib/ballots/result";
 import { applyBallotSides } from "./manualSides";
+import { isPolyFormat } from "@/lib/debateSides";
 import { Team, Debate, BallotSubmission, DebateSide, DebateTeamSlot, TournamentFormat } from "@/types";
 
 export interface EliminationRoomDraft {
@@ -62,9 +63,23 @@ export function getAdvancingTeamIds(
       const score = ballot.teamScores[side as DebateSide];
       if (!score) throw new Error(`A confirmed team result is missing for ${slot.teamName || slot.teamId}.`);
 
-      const advances = format === "bp"
-        ? (score.rank !== undefined ? score.rank <= (isFinalRound ? 1 : 2) : score.points >= (isFinalRound ? 3 : 2))
-        : (score.win ?? (score.rank === 1 || score.points === 1));
+      let advances: boolean;
+      if (isPolyFormat(format)) {
+        // Tabbycat: a scored poly ballot advances its top two by rank (one in the final); a ballot
+        // without scores declares the advancing teams. A poly voting ballot decides neither.
+        if (score.rank !== undefined) advances = score.rank <= (isFinalRound ? 1 : 2);
+        else if (score.win !== undefined) advances = score.win;
+        else {
+          throw new Error(
+            `The ballot for ${debate.venueName || debate.id} records scores only, so it cannot decide who advances. ` +
+            "Use consensus ballots for elimination rounds with more or fewer than two teams per debate."
+          );
+        }
+      } else {
+        advances = format === "bp"
+          ? (score.rank !== undefined ? score.rank <= (isFinalRound ? 1 : 2) : score.points >= (isFinalRound ? 3 : 2))
+          : (score.win ?? (score.rank === 1 || score.points === 1));
+      }
       if (advances) advancingTeamIds.add(slot.teamId);
     }
   }
@@ -80,6 +95,8 @@ export function generateEliminationDraw(
   format: TournamentFormat,
   bracketSize: number // 16, 8, 4, 2
 ): EliminationRoomDraft[] {
+  const polyError = isPolyFormat(format) ? validateEliminationField(breakingTeams.length, format) : "";
+  if (polyError) throw new Error(polyError);
   const isBP = format === "bp";
   const bpSides: DebateSide[] = ["OG", "OO", "CG", "CO"];
   const twoTeamSides: DebateSide[] = ["AFF", "NEG"];
@@ -264,6 +281,10 @@ export function isFullEliminationField(teamCount: number, format: TournamentForm
 
 /** Returns an error message, or "" when this many teams can play an elimination round. */
 export function validateEliminationField(teamCount: number, format: TournamentFormat): string {
+  if (isPolyFormat(format)) {
+    // Tabbycat has no elimination draw for team counts other than 2 and 4.
+    return "Elimination draws cannot be generated for debates with more or fewer than two teams (other than BP). Set the round's draw type to manual and draw it by hand.";
+  }
   if (!Number.isInteger(teamCount)) return "The number of teams must be a whole number.";
   if (format === "bp") {
     if (teamCount < 4) return `A BP elimination round needs at least 4 teams; ${teamCount} are eligible.`;

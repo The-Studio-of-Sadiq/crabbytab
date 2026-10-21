@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Debate, Round, Team, Tournament } from "@/types";
+import type { ParticipantMotion } from "@/lib/ballots/participantMotion";
 import type { PublicFeedbackOption, PublicFormKind, PublicFormsDirectory, PublicFormSourceType } from "@/lib/publicForms";
 
 /** Client side of /api/public/tournaments/{slug}/forms (docs/public-pages-and-notifications.md). */
@@ -25,6 +26,8 @@ export interface PublicBallotContext {
   adjudicator: { id: string; name: string; isChair: boolean };
   debate: Debate;
   teams: Array<Pick<Team, "id" | "name"> & { speakers: Team["speakers"] }>;
+  /** The round's motions, when the ballot asks which was debated (several motions, motions on). */
+  motions?: ParticipantMotion[];
 }
 
 export interface PublicFeedbackContext {

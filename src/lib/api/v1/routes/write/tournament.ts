@@ -1,4 +1,5 @@
 import { validateFeedbackQuestions } from "@/lib/feedback/questions";
+import { isKnownPreference, preferenceChangeProblems, type PreferenceValidationContext } from "@/lib/setup/preferenceValidation";
 import {
   resolveSpeakerCategoryIds,
   slugifyCategory,
@@ -6,7 +7,7 @@ import {
   speakerCategoryRefs,
   validateSpeakerCategories,
 } from "@/lib/speakerCategories";
-import type { BreakCategory, FeedbackQuestion, SpeakerCategory, Team, Tournament, TournamentPreferences } from "@/types";
+import type { BreakCategory, FeedbackQuestion, Round, SpeakerCategory, Team, Tournament, TournamentPreferences } from "@/types";
 import { ApiError, conflict, notFound } from "../../errors";
 import { defineRoute, slugParam } from "../../router";
 import { s } from "../../schema";
@@ -29,37 +30,34 @@ const MANAGED_PREFERENCES = new Set<string>([
   "speakerCategories",
 ]);
 
-type JsonKind = "string" | "number" | "boolean" | "array" | "object" | "null";
-function kindOf(value: unknown): JsonKind {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  return typeof value as JsonKind;
-}
+/** Preferences every tournament has; `null` cannot remove them. */
+const REQUIRED_PREFERENCES = new Set<string>([
+  "teamsInDebate", "substantiveSpeakers", "replyScoresEnabled", "minSpeakerScore", "maxSpeakerScore",
+  "stepSpeakerScore", "minReplyScore", "maxReplyScore", "drawRule", "sideAllocationRule", "ballotDoubleEntry",
+  "publicDraw", "publicResults", "publicStandings", "publicMotions", "feedbackEnabled", "feedbackMinScore",
+  "feedbackMaxScore",
+]);
 
 /**
- * Checks a preferences patch: known shape only (a key that already has a value keeps its JSON
- * type; new keys must be simple values), score ranges stay ordered. The tournament rules
- * (settings locked once ballots exist) are checked by saveTournamentCommand.
+ * Checks a preferences patch with the validation every settings page uses
+ * (lib/setup/preferenceValidation): known preferences only, enumerated settings limited to their
+ * values, structured settings (schedule, score criteria, room categories, ...) through their own
+ * validators, score ranges ordered. The tournament rules (settings locked once ballots exist) are
+ * checked by saveTournamentCommand.
  */
-export function mergePreferences(current: TournamentPreferences, patch: Record<string, unknown>): TournamentPreferences {
+export function mergePreferences(
+  current: TournamentPreferences,
+  patch: Record<string, unknown>,
+  context: PreferenceValidationContext
+): TournamentPreferences {
   const issues: Array<{ path: string; message: string }> = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (!/^[A-Za-z][A-Za-z0-9]{0,60}$/.test(key)) {
-      issues.push({ path: key, message: "is not a preference name" });
-      continue;
-    }
-    if (MANAGED_PREFERENCES.has(key)) {
+    if (!isKnownPreference(key)) {
+      issues.push({ path: key, message: "is not a known preference" });
+    } else if (MANAGED_PREFERENCES.has(key)) {
       issues.push({ path: key, message: "is changed through its own endpoint" });
-      continue;
-    }
-    const existing = (current as unknown as Record<string, unknown>)[key];
-    if (value === null) continue;
-    if (existing !== undefined && kindOf(existing) !== kindOf(value)) {
-      issues.push({ path: key, message: `must be a ${kindOf(existing)}` });
-    } else if (existing === undefined && !["string", "number", "boolean"].includes(kindOf(value))) {
-      issues.push({ path: key, message: "is not a known preference; only simple values may be added" });
-    } else if (typeof value === "number" && !Number.isFinite(value)) {
-      issues.push({ path: key, message: "must be a finite number" });
+    } else if (value === null && REQUIRED_PREFERENCES.has(key)) {
+      issues.push({ path: key, message: "cannot be removed" });
     }
   }
   if (issues.length) throw new ApiError(422, "validation_failed", "The preferences are not valid.", { issues });
@@ -70,17 +68,12 @@ export function mergePreferences(current: TournamentPreferences, patch: Record<s
     else next[key] = value;
   }
   const merged = next as unknown as TournamentPreferences;
-  const ordered: Array<[keyof TournamentPreferences, keyof TournamentPreferences]> = [
-    ["minSpeakerScore", "maxSpeakerScore"],
-    ["minReplyScore", "maxReplyScore"],
-    ["feedbackMinScore", "feedbackMaxScore"],
-  ];
-  for (const [low, high] of ordered) {
-    if (Number(merged[low]) >= Number(merged[high])) {
-      throw new ApiError(422, "validation_failed", `${String(low)} must be below ${String(high)}.`);
-    }
+  const problems = preferenceChangeProblems(current, merged, context);
+  if (problems.length) {
+    throw new ApiError(422, "validation_failed", "The preferences are not valid.", {
+      issues: problems.map((problem) => ({ path: problem.key, message: problem.message })),
+    });
   }
-  if (!(Number(merged.stepSpeakerScore) > 0)) throw new ApiError(422, "validation_failed", "stepSpeakerScore must be above 0.");
   return merged;
 }
 
@@ -169,7 +162,10 @@ export const tournamentWriteRoutes = [
     operationId: "updateTournamentPreferences",
     summary: "Change preferences",
     description:
-      "A partial update: send only the preferences to change (`null` restores a default). Settings " +
+      "A partial update: send only the preferences to change (`null` restores a default). Values are " +
+      "validated as the settings pages validate them: unknown preferences, values outside a setting's " +
+      "choices and invalid structured settings (schedule events, score criteria, venue categories) are " +
+      "refused with 422. Settings " +
       "that shape or score ballots are locked once ballots are entered (409 rule_violation; some " +
       "can be overridden with a reason). Feedback questions and speaker categories have their own endpoints.",
     tag: "tournaments",
@@ -184,7 +180,11 @@ export const tournamentWriteRoutes = [
     async handler(context) {
       return runWrite(context, async (tabRoom, session) => {
         ApiCommandSession.assertVersion(session.tournament, context.body.expectedVersion);
-        const preferences = mergePreferences(session.tournament.preferences, context.body.preferences);
+        await tabRoom.loadAll("rounds");
+        const preferences = mergePreferences(session.tournament.preferences, context.body.preferences, {
+          format: session.tournament.format,
+          rounds: session.view<Round>("rounds"),
+        });
         await tabRoom.saveTournament({ ...session.tournament, preferences }, context.body.override);
         return session.tournament.preferences;
       });

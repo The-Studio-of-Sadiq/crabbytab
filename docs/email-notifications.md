@@ -22,15 +22,16 @@ email at once; no upload is needed.
 
 | Event | Sent to | When | Extra variables |
 |---|---|---|---|
-| Draw released (teams / adjudicators) | speakers / allocated adjudicators | as before | `side`, `debate`, `venue`, `chair`, `panellists` |
+| Draw released (teams / adjudicators) | speakers / allocated adjudicators | as before | `side`, `debate`, `venue`, `chair`, `panellists`; teams also `long_name`; adjudicators also `position` (Chair / Panellist / Trainee) and their own `private_url` / `key` (never the passcode), as Tabbycat's POSITION and URL |
 | Team results | speakers | as before | `result`, `points` |
-| Ballot receipt | submitting adjudicator | private-URL ballot | `ballot` |
-| **Ballot confirmed** | every adjudicator of the debate | the tab room confirms a result (`notifyBallotConfirmed`) | `ballot` (with voting ballots, also their own sheet) |
+| Ballot receipt | submitting adjudicator; the debate's adjudicators for tab-room results | private-URL or public-form ballot; a result the tab room or an assistant enters and confirms (with `notifyBallotReceipt` and without "Ballot confirmed"). Never for BP elimination rounds (Tabbycat) | `ballot` |
+| **Ballot confirmed** | consensus ballots: every adjudicator of the debate, trainees included; voting ballots: each voting adjudicator with a sheet (Tabbycat) | the tab room confirms a result (`notifyBallotConfirmed`) | `ballot` (with voting ballots, only the adjudicator's own sheet and the decision it gives, never the panel's aggregate) |
 | **Motions released** | speakers and revealed adjudicators of the round | motions released and draw visible (`notifyMotionsReleased`) | `motions` (released motions with info slides) |
-| **Private URL** / **Feedback URL** | chosen in the compose form | sent by hand ("Use in the compose form") | `private_url`, `passcode` |
+| **Private URL** / **Feedback URL** | chosen in the compose form | sent by hand ("Use in the compose form") | `private_url`, `passcode`, `key` (the private URL key alone, Tabbycat KEY) |
 | **Team registration details** | chosen in the compose form ("Use in the compose form" also picks *All teams*) | sent by hand, as Tabbycat's `team_email_subject` / `team_email_message` | `speakers` (everyone on the team), `code_name`, `emoji`, `break_categories` (general categories and the team's own) |
 | **Registration received / approved** | registrant's contact address | public submission / approval (with *Email registrants*) | `entry`, `institution` |
 | **Places allocated** | institution representative | their link is issued or re-sent | `institution`, `teams_allocated`, `adjudicators_allocated`, `url` |
+| **Institution registered** | an institution's contact | the institution registers (always sent; see registration.md) | `institution`, `url` |
 
 Custom emails and the bulk email can go to **Institution coaches and representatives**
 (`institution_coaches`, Tabbycat's INSTITUTION_CUSTOM / `reg-email-coaches`): the coaches stored on
@@ -42,8 +43,10 @@ team's in `{{private_url}}` / `{{passcode}}` (retries too).
 Common variables: `name`, `email`, `tournament`, `round`, `institution`, `team`. The team
 registration variables (`speakers`, `code_name`, `emoji`, `break_categories`) can be used in any
 email to team speakers; they are empty for adjudicators. Break category names are read from the
-cloud copy only when a template uses `{{break_categories}}`. Tabbycat's `{{ SHORT }}` / `{{ LONG }}`
-are both `{{team}}` (CrabbyTab stores one team name).
+cloud copy only when a template uses `{{break_categories}}`. Tabbycat's `{{ SHORT }}` is
+`{{team}}`; `{{ LONG }}` is `{{long_name}}` (the team's long name with its institution, or the team
+name when it has none). `{{position}}` is an adjudicator's position on their panel in the round and
+`{{key}}` a participant's private URL key (filled like `{{private_url}}`).
 
 ### When the new automatic emails go out
 

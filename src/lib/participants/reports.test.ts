@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Adjudicator, Debate, FeedbackSubmission, Institution, Round, Team } from "@/types";
+import type { Adjudicator, BreakCategory, Debate, FeedbackSubmission, Institution, Round, Team } from "@/types";
 import {
   codeNameRows,
   duplicateFeedbackGroups,
@@ -8,6 +8,8 @@ import {
   isShortOfAdjudicators,
   requirementRounds,
   teamsWithEligibilityChanges,
+  teamEligibleCategoryIds,
+  generalCategoryEligibilityChanges,
 } from "./reports";
 
 const team = (id: string, overrides: Partial<Team> = {}): Team => ({
@@ -185,5 +187,30 @@ describe("duplicate feedback", () => {
   it("honours the minimum number of versions", () => {
     expect(duplicateFeedbackGroups([item("1"), item("22")], 3)).toEqual([]);
     expect(duplicateFeedbackGroups([item("1")], 1)).toEqual([]);
+  });
+});
+
+describe("general break categories in the eligibility grid", () => {
+  type GridCategory = Pick<BreakCategory, "id" | "isGeneral" | "teamOverrides">;
+  const open: GridCategory = { id: "open", isGeneral: true, teamOverrides: { b: "ineligible", c: "withdrawn" } };
+  const esl: GridCategory = { id: "esl", isGeneral: false };
+
+  it("reads a general category from its Ineligible overrides, not the team's own list", () => {
+    expect([...teamEligibleCategoryIds(team("a"), [open, esl])]).toEqual(["open"]);
+    expect([...teamEligibleCategoryIds(team("b", { breakCategories: ["open", "esl"] }), [open, esl])]).toEqual(["esl"]);
+  });
+
+  it("writes unticking as an Ineligible override and ticking as clearing it", () => {
+    const draft = new Map<string, Set<string>>([
+      ["a", new Set()],
+      ["b", new Set(["open"])],
+    ]);
+    const [changed] = generalCategoryEligibilityChanges([open, esl], draft);
+    expect(changed.id).toBe("open");
+    expect(changed.teamOverrides).toEqual({ a: "ineligible", c: "withdrawn" });
+  });
+
+  it("returns nothing when the draft leaves general categories as they are", () => {
+    expect(generalCategoryEligibilityChanges([open, esl], new Map([["a", new Set(["open"])]]))).toEqual([]);
   });
 });

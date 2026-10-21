@@ -24,16 +24,27 @@ export interface InstitutionResponseItem {
   adjudicatorsAllocated?: number;
 }
 
-/** The institution's submissions (made with this link, or for the same institution), newest first. */
+/**
+ * The institution's submissions (made with this link, or for the same institution), newest first.
+ * A link issued at institution registration, before places are allocated (`awaitingPlaces`), shows
+ * only that contact's own institution request: anyone can register an institution's name, so it
+ * must not reveal what others registered for it.
+ */
 export function institutionResponseView(
   submissions: readonly RegistrationSubmission[],
-  representative: Pick<RegistrationRepresentative, "id" | "institution">
+  representative: Pick<RegistrationRepresentative, "id" | "institution"> & Partial<Pick<RegistrationRepresentative, "email" | "awaitingPlaces">>
 ): InstitutionResponseItem[] {
   const seen = new Set<string>();
+  const visible = representative.awaitingPlaces
+    ? (submission: RegistrationSubmission) =>
+        submission.kind === "institution" &&
+        submission.institution?.key === representative.institution.key &&
+        submission.contactEmail === representative.email
+    : (submission: RegistrationSubmission) =>
+        submission.representativeId === representative.id ||
+        submission.institution?.key === representative.institution.key;
   return submissions
-    .filter((submission) =>
-      submission.representativeId === representative.id ||
-      submission.institution?.key === representative.institution.key)
+    .filter(visible)
     .filter((submission) => !seen.has(submission.id) && Boolean(seen.add(submission.id)))
     .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt))
     .map((submission) => {
@@ -61,7 +72,7 @@ export function institutionResponseView(
 /** Reads the submissions a representative may see: two indexed equality queries. */
 export async function loadInstitutionResponse(
   tournamentRef: DocumentReference,
-  representative: Pick<RegistrationRepresentative, "id" | "institution">
+  representative: Pick<RegistrationRepresentative, "id" | "institution"> & Partial<Pick<RegistrationRepresentative, "email" | "awaitingPlaces">>
 ): Promise<InstitutionResponseItem[]> {
   const submissions = registrationRefs(tournamentRef).submissions;
   const [byLink, byInstitution] = await Promise.all([

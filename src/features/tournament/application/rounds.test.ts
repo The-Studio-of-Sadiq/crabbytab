@@ -97,7 +97,7 @@ describe("round management commands", () => {
           calls.push("audit");
           expect(event).toMatchObject({
             action: "round.created",
-            roundId: "round-tournament-1-1",
+            roundId: expect.stringMatching(/^round-tournament-1-1-/),
           });
         },
       }

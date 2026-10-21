@@ -64,9 +64,9 @@
         {
           "fixture": "australs-voting",
           "area": "draw",
-          "subject": "round 1: identical rooms, primary seed (same teams; 0 also on the same sides)",
+          "subject": "round 1: identical rooms, primary seed (same teams; 1 also on the same sides)",
           "compared": 10,
-          "agreed": 0,
+          "agreed": 1,
           "informational": true
         },
         {
@@ -148,21 +148,10 @@
           "area": "allocation",
           "subject": "round 4: debatesWithoutChair, personalConflicts, institutionConflicts, adjudicatorConflicts, panelSizes, adjudicatorsUsed, historyRepeats, chairScoreSum",
           "compared": 8,
-          "agreed": 7
+          "agreed": 8
         }
       ],
-      "discrepancies": [
-        {
-          "id": "australs-voting/allocation/r4/historyRepeats",
-          "fixture": "australs-voting",
-          "area": "allocation",
-          "summary": "Round 4 allocation: historyRepeats differs",
-          "tabbycat": 1,
-          "crabbytab": 2,
-          "classification": "valid alternative",
-          "note": "Adjudicator-team history is a soft penalty in both engines (Tabbycat's adj_history_penalty, mapped to CrabbyTab's adjHistoryPenalty). Neither allocation breaks a hard constraint and chair quality is within the 10% band. CrabbyTab's allocation has one more repeat in both voting fixtures, which is worth watching but is not a rule violation."
-        }
-      ]
+      "discrepancies": []
     },
     {
       "fixture": "bp-uneven",
@@ -446,7 +435,7 @@
             ]
           },
           "classification": "rule difference",
-          "note": "Before any results every team is tied. Tabbycat's random draw manager takes the last teams in database order (the last imported), a fixed preference. CrabbyTab breaks the tie with the draw's seeded RNG (AGENTS.md section 7.2), so its bye differs from seed to seed and no team is benched because of its place in the list."
+          "note": "Before any results every team is tied. Tabbycat's random draw manager takes the last teams in its Team model order (institution name, then short reference), a fixed preference. CrabbyTab breaks the tie with the draw's seeded RNG (AGENTS.md section 7.2), so its bye differs from seed to seed and no team is benched because of its place in the list."
         },
         {
           "id": "bp-uneven/draw/r2/bracketSignature",
@@ -507,7 +496,8 @@
             ]
           },
           "autoClassification": "valid alternative",
-          "classification": "valid alternative"
+          "classification": "valid alternative",
+          "note": "T6 and T15 are tied on the fewest points; each engine gives the bye to one of them and both pick each of them in some seed."
         },
         {
           "id": "bp-uneven/draw/r4/bracketSignature",
@@ -657,14 +647,14 @@
           "area": "draw",
           "subject": "round 5: rooms, coverageErrors, bracketSignature, pullups, sideImbalance, institutionClashes, repeatPairings, sideCapViolations, byes (8 seeds each)",
           "compared": 9,
-          "agreed": 5
+          "agreed": 7
         },
         {
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "subject": "round 5: identical rooms, primary seed (same teams; 1 also on the same sides)",
+          "subject": "round 5: identical rooms, primary seed (same teams; 0 also on the same sides)",
           "compared": 9,
-          "agreed": 1,
+          "agreed": 0,
           "informational": true
         },
         {
@@ -679,7 +669,7 @@
           "area": "allocation",
           "subject": "round 4: debatesWithoutChair, personalConflicts, institutionConflicts, adjudicatorConflicts, panelSizes, adjudicatorsUsed, historyRepeats, chairScoreSum",
           "compared": 8,
-          "agreed": 7
+          "agreed": 8
         }
       ],
       "discrepancies": [
@@ -727,13 +717,13 @@
             ]
           },
           "classification": "rule difference",
-          "note": "Before any results every team is tied. Tabbycat's random draw manager takes the last teams in database order (the last imported), a fixed preference. CrabbyTab breaks the tie with the draw's seeded RNG (AGENTS.md section 7.2), so its bye differs from seed to seed and no team is benched because of its place in the list."
+          "note": "Before any results every team is tied. Tabbycat's random draw manager takes the last teams in its Team model order (institution name, then short reference), a fixed preference. CrabbyTab breaks the tie with the draw's seeded RNG (AGENTS.md section 7.2), so its bye differs from seed to seed and no team is benched because of its place in the list."
         },
         {
           "id": "twoteam-odd-ties/draw/r2/sideImbalance",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 2: sideImbalance differs (within seed-to-seed variation)",
+          "summary": "Round 2: sideImbalance differs",
           "tabbycat": {
             "primary": 4,
             "seeds": {
@@ -748,15 +738,14 @@
               "max": 6
             }
           },
-          "autoClassification": "valid alternative",
           "classification": "valid alternative",
-          "note": "With wins as the only ranking metric, every bracket is a large tie that each engine shuffles at random. CrabbyTab's value is inside the range its own seeds produce and overlaps Tabbycat's; it is not consistently worse."
+          "note": "Tabbycat has 4 teams past a one-debate side imbalance in its (identical) samples; CrabbyTab has 2 to 6 over eight seeds, 3.6 on average, so it is not worse on average. The spread comes from CrabbyTab's seeded tie-breaks inside the large wins-only brackets."
         },
         {
           "id": "twoteam-odd-ties/draw/r2/institutionClashes",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 2: institutionClashes differs",
+          "summary": "Round 2: institutionClashes differs (within seed-to-seed variation)",
           "tabbycat": {
             "primary": 1,
             "seeds": {
@@ -771,6 +760,7 @@
               "max": 0
             }
           },
+          "autoClassification": "valid alternative",
           "classification": "valid alternative",
           "note": "This follows from the different bye, which leaves different teams in the field. Tabbycat pulls T2 up to face T1 (both University A) and one-up-one-down does not swap a pull-up debate. CrabbyTab gave T2 the bye and has no clash. Both are permitted by the configured rules."
         },
@@ -819,13 +809,13 @@
           },
           "autoClassification": "valid alternative",
           "classification": "valid alternative",
-          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Tabbycat takes the last in its fixed tie order (institution name, then short reference: T17 of University G every round), CrabbyTab picks among the tied teams with the draw's seeded RNG (see the r3 entries and tieOrder.test.ts). Neither avoids repeat byes."
         },
         {
           "id": "twoteam-odd-ties/draw/r3/sideImbalance",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 3: sideImbalance differs (within seed-to-seed variation)",
+          "summary": "Round 3: sideImbalance differs",
           "tabbycat": {
             "primary": 0,
             "seeds": {
@@ -840,15 +830,14 @@
               "max": 1
             }
           },
-          "autoClassification": "valid alternative",
-          "classification": "valid alternative",
-          "note": "With wins as the only ranking metric, every bracket is a large tie that each engine shuffles at random. CrabbyTab's value is inside the range its own seeds produce and overlaps Tabbycat's; it is not consistently worse."
+          "classification": "rule difference",
+          "note": "Tabbycat 0, CrabbyTab 0 to 1 over eight seeds. Tabbycat's eight samples are identical because its tie order is fixed: with a precedence of SQL aggregates (here wins), Standings.sort_from_rankings sorts the teams in the order the Team queryset returned them (institution name, then short reference), so the 'random' tie-break never reaches the order (standings/base.py), and its bye ('lowest') and folds follow that order. CrabbyTab breaks ties among teams on the same rank with the draw's seeded RNG (AGENTS.md 7.2), so its bye and brackets vary by seed. Given Tabbycat's tie order, CrabbyTab pairs exactly Tabbycat's rooms and bye in rounds 2 to 5 (tools/tabbycat-diff/tieOrder.test.ts), so the pairing algorithm (fold, pull-up from top, one-up-one-down) agrees; the counts differ only because other tie orders lead one-up-one-down into brackets where it cannot remove every conflict, which Tabbycat's algorithm would also do under those orders. The bye no longer depends on null standings: wins is a count (0 for T17), and both engines rank T17 level with the other 0-win teams."
         },
         {
           "id": "twoteam-odd-ties/draw/r3/institutionClashes",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 3: institutionClashes differs (within seed-to-seed variation)",
+          "summary": "Round 3: institutionClashes differs",
           "tabbycat": {
             "primary": 0,
             "seeds": {
@@ -863,8 +852,8 @@
               "max": 2
             }
           },
-          "autoClassification": "valid alternative",
-          "classification": "valid alternative"
+          "classification": "rule difference",
+          "note": "Tabbycat 0, CrabbyTab 0 to 2 over eight seeds. Tabbycat's eight samples are identical because its tie order is fixed: with a precedence of SQL aggregates (here wins), Standings.sort_from_rankings sorts the teams in the order the Team queryset returned them (institution name, then short reference), so the 'random' tie-break never reaches the order (standings/base.py), and its bye ('lowest') and folds follow that order. CrabbyTab breaks ties among teams on the same rank with the draw's seeded RNG (AGENTS.md 7.2), so its bye and brackets vary by seed. Given Tabbycat's tie order, CrabbyTab pairs exactly Tabbycat's rooms and bye in rounds 2 to 5 (tools/tabbycat-diff/tieOrder.test.ts), so the pairing algorithm (fold, pull-up from top, one-up-one-down) agrees; the counts differ only because other tie orders lead one-up-one-down into brackets where it cannot remove every conflict, which Tabbycat's algorithm would also do under those orders. The bye no longer depends on null standings: wins is a count (0 for T17), and both engines rank T17 level with the other 0-win teams."
         },
         {
           "id": "twoteam-odd-ties/draw/r3/byes",
@@ -902,13 +891,13 @@
           },
           "autoClassification": "valid alternative",
           "classification": "valid alternative",
-          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Tabbycat takes the last in its fixed tie order (institution name, then short reference: T17 of University G every round), CrabbyTab picks among the tied teams with the draw's seeded RNG (see the r3 entries and tieOrder.test.ts). Neither avoids repeat byes."
         },
         {
           "id": "twoteam-odd-ties/draw/r4/institutionClashes",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 4: institutionClashes differs (within seed-to-seed variation)",
+          "summary": "Round 4: institutionClashes differs",
           "tabbycat": {
             "primary": 0,
             "seeds": {
@@ -923,9 +912,8 @@
               "max": 2
             }
           },
-          "autoClassification": "valid alternative",
-          "classification": "valid alternative",
-          "note": "This follows from the different bye. CrabbyTab gives T4 the bye, which leaves T16 and T17 (both University G) as the only 0-win teams, so the clash is forced. Tabbycat's bye to T17 avoids it. Choosing a bye that avoids a forced clash would need clash-aware bye selection, which neither engine has."
+          "classification": "rule difference",
+          "note": "Tabbycat 0, CrabbyTab 0 to 2 over eight seeds (when CrabbyTab gives T4 the bye, T16 and T17 of University G are the only 0-win teams left, so that clash is forced). Tabbycat's eight samples are identical because its tie order is fixed: with a precedence of SQL aggregates (here wins), Standings.sort_from_rankings sorts the teams in the order the Team queryset returned them (institution name, then short reference), so the 'random' tie-break never reaches the order (standings/base.py), and its bye ('lowest') and folds follow that order. CrabbyTab breaks ties among teams on the same rank with the draw's seeded RNG (AGENTS.md 7.2), so its bye and brackets vary by seed. Given Tabbycat's tie order, CrabbyTab pairs exactly Tabbycat's rooms and bye in rounds 2 to 5 (tools/tabbycat-diff/tieOrder.test.ts), so the pairing algorithm (fold, pull-up from top, one-up-one-down) agrees; the counts differ only because other tie orders lead one-up-one-down into brackets where it cannot remove every conflict, which Tabbycat's algorithm would also do under those orders. The bye no longer depends on null standings: wins is a count (0 for T17), and both engines rank T17 level with the other 0-win teams."
         },
         {
           "id": "twoteam-odd-ties/draw/r4/byes",
@@ -960,35 +948,13 @@
           },
           "autoClassification": "valid alternative",
           "classification": "valid alternative",
-          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
-        },
-        {
-          "id": "twoteam-odd-ties/draw/r5/sideImbalance",
-          "fixture": "twoteam-odd-ties",
-          "area": "draw",
-          "summary": "Round 5: sideImbalance differs",
-          "tabbycat": {
-            "primary": 1,
-            "seeds": {
-              "min": 1,
-              "max": 1
-            }
-          },
-          "crabbytab": {
-            "primary": 0,
-            "seeds": {
-              "min": 0,
-              "max": 0
-            }
-          },
-          "classification": "valid alternative",
-          "note": "With wins as the only ranking metric, every bracket is a large tie that each engine shuffles at random. CrabbyTab's value is inside the range its own seeds produce and overlaps Tabbycat's; it is not consistently worse."
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Tabbycat takes the last in its fixed tie order (institution name, then short reference: T17 of University G every round), CrabbyTab picks among the tied teams with the draw's seeded RNG (see the r3 entries and tieOrder.test.ts). Neither avoids repeat byes."
         },
         {
           "id": "twoteam-odd-ties/draw/r5/repeatPairings",
           "fixture": "twoteam-odd-ties",
           "area": "draw",
-          "summary": "Round 5: repeatPairings differs (within seed-to-seed variation)",
+          "summary": "Round 5: repeatPairings differs",
           "tabbycat": {
             "primary": 0,
             "seeds": {
@@ -1003,30 +969,8 @@
               "max": 3
             }
           },
-          "autoClassification": "valid alternative",
-          "classification": "valid alternative"
-        },
-        {
-          "id": "twoteam-odd-ties/draw/r5/sideCapViolations",
-          "fixture": "twoteam-odd-ties",
-          "area": "draw",
-          "summary": "Round 5: sideCapViolations differs",
-          "tabbycat": {
-            "primary": 1,
-            "seeds": {
-              "min": 1,
-              "max": 1
-            }
-          },
-          "crabbytab": {
-            "primary": 0,
-            "seeds": {
-              "min": 0,
-              "max": 0
-            }
-          },
           "classification": "rule difference",
-          "note": "With max 3 debates per side, fold puts two teams that have each already been on the same side three times into one room (in a one-room bracket in some seeds). Tabbycat enforces max_times_on_one_side only in its min-cost ('graph') conflict avoidance (draw/generator/graph.py, which also checks t1_negs twice instead of t2_negs), so with one-up-one-down it pairs them and gives one a fourth debate on that side. CrabbyTab keeps the cap hard: repairSideLimits (twoTeamDraw.ts) re-pairs the bracket, widening to the neighbouring bracket when the bracket alone cannot fit, and here it draws with the same bracket signature and pull-up count as Tabbycat. Until wave 4/5 CrabbyTab refused this draw instead (the old r5/error defect)."
+          "note": "Tabbycat 0, CrabbyTab 0 to 3 over eight seeds, with avoid_team_history on. Tabbycat's eight samples are identical because its tie order is fixed: with a precedence of SQL aggregates (here wins), Standings.sort_from_rankings sorts the teams in the order the Team queryset returned them (institution name, then short reference), so the 'random' tie-break never reaches the order (standings/base.py), and its bye ('lowest') and folds follow that order. CrabbyTab breaks ties among teams on the same rank with the draw's seeded RNG (AGENTS.md 7.2), so its bye and brackets vary by seed. Given Tabbycat's tie order, CrabbyTab pairs exactly Tabbycat's rooms and bye in rounds 2 to 5 (tools/tabbycat-diff/tieOrder.test.ts), so the pairing algorithm (fold, pull-up from top, one-up-one-down) agrees; the counts differ only because other tie orders lead one-up-one-down into brackets where it cannot remove every conflict, which Tabbycat's algorithm would also do under those orders. The bye no longer depends on null standings: wins is a count (0 for T17), and both engines rank T17 level with the other 0-win teams."
         },
         {
           "id": "twoteam-odd-ties/draw/r5/byes",
@@ -1058,7 +1002,7 @@
           },
           "autoClassification": "valid alternative",
           "classification": "valid alternative",
-          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Neither avoids repeat byes: Tabbycat gives T17 the bye in rounds 2, 3 and 4 in every seed."
+          "note": "Byes go to a team on the fewest wins in both engines; they choose different teams within that tie. Tabbycat takes the last in its fixed tie order (institution name, then short reference: T17 of University G every round), CrabbyTab picks among the tied teams with the draw's seeded RNG (see the r3 entries and tieOrder.test.ts). Neither avoids repeat byes."
         },
         {
           "id": "twoteam-odd-ties/break/BC1/breaking",
@@ -1105,7 +1049,7 @@
             ]
           },
           "classification": "rule difference",
-          "note": "Eight teams are tied on wins for the last of six places. Tabbycat 2.12.1 breaks one of them, picked by its random standings tie-break, and marks the other seven as reserves. Its code says every team tied for the last place should break, but add_reserve_teams then overwrites them as reserves (breakqual/base.py). CrabbyTab holds the whole tie out of the break and blocks generation until the tab director resolves it, so it breaks five teams and reports the tie.",
+          "note": "Eight teams are tied on wins for the last of six places. Tabbycat 2.12.1 breaks one of them, picked by its fixed tie order inside the standings (Team model order: institution, then reference; its random tie-break never reaches that order), and marks the other seven as reserves. Its code says every team tied for the last place should break, but add_reserve_teams then overwrites them as reserves (breakqual/base.py). CrabbyTab holds the whole tie out of the break and blocks generation until the tab director resolves it, so it breaks five teams and reports the tie.",
           "dependsOn": [
             "PR #36 (cutoffTies)"
           ]
@@ -1144,16 +1088,6 @@
           "dependsOn": [
             "PR #36 (cutoffTies)"
           ]
-        },
-        {
-          "id": "twoteam-odd-ties/allocation/r4/historyRepeats",
-          "fixture": "twoteam-odd-ties",
-          "area": "allocation",
-          "summary": "Round 4 allocation: historyRepeats differs",
-          "tabbycat": 0,
-          "crabbytab": 1,
-          "classification": "valid alternative",
-          "note": "Adjudicator-team history is a soft penalty in both engines (Tabbycat's adj_history_penalty, mapped to CrabbyTab's adjHistoryPenalty). Neither allocation breaks a hard constraint and chair quality is within the 10% band. CrabbyTab's allocation has one more repeat in both voting fixtures, which is worth watching but is not a rule violation."
         }
       ]
     }

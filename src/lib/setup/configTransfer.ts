@@ -1,5 +1,6 @@
 import type { TournamentFormat, TournamentPreferences } from "@/types";
 import { FORMAT_PRESETS, defaultPreferences, rulesPresetPreferences, type RulesPreset } from "@/lib/setup/presets";
+import { DEFAULT_POLY_TEAMS_IN_DEBATE, isPolyFormat, teamsInDebateFor, validatePolyTeamsInDebate } from "@/lib/debateSides";
 
 /**
  * Tournament configuration as a standalone file (Tabbycat's `exportconfig` / `importconfig`) and
@@ -21,6 +22,8 @@ export const NON_TRANSFERABLE_PREFERENCES = [
   "currentRoundId",
   "releasedBreakCategoryIds",
   "releaseBreakCategoryTabs",
+  "releaseSpeakerCategoryTabs",
+  "releaseAllResults",
   "releaseTeamTab",
   "releaseSpeakerTab",
   "releaseRepliesTab",
@@ -51,16 +54,16 @@ export const KNOWN_PREFERENCE_KEYS: readonly string[] = [
   "bpPositionCost", "renyiOrder", "bpPositionCostExponent", "bpAssignmentMethod", "byeTeamResults",
   "byeTeamSelectionMethod", "eliminationSideRule", "marginIncludesDissenters", "ballotIntroExplanation",
   "teamScoreIncludesGhosts", "ballotMode", "eliminationBallotMode", "ballotCheckMode", "assistantAccess",
-  "individualBallots", "privateBallotConfirmation", "privateUrlBallots", "allowSelfSplitBallots",
+  "individualBallots", "privateBallotConfirmation", "privateUrlBallots", "privateUrlFeedback", "allowSelfSplitBallots",
   "allowLowPointWins", "winnersInBallots", "scoreAggregation", "speakersInBallots", "speakerRanks", "scoreCriteria",
   "maximumMargin", "stepReplyScore", "requireSubstantiveForReply", "sideNames", "enableMotions",
-  "enableMotionVetoes", "enableForfeits", "publicParticipants", "publicInstitutionsList", "publicAdjudicatorCore",
+  "enableMotionVetoes", "enableMotionReuse", "enableForfeits", "publicParticipants", "publicInstitutionsList", "publicAdjudicatorCore",
   "publicBreakingAdjudicators", "notifyDrawReleased", "notifyBallotReceipt", "notifyTeamPoints",
   "notifyMotionsReleased", "notifyBallotConfirmed", "allowSelfCheckIn", "ballotReturnLocation",
   "feedbackReturnLocation", "ballotsConfirmDigits", "ballotsHideMotions", "speakerCategories", "publicDrawMode",
   "publicRecordPages", "adjudicatorTabShows", "teamTabLimit", "speakerTabLimit", "repliesTabLimit",
   "publicBreakMetrics", "publicBreakCategories", "publicSideAllocations", "publicBracket", "publicDiversity",
-  "publicVetoStatistics", "publicFeedbackProgress", "showTeamInstitutions", "showAdjudicatorInstitutions",
+  "publicVetoStatistics", "publicFeedbackProgress", "showTeamInstitutions", "showAdjudicatorInstitutions", "showUnaccredited",
   "teamCodeNames", "participantCodeNames", "showEmoji", "showSpeakersInDraw", "showSplittingAdjudicators",
   "searchEngineIndexing", "welcomeMessage", "tournamentStaff", "publicMotionsOrder", "showMotionsInResults",
   "publicBallotForm", "publicFeedbackForm", "publicFormsUsePassword", "venueCategories",
@@ -171,12 +174,17 @@ export function parseConfigFile(text: string): ParsedConfigFile {
     preferences[key] = value;
   }
   const teamsInDebate = preferences.teamsInDebate;
-  if (teamsInDebate !== undefined && teamsInDebate !== 2 && teamsInDebate !== 4) {
-    errors.push("teamsInDebate must be 2 or 4.");
-  }
-  const formatTeams = format === "bp" ? 4 : 2;
-  if (teamsInDebate !== undefined && teamsInDebate !== formatTeams) {
-    errors.push(`teamsInDebate (${String(teamsInDebate)}) does not match the format (${formatTeams} teams per debate).`);
+  if (isPolyFormat(format as string)) {
+    const problem = validatePolyTeamsInDebate(teamsInDebate ?? DEFAULT_POLY_TEAMS_IN_DEBATE);
+    if (problem) errors.push(`teamsInDebate: ${problem}`);
+  } else {
+    if (teamsInDebate !== undefined && teamsInDebate !== 2 && teamsInDebate !== 4) {
+      errors.push("teamsInDebate must be 2 or 4 for this format.");
+    }
+    const formatTeams = format === "bp" ? 4 : 2;
+    if (teamsInDebate !== undefined && teamsInDebate !== formatTeams) {
+      errors.push(`teamsInDebate (${String(teamsInDebate)}) does not match the format (${formatTeams} teams per debate).`);
+    }
   }
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -230,7 +238,8 @@ export function planConfigApply(
   const blocked: ConfigPlan["blocked"] = [];
   const preferences: Record<string, unknown> = { ...current.preferences };
   const currentPreferences = current.preferences as unknown as Record<string, unknown>;
-  const teamsChange = (incoming.format === "bp" ? 4 : 2) !== (current.format === "bp" ? 4 : 2);
+  const teamsChange = teamsInDebateFor({ format: incoming.format, preferences: { ...current.preferences, ...incoming.preferences } }) !==
+    teamsInDebateFor(current);
   let format = current.format;
 
   if (incoming.format !== current.format) {
@@ -263,7 +272,9 @@ export function planConfigApply(
       context.lockedFields.includes("format") ? "ballots have been entered" : "a draw exists"
     }.`);
   }
-  if ((next.teamsInDebate ?? (format === "bp" ? 4 : 2)) !== (format === "bp" ? 4 : 2)) {
+  if (isPolyFormat(format as string)) {
+    if (validatePolyTeamsInDebate(next.teamsInDebate)) errors.push("The number of teams per debate would not match the format.");
+  } else if ((next.teamsInDebate ?? (format === "bp" ? 4 : 2)) !== (format === "bp" ? 4 : 2)) {
     errors.push("The number of teams per debate would not match the format.");
   }
   if (next.minSpeakerScore > next.maxSpeakerScore) errors.push("The lowest speaker score would be above the highest.");

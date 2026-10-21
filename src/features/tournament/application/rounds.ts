@@ -1,5 +1,6 @@
 import type { AuditCategory, BallotSubmission, Debate, DrawType, Round, RoundStage } from "@/types";
 import { applyGuards, checkRoundUpdate, type DrawCheckIssue, type RuleOverride } from "./stateGuards";
+import { slotNewPreliminaryRounds } from "./schedule";
 
 export interface CreateRoundRecordInput {
   tournamentId: string;
@@ -9,6 +10,48 @@ export interface CreateRoundRecordInput {
   stage: RoundStage;
   customDrawType?: DrawType;
   defaultDrawRule?: DrawType | "bracket";
+  /** Tabbycat prelim_panels (preliminaryPanelsOf): preliminary rounds per schedule slot. */
+  preliminaryPanels?: number;
+  /**
+   * The new round's id. Absent: `round-<tournament>-<seq>` (fine for a tournament's first rounds;
+   * createRoundCommand always passes a fresh id, see newRoundId).
+   */
+  id?: string;
+}
+
+/** Thrown when a round's stage and draw type do not fit together (Tabbycat Round.clean()). */
+export class RoundValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RoundValidationError";
+  }
+}
+
+/**
+ * Tabbycat Round.clean(): the "elimination" draw type is only for elimination rounds, where it is
+ * mandatory. Returns the problem, or null when the pair is valid.
+ */
+export function roundStageDrawTypeProblem(stage: RoundStage, drawType: DrawType): string | null {
+  if ((stage === "elimination") !== (drawType === "elimination")) {
+    return 'The "Elimination" draw type is only for elimination rounds, where it is mandatory.';
+  }
+  return null;
+}
+
+/**
+ * A fresh id for a new round. Round ids must never be derived from the sequence number alone:
+ * deleting a round renumbers the later rounds but keeps their ids, so `round-<tournament>-<seq>`
+ * could name a round that still exists (and overwrite its stored document) or one just deleted.
+ */
+export function newRoundId(tournamentId: string, roundSeq: number, existing: Iterable<Pick<Round, "id">>): string {
+  const taken = new Set([...existing].map((round) => round.id));
+  const random = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  let id = `round-${tournamentId}-${roundSeq}-${random()}`;
+  while (taken.has(id)) id = `round-${tournamentId}-${roundSeq}-${random()}`;
+  return id;
 }
 
 export interface RoundLocalRepository {
@@ -48,14 +91,23 @@ export function createRoundRecord({
   stage,
   customDrawType,
   defaultDrawRule = "power_paired",
+  id,
 }: CreateRoundRecordInput): Round {
   const normalizedDefaultRule = defaultDrawRule === "bracket" ? "random" : defaultDrawRule;
+  // An elimination round always uses the elimination draw (Tabbycat Round.clean()); the default
+  // preliminary rule is never applied to it.
   const mappedDrawType: DrawType =
     customDrawType ||
-    (roundSeq === 1 && normalizedDefaultRule === "power_paired" ? "random" : (normalizedDefaultRule as DrawType));
+    (stage === "elimination"
+      ? "elimination"
+      : roundSeq === 1 && normalizedDefaultRule === "power_paired"
+        ? "random"
+        : (normalizedDefaultRule as DrawType));
+  const problem = roundStageDrawTypeProblem(stage, mappedDrawType);
+  if (problem) throw new RoundValidationError(problem);
 
   return {
-    id: `round-${tournamentId}-${roundSeq}`,
+    id: id ?? `round-${tournamentId}-${roundSeq}`,
     tournamentId,
     seq: roundSeq,
     name,
@@ -78,7 +130,9 @@ export async function createRoundCommand(
   rounds: Round[],
   dependencies: RoundManagementDependencies
 ): Promise<Round> {
-  const round = createRoundRecord(input);
+  // Tabbycat prelim_panels: a new preliminary round joins the last slot until it is full.
+  const record = createRoundRecord({ ...input, id: input.id ?? newRoundId(input.tournamentId, input.roundSeq, rounds) });
+  const [round] = slotNewPreliminaryRounds(rounds, [record], input.preliminaryPanels ?? 1, { renameDefaults: false });
   dependencies.localRepository.saveRounds([...rounds, round], round);
   await dependencies.recordAuditEvent({
     action: "round.created",
@@ -105,6 +159,7 @@ export async function updateRoundCommand(
   override?: RuleOverride
 ): Promise<void> {
   const previous = rounds.find((item) => item.id === round.id);
+  assertStageMatchesDrawType(previous, round);
   if (previous) {
     const { debates, ballots, drawIssues } = dependencies.guards;
     await applyGuards(
@@ -162,6 +217,7 @@ export async function updateRoundsCommand(
   const violations = changed.flatMap((round) => {
     const previous = rounds.find((item) => item.id === round.id);
     if (!previous) throw new Error(`Cannot update round ${round.id}: it no longer exists.`);
+    assertStageMatchesDrawType(previous, round);
     return checkRoundUpdate(previous, round, { rounds: updatedRounds, debates, ballots }, () => drawIssues(round));
   });
   await applyGuards(violations, override, {
@@ -185,6 +241,17 @@ export async function updateRoundsCommand(
       })),
     },
   });
+}
+
+/**
+ * Refuses an update that leaves a round's stage and draw type inconsistent. Only checked when the
+ * update changes either of them, so older rounds stored with a mismatch can still be edited
+ * otherwise.
+ */
+function assertStageMatchesDrawType(previous: Round | undefined, next: Round): void {
+  if (previous && previous.stage === next.stage && previous.drawType === next.drawType) return;
+  const problem = roundStageDrawTypeProblem(next.stage, next.drawType);
+  if (problem) throw new RoundValidationError(`${next.name}: ${problem}`);
 }
 
 export function getRoundChangeSummary(previous: Round, next: Round) {

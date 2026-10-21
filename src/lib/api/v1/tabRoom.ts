@@ -9,6 +9,7 @@ import { clearBreakCommand, generateBreakCommand, saveBreakCategoriesCommand, ty
 import { generateDrawCommand } from "@/features/tournament/application/draws";
 import { createTournamentEntityCommands } from "@/features/tournament/application/entities";
 import { currentRounds } from "@/features/tournament/application/schedule";
+import { feedbackVersionOptions } from "@/lib/feedback/versions";
 import { addFeedbackCommand, deleteFeedbackCommand, reviewFeedbackCommand, type FeedbackReviewChange } from "@/features/tournament/application/feedback";
 import { applyMotionReleaseSync, roundsNeedingMotionReleaseSync } from "@/features/tournament/application/motionRelease";
 import { savePreformedPanelsCommand } from "@/features/tournament/application/preformedPanels";
@@ -84,13 +85,19 @@ export class SessionTabRoom {
   /* Tournament settings --------------------------------------------------- */
 
   async saveTournament(next: Tournament, override?: RuleOverride): Promise<void> {
-    await this.loadAll("ballots", "rounds");
+    await this.loadAll("ballots", "rounds", "debates");
     await saveTournamentCommand(next, this.tournament, {
       ballots: this.session.view<BallotSubmission>("ballots"),
       rounds: this.session.view<Round>("rounds"),
       localRepository: { saveTournament: (tournament) => this.session.setTournament(tournament) },
       recordAuditEvent: this.session.recordAuditEvent,
       warn: (message, error) => console.warn(message, error),
+      // A scoring change recalculates stored ballot and debate totals, as in the tab room.
+      resave: {
+        debates: this.session.view<Debate>("debates"),
+        saveBallots: (items) => this.session.save("ballots", items),
+        saveDebates: (items) => this.session.save("debates", items),
+      },
     }, override);
   }
 
@@ -338,6 +345,7 @@ export class SessionTabRoom {
         actorId: this.actorId,
       },
       queuePrivateRecord: async () => undefined,
+      confirmer: { name: "API token", id: this.actorId },
     };
   }
 
@@ -401,22 +409,30 @@ export class SessionTabRoom {
   async addFeedback(data: Omit<FeedbackSubmission, "id" | "tournamentId" | "timestamp">): Promise<string> {
     // Adding needs no existing feedback: the command appends, and `put` leaves unloaded records alone.
     let createdId: string | undefined;
+    // The source's earlier feedback in this debate, so a repeat submission supersedes it.
+    const earlier = data.debateId
+      ? (await this.session.where<FeedbackSubmission>("feedback", [{ field: "debateId", op: "==", value: data.debateId }]))
+          .filter((item) => item.sourceType === data.sourceType && item.sourceId === data.sourceId)
+      : [];
+    const round = data.roundId ? await this.session.one<Round>("rounds", data.roundId) : null;
     await addFeedbackCommand(data, {
       tournamentId: this.tournament.id,
-      feedback: [],
+      feedback: earlier,
+      versionOptions: feedbackVersionOptions(this.tournament.preferences, round ?? undefined),
       // Answers are checked against the questions this kind of source is asked.
       questions: questionsForFeedbackSource(data.sourceType, this.tournament.preferences),
       teams: [],
       adjudicators: [],
       repository: {
         saveFeedback: (feedback) => {
-          const created = feedback.map((item) => ({ ...item, id: this.createId("fb") }));
-          createdId = created[created.length - 1]?.id;
-          this.session.put("feedback", created);
+          createdId = feedback[feedback.length - 1]?.id;
+          this.session.put("feedback", feedback);
         },
       },
       queuePrivateRecord: async () => undefined,
       recordAuditEvent: this.session.recordAuditEvent,
+      // The stored record and the audit event carry the same id.
+      createId: () => this.createId("fb"),
     });
     if (!createdId) throw new Error("Feedback was not saved.");
     return createdId;

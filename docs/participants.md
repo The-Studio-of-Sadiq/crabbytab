@@ -64,11 +64,21 @@ speakers, private URL, every debate (including results not yet released, unconfi
 panel and each speech), adjudicator conflicts with the reason, and feedback the team submitted.
 Administrators only.
 
+## Adjudicator record
+
+Each adjudicator's name on the Adjudicators page links to their record
+(`/{slug}/feedback/adjudicator/{id}`, Tabbycat `participants-adjudicator-record`) for
+administrators and staff with `feedback.view` or `adjudicators.scores_edit`, also when feedback is
+switched off (the page then links back to the adjudicator list): rounds and roles, base and test
+scores with their history, feedback received and the adjudicator's recorded conflicts (team,
+adjudicator and institution conflicts, for administrators and staff with `conflicts.view`).
+
 ## Code names
 
 *Setup → Code names* (`/imports/code-names`, Tabbycat `participants-code-names-list`) decodes each
 team's code name next to its real name, institution and speakers, code names first. Teams without
-a code name are counted with a link to generate them.
+a code name are counted with a link to generate them. Data-entry staff see the decoder too (read
+only), as in Tabbycat's assistant interface.
 
 Teams added by hand used to get the team name stored as their code name. Under code-name modes
 that is treated as no code name, but after a rename the old real name would have been published as

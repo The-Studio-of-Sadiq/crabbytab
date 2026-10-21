@@ -214,7 +214,7 @@ export function serializeDebate(debate: Debate): Json {
     teams: Object.fromEntries(
       Object.entries(debate.teams ?? {}).filter(([, slot]) => Boolean(slot)).map(([side, slot]) => [
         side,
-        pick(slot, ["teamId", "teamName", "side", "points", "speakerScoreTotal", "pulledUp", "bracketPosition"]),
+        pick(slot, ["teamId", "teamName", "side", "points", "speakerScoreTotal", "pulledUp", "flags", "bracketPosition"]),
       ])
     ),
     adjudicators: debate.adjudicators
@@ -245,6 +245,7 @@ export function serializeBallot(ballot: BallotSubmission): Json {
     "vetoes",
     "forfeitSide",
     "selfSplit",
+    "noSpeakerScores",
     "chairId",
     "timestamp",
     "confirmedTimestamp",
@@ -341,14 +342,22 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
     id: s.string(), roundId: s.string(), roundSeq: s.integer(), roomRank: num(), bracket: num(), importance: num(),
     venueId: str(), venueName: str(), byeTeamId: str(), byeResult: str(), breakCategoryId: str(), resultStatus: str(),
     sidesConfirmed: bool(), flags: strList(), motionId: str(), motionText: str(), postponed: bool(), postponedReason: str(),
-    teams: anything("Side (OG/OO/CG/CO or AFF/NEG) -> team slot."), adjudicators: anything("Chair, panellists and trainees, or null when not revealed."),
+    teams: s.optional(s.record(s.ref("PairingTeam"), { description: "Side (OG/OO/CG/CO, AFF/NEG, or P1…PN with N teams per debate) -> team slot." })),
+    adjudicators: anything("Chair, panellists and trainees, or null when not revealed."),
     syncVersion: version,
   }, "A debate in a round's draw."),
+  PairingTeam: responseObject({
+    teamId: s.string(), teamName: str(), side: str(), points: num(), speakerScoreTotal: num(),
+    pulledUp: bool("The team was pulled up from a lower bracket to fill this room."),
+    flags: strList("Tabbycat's team draw flags (DebateTeam.flags): bub_up_hist, bub_up_inst, bub_up_accom, bub_dn_hist, bub_dn_inst, bub_dn_accom, no_bub_updn."),
+    bracketPosition: num("Elimination rounds: the team's bracket position."),
+  }, "A team's slot in a pairing."),
   Ballot: responseObject({
     id: s.string(), roundId: s.string(), debateId: s.string(), version: s.integer(), confirmed: s.boolean(), discarded: s.boolean(),
     submitterType: str(), submitterName: str(), motionId: str(), motionText: str(),
     speakerScores: anything("Side -> speeches."), teamScores: anything("Side -> team result."), sheets: anything("Voting ballots: one sheet per adjudicator."),
-    vetoes: anything(), forfeitSide: str(), selfSplit: bool("A solo adjudicator's 2:1 split decision."), chairId: str(), timestamp: str(), confirmedTimestamp: str(), checksVersion: int(),
+    vetoes: anything(), forfeitSide: str(), selfSplit: bool("A solo adjudicator's 2:1 split decision."),
+    noSpeakerScores: bool("A results-only ballot (no speaker scores): its speeches are placeholders that standings do not count."), chairId: str(), timestamp: str(), confirmedTimestamp: str(), checksVersion: int(),
     discardedTimestamp: str(), syncVersion: version,
   }, "A ballot submission (one version of a debate's result)."),
   Feedback: responseObject({
@@ -372,6 +381,9 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
       violations: s.optional(s.array(s.object({
         rule: s.string(), message: s.string(), overridable: s.boolean(), roundId: str(), debateId: str(),
       }, { strict: false }))),
+      differences: s.optional(s.array(s.object({
+        field: s.string(), first: s.string({ description: "The checked version." }), second: s.string({ description: "This entry." }),
+      }), { description: "Blind double entry: how the entry differs from the version it checks." })),
     }, { strict: false }),
   }, "Error response."),
 };

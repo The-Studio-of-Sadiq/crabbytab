@@ -93,7 +93,8 @@ function permutations(values: number[]): number[][] {
 }
 
 export interface AnticipatedDrawInput {
-  teamsPerDebate: 2 | 4;
+  /** Teams per room (Tabbycat nteamsindebate): 2, 4, or any count of the poly format. */
+  teamsPerDebate: number;
   /**
    * The previous round's debates (team ids per room, in room order). Absent or empty when this is
    * the first round, the previous round has no draw yet, or this is an elimination round.
@@ -111,7 +112,9 @@ export interface AnticipatedDrawInput {
 export function calculateAnticipatedDraw(input: AnticipatedDrawInput): AnticipatedRoom[] {
   const size = input.teamsPerDebate;
   const previous = (input.previousDebates ?? []).filter((teams) => teams.length > 0);
-  if (previous.length === 0) {
+  // Tabbycat brute-forces every finishing order of a mixed room; past 8 teams per room (40,320
+  // orders) that is too slow for the browser, so such rooms get no bracket range, as a first round.
+  if (previous.length === 0 || size > 8) {
     return Array.from({ length: Math.floor(input.teamCount / size) }, (_, index) => ({
       roomRank: index + 1,
       bracketMin: 0,

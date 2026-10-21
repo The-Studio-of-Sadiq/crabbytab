@@ -118,11 +118,19 @@ describe("validateDraw", () => {
     const { round, base } = setup();
     const r1 = makeRound(twoTeam.id, 1);
     const history = [debate(r1, 1, { AFF: "team-1", NEG: "team-3" }), debate(r1, 2, { AFF: "team-2", NEG: "team-4" })];
-    const strict = { ...twoTeam, preferences: { ...twoTeam.preferences, maxTimesPerSide: 1 } };
+    // maxTimesPerSide (Tabbycat max_times_per_side) is reported as a warning, never an error.
+    const capped = { ...twoTeam, preferences: { ...twoTeam.preferences, maxTimesPerSide: 1 } };
+    const warnings = validateDraw({ ...base, tournament: capped, rounds: [r1, round], debates: [...history, ...base.debates] });
+    expect(warnings.filter((issue) => issue.code === "max_times_per_side").map((issue) => [issue.severity, issue.message])).toEqual([
+      ["warning", "Team 01 would be AFF for the 2nd time, more than the 1 times per side set in the draw rules."],
+      ["warning", "Team 04 would be NEG for the 2nd time, more than the 1 times per side set in the draw rules."],
+    ]);
+    expect(warnings.some((issue) => issue.code === "side_limit")).toBe(false);
+    const strict = { ...twoTeam, preferences: { ...twoTeam.preferences, maxAllowedSideImbalance: 1 } };
     const issues = validateDraw({ ...base, tournament: strict, rounds: [r1, round], debates: [...history, ...base.debates] });
-    expect(issues.filter((issue) => issue.code === "side_limit").map((issue) => issue.message)).toEqual([
-      "Team 01 would be AFF for the 2nd time, which breaks the side limits (at most 1 times per side).",
-      "Team 04 would be NEG for the 2nd time, which breaks the side limits (at most 1 times per side).",
+    expect(issues.filter((issue) => issue.code === "side_limit").map((issue) => [issue.severity, issue.message])).toEqual([
+      ["error", "Team 01 would be AFF for the 2nd time, which breaks the side limit (imbalance at most 1)."],
+      ["error", "Team 04 would be NEG for the 2nd time, which breaks the side limit (imbalance at most 1)."],
     ]);
 
     const preallocated = { ...twoTeam, preferences: { ...twoTeam.preferences, sideAllocationRule: "preallocated" as const } };

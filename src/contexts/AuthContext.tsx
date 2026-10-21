@@ -3,6 +3,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   User,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
@@ -17,6 +20,8 @@ export interface AuthContextType {
   isGlobalAdmin: boolean;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  /** Reauthenticates with the current password, then sets the new one (signed-in users only). */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -86,6 +91,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await sendPasswordResetEmail(auth, email);
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    const current = auth?.currentUser;
+    if (!auth || !current) throw new Error("Sign in before changing your password.");
+    if (!current.email) throw new Error("This account has no email address, so its password cannot be changed here.");
+    // Firebase refuses a password change on an old sign-in, so confirm the current password first.
+    await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, currentPassword));
+    await updatePassword(current, newPassword);
+  };
+
   const logout = async () => {
     if (auth) {
       await signOut(auth);
@@ -103,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isGlobalAdmin,
         signInWithEmail,
         resetPassword,
+        changePassword,
         logout,
       }}
     >

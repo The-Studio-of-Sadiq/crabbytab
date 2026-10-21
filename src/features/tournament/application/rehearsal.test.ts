@@ -80,6 +80,14 @@ describe("demo tournament", () => {
     expect(collections.motions.every((motion) => motion.rounds.length === 1 && !motion.released)).toBe(true);
   });
 
+  it("applies its format's rules preset, including the preset's side names", () => {
+    const wsdc = buildDemoTournament({ format: "wsdc", slug: "demo-wsdc", ownerId: "o", seed: 1, now: NOW }).tournament;
+    expect(wsdc.format).toBe("wsdc");
+    expect(wsdc.preferences).toMatchObject({ sideNames: "prop-opp", substantiveSpeakers: 3, replyScoresEnabled: true, enableMotions: true });
+    const bp = buildDemoTournament({ format: "bp", slug: "demo-bp", ownerId: "o", seed: 1, now: NOW }).tournament;
+    expect(bp.preferences).toMatchObject({ teamsInDebate: 4, ballotMode: "consensus", enableMotions: true });
+  });
+
   it("refuses a slug without the demo prefix", () => {
     expect(() => buildDemoTournament({ format: "bp", slug: "real-open", ownerId: "o" })).toThrow(/demo-/);
   });
@@ -104,7 +112,8 @@ describe("simulated results", () => {
       expect([...totals].sort((a, b) => b - a)).toEqual(totals);
       const debate = debates.find((item) => item.id === ballot.debateId)!;
       const rosters = Object.fromEntries(ballotSides(format).map((side) => [side, harness.teams.find((team) => team.id === debate.teams[side].teamId)!.speakers]));
-      expect(validateBallotEntry({ speakerScores: ballot.speakerScores, ranks: Object.fromEntries(sides.map((side, index) => [side, index + 1])) }, { ...rules, rosters })).toEqual([]);
+      // WSDC's preset uses voting ballots (one sheet per adjudicator) scored by criteria.
+      expect(validateBallotEntry({ speakerScores: ballot.speakerScores, ...(ballot.sheets ? { sheets: ballot.sheets } : {}), ranks: Object.fromEntries(sides.map((side, index) => [side, index + 1])) }, { ...rules, rosters })).toEqual([]);
     }
   });
 
@@ -122,6 +131,17 @@ describe("simulated results", () => {
       const debate = harness.debates.find((item) => item.id === ballot.debateId)!;
       expect(ballot.sheets).toHaveLength(1 + debate.adjudicators.panellistIds.length);
     }
+  });
+
+  it.each([
+    ["declared winners on voting ballots", { ballotMode: "voting", winnersInBallots: "high-points" }, 3],
+    ["speech ranks", { ballotMode: "consensus", speakerRanks: "high-points" }, 1],
+    ["a reply step of 1", { ballotMode: "consensus", replyScoresEnabled: true, stepReplyScore: 1, stepSpeakerScore: 1 }, 1],
+  ] as const)("simulates every debate with %s (Tabbycat generateresults)", async (_label, preferences, panel) => {
+    const { harness, round } = await demoWithDraw("wsdc", preferences as Partial<TournamentPreferences>, panel);
+    const { ballots, skipped } = plan(harness, round);
+    expect(skipped).toEqual([]);
+    expect(ballots.length).toBeGreaterThan(0);
   });
 
   it("submits through the ballot command, so every debate is resulted and standings follow", async () => {

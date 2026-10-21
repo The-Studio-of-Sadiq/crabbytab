@@ -117,7 +117,9 @@ describe("AIDA 2016 reserves", () => {
     const aidaTeams = Array.from({ length: 6 }, (_, index) =>
       team(`t${index + 1}`, { institutionId: `inst-${index + 1}` })
     );
-    const aidaStandings = aidaTeams.map((item, index) => standing(item.id, index + 1, 6 - index));
+    // Reserves come only from teams with as many wins as the last breaking team (Tabbycat drops
+    // the others from the eligible teams first).
+    const aidaStandings = aidaTeams.map((item, index) => standing(item.id, index + 1, index === 0 ? 3 : index < 4 ? 2 : 1));
     const [result] = calculateBreaks(
       [category({ breakSize: 2, reserveSize: 2, qualificationRule: "aida_2016_australs" })],
       aidaTeams,
@@ -135,7 +137,7 @@ describe("AIDA 2016 reserves", () => {
       team("a2", { institutionId: "a" }),
       team("c1", { institutionId: "c" }),
     ];
-    const aidaStandings = aidaTeams.map((item, index) => standing(item.id, index + 1, 4 - index));
+    const aidaStandings = aidaTeams.map((item, index) => standing(item.id, index + 1, 2));
     const [result] = calculateBreaks(
       [category({ breakSize: 2, reserveSize: 2, qualificationRule: "aida_2016_australs" })],
       aidaTeams,

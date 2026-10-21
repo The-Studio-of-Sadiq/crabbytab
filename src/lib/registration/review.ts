@@ -59,7 +59,8 @@ export function findRegistrationDuplicates(
     };
     if (submission.kind === "team" && submission.team) {
       const key = nameKey(submission.team.name);
-      for (const team of teamsByName.get(key) ?? []) add({ against: "team", id: team.id, name: team.name, reason: "same_name" });
+      // A name left for the team-name generator is empty: never a duplicate by name.
+      for (const team of key ? teamsByName.get(key) ?? [] : []) add({ against: "team", id: team.id, name: team.name, reason: "same_name" });
       const emails = submission.team.speakers.map((speaker) => emailKey(speaker.email)).filter(Boolean);
       for (const email of emails) {
         const team = teamsBySpeakerEmail.get(email);
@@ -67,7 +68,7 @@ export function findRegistrationDuplicates(
       }
       for (const other of active) {
         if (other.id === submission.id || other.kind !== "team" || !other.team || other.status === "approved") continue;
-        if (nameKey(other.team.name) === key) add({ against: "submission", id: other.id, name: other.team.name, reason: "same_name" });
+        if (key && nameKey(other.team.name) === key) add({ against: "submission", id: other.id, name: other.team.name, reason: "same_name" });
         const otherEmails = new Set(other.team.speakers.map((speaker) => emailKey(speaker.email)).filter(Boolean));
         if (emails.some((email) => otherEmails.has(email))) {
           add({ against: "submission", id: other.id, name: other.team.name, reason: "same_speaker" });
@@ -79,14 +80,15 @@ export function findRegistrationDuplicates(
       for (const adjudicator of adjudicatorsByName.get(key) ?? []) {
         add({ against: "adjudicator", id: adjudicator.id, name: adjudicator.name, reason: "same_name" });
       }
-      const byEmail = adjudicatorsByEmail.get(email);
+      // The form may not ask for the adjudicator's email: an empty one matches nothing.
+      const byEmail = email ? adjudicatorsByEmail.get(email) : undefined;
       if (byEmail) add({ against: "adjudicator", id: byEmail.id, name: byEmail.name, reason: "same_email" });
       for (const other of active) {
         if (other.id === submission.id || other.kind !== "adjudicator" || !other.adjudicator || other.status === "approved") continue;
         if (nameKey(other.adjudicator.name) === key) {
           add({ against: "submission", id: other.id, name: other.adjudicator.name, reason: "same_name" });
         }
-        if (emailKey(other.adjudicator.email) === email) {
+        if (email && emailKey(other.adjudicator.email) === email) {
           add({ against: "submission", id: other.id, name: other.adjudicator.name, reason: "same_email" });
         }
       }

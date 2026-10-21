@@ -27,11 +27,14 @@ function Empty({ children }: { children: React.ReactNode }) {
 export function ParticipantsPanel({
   participants,
   showBreakCategories = false,
+  showUnaccredited = false,
   teamHref,
   adjudicatorHref,
 }: {
   participants: PublicParticipants;
   showBreakCategories?: boolean;
+  /** Tabbycat `show_unaccredited`: an "Always trainee" column. */
+  showUnaccredited?: boolean;
   teamHref?: (teamId: string) => string | undefined;
   adjudicatorHref?: (adjudicatorId: string) => string | undefined;
 }) {
@@ -88,6 +91,7 @@ export function ParticipantsPanel({
                 <TR>
                   <TH scope="col">{t("lists.col.adjudicator")}</TH>
                   <TH scope="col">{t("lists.col.institution")}</TH>
+                  {showUnaccredited && <TH scope="col">{t("lists.col.alwaysTrainee")}</TH>}
                 </TR>
               </THead>
               <TBody>
@@ -103,6 +107,7 @@ export function ParticipantsPanel({
                       )}
                     </TD>
                     <TD className="text-xs text-fg-muted">{adjudicator.institutionName || t("common.independent")}</TD>
+                    {showUnaccredited && <TD className="text-xs text-fg-muted">{adjudicator.trainee ? t("lists.alwaysTraineeYes") : "—"}</TD>}
                   </TR>
                 ))}
               </TBody>
@@ -152,7 +157,7 @@ export function InstitutionsPanel({ institutions }: { institutions: PublicInstit
   );
 }
 
-function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAdjudicatorLists["core"]; empty: string }) {
+function AdjudicatorList({ title, rows, empty, showUnaccredited }: { title: string; rows: PublicAdjudicatorLists["core"]; empty: string; showUnaccredited: boolean }) {
   const { t } = useI18n();
   return (
     <Panel title={title}>
@@ -165,7 +170,10 @@ function AdjudicatorList({ title, rows, empty }: { title: string; rows: PublicAd
               <span className="font-semibold text-fg">
                 {row.anonymous ? <span className="italic text-fg-muted">{t("public.redacted")}</span> : row.name || t("public.noPublicName")}
               </span>
-              <span className="text-fg-muted">{row.institutionName || t("common.independent")}</span>
+              <span className="text-fg-muted">
+                {row.institutionName || t("common.independent")}
+                {showUnaccredited && row.trainee ? ` · ${t("lists.col.alwaysTrainee")}` : ""}
+              </span>
             </li>
           ))}
         </ul>
@@ -178,22 +186,25 @@ export function AdjudicatorListsPanel({
   lists,
   showCore,
   showBreaking,
+  showUnaccredited = false,
 }: {
   lists: PublicAdjudicatorLists;
   showCore: boolean;
   showBreaking: boolean;
+  showUnaccredited?: boolean;
 }) {
   const { t } = useI18n();
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {showCore && (
-        <AdjudicatorList title={t("lists.core")} rows={lists.core} empty={t("lists.coreEmpty")} />
+        <AdjudicatorList title={t("lists.core")} rows={lists.core} empty={t("lists.coreEmpty")} showUnaccredited={showUnaccredited} />
       )}
       {showBreaking && (
         <AdjudicatorList
           title={t("lists.breaking")}
           rows={lists.breaking}
           empty={t("lists.breakingEmpty")}
+          showUnaccredited={showUnaccredited}
         />
       )}
     </div>

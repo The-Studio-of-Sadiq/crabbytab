@@ -44,21 +44,17 @@ function stableOrder<T extends Pick<Team, "id">>(teams: T[]): T[] {
 }
 
 /**
- * Gives every team without an emoji an unused one. When the pool runs out, emoji are reused
- * (Tabbycat does the same), so the result is never short.
+ * Gives teams without an emoji an unused one. Emoji are unique in a tournament (Tabbycat
+ * participants/emoji.py set_emoji): when the pool runs out, the remaining teams (in id order) are
+ * left without one and are not returned.
  */
 export function assignTeamEmoji(teams: Team[], random: Rng): Team[] {
   const used = new Set(teams.map((team) => team.emoji).filter(Boolean));
   const free = shuffled(TEAM_EMOJI.filter(([emoji]) => !used.has(emoji)), random);
-  const reuse = shuffled(TEAM_EMOJI, random);
-  let next = 0;
   return stableOrder(teams)
     .filter((team) => !team.emoji)
-    .map((team) => {
-      const pick = next < free.length ? free[next] : reuse[(next - free.length) % reuse.length];
-      next += 1;
-      return { ...team, emoji: pick[0] };
-    });
+    .slice(0, free.length)
+    .map((team, index) => ({ ...team, emoji: free[index][0] }));
 }
 
 function lastName(name: string): string {
@@ -111,8 +107,9 @@ export interface TabroomTeamName {
  * Team names on tab-room pages under Tabbycat's `team_code_names` (TabbycatTableBuilder for admins):
  * - "all-tooltips" / "admin-tooltips-code": the real name, the code name in a tooltip;
  * - "admin-tooltips-real": the code name, the real name in a tooltip;
- * - "off" / "everywhere": the real name only. (Tabbycat also shows code names to admins under
- *   "everywhere"; CrabbyTab keeps real names in the tab room for that mode.)
+ * - "everywhere": the code name only, no tooltip (Tabbycat `use_team_code_names` is true for
+ *   admins too; real names still show where a page needs them, e.g. editing the team);
+ * - "off": the real name only.
  * A team without a code name always shows its real name with no tooltip.
  */
 export function tabroomTeamName(
@@ -125,6 +122,7 @@ export function tabroomTeamName(
   const code = team.codeName!.trim();
   if (mode === "all-tooltips" || mode === "admin-tooltips-code") return { name: real, tooltip: { kind: "code", name: code } };
   if (mode === "admin-tooltips-real") return { name: code, tooltip: { kind: "real", name: real } };
+  if (mode === "everywhere") return { name: code };
   return { name: real };
 }
 

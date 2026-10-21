@@ -55,8 +55,10 @@ curl -H "Authorization: Key team_abcd2345efgh" -H "X-Passcode: k3j9m2xx" \
   https://HOST/api/v1/tournaments/SLUG/me
 ```
 
-Unknown keys and wrong passcodes get the same 401, and attempts are limited to 120 per client
-address per hour (durable limiter).
+The key may be a team's, an adjudicator's or a speaker's own private URL key (the per-speaker
+URLs the private portal accepts, `src/lib/privateSpeakerAccess.ts`); a speaker's key identifies
+their team, with `speakerId` set. Unknown keys and wrong passcodes get the same 401, and attempts
+are limited to 120 per client address per hour (durable limiter).
 
 The same two headers let a participant submit what the private portal submits (Tabbycat's URL-key
 ballot and feedback submission), checked with the portal's own rules
@@ -72,6 +74,11 @@ ballot and feedback submission), checked with the portal's own rules
   for API submissions.
 - `POST /me/feedback` — feedback under the tournament's feedback paths and questions.
 - `PUT /me/checkin` — `{ "available": true|false }` for the current round, when self check-in is on.
+- `GET /me/ballots` — what the portal shows (`src/lib/privatePortalBallots.ts`): an adjudicator
+  sees the ballots of their debates in released draws; a team sees the confirmed results of its
+  debates once the round's results are released, with scoresheets and speaker scores once team
+  speaks or private ballots (`releasePrivateBallots`) are released.
+- `GET /me/feedback` — the feedback the team or adjudicator submitted.
 
 Someone else's debate, or one whose draw is not released to the participant, is a 404. Audit
 events name the participant (`actorId: "participant:<type>:<id>"`, `actorType: "public"`).
@@ -93,12 +100,17 @@ curl -H "Authorization: Bearer $TOKEN" "https://HOST/api/v1/tournaments/SLUG/tea
   `{ "data": [...], "nextCursor": "..." | null }`. Pages are in document-id order and a page
   reads only `limit + 1` documents. Lists bounded by the tournament's configuration (rounds,
   motions, break categories, a round's pairings) return `{ "data": [...] }` in natural order.
-- Errors are `{ "error": { "code", "message", "issues"?, "violations"? } }`. Codes:
+- Errors are `{ "error": { "code", "message", "issues"?, "violations"?, "differences"? } }`. Codes:
   `bad_request` (400), `validation_failed` (422, `issues[]` with paths), `unauthenticated` (401),
   `forbidden` (403), `not_found` (404), `method_not_allowed` (405, `Allow` header),
   `rule_violation` (409, tournament rules, `violations[]`), `conflict` (409),
   `payload_too_large` (413), `rate_limited` (429, `Retry-After`), `internal` (500).
 - Unknown query parameters and body fields are rejected (422), so typos are never ignored.
+- Refusals by the tab room's commands: an adjudicator allocation with nothing to fill or nobody
+  available (Tabbycat's `AdjudicatorAllocationError`) is `409 conflict` and changes nothing; a
+  round whose stage and draw type do not fit together is `422 validation_failed`.
+- Standings metrics with no data yet (a team with no results, a speaker with no speeches) are
+  `null`, as in Tabbycat, never 0.
 - Every response has `Cache-Control: no-store` and an `X-Request-Id`.
 
 ### Read endpoints
@@ -109,22 +121,22 @@ All paths are below `/api/v1/tournaments/{slug}`.
 |---|---|---|
 | tournament detail | (the slug itself) | tournament / public |
 | preferences | `/preferences` | tournament |
-| feedback questions | `/feedback-questions[/{id}]` (`?fromTeams=`, `?fromAdjudicators=`) | tournament |
-| score criteria | `/score-criteria[/{id}]` (score scales; criteria when configured) | tournament |
+| feedback questions | `/feedback-questions[/{id}]` (`?fromTeams=`, `?fromAdjudicators=`) | tournament / public |
+| score criteria | `/score-criteria[/{id}]` (score scales; criteria when configured) | tournament / public |
 | schedule events | `/schedule-events[/{id}]` | tournament / public (once `publicSchedule` is on) |
 | user groups | `/user-groups[/{id}]` (built-in and custom staff permission groups) | staff |
-| speaker categories (+eligibility) | `/speaker-categories[/{id}[/eligibility]]` | tournament / public; eligibility: participants |
+| speaker categories (+eligibility) | `/speaker-categories[/{id}[/eligibility]]` | tournament / public; eligibility: participants / public* (public categories, once the participants list is released) |
 | rounds | `/rounds[/{roundSeq}]` | rounds / public |
 | motions | `/motions[/{id}]` (`?roundId=`) | rounds / public |
-| institutions | `/institutions[/{id}]` | participants / public* |
+| institutions | `/institutions[/{id}]` (`?region=`) | participants / public* |
 | teams | `/teams[/{id}]` (`?institutionId=`) | participants / public* |
 | speakers | `/speakers[/{id}]` | participants / public* |
 | adjudicators | `/adjudicators[/{id}]` (`?institutionId=`, `?break=true` for breaking adjudicators) | participants / public* (breaking: once released) |
 | venues, venue categories | `/venues[/{id}]` (`?category=`), `/venue-categories[/{name}]` | venues / public |
-| break categories, eligibility, break | `/break-categories[/{id}[/eligibility or /break]]` | breaks / public (break once released) |
+| break categories, eligibility, break | `/break-categories[/{id}[/eligibility or /break]]` | breaks / public (eligibility once the participants list is released with `publicBreakCategories`; break once released) |
 | pairings | `/rounds/{seq}/pairings[/{debateId}]` | draws / public |
 | preformed panels | `/rounds/{seq}/preformed-panels[/{panelId}]` | draws |
-| ballots | `/rounds/{seq}/ballots` (`?confirmed=`), `/rounds/{seq}/pairings/{id}/ballots[/{ballotId}]` | results |
+| ballots | `/rounds/{seq}/ballots` (`?confirmed=`), `/rounds/{seq}/pairings/{id}/ballots[/{ballotId}]` | results / public* (once `releaseBallots` is on: confirmed ballots of rounds whose results are public, as the public site shows them) |
 | availabilities | `/rounds/{seq}/availabilities` (`?teams=`, `?adjudicators=`, `?venues=`) | checkins |
 | check-ins | `/teams/{id}/checkin`, `/speakers/{id}/checkin`, `/adjudicators/{id}/checkin`, `/venues/{id}/checkin`, `/rounds/{seq}/pairings/{id}/checkin` | checkins |
 | feedback | `/feedback[/{id}]` (`?roundId=` one or comma-separated, `?targetAdjudicatorId=`, `?sourceId=`, `?sourceType=`; combinable) | feedback |
@@ -132,7 +144,7 @@ All paths are below `/api/v1/tournaments/{slug}`.
 | team current-round results | `/teams/standings/current-rounds` | standings / public (unless `publicStandings` is off) |
 | speaker standings, replies, by round | `/speakers/standings[/replies or /rounds]` (`?round=`, `?metrics=`; speakers `?category=` speaker category; by round `?substantive=`, `?replies=`, `?ghost=`) | standings / public* |
 | adjudicator standings | `/adjudicators/standings` | standings + feedback |
-| me | `/me` | private URL key + passcode |
+| me | `/me`, `/me/ballots`, `/me/feedback` | private URL key + passcode |
 | — | `/draws` (the first v1 endpoint, legacy shape) | draws / public |
 
 \* public only once released.
@@ -146,6 +158,11 @@ Standings queries:
   (`publicBreakCategories` or break category tabs) and see only public speaker categories.
 - `?metrics=a,b,c` ranks by those metric ids for this request only (Tabbycat's `metrics`); every
   metric is returned whatever the ranking, so Tabbycat's `extra_metrics` is not needed.
+- With a public tab limit (`teamTabLimit`, `speakerTabLimit`, `repliesTabLimit`, or a speaker or
+  break category's own limit), public requests get the tab computed when the view was published,
+  exactly as the public page shows it: the top ranks only, with the tab's "extra" metrics. The
+  public view then carries no results for the tab's rounds, so `?round=` and `?metrics=` are
+  refused (422) for public requests.
 - `/teams/standings/current-rounds` is the public Standings page (Tabbycat's
   `public_team_standings`): each team's results in rounds whose results are released and not
   silent; speaker scores only for rounds whose team speaks are released, totals only when all are.
@@ -192,11 +209,28 @@ Every write runs a tab-room command (`src/features/tournament/application/*`) th
 - **Audit.** Each write's audit events carry `actorId: "api-token:<id>"`, the token's name and the
   request id (`X-Request-Id`).
 - **Double entry.** With `ballotDoubleEntry` on, a token counts as one person: it cannot confirm a
-  ballot it entered without an override; a second token (or a person in the tab room) can.
+  ballot it entered without an override; a second token (or a person in the tab room) can. A blind
+  check (`checksVersion: N`) is compared with version N as the tab-room form compares them
+  (`diffBallots`): a differing entry is refused with `409 conflict` and `differences[]`
+  (`field`, `first` = version N, `second` = this entry). Confirm version N instead
+  (`PATCH ... { "action": "confirm" }`), or resend with `"acceptDifferences": true` to keep yours
+  (the form's choice after showing the differences).
+- **Preferences.** `PATCH /preferences` is validated as the settings pages validate it, by the
+  same module (`src/lib/setup/preferenceValidation.ts`, also run by every settings save in the tab
+  room): unknown preferences, values outside a setting's choices, wrong types and invalid
+  structured settings (schedule events, score criteria, venue categories, feedback paths, metric
+  lists) are refused with 422 and one issue per preference. Feedback questions and speaker
+  categories have their own endpoints; required preferences cannot be removed with `null`. Only
+  changed preferences are checked, so values saved by older versions do not block other changes.
 - **Ballots** are sent as the ballot form records them (`entry.speakerScores` by side, `ranks` for
   consensus ballots, `sheets` for voting ballots, `forfeitSide`, `motionId`, `vetoes`) and are
   validated with the form's own checks; points, wins, margins and voting majorities are computed,
-  never accepted from the client. Manual-ballot debates also need `sides`.
+  never accepted from the client. Manual-ballot debates also need `sides`. A ballot without speaker
+  scores (`speakersInBallots`, unscored elimination rounds) is stored with `noSpeakerScores: true`,
+  as from the form, so standings never count its speeches.
+- **Un-confirming** a ballot (`action: "unconfirm"`, Tabbycat's `confirmed: false`) keeps every
+  version: the confirmed version is discarded (withdrawing the result under the discard rules) and
+  its content saved as a new unconfirmed version, which is returned.
 
 `drawStatus` values: `none`, `draft`, `locked` (confirmed, not released), `teams_released` (each
 team sees its pairing on its private URL only) and `confirmed` (the public release; `released` is
@@ -261,7 +295,7 @@ All paths are below `/api/v1/tournaments/{slug}`.
 | — | `POST /rounds/{seq}/pairings/allocate-adjudicators` | write:draws |
 | pairing update | `PATCH /rounds/{seq}/pairings/{id}` (teams/sides, venue, panel, priority) | write:draws |
 | preformed panels | `PUT /rounds/{seq}/preformed-panels` (replace), `DELETE` (all); `POST` (one), `PATCH` / `DELETE .../preformed-panels/{id}`; `POST .../preformed-panels/from-anticipated-draw` (`prioritise`: `bracket` or `liveness`) | write:draws |
-| ballots | `POST /rounds/{seq}/pairings/{id}/ballots`; `PATCH .../ballots/{ballotId}` (`action`: `confirm` or `discard`) | write:results |
+| ballots | `POST /rounds/{seq}/pairings/{id}/ballots` (`checksVersion`, `acceptDifferences` for blind checks); `PATCH .../ballots/{ballotId}` (`action`: `confirm`, `discard` or `unconfirm`); `DELETE .../ballots/{ballotId}` (= discard) | write:results |
 | break categories | `POST /break-categories`, `PATCH` / `DELETE /break-categories/{id}` (incl. `teamOverrides`) | write:breaks |
 | break eligibility | `PUT /break-categories/{id}/eligibility` (`teamIds`, replace); `PATCH` (add only) | write:breaks |
 | generate break | `POST /break-categories/{id}/break`; `PATCH .../break` (`remarks`: team id -> remark or null, then regenerate); `DELETE .../break` (clear it; refused once its rounds have a draw) | write:breaks |
@@ -282,7 +316,11 @@ when the tournament uses one of them), `avoidSameInstitution`, `avoidTeamHistory
 BP `bpPullupDistribution`, `bpPositionCost`, `bpAssignmentMethod`, `renyiOrder`,
 `bpPositionCostExponent`.
 
-**Hand-edited pairings** go through the draw editor's command: a team debates once per round
+**Hand-edited pairings** go through the draw editor's command. A pairing's `importance` is on
+CrabbyTab's 0 to 10 scale (`src/lib/draw/importance.ts`; auto-prioritise writes Tabbycat's levels
+1, 0, -1, -2 as 10, 7, 3, 0), so Tabbycat's negative levels are refused (422). Each team slot in a
+pairing response carries its draw `flags` (Tabbycat's `DebateTeam.flags`, e.g. `bub_up_hist`) next
+to `pulledUp`. A team debates once per round
 (409), elimination rounds take only qualified teams, a room must be available in the round and
 free, a debate with ballots cannot lose its teams or be deleted, and changing a released or
 completed round's matchups needs `override.reason`. Deleting a round's whole draw also sets its

@@ -23,6 +23,8 @@ export interface ParticipantIdentity {
   type: "team" | "adjudicator";
   id: string;
   name: string;
+  /** Set when a speaker's own private URL key was used: the speaker (the team is `id`). */
+  speakerId?: string;
 }
 
 export interface RouteContext<P, Q, B> {

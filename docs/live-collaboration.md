@@ -71,6 +71,12 @@ calls `planLiveWrites` (`src/features/tournament/application/liveSync.ts`):
    which can be older than what the device holds if a listener delivered another device's change
    meanwhile. The plan compares the command's input with its output, and applies only the changed
    records and fields on top of the device's current copy, so other devices' changes are kept.
+   A command that saves the same collection twice (submitting a ballot confirmed saves it, then
+   its confirmation saves it again) passes its starting state both times; a record that is missing
+   from that state but already synced here (created by the first save) is diffed against its
+   synced copy, so the second save is written live too. Before, it stayed a local-only edit that
+   the next listener event reported as a sync conflict. A confirmation also keeps the
+   `confirmedTimestamp` the ballot was submitted with, so one confirmation has one timestamp.
 3. **Field-level patches.** A synced record is written as a Firestore `set` with `mergeFields`
    naming exactly the changed field paths, so Firestore leaves every other field as it is. Map
    fields are written key by key: `roundAvailability` / `roundAvailabilityAt` per round, a debate's

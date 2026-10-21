@@ -51,6 +51,7 @@ export const en = {
   "format.australs": "Australs",
   "format.wsdc": "WSDC",
   "format.custom_2team": "Custom 2-Team",
+  "format.poly": "N teams per room",
 
   "side.OG": "Opening Gov",
   "side.OO": "Opening Opp",
@@ -58,6 +59,7 @@ export const en = {
   "side.CO": "Closing Opp",
   "side.AFF": "Affirmative",
   "side.NEG": "Negative",
+  "side.position": "Team {number}",
 
   "role.chair": "Chair",
   "role.panellist": "Panellist",

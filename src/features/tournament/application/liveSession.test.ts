@@ -226,7 +226,7 @@ describe("state rules run before any live write", () => {
     expect(commits).toEqual([]);
   });
 
-  it("commits a confirmation, the discarded versions and the debate result as one batch", async () => {
+  it("commits a confirmation and the debate result as one batch, leaving other drafts alone", async () => {
     const { dependencies, commits, state } = liveDevice({
       ballots: [ballot("b1"), ballot("b2", { version: 2, submitterId: "operator-3" })],
       actorId: "operator-2",
@@ -235,9 +235,9 @@ describe("state rules run before any live write", () => {
     await settle();
     expect(commits).toHaveLength(1);
     const written = new Map(commits[0].writes.map((item) => [`${item.collection}/${item.id}`, item]));
-    expect([...written.keys()].sort()).toEqual(["ballots/b1", "ballots/b2", "debates/d1"]);
+    // As Tabbycat, confirming a version only unconfirms a previously confirmed one: the draft b2 is kept.
+    expect([...written.keys()].sort()).toEqual(["ballots/b1", "debates/d1"]);
     expect(written.get("ballots/b1")).toMatchObject({ kind: "patch", record: { confirmed: true, discarded: false } });
-    expect(written.get("ballots/b2")).toMatchObject({ kind: "patch", record: { confirmed: false, discarded: true } });
     expect(written.get("debates/d1")).toMatchObject({ record: { resultStatus: "confirmed" } });
     expect(state.ballots.filter((item) => (item as unknown as BallotSubmission).confirmed).map((item) => item.id)).toEqual(["b1"]);
   });

@@ -37,6 +37,8 @@ export interface PublicSiteSettings {
   feedbackProgress: boolean;
   showTeamInstitutions: boolean;
   showAdjudicatorInstitutions: boolean;
+  /** Tabbycat `show_unaccredited`: an "Always trainee" column on adjudicator tables. */
+  showUnaccredited: boolean;
   teamCodeNames: TeamCodeNameMode;
   participantCodeNames: ParticipantCodeNameMode;
   showEmoji: boolean;
@@ -113,6 +115,7 @@ export function getPublicSiteSettings(preferences?: Partial<TournamentPreference
     feedbackProgress: prefs.publicFeedbackProgress === true,
     showTeamInstitutions: prefs.showTeamInstitutions !== false,
     showAdjudicatorInstitutions: prefs.showAdjudicatorInstitutions !== false,
+    showUnaccredited: prefs.showUnaccredited === true,
     teamCodeNames: oneOf(prefs.teamCodeNames, TEAM_CODE_NAME_MODES, "off"),
     participantCodeNames: oneOf(prefs.participantCodeNames, PARTICIPANT_CODE_NAME_MODES, "off"),
     showEmoji: prefs.showEmoji !== false,

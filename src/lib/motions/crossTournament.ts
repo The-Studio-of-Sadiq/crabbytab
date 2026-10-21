@@ -1,6 +1,7 @@
 import type { BallotSubmission, Debate, DebateSide, Motion, Tournament } from "@/types";
 import { analyzeMotionBalance, type MotionBalanceAnalysis } from "@/lib/motionBalance";
 import { BP_POSITIONS, computeMotionStatistics, TWO_TEAM_POSITIONS } from "@/lib/motionStatistics";
+import { isPolyFormat } from "@/lib/debateSides";
 
 /**
  * Motion statistics across several tournaments run by the same tab director (Tabbycat shows them
@@ -61,6 +62,10 @@ export function summariseTournamentMotions(entry: TournamentMotionData): Tournam
     for (const motionId of Object.values(ballot.vetoes || {})) {
       if (motionId) vetoCounts.set(motionId, (vetoCounts.get(motionId) ?? 0) + 1);
     }
+  }
+  // Tabbycat has no motion statistics for other team counts, so poly tournaments contribute none.
+  if (isPolyFormat(entry.tournament.format)) {
+    return { tournament: { id: entry.tournament.id, name: entry.tournament.name }, isBP, motions: [] };
   }
   return {
     tournament: { id: entry.tournament.id, name: entry.tournament.name },

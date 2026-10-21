@@ -1,7 +1,8 @@
 import { roundMotions, nextBallotVersion } from "@/features/tournament/application/ballotEntry";
 import {
-  ballotSides,
   buildBallotResult,
+  debateBallotRules,
+  rulesSides,
   validateBallotEntry,
   type BallotEntry,
   type BallotRules,
@@ -32,6 +33,8 @@ export interface BallotBuildContext {
   debate: Debate;
   teams: Team[];
   motions: Motion[];
+  /** Every round: a poly ballot for the last round advances one team instead of two. */
+  rounds?: Round[];
   existingBallots: BallotSubmission[];
   submitter: { id: string; name: string };
   now: Date;
@@ -54,8 +57,8 @@ export function buildApiBallot(input: BallotInput, context: BallotBuildContext):
     throw new ApiError(422, "validation_failed", "Sides were set by the draw; omit `sides`.");
   }
 
-  const rules: BallotRules = { format: tournament.format, preferences: tournament.preferences, stage: round.stage };
-  const sides = ballotSides(rules.format);
+  const rules: BallotRules = debateBallotRules(tournament, round, debate, context.rounds);
+  const sides = rulesSides(rules);
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const rosters = Object.fromEntries(sides.map((side) => [side, teamsById.get(debate.teams?.[side]?.teamId ?? "")?.speakers ?? []]));
   const teamIds = Object.fromEntries(sides.map((side) => [side, debate.teams?.[side]?.teamId ?? ""]));
@@ -95,6 +98,9 @@ export function buildApiBallot(input: BallotInput, context: BallotBuildContext):
     ...(Object.keys(vetoes).length > 0 ? { vetoes } : {}),
     ...(input.entry.forfeitSide ? { forfeitSide: input.entry.forfeitSide } : {}),
     ...(result.selfSplit ? { selfSplit: true } : {}),
+    // Results-only ballots (speakersInBallots "never", unscored elimination rounds) must keep
+    // this flag, as the tab-room form does, or standings count their placeholder speeches.
+    ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
     ...(chairId ? { chairId } : {}),
     ...(input.checksVersion !== undefined ? { checksVersion: input.checksVersion } : {}),
     timestamp,

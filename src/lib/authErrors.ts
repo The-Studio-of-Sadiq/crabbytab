@@ -19,6 +19,10 @@ export function firebaseAuthMessage(error: unknown): string {
       return "Password must be at least 6 characters.";
     case "auth/too-many-requests":
       return "Too many attempts. Wait a moment and try again.";
+    case "auth/requires-recent-login":
+      return "Sign in again, then change your password.";
+    case "auth/missing-password":
+      return "Enter your current password.";
     case "auth/network-request-failed":
       return "Network error. Check your connection and try again.";
     case "auth/operation-not-allowed":

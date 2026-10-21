@@ -22,7 +22,7 @@ import {
 import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
 import {
   applyScoreCriteria,
-  ballotSides,
+  rulesSides,
   buildBallotResult,
   effectiveRanks,
   substantiveSpeakerCount,
@@ -32,6 +32,13 @@ import {
 } from "@/lib/ballots/result";
 import { speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
 import { privateBallotRules, privateSelfSplitAllowed, privateUrlBallotsEnabled } from "@/lib/privateBallot";
+import { MotionChoiceFields } from "@/features/tournament/components/ballot/MotionChoiceFields";
+import {
+  participantBallotAsksMotion,
+  participantBallotAsksVetoes,
+  participantRoundMotions,
+} from "@/lib/ballots/participantMotion";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
 import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
 import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
 import { translatedSideName } from "@/lib/sideNames";
@@ -81,6 +88,7 @@ export default function AdjudicatorPrivatePortalPage() {
     venues,
     ballots,
     feedback,
+    motions,
     submitBallot,
     addFeedback,
   } = useTournament();
@@ -91,7 +99,8 @@ export default function AdjudicatorPrivatePortalPage() {
     return adjudicators.find((a) => a.privateUrlKey === privateKey);
   }, [adjudicators, privateKey]);
 
-  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
+  // Feedback is on and taken through private URLs (Tabbycat participant_feedback).
+  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false && tournament?.preferences?.privateUrlFeedback !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
   const feedbackQuestions = questionsForFeedbackSource("adjudicator", tournament?.preferences);
@@ -200,6 +209,14 @@ export default function AdjudicatorPrivatePortalPage() {
   /** A solo adjudicator's 2:1 split declaration (allowSelfSplitBallots); kept apart from the sheet. */
   const [ballotSelfSplit, setBallotSelfSplit] = useState(false);
   const [ballotMotionId, setBallotMotionId] = useState<string>("");
+  const [ballotVetoes, setBallotVetoes] = useState<Partial<Record<DebateSide, string>>>({});
+  // The round's motions, when the ballot asks which was debated (sent by the private sync).
+  const ballotRoundMotions = useMemo(
+    () => (ballotDebate ? participantRoundMotions(motions, ballotDebate.roundId) : []),
+    [motions, ballotDebate]
+  );
+  const ballotAsksMotion = participantBallotAsksMotion(tournament?.preferences, ballotRoundMotions);
+  const ballotAsksVetoes = participantBallotAsksVetoes(tournament?.preferences, ballotRoundMotions);
   const [ballotSubmitting, setBallotSubmitting] = useState(false);
   const [ballotError, setBallotError] = useState("");
   const [ballotSuccessNotice, setBallotSuccessNotice] = useState("");
@@ -395,12 +412,19 @@ export default function AdjudicatorPrivatePortalPage() {
     setBallotDrawnDebate(drawnDebate);
     setBallotSidesChosen(sidesChosen);
     setBallotDebate(debate);
-    if (!chosenAffTeamId) setBallotMotionId(debate.motionId || "");
+    if (!chosenAffTeamId) {
+      // With several motions the adjudicator picks the debated one (never defaulted to the first);
+      // an earlier ballot's choice is kept.
+      const roundMotionIds = participantRoundMotions(motions, debate.roundId).map((motion) => motion.id);
+      const earlier = existingBallot?.motionId && roundMotionIds.includes(existingBallot.motionId) ? existingBallot.motionId : "";
+      setBallotMotionId(roundMotionIds.length > 1 ? earlier : debate.motionId || "");
+      setBallotVetoes(roundMotionIds.length > 1 ? { ...(existingBallot?.vetoes || {}) } : {});
+    }
     setBallotError("");
 
     // The portal ballot is one adjudicator's own sheet, entered like a consensus ballot.
-    const rules = privateBallotRules(tournament!, roundsMap.get(debate.roundId));
-    const sides = ballotSides(rules.format);
+    const rules = privateBallotRules(tournament!, roundsMap.get(debate.roundId), debate, [...roundsMap.values()]);
+    const sides = rulesSides(rules);
     const speakerScores = Object.fromEntries(sides.map((side) => {
       const team = debate.teams[side] ? teamsMap.get(debate.teams[side]!.teamId) : undefined;
       const saved = existing?.speakerScores?.[side];
@@ -409,6 +433,8 @@ export default function AdjudicatorPrivatePortalPage() {
     setBallotEntry({
       speakerScores,
       ranks: Object.fromEntries(sides.map((side, index) => [side, existing?.teamScores?.[side]?.rank || index + 1])),
+      // N teams per room, results only: the advancing teams.
+      ...(isPolyFormat(rules.format) ? { winners: sides.filter((side) => existing?.teamScores?.[side]?.win === true) } : {}),
       motionId: debate.motionId || "",
     });
     setBallotSelfSplit(existing?.selfSplit === true);
@@ -425,8 +451,12 @@ export default function AdjudicatorPrivatePortalPage() {
     }
 
     if (!ballotEntry || !tournament) return;
-    const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId));
-    const sides = ballotSides(rules.format);
+    if (ballotAsksMotion && !ballotRoundMotions.some((motion) => motion.id === ballotMotionId)) {
+      setBallotError(t("adjPortal.ballot.chooseMotion"));
+      return;
+    }
+    const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]);
+    const sides = rulesSides(rules);
     const rosters = Object.fromEntries(sides.map((side) => [
       side,
       teamsMap.get(ballotDebate.teams[side]?.teamId || "")?.speakers || [],
@@ -458,7 +488,12 @@ export default function AdjudicatorPrivatePortalPage() {
         submitterId: adjudicator.id,
         submitterName: adjudicator.name,
         motionId: ballotMotionId,
-        motionText: ballotDebate.motionText,
+        motionText: ballotAsksMotion
+          ? ballotRoundMotions.find((motion) => motion.id === ballotMotionId)?.text
+          : ballotDebate.motionText,
+        ...(ballotAsksVetoes && Object.values(ballotVetoes).some(Boolean)
+          ? { vetoes: Object.fromEntries(Object.entries(ballotVetoes).filter(([, motionId]) => Boolean(motionId) && motionId !== ballotMotionId)) }
+          : {}),
         speakerScores: result.speakerScores,
         teamScores: result.teamScores,
         ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
@@ -734,7 +769,7 @@ export default function AdjudicatorPrivatePortalPage() {
               ? coJudges.filter((target) => isFeedbackPathAllowed(feedbackPaths, myRole, target.role))
               : [];
             const headingId = `debate-${debate.id}-heading`;
-            const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+            const sides: DebateSide[] = tournament ? debateSides(debate, tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
             const pending = !isBP && sidesPending(debate);
 
             return (
@@ -780,7 +815,7 @@ export default function AdjudicatorPrivatePortalPage() {
                     <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
                       {t("adjPortal.teamsPositions")}
                     </h3>
-                    <ul className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", isBP && "md:grid-cols-4")}>
+                    <ul className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", (isBP || sides.length > 2) && "md:grid-cols-4")}>
                       {sides.map((side) => (
                         <li key={side} className="min-w-0 rounded-md border border-border bg-background p-2.5">
                           <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-fg-muted">
@@ -789,7 +824,7 @@ export default function AdjudicatorPrivatePortalPage() {
                             ) : (
                               <>
                                 <SideBadge side={side} preferences={tournament?.preferences} />
-                                {isBP ? t(`side.${side}`) : translatedSideName(t, side, tournament?.preferences)}
+                                {translatedSideName(t, side, tournament?.preferences)}
                               </>
                             )}
                           </span>
@@ -1107,11 +1142,27 @@ export default function AdjudicatorPrivatePortalPage() {
                 ))}
               </fieldset>
             )}
+            {ballotSidesChosen && tournament && (
+              <MotionChoiceFields
+                idPrefix="portal-ballot"
+                motions={ballotRoundMotions}
+                askMotion={ballotAsksMotion}
+                askVetoes={ballotAsksVetoes}
+                sides={rulesSides(privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]))}
+                teamNames={Object.fromEntries(Object.entries(ballotDebate.teams || {}).map(([side, slot]) => [side, slot?.teamName || side]))}
+                motionId={ballotMotionId}
+                vetoes={ballotVetoes}
+                onMotionChange={setBallotMotionId}
+                onVetoChange={(side, motionId) => setBallotVetoes((current) => ({ ...current, [side]: motionId }))}
+              />
+            )}
             {ballotSidesChosen && ballotEntry && tournament && (() => {
-              const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId));
-              const sides = ballotSides(rules.format);
+              const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]);
+              const sides = rulesSides(rules);
               const scored = usesSpeakerScores(rules);
-              const fromScores = scored && winnerDeclarationFor(rules.preferences) === "none";
+              const poly = isPolyFormat(rules.format);
+              // Poly ranks always come from the totals (Tabbycat's PolyScoresheet).
+              const fromScores = scored && (poly || winnerDeclarationFor(rules.preferences) === "none");
               const rankCount = scored && speakerRanksFor(rules.preferences) !== "none"
                 ? sides.length * substantiveSpeakerCount(rules)
                 : undefined;
@@ -1139,9 +1190,25 @@ export default function AdjudicatorPrivatePortalPage() {
                           {teamSlot?.teamName || t("adjPortal.ballot.unassigned")}
                         </h3>
                       </div>
-                      {fromScores ? (
+                      {poly && rules.polyScoresOnly ? null : poly && !scored ? (
+                        <label className="flex items-center gap-2 text-xs font-medium text-fg">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-[rgb(var(--color-accent))]"
+                            checked={Boolean(ballotEntry.winners?.includes(side))}
+                            onChange={(event) => setBallotEntry((current) => current && {
+                              ...current,
+                              winners: event.target.checked
+                                ? [...(current.winners || []).filter((item) => item !== side), side]
+                                : (current.winners || []).filter((item) => item !== side),
+                            })}
+                            aria-label={t("results.ballot.advancesLabel", { team: teamSlot?.teamName || side })}
+                          />
+                          {t("results.ballot.advances")}
+                        </label>
+                      ) : fromScores ? (
                         <span className="text-xs font-medium text-fg-muted">
-                          {isBP ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
+                          {isBP || poly ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
                         </span>
                       ) : (
                         <div className="flex items-center gap-1.5">

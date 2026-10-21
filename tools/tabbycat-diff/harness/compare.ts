@@ -69,12 +69,15 @@ const EPSILON = 1e-4;
 
 /**
  * Tabbycat reports a metric as null when a team or speaker has no results yet (a bye, a missed
- * round); CrabbyTab reports 0. Both rank such rows last, so null and 0 compare equal.
+ * round). A null equals only a null (or a missing value): CrabbyTab's 0 for the same row is a
+ * difference, because 0 is a real value that ranks (best, on an ascending metric such as
+ * speaks_stddev), while Tabbycat's null ranks last.
  */
-function equalNumbers(a: number | null | undefined, b: number | null | undefined): boolean {
-  const left = a ?? 0;
-  const right = b ?? 0;
-  return Math.abs(left - right) <= EPSILON * Math.max(1, Math.abs(left));
+export function equalNumbers(a: number | null | undefined, b: number | null | undefined): boolean {
+  const leftMissing = a === null || a === undefined;
+  const rightMissing = b === null || b === undefined;
+  if (leftMissing || rightMissing) return leftMissing === rightMissing;
+  return Math.abs(a - b) <= EPSILON * Math.max(1, Math.abs(a));
 }
 
 function pairKey(a: string, b: string): string {
@@ -348,9 +351,33 @@ function spread(values: unknown[]): unknown {
   return [...new Set(values.map((value) => JSON.stringify(value)))].map((value) => JSON.parse(value) as unknown);
 }
 
-function overlaps(left: unknown[], right: unknown[]): boolean {
+/** Draw properties that count something the rules try to avoid: fewer is better. */
+const LOWER_IS_BETTER: ReadonlySet<string> = new Set([
+  "pullups",
+  "institutionClashes",
+  "repeatPairings",
+  "sideImbalance",
+  "sideCapViolations",
+  "positionCost",
+  "coverageErrors",
+]);
+
+const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+
+/**
+ * Whether CrabbyTab's values over the seeds are explained by seed-to-seed variation rather than a
+ * different (worse) rule. For a count of things the rules avoid, CrabbyTab must be no worse than
+ * Tabbycat on average and in the worst seed: merely overlapping ranges are not enough (e.g.
+ * Tabbycat 0 rematches in every seed and CrabbyTab 0..3 is systematically worse). For other
+ * properties (rooms, bracket signatures, byes), some seed of each engine must give the same value.
+ */
+export function seedVariation(property: string, left: unknown[], right: unknown[]): boolean {
+  if (left.length === 0 || right.length === 0) return false;
   if (left.every((value) => typeof value === "number") && right.every((value) => typeof value === "number")) {
     const [a, b] = [left as number[], right as number[]];
+    if (LOWER_IS_BETTER.has(property)) {
+      return mean(b) <= mean(a) + EPSILON && Math.max(...b) <= Math.max(...a) + EPSILON;
+    }
     return Math.min(...a) <= Math.max(...b) + EPSILON && Math.min(...b) <= Math.max(...a) + EPSILON;
   }
   const keys = new Set(left.map((value) => JSON.stringify(value)));
@@ -418,16 +445,16 @@ function compareDraws(
       }
       const left = tabbycatProps.map((props) => props[property]);
       const right = crabbyProps.map((props) => props[property]);
-      // A difference that also shows up between seeds of the same engine is seed variation, not a rule difference.
-      const seedVariation = overlaps(left, right);
-      let auto: Classification | undefined = seedVariation ? "valid alternative" : undefined;
+      // A difference explained by seed-to-seed variation (and not systematically worse) is a valid alternative.
+      const variation = seedVariation(property, left, right);
+      let auto: Classification | undefined = variation ? "valid alternative" : undefined;
       // Byes for the lowest-ranked teams may go to any of the teams tied on the lowest points.
       if (property === "byes" && draw.round > 1) {
         const byePoints = (byes: string[]) => byes.map((team) => points.get(team) ?? 0).sort();
         if (JSON.stringify(byePoints(a.byes)) === JSON.stringify(byePoints(b.byes))) auto = "valid alternative";
       }
       out.discrepancies.push(discrepancy(fixture, "draw", `${base}/${property}`,
-        `Round ${draw.round}: ${property} differs` + (seedVariation ? " (within seed-to-seed variation)" : ""),
+        `Round ${draw.round}: ${property} differs` + (variation ? " (within seed-to-seed variation)" : ""),
         undefined,
         { primary: a[property], seeds: spread(left) },
         { primary: b[property], seeds: spread(right) },

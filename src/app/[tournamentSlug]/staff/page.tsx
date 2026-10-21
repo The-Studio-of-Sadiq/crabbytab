@@ -70,17 +70,21 @@ export default function StaffPage() {
     return t(notice.key);
   };
 
+  // Keyed on the tournament's id, not the object: saving a setting on this page replaces the
+  // tournament object, and reloading the staff list then swapped the whole page for its loading
+  // skeleton (unmounting the settings cards mid-save) while two server requests ran.
+  const tournamentId = tournament?.id;
   useEffect(() => {
     let active = true;
     async function loadStaff() {
-      if (!user || !tournament || !isOwnerOrAdmin) {
+      if (!user || !tournamentId || !isOwnerOrAdmin) {
         setLoading(false);
         return;
       }
       setLoading(true);
       try {
         const token = await user.getIdToken();
-        const response = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/staff`, {
+        const response = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}/staff`, {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
@@ -89,7 +93,7 @@ export default function StaffPage() {
           staff?: StaffMember[];
         };
         if (!response.ok) throw new Error(result.error || "");
-        const groupsResponse = await fetch(`/api/tournaments/${encodeURIComponent(tournament.id)}/staff/groups`, {
+        const groupsResponse = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}/staff/groups`, {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
         });
@@ -109,7 +113,7 @@ export default function StaffPage() {
     return () => {
       active = false;
     };
-  }, [user, tournament, isOwnerOrAdmin]);
+  }, [user, tournamentId, isOwnerOrAdmin]);
 
   const addStaff = async (event: React.FormEvent) => {
     event.preventDefault();

@@ -20,6 +20,7 @@ import {
 } from "@/lib/motions/roundMotions";
 import { formatScheduleTime } from "@/lib/schedule/time";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { motionReuseEnabled } from "@/lib/ballots/ballotRules";
 
 /**
  * One round's motions: release state, order within the round (Tabbycat RoundMotion.seq) and
@@ -28,7 +29,9 @@ import { useI18n } from "@/components/i18n/I18nProvider";
  */
 export function RoundMotionsPanel({ round }: { round: Round }) {
   const { t, locale, formatList } = useI18n();
-  const { motions, rounds, isOwnerOrAdmin, updateMotions } = useTournament();
+  const { tournament, motions, rounds, isOwnerOrAdmin, updateMotions } = useTournament();
+  // Tabbycat enable_motion_reuse: reusing motions from other rounds can be switched off.
+  const reuse = motionReuseEnabled(tournament?.preferences);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [motionToAdd, setMotionToAdd] = useState("");
@@ -111,7 +114,7 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
             })}
           </ol>
         )}
-        {isOwnerOrAdmin && (
+        {isOwnerOrAdmin && reuse && (
           <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
             <Select
               label={t("tabroom.schedule.motions.reuseLabel")}

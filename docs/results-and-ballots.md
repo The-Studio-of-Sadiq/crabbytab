@@ -153,10 +153,12 @@ This is checked per adjudicator on voting ballots.
 
 - ballot entry, the private portals, printed ballots, results and dashboard tables, analytics, the
   public draw and the projector display;
-- `SideBadge`, which takes `preferences`.
+- `SideBadge`, which takes `preferences`;
+- the public veto statistics, side-allocations page, scoresheets and team record pages, the admin
+  team record, the draw setup panel and the side pre-allocation grid (`translatedSideName`).
 
-Stored data keeps the codes AFF/NEG and OG/OO/CG/CO. The draw CSV keeps its English
-"Affirmative"/"Negative" headers so the export format stays stable. Names other than aff-neg are
+Stored data keeps the codes AFF/NEG and OG/OO/CG/CO. The draw CSV headers use the tournament's
+side names (unchanged "Affirmative"/"Negative" for the default aff-neg). Names other than aff-neg are
 not translated yet.
 
 **Motions off (`enableMotions`).** Ballots, the private portal and printed scoresheets stop asking
@@ -184,12 +186,75 @@ a debate with exactly one voting adjudicator (trainees do not count), as in Tabb
 - Validation rejects a declared split when the setting is off, the panel has more than one voting
   adjudicator, or the round uses consensus ballots. Double-entry comparison reports a changed
   declaration.
-- **Private URLs:** the checkbox appears only when individual ballots are on, because only then is
-  the adjudicator's sheet merged into a voting ballot. The sync route checks the flag again and
-  refuses it otherwise. Without individual ballots, a private-URL ballot is stored without votes,
-  so a split would mean nothing. The tab room can still record the split when it enters the
-  voting ballot. *Fill from private URLs* carries a solo adjudicator's split over.
+- **Private URLs:** the checkbox appears for a debate's only voting adjudicator, whose sheet
+  becomes the voting ballot (merged with individual ballots, or directly without them; see
+  `staff-access.md`). The sync route checks the flag again and refuses it otherwise. *Fill from
+  private URLs* carries a solo adjudicator's split over.
 - Turning the setting off does not change ballots already saved.
+
+## Confirming a ballot
+
+As in Tabbycat (`Submission.save`, `BallotSetForm.save`), confirming a version only **unconfirms**
+the debate's previously confirmed version; drafts and other versions are kept as they are (before,
+every other version was discarded). A double-entry check that confirms a re-entry discards the
+entry it checked (`checksVersion`), which it replaces. Only versions newer than the confirmed
+result count as waiting for a check (`resolveCheckState`, `pendingBallots`). Confirming records
+the confirmer (`confirmedBy` / `confirmedById`).
+
+## The panel's casting vote
+
+A voting panel split evenly is decided by the chair's sheet, as in Tabbycat. With no chair sheet
+the result is refused ("the chair's scoresheet is missing"): Tabbycat has no result until every
+voting adjudicator's sheet, the chair's included, is in. Before, the first sheet decided.
+
+## Recalculating stored ballots (Tabbycat `resaveballots`)
+
+Team totals, margins and voting aggregates are stored on each ballot when it is entered. When a
+setting that feeds them changes after ballots exist (`teamScoreIncludesGhosts`,
+`marginIncludesDissenters`, `scoreAggregation`; `STORED_TOTAL_PREFERENCES` in
+`src/lib/ballots/resave.ts`), saving the settings needs the tab director's confirmation (the
+"scoring changed after ballots" rule says the totals will be recalculated) and then recalculates
+every live ballot under the new setting, updates the debates' cached totals and records a
+`ballots.resaved` audit entry listing the ballots changed, those whose **result** changed (a
+total-decided winner can flip) and those skipped (forfeits, results-only ballots, adjudicators'
+own individual sheets, and ballots whose shape no longer fits the round's ballot mode). The REST
+API's settings route does not recalculate yet.
+
+## Rehearsal results (Tabbycat `generateresults`)
+
+Simulated ballots satisfy every ballot rule in force: speech ranks (by score), score criteria,
+declared winners on voting sheets (the higher total), the reply step (`stepReplyScore`) and the
+validator's default score ranges. Before, such debates were skipped.
+
+## N teams per room (`format: "poly"`)
+
+Rooms with a team count other than 2 or 4 follow Tabbycat's poly result classes
+(`results/result.py` `get_result_class` and `results/scoresheet.py`). A ballot covers the
+debate's own positions, so a short last room (see draw-generation) is scored on its own teams.
+
+| Ballot | Tabbycat class | What is recorded |
+|---|---|---|
+| Consensus with speaker scores | `ConsensusDebateResultWithScores` + `PolyScoresheet` | Teams are ranked on their totals, highest first; tied totals are refused. Points = teams in the room − rank (5 … 0 for six teams). Nobody "wins" (`win: false`) and there is no margin. Entered ranks and `winnersInBallots` are ignored: ranks always follow the totals. |
+| Consensus without speaker scores (`speakersInBallots`) | `ConsensusDebateResult` + `PolyEliminationScoresheet` | The ballot names the advancing teams: exactly two, or one in the tournament's last round. They are stored with `win: true`; no points or ranks. A room with fewer teams than must advance is refused. |
+| Voting (one sheet per adjudicator) | `DebateResultByAdjudicatorWithScores` + `PolyNoWinScoresheet` | Allowed only with *margins include dissenters* on (Tabbycat raises an error otherwise; CrabbyTab refuses the ballot with that reason). Scores only: each speech is the panel's mean or median (criteria aggregated separately), each team total the mean of the sheets' totals; no ranks, points, winner or votes, and totals may tie. Voting ballots without speaker scores are refused (Tabbycat has no form for them). |
+
+Where Tabbycat stores no points (`None`), CrabbyTab stores 0, which standings treat the same.
+Forfeits and self-split ballots are two-team only. Through private URLs each adjudicator's sheet
+in a voting round records scores only (`polyScoresOnly`) and individual ballots merge into the
+score-only voting ballot. Elimination rooms advance their declared teams, or the top two by rank
+(one in the final) on a scored ballot; a score-only voting ballot cannot decide who advances and
+is refused for that. Standings add the points each room's rank earned; wins count only advancing
+teams; the format's default team precedence is average speaks (Tabbycat's Public Speaking
+preset, and its default precedence with wins always 0). As in Tabbycat, the 1sts/2nds/3rds
+metrics count rooms worth 3, 2 and 1 points. Motion statistics are not computed for these
+tournaments (Tabbycat computes none). DebateXML archives of these tournaments carry every
+team of a room; importing an archive whose largest room is neither 2 nor 4 teams creates an
+N-teams-per-room tournament.
+
+The *Public Speaking* rules preset is Tabbycat's: six teams, one speech each (50–99), voting
+ballots with margins including dissenters, results-only elimination ballots, side names
+"Team 1, Team 2", no motions or vetoes, no institution or history avoidance, standings on average
+speaks, and random preliminary draws.
 
 ## Not done
 

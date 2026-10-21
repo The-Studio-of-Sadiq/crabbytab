@@ -11,8 +11,10 @@ import type {
   Venue,
 } from "@/types";
 import { MAX_CAMPAIGN_RECIPIENTS, resolveEmailRecipients, type EmailRecipient } from "@/lib/email/messaging";
+import { sheetOutcome, teamSpeakerTotal, type BallotRules } from "@/lib/ballots/result";
 import { isDrawVisibleToAdjudicators, isDrawVisibleToTeams } from "@/lib/privatePortalBallots";
 import { DEFAULT_EMAIL_TEMPLATES, type EmailTemplate } from "@/lib/email/settings";
+import { compareSides, isPolySide } from "@/lib/debateSides";
 
 /**
  * Automatic notifications (Tabbycat's draw / results / ballot receipt emails). Everything here is
@@ -158,17 +160,26 @@ export function buildDrawTeamRecipients(
   });
 }
 
-/** Allocation emails for every adjudicator on a panel in the round, once panels are revealed. */
+/**
+ * Allocation emails for every adjudicator on a panel in the round, once panels are revealed. As
+ * Tabbycat's AdjudicatorAssignmentEmailGenerator, each carries the adjudicator's position and, given
+ * `links`, their own private URL ({{private_url}} / {{key}}; the passcode is never included).
+ */
 export function buildDrawAdjudicatorRecipients(
   round: Round,
   debates: Debate[],
   teams: Team[],
   adjudicators: Adjudicator[],
-  venues: Array<Pick<Venue, "id" | "url">> = []
+  venues: Array<Pick<Venue, "id" | "url">> = [],
+  links: { privateUrlOrigin?: string; tournamentSlug?: string } = {}
 ): EmailRecipient[] {
   if (!isDrawVisibleToAdjudicators(round) || round.adjudicatorsRevealed !== true) return [];
   const roundDebates = debates.filter((debate) => debate.roundId === round.id);
-  return resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round, { venues });
+  const withLinks = Boolean(links.privateUrlOrigin && links.tournamentSlug);
+  return resolveEmailRecipients("round_adjudicators", teams, adjudicators, roundDebates, round, {
+    venues,
+    ...(withLinks ? { includePrivateCredentials: true, ...links } : {}),
+  }).map(({ passcode: _passcode, ...recipient }) => recipient);
 }
 
 function ordinal(rank: number): string {
@@ -206,6 +217,13 @@ export function buildTeamPointsRecipients(
       return [];
     } else if (isBP) {
       result = roundResult.rank ? `${ordinal(roundResult.rank)} place (${formatPoints(roundResult.points)} points)` : `${formatPoints(roundResult.points)} points`;
+    } else if (isPolySide(roundResult.side)) {
+      // N teams per room: a rank (scored consensus ballot), advancing (results-only) or scores only.
+      result = roundResult.rank
+        ? `${ordinal(roundResult.rank)} place (${formatPoints(roundResult.points)} points)`
+        : roundResult.win !== undefined
+          ? roundResult.win ? "Advances" : "Eliminated"
+          : `Total ${formatPoints(roundResult.speakerScore)}`;
     } else {
       result = roundResult.win ? "Win" : "Loss";
     }
@@ -220,7 +238,9 @@ export function buildTeamPointsRecipients(
 
 /** A plain-text summary of a submitted ballot for the submitting adjudicator's receipt. */
 export function summarizeBallot(ballot: BallotSubmission, debate: Debate, isBP: boolean): string {
-  const sides = (isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
+  const polySides = Object.keys(debate.teams || {}).filter(isPolySide).sort(compareSides) as DebateSide[];
+  const poly = polySides.length > 0;
+  const sides = poly ? polySides : (isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
   const lines: string[] = [];
   if (ballot.motionText) lines.push(`Motion: ${ballot.motionText}`);
   if (ballot.forfeitSide) {
@@ -231,10 +251,12 @@ export function summarizeBallot(ballot: BallotSubmission, debate: Debate, isBP: 
     const slot = debate.teams?.[side];
     const score = ballot.teamScores?.[side];
     if (!slot || !score) continue;
-    const outcome = isBP
+    const outcome = isBP || (poly && score.rank)
       ? score.rank ? `${ordinal(score.rank)}, ${formatPoints(score.points)} points` : `${formatPoints(score.points)} points`
-      : score.win ? "Win" : "Loss";
-    lines.push(`${side} ${slot.teamName}: ${outcome}, total ${formatPoints(score.totalSpeakerScore)}`);
+      : poly
+        ? score.win === undefined ? "" : score.win ? "Advances" : "Eliminated"
+        : score.win ? "Win" : "Loss";
+    lines.push(`${side} ${slot.teamName}: ${outcome ? `${outcome}, ` : ""}total ${formatPoints(score.totalSpeakerScore)}`);
     for (const speech of ballot.speakerScores?.[side] ?? []) {
       lines.push(`  ${speech.position}. ${speech.speakerName}: ${formatPoints(speech.score)}${speech.ghost ? " (duplicate speech)" : ""}`);
     }
@@ -310,29 +332,59 @@ export function buildMotionsRecipients(
     }));
 }
 
+/** One adjudicator's own scoresheet of a voting ballot, with the decision it gives (its winner). */
+function summarizeSheet(
+  ballot: BallotSubmission,
+  sheet: NonNullable<BallotSubmission["sheets"]>[number],
+  debate: Debate,
+  rules: BallotRules
+): string {
+  const sides = Object.keys(sheet.speakerScores ?? {}) as DebateSide[];
+  const winner = sides.length === 2 ? sheetOutcome(sheet, rules).winner : undefined;
+  const teamScores = Object.fromEntries(sides.map((side) => [side, {
+    side,
+    teamId: ballot.teamScores?.[side]?.teamId ?? debate.teams?.[side]?.teamId ?? "",
+    points: side === winner ? 1 : 0,
+    ...(winner ? { win: side === winner } : {}),
+    totalSpeakerScore: teamSpeakerTotal(sheet.speakerScores?.[side] ?? [], rules),
+  }])) as BallotSubmission["teamScores"];
+  return summarizeBallot({ ...ballot, speakerScores: sheet.speakerScores, teamScores, forfeitSide: undefined }, debate, false);
+}
+
 /**
- * Ballot-confirmed emails (Tabbycat BALLOTS_CONFIRMED): every adjudicator of the debate with an
- * address. With voting ballots each voting adjudicator also sees their own sheet as recorded.
+ * Ballot-confirmed emails (Tabbycat BALLOTS_CONFIRMED). A consensus ballot goes to every adjudicator
+ * of the debate (trainees included) with an address. A voting ballot goes, as in Tabbycat, only to
+ * the voting adjudicators, each with their own scoresheet as recorded, never the panel's aggregate.
+ * `rules` (format and scoring settings) total those sheets; absent = the format's defaults.
  */
 export function buildBallotConfirmedRecipients(
   ballot: BallotSubmission,
   debate: Debate,
   adjudicators: Pick<Adjudicator, "id" | "name" | "email">[],
   round: Pick<Round, "name"> | undefined,
-  isBP: boolean
+  isBP: boolean,
+  rules?: Pick<BallotRules, "format" | "preferences">
 ): EmailRecipient[] {
   if (!ballot.confirmed || ballot.discarded) return [];
   const panel = debate.adjudicators;
-  const ids = [...new Set([panel?.chairId, ...(panel?.panellistIds ?? []), ...(panel?.traineeIds ?? [])].filter(Boolean))];
   const byId = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
-  const result = summarizeBallot(ballot, debate, isBP);
+  const sheets = ballot.sheets ?? [];
+  if (sheets.length > 0) {
+    const sheetRules: BallotRules = { format: rules?.format ?? (isBP ? "bp" : "wsdc"), preferences: rules?.preferences };
+    return sheets.flatMap((sheet) => {
+      const adjudicator = byId.get(sheet.adjudicatorId);
+      if (!adjudicator) return [];
+      const recipient = buildBallotReceiptRecipient(adjudicator, ballot, debate, round, isBP);
+      if (!recipient) return [];
+      const motion = ballot.motionText ? `Motion: ${ballot.motionText}\n` : "";
+      return [{ ...recipient, ballot: `${motion}${summarizeSheet({ ...ballot, motionText: undefined }, sheet, debate, sheetRules)}` }];
+    });
+  }
+  const ids = [...new Set([panel?.chairId, ...(panel?.panellistIds ?? []), ...(panel?.traineeIds ?? [])].filter(Boolean))];
   return ids.flatMap((id) => {
     const adjudicator = byId.get(id as string);
     if (!adjudicator) return [];
     const recipient = buildBallotReceiptRecipient(adjudicator, ballot, debate, round, isBP);
-    if (!recipient) return [];
-    const sheet = ballot.sheets?.find((item) => item.adjudicatorId === adjudicator.id);
-    const own = sheet ? summarizeBallot({ ...ballot, speakerScores: sheet.speakerScores, motionText: undefined }, debate, isBP) : "";
-    return [{ ...recipient, ballot: own ? `${result}\n\nYour scoresheet:\n${own}` : result }];
+    return recipient ? [recipient] : [];
   });
 }

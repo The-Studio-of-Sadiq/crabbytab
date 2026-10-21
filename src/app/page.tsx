@@ -342,7 +342,9 @@ export default function HomePage() {
                         <div className="mb-2.5 flex items-start justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge tone="accent">
-                              {item.format === "bp" ? t("setup.entry.home.formatBp") : t("setup.entry.home.formatTwoTeam")}
+                              {item.format === "bp"
+                                ? t("setup.entry.home.formatBp")
+                                : item.format === "poly" ? t("format.poly") : t("setup.entry.home.formatTwoTeam")}
                             </Badge>
                             {isMine && (
                               <StatusPill tone="success" icon={<Shield aria-hidden="true" />}>

@@ -7,12 +7,15 @@ import type {
   FeedbackQuestion,
   FeedbackSubmission,
   Round,
+  SideNames,
   SpeakerStandingRow,
   Team,
   TeamStandingRow,
   TournamentFormat,
 } from "@/types";
 import { ballotSides } from "@/lib/ballots/result";
+import { compareSides, isPolyFormat, isPolySide } from "@/lib/debateSides";
+import { sideLabel } from "@/lib/sideNames";
 
 /**
  * CSV exports as pure functions returning text. PapaParse quotes commas, quotes and newlines;
@@ -87,17 +90,12 @@ export function speakerStandingsCsv(
   );
 }
 
-const SIDE_LABELS: Record<DebateSide, string> = {
-  OG: "Opening Government",
-  OO: "Opening Opposition",
-  CG: "Closing Government",
-  CO: "Closing Opposition",
-  AFF: "Affirmative",
-  NEG: "Negative",
-};
-
 export interface DrawCsvOptions {
   format: TournamentFormat;
+  /** The tournament's side names (Tabbycat `side_names`) for the two-team column headers. */
+  sideNames?: SideNames;
+  /** Poly only: teams per debate (columns Team 1 … Team N). */
+  teamsInDebate?: number;
   /** Leave adjudicators out, e.g. when they are not yet revealed to the public. */
   includeAdjudicators?: boolean;
   /** Adds the motion column (only when motions are released, or for tab-room use). */
@@ -105,12 +103,18 @@ export interface DrawCsvOptions {
 }
 
 export function drawCsv(debates: Debate[], options: DrawCsvOptions): string {
-  const sides = ballotSides(options.format);
+  // Poly: a column for every position any room uses (a short last room has fewer).
+  const sides = isPolyFormat(options.format)
+    ? [...new Set([
+        ...ballotSides(options.format, options.teamsInDebate),
+        ...debates.flatMap((debate) => Object.keys(debate.teams || {}).filter(isPolySide)),
+      ])].sort(compareSides) as DebateSide[]
+    : ballotSides(options.format);
   const includeAdjudicators = options.includeAdjudicators ?? true;
   const fields = [
     "Room Rank",
     "Venue",
-    ...sides.map((side) => SIDE_LABELS[side]),
+    ...sides.map((side) => sideLabel(side, { sideNames: options.sideNames }, "full")),
     ...(includeAdjudicators ? ["Chair", "Panellists", "Trainees"] : []),
     ...(options.includeMotion ? ["Motion"] : []),
     "Notes",

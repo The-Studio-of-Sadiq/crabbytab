@@ -55,7 +55,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             teamQuota: submission.teamsAllocated ?? 0,
             adjudicatorQuota: submission.adjudicatorsAllocated ?? 0,
           },
-          { tournamentId: authorization.tournamentRef.id, actorUid: authorization.user.uid, now: Date.now(), previous }
+          // The link emailed when the institution registered keeps working.
+          { tournamentId: authorization.tournamentRef.id, actorUid: authorization.user.uid, now: Date.now(), previous, keepLandingLink: true }
         ),
         representativeIdFor(institution, submission.contactEmail),
         false

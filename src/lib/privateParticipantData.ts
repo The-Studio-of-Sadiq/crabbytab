@@ -1,4 +1,4 @@
-import type { BallotSubmission, Debate, Team, Venue } from "@/types";
+import type { BallotSubmission, Debate, Motion, Team, Venue } from "@/types";
 import { safeVenueUrl } from "@/lib/venues/venues";
 import {
   PARTICIPANT_IDS_FIELD,
@@ -33,7 +33,7 @@ interface DocumentReferenceLike {
 }
 interface CollectionReferenceLike extends QueryLike {
   doc(id: string): DocumentReferenceLike;
-  where(field: string, operator: "array-contains" | "in", value: unknown): QueryLike;
+  where(field: string, operator: "array-contains" | "array-contains-any" | "in", value: unknown): QueryLike;
 }
 export interface TournamentReferenceLike {
   collection(name: string): CollectionReferenceLike;
@@ -139,4 +139,50 @@ export async function loadBallotsForDebates(
       return isLive(data) ? [{ ...data, id: document.id } as unknown as BallotSubmission] : [];
     })
   );
+}
+
+/**
+ * The live motions assigned to any of these rounds (`array-contains-any`, 30 rounds per query),
+ * for participant ballots that must record the debated motion.
+ */
+export async function loadMotionsForRounds(
+  tournamentRef: TournamentReferenceLike,
+  roundIds: Iterable<string>
+): Promise<Motion[]> {
+  const ids = [...new Set(roundIds)];
+  const motionsRef = tournamentRef.collection("motions");
+  const snapshots = await Promise.all(
+    chunked(ids, IN_QUERY_LIMIT).map((chunk) => motionsRef.where("rounds", "array-contains-any", chunk).get())
+  );
+  const motions = new Map<string, Motion>();
+  for (const snapshot of snapshots) {
+    for (const document of snapshot.docs) {
+      const data = document.data();
+      if (isLive(data) && typeof data.text === "string" && Array.isArray(data.rounds)) {
+        motions.set(document.id, { ...data, id: document.id } as unknown as Motion);
+      }
+    }
+  }
+  return [...motions.values()];
+}
+
+/**
+ * The round fields a private portal needs (names, schedule, draw, release and feedback state).
+ * Rounds also hold the tab room's working data (preformed panels, preallocated sides, the draw
+ * seed, the round-robin algorithm), which participants must never receive, so portals send this
+ * whitelist instead of the stored document.
+ */
+export const PORTAL_ROUND_FIELDS = [
+  "id", "tournamentId", "seq", "name", "abbreviation", "stage", "drawType", "drawStatus",
+  "adjudicatorsRevealed", "feedbackWeight", "feedbackEnabled", "silent", "weight", "motionsReleased",
+  "motionsStatus", "scheduleGroup", "startsAt", "resultsReleased", "teamSpeaksReleased",
+  "breakCategoryIds", "eliminationAdvanced", "cancelled", "completed", "createdAt", "divisionId",
+] as const;
+
+export function portalRoundProjection(round: Data & { id: string }): Data & { id: string } {
+  const projected: Data = {};
+  for (const field of PORTAL_ROUND_FIELDS) {
+    if (round[field] !== undefined) projected[field] = round[field];
+  }
+  return { ...projected, id: round.id };
 }

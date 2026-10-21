@@ -102,6 +102,7 @@ export default function ImportDirectory({
   const {
     tournament,
     isOwnerOrAdmin,
+    staffPermissions,
     teams,
     adjudicators,
     institutions,
@@ -117,6 +118,10 @@ export default function ImportDirectory({
     updateInstitution,
     deleteInstitution,
   } = useTournament();
+  // The adjudicator record (Tabbycat participants-adjudicator-record) needs feedback or score access
+  // (lib/tournamentRoutes.ts); it is reachable here even when feedback is switched off.
+  const canOpenAdjudicatorRecord =
+    isOwnerOrAdmin || staffPermissions.includes("feedback.view") || staffPermissions.includes("adjudicators.scores_edit");
 
   const activeTab: "teams" | "adjs" | "institutions" =
     category === "adjudicators" ? "adjs" : category;
@@ -599,7 +604,19 @@ export default function ImportDirectory({
               {filteredAdjs.map((adj, idx) => (
                 <TR key={adj.id}>
                   <TD numeric className="text-fg-muted">{idx + 1}</TD>
-                  <TD className="font-medium">{adj.name}</TD>
+                  <TD className="font-medium">
+                    {canOpenAdjudicatorRecord ? (
+                      <Link
+                        href={`/${tournamentSlug}/feedback/adjudicator/${adj.id}`}
+                        className="rounded-sm text-accent-text hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        title={t("setup.imports.openAdjudicatorRecord", { name: adj.name })}
+                      >
+                        {adj.name}
+                      </Link>
+                    ) : (
+                      adj.name
+                    )}
+                  </TD>
                   <TD>
                     {adj.independent || !adj.institutionName ? (
                       <Badge>{t("setup.imports.unaffiliated")}</Badge>

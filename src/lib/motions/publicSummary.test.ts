@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPublicMotionSummary, readPublicMotionSummary } from "./publicSummary";
+import { buildPublicMotionSummary, pooledMotionsIndexable, readPublicMotionSummary } from "./publicSummary";
 import { poolMotionSummaries } from "./crossTournament";
 import { buildPublicViewRoot, buildPublicViewSections } from "@/lib/publicView/snapshot";
 import type { PublicSourceData, SourceRecord } from "@/lib/publicView/projection";
@@ -35,6 +35,19 @@ describe("public motion summary", () => {
     });
     expect(readPublicMotionSummary(summary)).toEqual(summary);
     expect(readPublicMotionSummary({ tournament: { id: "x" } })).toBeUndefined();
+  });
+
+  it("marks tournaments that keep search engines out, so the pooled page is not indexed", () => {
+    const motions = [{ id: "m1", text: "THW test", released: true }];
+    const open = buildPublicMotionSummary({ tournamentId: "t1", slug: "open", tournament: tournament({}), motions, rounds })!;
+    expect(open).not.toHaveProperty("noindex");
+    for (const searchEngineIndexing of ["none", "homepage-only"]) {
+      const hidden = buildPublicMotionSummary({ tournamentId: "t2", slug: "hidden", tournament: tournament({ searchEngineIndexing }), motions, rounds })!;
+      expect(hidden.noindex).toBe(true);
+      expect(readPublicMotionSummary(hidden)?.noindex).toBe(true);
+      expect(pooledMotionsIndexable([open, hidden])).toBe(false);
+    }
+    expect(pooledMotionsIndexable([open])).toBe(true);
   });
 
   it("pools the same motion across tournaments and never mixes formats", () => {

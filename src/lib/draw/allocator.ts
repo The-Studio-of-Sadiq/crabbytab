@@ -13,7 +13,14 @@ import type {
   PreformedPanelPlacement,
 } from "@/types";
 import { solveHungarian } from "./hungarian";
-import { allocateTabbycatHungarian, type TabbycatHungarianMode } from "./tabbycatHungarian";
+import {
+  AdjudicatorAllocationError,
+  allocateTabbycatHungarian,
+  NO_AVAILABLE_ADJUDICATORS_MESSAGE,
+  NO_VOTING_ADJUDICATORS_MESSAGE,
+  type TabbycatHungarianMode,
+} from "./tabbycatHungarian";
+import { clampDebateImportance, tabbycatImportanceLevel } from "./importance";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { blendAdjudicatorScore, isFeedbackCountedForScore } from "@/lib/feedback/scores";
 
@@ -121,6 +128,8 @@ export function strengthMismatchCost(scoreDistance: number, weights: AllocationW
   return weights.PRIORITY_STRENGTH_MISMATCH * STRENGTH_COST_SCALE * fraction * fraction;
 }
 
+export { AdjudicatorAllocationError } from "./tabbycatHungarian";
+
 export const DEFAULT_LOCAL_SEARCH_ITERATIONS = 50;
 /** Bounds the total move evaluations of one local search, whatever the iteration cap. */
 export const LOCAL_SEARCH_EVALUATION_BUDGET = 4_000_000;
@@ -133,6 +142,75 @@ export function adjudicatorsConflict(first: Adjudicator, second: Adjudicator): b
   return (
     (first.conflicts ?? []).some((conflict) => conflict.adjudicatorId === second.id) ||
     (second.conflicts ?? []).some((conflict) => conflict.adjudicatorId === first.id)
+  );
+}
+
+function institutionNameKey(name: string | undefined): string | undefined {
+  const trimmed = name?.trim().toLowerCase();
+  return trimmed ? `name:${trimmed}` : undefined;
+}
+
+/**
+ * Tabbycat's adjudicator–institution conflicts (AdjudicatorInstitutionConflict): the adjudicator's
+ * own institution, which CrabbyTab always treats as conflicted unless the adjudicator is
+ * independent (Tabbycat's importer adds that conflict by default), and every institution the
+ * adjudicator declared a conflict with. Institutions are keyed by id, plus by name for the own
+ * institution and for legacy records that name the institution instead of giving its id.
+ */
+export function adjudicatorConflictInstitutions(adj: Adjudicator): Set<string> {
+  const keys = new Set<string>();
+  if (!adj.independent) {
+    if (adj.institutionId) keys.add(adj.institutionId);
+    const own = institutionNameKey(adj.institutionName);
+    if (own) keys.add(own);
+  }
+  for (const conflict of adj.conflicts ?? []) {
+    if (!conflict.institutionId) continue;
+    keys.add(conflict.institutionId);
+    keys.add(institutionNameKey(conflict.institutionId)!);
+  }
+  return keys;
+}
+
+/** Tabbycat's team–institution conflicts: the team's own institution(s) and those it declared. */
+export function teamConflictInstitutions(team: Team): Set<string> {
+  const keys = new Set<string>(teamInstitutionIds(team));
+  for (const id of team.institutionConflictIds ?? []) keys.add(id);
+  const own = institutionNameKey(team.institutionName);
+  if (own) keys.add(own);
+  return keys;
+}
+
+function intersects(first: Set<string>, second: Set<string>): boolean {
+  const [small, large] = first.size <= second.size ? [first, second] : [second, first];
+  for (const key of small) if (large.has(key)) return true;
+  return false;
+}
+
+/** Two adjudicators share a conflicted institution (Tabbycat institutional_conflict_adj_adj). */
+export function adjudicatorsShareInstitution(first: Adjudicator, second: Adjudicator): boolean {
+  if (first.id === second.id) return false;
+  return intersects(adjudicatorConflictInstitutions(first), adjudicatorConflictInstitutions(second));
+}
+
+/** Tabbycat conflict_adj_team: a personal conflict, or an institution both conflict with. */
+export function tabbycatAdjTeamConflict(adj: Adjudicator, team: Team): boolean {
+  return (
+    (adj.conflicts ?? []).some((conflict) => conflict.teamId === team.id) ||
+    intersects(adjudicatorConflictInstitutions(adj), teamConflictInstitutions(team))
+  );
+}
+
+/** Tabbycat conflict_adj_adj: a personal conflict (declared by either), or a shared institution. */
+export function tabbycatAdjAdjConflict(first: Adjudicator, second: Adjudicator): boolean {
+  return adjudicatorsConflict(first, second) || adjudicatorsShareInstitution(first, second);
+}
+
+/** A conflict between two panel members, honouring the respect flags. */
+function panelPairConflicts(first: Adjudicator, second: Adjudicator, options: AllocationOptions): boolean {
+  return (
+    (options.respectPersonalConflicts && adjudicatorsConflict(first, second)) ||
+    (options.respectInstitutionConflicts && adjudicatorsShareInstitution(first, second))
   );
 }
 
@@ -222,12 +300,17 @@ export function calculateAdjDebateConflict(
     }
   }
 
-  // 4. Adjudicator-adjudicator conflicts on the same panel
+  // 4. Adjudicator-adjudicator conflicts on the same panel: personal, or a shared institution
+  //    (Tabbycat conflict_adj_adj, shown there as a conflict "via institution").
   for (const other of otherPanelAdjudicators) {
     if (adjudicatorsConflict(adj, other)) {
       penalty += weights.ADJUDICATOR_CONFLICT;
       hasAdjudicatorClash = true;
       reasons.push(`Personal clash with adjudicator "${other.name}"`);
+    } else if (adjudicatorsShareInstitution(adj, other)) {
+      penalty += weights.ADJUDICATOR_CONFLICT;
+      hasAdjudicatorClash = true;
+      reasons.push(`Institutional clash with adjudicator "${other.name}"`);
     }
   }
 
@@ -292,7 +375,7 @@ function adjudicatorPairCost(
   weights: AllocationWeights
 ): number {
   let cost = 0;
-  if (options.respectPersonalConflicts && adjudicatorsConflict(first, second)) {
+  if (panelPairConflicts(first, second, options)) {
     cost += weights.ADJUDICATOR_CONFLICT;
   }
   const key = [first.id, second.id].sort().join(":");
@@ -326,6 +409,22 @@ function votingPairCosts(
       if (other !== undefined) link(index, other);
     }
   });
+  if (options.respectInstitutionConflicts) {
+    // Voters who share a conflicted institution conflict with each other.
+    const byInstitution = new Map<string, number[]>();
+    voters.forEach((voter, index) => {
+      for (const key of adjudicatorConflictInstitutions(voter)) {
+        const members = byInstitution.get(key);
+        if (members) members.push(index);
+        else byInstitution.set(key, [index]);
+      }
+    });
+    for (const members of byInstitution.values()) {
+      for (let i = 0; i < members.length; i++) {
+        for (let j = i + 1; j < members.length; j++) link(members[i], members[j]);
+      }
+    }
+  }
   if (weights.REPEAT_PANEL !== 0) {
     for (const debate of pastDebates) {
       if (debate.postponed || !debate.adjudicators) continue;
@@ -467,7 +566,7 @@ export function calculateDebatePriorities(
     const livenessComponent = avgLiveness * 10;
 
     // 3. Manual priority component (debate.importance, 0-10 scale, default 0)
-    const manualPriority = debate.importance || 0;
+    const manualPriority = clampDebateImportance(debate.importance);
 
     // Composite: bracket (40%), liveness (40%), manual (20%)
     const priorityScore = bracketNorm * 0.4 + livenessComponent * 0.4 + manualPriority * 0.2;
@@ -851,6 +950,86 @@ export interface IntelligentAllocationContext {
   warnings?: string[];
 }
 
+/**
+ * Tabbycat's conflict and history costs (adjallocation/allocators/hungarian.py calc_cost and
+ * preformed/hungarian.py): per team, `adj_conflict_penalty` when the adjudicator conflicts with it
+ * (personal OR institutional, counted once) plus `adj_history_penalty` when they have seen it; with
+ * a chair, the same for the adjudicator–chair pair (personal or shared institution; judged together
+ * before, trainees included). Seen-before is a yes/no, as in Tabbycat, not a count.
+ */
+export interface TabbycatCostModel {
+  teamCost(adj: Adjudicator, teams: Team[]): number;
+  pairCost(adj: Adjudicator, other: Adjudicator): number;
+}
+
+export function createTabbycatCostModel(
+  pastDebates: Debate[],
+  pastAdjTeams: Map<string, Set<string>>,
+  options: AllocationOptions,
+  weights: AllocationWeights
+): TabbycatCostModel {
+  const conflictPenalty = weights.PERSONAL_CONFLICT;
+  const historyPenalty = weights.REPEAT_TEAM;
+  const seenTogether = new Set<string>();
+  if (options.respectHistoryConflicts) {
+    for (const debate of pastDebates) {
+      if (debate.postponed || !debate.adjudicators) continue;
+      const members = [
+        debate.adjudicators.chairId,
+        ...(debate.adjudicators.panellistIds ?? []),
+        ...(debate.adjudicators.traineeIds ?? []),
+      ].filter((id): id is string => Boolean(id));
+      for (let i = 0; i < members.length; i++) {
+        for (let j = i + 1; j < members.length; j++) seenTogether.add([members[i], members[j]].sort().join(":"));
+      }
+    }
+  }
+  const adjInstitutions = new Map<string, Set<string>>();
+  const teamInstitutions = new Map<string, Set<string>>();
+  const institutionsOfAdj = (adj: Adjudicator) => {
+    let keys = adjInstitutions.get(adj.id);
+    if (!keys) adjInstitutions.set(adj.id, (keys = adjudicatorConflictInstitutions(adj)));
+    return keys;
+  };
+  const institutionsOfTeam = (team: Team) => {
+    let keys = teamInstitutions.get(team.id);
+    if (!keys) teamInstitutions.set(team.id, (keys = teamConflictInstitutions(team)));
+    return keys;
+  };
+  return {
+    teamCost(adj, teams) {
+      let cost = 0;
+      for (const team of teams) {
+        const conflict =
+          (options.respectPersonalConflicts && (adj.conflicts ?? []).some((item) => item.teamId === team.id)) ||
+          (options.respectInstitutionConflicts && intersects(institutionsOfAdj(adj), institutionsOfTeam(team)));
+        if (conflict) cost += conflictPenalty;
+        if (options.respectHistoryConflicts && pastAdjTeams.get(adj.id)?.has(team.id)) cost += historyPenalty;
+      }
+      return cost;
+    },
+    pairCost(adj, other) {
+      if (adj.id === other.id) return 0;
+      let cost = 0;
+      const conflict =
+        (options.respectPersonalConflicts && adjudicatorsConflict(adj, other)) ||
+        (options.respectInstitutionConflicts && intersects(institutionsOfAdj(adj), institutionsOfAdj(other)));
+      if (conflict) cost += conflictPenalty;
+      if (seenTogether.has([adj.id, other.id].sort().join(":"))) cost += historyPenalty;
+      return cost;
+    },
+  };
+}
+
+/** Tabbycat orders debates by importance, then room rank (hungarian.py debates_sorted). */
+function byTabbycatImportance(a: Debate, b: Debate): number {
+  return (
+    tabbycatImportanceLevel(b.importance ?? 0) - tabbycatImportanceLevel(a.importance ?? 0) ||
+    a.roomRank - b.roomRank ||
+    a.id.localeCompare(b.id)
+  );
+}
+
 function tabbycatHungarianMode(strategy: AdjudicatorPanelStrategy | undefined): TabbycatHungarianMode | undefined {
   if (strategy === "tabbycat_voting") return "voting";
   if (strategy === "tabbycat_consensus") return "consensus";
@@ -869,6 +1048,7 @@ function emptyAllocation(debateId: string): AdjudicatorAllocationResult {
 }
 
 interface PreformedPlacementInput {
+  /** Adjudicators available this round. */
   adjById: Map<string, Adjudicator>;
   adjScores: Map<string, number>;
   priorityOf(debate: Debate): number;
@@ -880,14 +1060,27 @@ interface PreformedPlacementInput {
   includeTrainees: boolean;
   /** "direct": panels by room rank onto debates by room rank, without optimisation. Default "optimise". */
   placement?: PreformedPanelPlacement;
+  /** Names of every adjudicator (available or not), for warnings. */
+  nameOf?(adjudicatorId: string): string;
+  /** Receives a warning for every panel member left out because they are unavailable. */
+  warnings?: string[];
+  /** Past debates, for Tabbycat's judged-together history (optimise placement). */
+  pastDebates?: Debate[];
 }
 
 /**
- * Matches preformed panels to debates as whole units. Panels are ranked by importance
- * (then average voting strength) and the i-th ranked panel is steered towards the i-th
- * highest-priority debate; team conflicts and history of every member are added on top.
- * Members who are unavailable this round are left out; a panel with no available voting
- * member is not placed.
+ * Matches preformed panels to debates as whole units.
+ *
+ * "optimise" is Tabbycat's HungarianPreformedPanelAllocator (preformed/hungarian.py): the cost of a
+ * panel in a debate is `preformed_panel_mismatch_penalty × (debate importance − panel importance)²`
+ * (both as Tabbycat importance levels, see tabbycatImportanceLevel) plus, for every member and
+ * team, the conflict penalty when they conflict (personal or institutional, counted once) and the
+ * history penalty when the member has judged the team. When those costs tie (e.g. every debate
+ * has the same importance), panels ranked by importance then average voting strength go to
+ * debates ranked by CrabbyTab's priority, as a tie-break far smaller than any Tabbycat cost.
+ *
+ * Members who are unavailable this round are left out and reported in `warnings`; a panel with no
+ * available voting member is not placed (reported too).
  */
 export function placePreformedPanels(
   panels: PreformedPanel[],
@@ -896,6 +1089,18 @@ export function placePreformedPanels(
 ): Map<string, PreformedPanel> {
   const placements = new Map<string, PreformedPanel>();
   const score = (id: string) => input.adjScores.get(id) ?? 5;
+  const nameOf = (id: string) => input.nameOf?.(id) ?? input.adjById.get(id)?.name ?? id;
+  panels.forEach((panel, index) => {
+    const unavailable = [panel.chairId, ...panel.panellistIds, ...panel.traineeIds].filter(
+      (id): id is string => Boolean(id) && !input.adjById.has(id!)
+    );
+    if (unavailable.length > 0) {
+      input.warnings?.push(
+        `Preformed panel ${panel.roomRank ?? index + 1}: ${unavailable.map(nameOf).join(", ")} ` +
+          `${unavailable.length === 1 ? "is" : "are"} not available this round and ${unavailable.length === 1 ? "was" : "were"} left out.`
+      );
+    }
+  });
   const usable = panels
     .map((panel) => ({
       ...panel,
@@ -905,7 +1110,15 @@ export function placePreformedPanels(
         : [],
       traineeIds: input.includeTrainees ? panel.traineeIds.filter((id) => input.adjById.has(id)) : [],
     }))
-    .filter((panel) => panel.chairId || panel.panellistIds.length > 0);
+    .filter((panel, index) => {
+      const placeable = Boolean(panel.chairId || panel.panellistIds.length > 0);
+      if (!placeable && (panels[index].chairId || panels[index].panellistIds.length > 0)) {
+        input.warnings?.push(
+          `Preformed panel ${panel.roomRank ?? index + 1} has no available voting adjudicator and was not placed.`
+        );
+      }
+      return placeable;
+    });
   if (usable.length === 0 || debatesByPriority.length === 0) return placements;
 
   if (input.placement === "direct") {
@@ -936,18 +1149,26 @@ export function placePreformedPanels(
       a.id.localeCompare(b.id)
   );
   const priorities = debatesByPriority.map((debate) => input.priorityOf(debate));
+  const model = createTabbycatCostModel(input.pastDebates ?? [], input.pastAdjTeams, input.options, input.weights);
+  const positivePenalties = [
+    input.weights.PRIORITY_STRENGTH_MISMATCH,
+    input.weights.PERSONAL_CONFLICT,
+    input.weights.REPEAT_TEAM,
+  ].filter((value) => value > 0);
+  // The tie-break never outweighs a whole Tabbycat cost unit, summed over every panel.
+  const tieUnit = (positivePenalties.length > 0 ? Math.min(...positivePenalties) : 1) / (1000 * (ranked.length + 1));
   const costs = ranked.map((panel, panelRank) => {
     const idealPriority = priorities[Math.min(panelRank, priorities.length - 1)];
+    const panelLevel = tabbycatImportanceLevel(panel.importance ?? 0);
     const members = [panel.chairId, ...panel.panellistIds, ...panel.traineeIds]
       .filter((id): id is string => Boolean(id))
       .map((id) => input.adjById.get(id)!);
     return debatesByPriority.map((debate, debateIndex) => {
       const teams = input.teamsOf(debate);
-      const conflictCost = members.reduce((sum, member) => {
-        const costs = teamConflictCosts(member, teams, input.pastAdjTeams, input.options, input.weights);
-        return sum + costs.institution + costs.personal + costs.history;
-      }, 0);
-      return conflictCost + strengthMismatchCost(priorities[debateIndex] - idealPriority, input.weights);
+      const mismatch = tabbycatImportanceLevel(debate.importance ?? 0) - panelLevel;
+      const conflictCost = members.reduce((sum, member) => sum + model.teamCost(member, teams), 0);
+      const tieBreak = (tieUnit * Math.min(10, Math.abs(priorities[debateIndex] - idealPriority))) / 10;
+      return input.weights.PRIORITY_STRENGTH_MISMATCH * mismatch * mismatch + conflictCost + tieBreak;
     });
   });
 
@@ -1011,9 +1232,10 @@ export function autoAllocateAdjudicators(
       );
   const numDebates = debates.length;
 
-  if (numDebates === 0 || availableAdjs.length === 0) {
-    return debates.map((d) => emptyAllocation(d.id));
-  }
+  if (numDebates === 0) return [];
+  // Tabbycat refuses (AdjudicatorAllocationError) rather than replacing panels with empty ones.
+  if (availableAdjs.length === 0) throw new AdjudicatorAllocationError(NO_AVAILABLE_ADJUDICATORS_MESSAGE);
+  const tabbycatMode = tabbycatHungarianMode(options.panelStrengthStrategy);
 
   const weights = getAllocationWeights(options.preferences);
   const minScoreToVote = options.preferences?.minAdjScoreToVote ?? 1.5;
@@ -1080,9 +1302,12 @@ export function autoAllocateAdjudicators(
   });
 
   // ─── Step 2: Compute effective adjudicator scores ───
+  // Tabbycat's Round.feedback_weight defaults to 0, so the Tabbycat strategies use the base score
+  // for a round without a weight; CrabbyTab's own strategies keep the legacy 60% blend.
+  const feedbackWeight = context?.feedbackWeight ?? (tabbycatMode ? 0 : undefined);
   const adjScores = new Map<string, number>();
   availableAdjs.forEach((adj) => {
-    adjScores.set(adj.id, effectiveAdjScore(adj, context?.feedbackScores, context?.feedbackWeight));
+    adjScores.set(adj.id, effectiveAdjScore(adj, context?.feedbackScores, feedbackWeight));
   });
   const scoreOf = (adj: Adjudicator) => adjScores.get(adj.id) ?? 5;
 
@@ -1117,7 +1342,8 @@ export function autoAllocateAdjudicators(
 
   const resultsMap = new Map<string, AdjudicatorAllocationResult>();
   for (const debate of debates) resultsMap.set(debate.id, emptyAllocation(debate.id));
-  const nameOf = (id: string) => adjById.get(id)?.name ?? id;
+  const allNames = new Map(adjudicators.map((adj) => [adj.id, adj.name]));
+  const nameOf = (id: string) => allNames.get(id) ?? id;
 
   // ─── Step 4: Preformed panels ───
   const usedAdjIds = new Set<string>();
@@ -1136,6 +1362,9 @@ export function autoAllocateAdjudicators(
         includePanellists: !noPanellists,
         includeTrainees: !noTrainees,
         placement: options.preferences?.preformedPanelPlacement,
+        nameOf,
+        warnings: context.warnings,
+        pastDebates: allPastDebates,
       }
     );
     for (const [debateId, panel] of placements) {
@@ -1161,20 +1390,32 @@ export function autoAllocateAdjudicators(
   const nonTrainees = availableAdjs.filter(
     (adj) => !usedAdjIds.has(adj.id) && !adj.trainee && scoreOf(adj) >= minScoreToVote
   );
+  // Tabbycat (adjallocation/allocators/hungarian.py): an adjudicator below the minimum score to vote
+  // is seated as a trainee, never left out of the allocation.
+  const voterPool = new Set(nonTrainees.map((adj) => adj.id));
   const trainees = noTrainees
     ? []
-    : availableAdjs.filter((adj) => !usedAdjIds.has(adj.id) && adj.trainee);
+    : availableAdjs.filter((adj) => !usedAdjIds.has(adj.id) && !voterPool.has(adj.id));
 
-  const tabbycatMode = tabbycatHungarianMode(options.panelStrengthStrategy);
-  if (tabbycatMode && openDebateOrder.length > 0) {
-    const pastPanelHistory = buildPastPanelHistory(allPastDebates);
+  if (nonTrainees.length === 0 && openDebateOrder.length > 0) {
+    // Tabbycat (check_matrix_exists): no voting adjudicator is an error, not an empty allocation.
+    if (usedAdjIds.size === 0) throw new AdjudicatorAllocationError(NO_VOTING_ADJUDICATORS_MESSAGE);
+    context?.warnings?.push(
+      `${openDebateOrder.length} debate${openDebateOrder.length === 1 ? " has" : "s have"} no preformed panel and no voting adjudicators are left to fill ${openDebateOrder.length === 1 ? "it" : "them"}.`
+    );
+  }
+
+  if (tabbycatMode && openDebateOrder.length > 0 && nonTrainees.length > 0) {
+    const model = createTabbycatCostModel(allPastDebates, fullPastAdjTeams, options, weights);
     const openIds = new Set(openDebateOrder.map((index) => debates[index].id));
     const debateById = new Map(debates.filter((debate) => openIds.has(debate.id)).map((debate) => [debate.id, debate]));
     const candidate = (adj: Adjudicator) => ({ id: adj.id, score: scoreOf(adj) });
     const voterIds = new Set(nonTrainees.map((adj) => adj.id));
+    // Tabbycat uses the debate's own importance (not CrabbyTab's composite priority) and room rank.
+    const tabbycatOrder = openDebateOrder.map((index) => debates[index]).sort(byTabbycatImportance);
     const { panels, warnings } = allocateTabbycatHungarian({
       mode: tabbycatMode,
-      debates: openDebateOrder.map((index) => ({ id: debates[index].id, priority: priorityOf(debates[index]) })),
+      debates: tabbycatOrder.map((debate) => ({ id: debate.id, priority: debate.importance ?? 0 })),
       voters: nonTrainees.map(candidate),
       // Tabbycat seats every non-voter (trainees and voters below the minimum score) as a trainee.
       trainees: noTrainees
@@ -1184,10 +1425,9 @@ export function autoAllocateAdjudicators(
       noTrainees,
       conflictCost(adjudicatorId, debateId, chairId) {
         const adj = adjById.get(adjudicatorId)!;
-        const costs = teamConflictCosts(adj, teamsOf(debateById.get(debateId)!), fullPastAdjTeams, options, weights);
-        let cost = costs.institution + costs.personal + costs.history;
+        let cost = model.teamCost(adj, teamsOf(debateById.get(debateId)!));
         const chair = chairId ? adjById.get(chairId) : undefined;
-        if (chair) cost += adjudicatorPairCost(adj, chair, pastPanelHistory, options, weights);
+        if (chair) cost += model.pairCost(adj, chair);
         return cost;
       },
     });
@@ -1320,11 +1560,9 @@ export function autoAllocateAdjudicators(
         const result = resultsMap.get(debate.id)!;
         const teamCosts = teamConflictCosts(trainee, teamsOf(debate), fullPastAdjTeams, options, weights);
         let cost = teamCosts.institution + teamCosts.personal + teamCosts.history;
-        if (options.respectPersonalConflicts) {
-          for (const memberId of [result.chairId, ...result.panellistIds, ...result.traineeIds]) {
-            const member = memberId ? adjById.get(memberId) : undefined;
-            if (member && adjudicatorsConflict(trainee, member)) cost += weights.ADJUDICATOR_CONFLICT;
-          }
+        for (const memberId of [result.chairId, ...result.panellistIds, ...result.traineeIds]) {
+          const member = memberId ? adjById.get(memberId) : undefined;
+          if (member && panelPairConflicts(trainee, member, options)) cost += weights.ADJUDICATOR_CONFLICT;
         }
         const count = result.traineeIds.length;
         if (!best || cost < best.cost || (cost === best.cost && count < best.count)) {
@@ -1380,4 +1618,103 @@ export function autoAllocateAdjudicators(
   }
 
   return debates.map((d) => resultsMap.get(d.id)!);
+}
+
+// ─── Filling preformed panels ───────────────────────────────────────
+
+export interface PreformedPanelFillOptions {
+  /** Tabbycat's allocator for the panels: voting when ballots are per adjudicator, else consensus. */
+  mode: TabbycatHungarianMode;
+  roundId: string;
+  preferences?: Partial<TournamentPreferences>;
+  /** Feedback averages already on the adjudicator score scale. */
+  feedbackScores?: Map<string, number>;
+  /** The round's feedback weight; absent = 0, as Tabbycat's Round.feedback_weight default. */
+  feedbackWeight?: number;
+  /** Debates of earlier rounds, for Tabbycat's judged-together history. */
+  pastDebates?: Debate[];
+}
+
+export interface PreformedPanelFillResult {
+  panels: PreformedPanel[];
+  warnings: string[];
+}
+
+export const NO_PANELS_TO_FILL_MESSAGE = "There aren't any panels to fill. Create panels first.";
+
+/**
+ * Tabbycat's "auto-allocate adjudicators to preformed panels" (adjallocation/consumers.py
+ * allocate_panel_adjs): the Voting or Consensus Hungarian allocator run over the panels instead
+ * of debates. Every available adjudicator may be seated; each panel's members are replaced. Panels
+ * have no teams, so only the trainee–chair conflict and judged-together history apply, and panels
+ * are taken by importance, then room rank. Throws AdjudicatorAllocationError when there are no
+ * panels, no available adjudicators or no voting adjudicators (nothing is changed).
+ */
+export function allocateAdjudicatorsToPreformedPanels(
+  panels: PreformedPanel[],
+  adjudicators: Adjudicator[],
+  options: PreformedPanelFillOptions
+): PreformedPanelFillResult {
+  if (panels.length === 0) throw new AdjudicatorAllocationError(NO_PANELS_TO_FILL_MESSAGE);
+  const preferences = options.preferences;
+  const available = preferences?.skipAdjCheckins
+    ? adjudicators
+    : adjudicators.filter((adjudicator) =>
+        isAvailableForRound(adjudicator, options.roundId, preferences?.checkInExpiresAfterHours)
+      );
+  if (available.length === 0) throw new AdjudicatorAllocationError(NO_AVAILABLE_ADJUDICATORS_MESSAGE);
+
+  const weights = getAllocationWeights(preferences);
+  const allocationOptions: AllocationOptions = {
+    panelSize: 3,
+    balancePanels: false,
+    respectInstitutionConflicts: weights.PERSONAL_CONFLICT > 0,
+    respectPersonalConflicts: weights.PERSONAL_CONFLICT > 0,
+    respectHistoryConflicts: weights.REPEAT_TEAM > 0,
+    preferences,
+  };
+  const minScoreToVote = preferences?.minAdjScoreToVote ?? 1.5;
+  const score = (adjudicator: Adjudicator) =>
+    effectiveAdjScore(adjudicator, options.feedbackScores, options.feedbackWeight ?? 0);
+  const voters = available.filter((adjudicator) => !adjudicator.trainee && score(adjudicator) >= minScoreToVote);
+  const voterIds = new Set(voters.map((adjudicator) => adjudicator.id));
+  const noTrainees = preferences?.noTraineeAdjs ?? false;
+  const trainees = noTrainees ? [] : available.filter((adjudicator) => !voterIds.has(adjudicator.id));
+  const byId = new Map(available.map((adjudicator) => [adjudicator.id, adjudicator]));
+  const model = createTabbycatCostModel(options.pastDebates ?? [], new Map(), allocationOptions, weights);
+  const ordered = panels
+    .map((panel, index) => ({ panel, index }))
+    .sort(
+      (a, b) =>
+        tabbycatImportanceLevel(b.panel.importance) - tabbycatImportanceLevel(a.panel.importance) ||
+        (a.panel.roomRank ?? Number.POSITIVE_INFINITY) - (b.panel.roomRank ?? Number.POSITIVE_INFINITY) ||
+        a.index - b.index
+    )
+    .map(({ panel }) => panel);
+  const candidate = (adjudicator: Adjudicator) => ({ id: adjudicator.id, score: score(adjudicator) });
+  const { panels: filled, warnings } = allocateTabbycatHungarian({
+    mode: options.mode,
+    debates: ordered.map((panel) => ({ id: panel.id, priority: panel.importance })),
+    voters: voters.map(candidate),
+    trainees: trainees.map(candidate),
+    noPanellists: preferences?.noPanellistAdjs ?? false,
+    noTrainees,
+    conflictCost(adjudicatorId, _panelId, chairId) {
+      const chair = chairId ? byId.get(chairId) : undefined;
+      return chair ? model.pairCost(byId.get(adjudicatorId)!, chair) : 0;
+    },
+  });
+  const byPanel = new Map(filled.map((panel) => [panel.debateId, panel]));
+  return {
+    panels: panels.map((panel) => {
+      const result = byPanel.get(panel.id);
+      return {
+        ...panel,
+        chairId: result?.chairId,
+        panellistIds: result?.panellistIds ?? [],
+        traineeIds: result?.traineeIds ?? [],
+      };
+    }),
+    warnings,
+  };
 }

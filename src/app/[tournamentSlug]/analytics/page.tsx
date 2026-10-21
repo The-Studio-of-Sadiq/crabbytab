@@ -12,7 +12,8 @@ import { StatusPill } from "@/components/ui/Badge";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { BarChart3, TrendingUp, PieChart, Lightbulb } from "lucide-react";
 import { DebateSide } from "@/types";
-import { analyzeMotionBalance } from "@/lib/motionBalance";
+import { computeMotionRoundStatistics, countMotionVetoes } from "@/lib/motionStatistics";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 
 export default function AnalyticsPage() {
   const {
@@ -50,7 +51,7 @@ export default function AnalyticsPage() {
 
   // 2. Side Win / Points Balance Analysis
   const sideStats = useMemo(() => {
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+    const sides: DebateSide[] = tournament ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
     const stats: Record<string, { totalPoints: number; totalWins: number; count: number }> = {};
 
     sides.forEach((s) => {
@@ -71,48 +72,27 @@ export default function AnalyticsPage() {
     });
 
     return stats;
-  }, [confirmedBallots, isBP]);
+  }, [confirmedBallots, isBP, tournament]);
 
-  // 3. Motion Statistics
-  const motionStats = useMemo(() => {
-    return motions.map((m) => {
-      const motionDebates = debates.filter((d) => d.motionId === m.id);
-      // Forfeits were never debated, so they say nothing about a motion's balance.
-      const mBallots = confirmedBallots.filter((b) => b.motionId === m.id && !b.forfeitSide);
-      const vetoes = confirmedBallots.reduce(
-        (count, b) => count + Object.values(b.vetoes || {}).filter((motionId) => motionId === m.id).length,
-        0
-      );
-
-      const ogWins = mBallots.filter((b) => b.teamScores?.OG?.points === 3).length;
-      const ooWins = mBallots.filter((b) => b.teamScores?.OO?.points === 3).length;
-      const cgWins = mBallots.filter((b) => b.teamScores?.CG?.points === 3).length;
-      const coWins = mBallots.filter((b) => b.teamScores?.CO?.points === 3).length;
-
-      const affWins = mBallots.filter((b) => b.teamScores?.AFF?.win).length;
-      const negWins = mBallots.filter((b) => b.teamScores?.NEG?.win).length;
-      const positionWins = isBP
-        ? [ogWins, ooWins, cgWins, coWins]
-        : [affWins, negWins];
-
-      return {
-        motion: m,
-        totalDebates: motionDebates.length,
-        completedBallots: mBallots.length,
-        vetoes,
-        ogWins,
-        ooWins,
-        cgWins,
-        coWins,
-        affWins,
-        negWins,
-        balance: analyzeMotionBalance(positionWins),
-      };
-    });
-  }, [motions, debates, confirmedBallots, isBP]);
+  // 3. Motion statistics, one row per round a motion was used in (Tabbycat motions-statistics);
+  // the counting rules live in lib/motionStatistics.ts, shared with the public page.
+  const roundOrder = useMemo(
+    () => [...rounds].sort((left, right) => left.seq - right.seq).map((round) => round.id),
+    [rounds]
+  );
+  const roundNames = useMemo(() => new Map(rounds.map((round) => [round.id, round.name])), [rounds]);
+  const motionStats = useMemo(
+    () =>
+      // Tabbycat has no motion statistics for more or fewer than two teams (other than BP).
+      (isPolyFormat(tournament?.format) ? [] : computeMotionRoundStatistics(motions, debates, ballots, isBP, roundOrder)).map((stat) => ({
+        ...stat,
+        vetoes: countMotionVetoes(ballots, stat.motion.id, stat.roundId),
+      })),
+    [motions, debates, ballots, isBP, roundOrder, tournament?.format]
+  );
   const showVetoes =
     Boolean(tournament?.preferences?.enableMotionVetoes) || motionStats.some((stat) => stat.vetoes > 0);
-  const motionColumns = 3 + (isBP ? 4 : 2) + (showVetoes ? 1 : 0);
+  const motionColumns = 4 + (isBP ? 4 : 2) + (showVetoes ? 1 : 0);
   const sampleSize = confirmedBallots.length * (isBP ? 8 : 6);
 
   return (
@@ -252,6 +232,7 @@ export default function AnalyticsPage() {
               <THead>
                 <TR>
                   <TH>{t("results.analytics.colMotion")}</TH>
+                  <TH className="w-28">{t("results.analytics.colRound")}</TH>
                   <TH align="right" className="w-24">{t("results.analytics.colDebates")}</TH>
                   {isBP ? (
                     (["OG", "OO", "CG", "CO"] as const).map((side) => (
@@ -274,25 +255,16 @@ export default function AnalyticsPage() {
               <TBody>
                 {motionStats.length === 0 && <TableEmpty colSpan={motionColumns}>{t("results.analytics.noMotions")}</TableEmpty>}
                 {motionStats.map((ms) => (
-                  <TR key={ms.motion.id}>
+                  <TR key={`${ms.motion.id}|${ms.roundId ?? ""}`}>
                     <TD className="min-w-64">
                       <span className="mb-0.5 block text-[11px] font-medium text-fg-muted">{ms.motion.reference}</span>
                       <span className="font-medium">&ldquo;{ms.motion.text}&rdquo;</span>
                     </TD>
-                    <TD numeric>{formatNumber(ms.completedBallots)}</TD>
-                    {isBP ? (
-                      <>
-                        <TD numeric className="font-semibold">{formatNumber(ms.ogWins)}</TD>
-                        <TD numeric className="font-semibold">{formatNumber(ms.ooWins)}</TD>
-                        <TD numeric className="font-semibold">{formatNumber(ms.cgWins)}</TD>
-                        <TD numeric className="font-semibold">{formatNumber(ms.coWins)}</TD>
-                      </>
-                    ) : (
-                      <>
-                        <TD numeric className="font-semibold">{formatNumber(ms.affWins)}</TD>
-                        <TD numeric className="font-semibold">{formatNumber(ms.negWins)}</TD>
-                      </>
-                    )}
+                    <TD className="text-fg-muted">{(ms.roundId && roundNames.get(ms.roundId)) || "—"}</TD>
+                    <TD numeric>{formatNumber(ms.debatesCounted)}</TD>
+                    {ms.positions.map((position) => (
+                      <TD key={position.side} numeric className="font-semibold">{formatNumber(position.wins)}</TD>
+                    ))}
                     {showVetoes && <TD numeric>{formatNumber(ms.vetoes)}</TD>}
                     <TD align="right" className="text-xs">
                       {ms.balance.chiSquared === null || ms.balance.pValue === null ? (

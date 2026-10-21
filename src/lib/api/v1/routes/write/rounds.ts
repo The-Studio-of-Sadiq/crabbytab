@@ -26,7 +26,11 @@ import type {
 } from "@/types";
 import { appendCheckInEvent, checkInEvent, setParticipantAvailability, setVenueCheckIn } from "@/lib/checkins/history";
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { teamsInDebateFor } from "@/lib/debateSides";
 import { isVenueAvailableForRound, isVenueCheckedIn, setVenueRoundAvailability } from "@/lib/venues/venues";
+import { nextBallotVersion } from "@/features/tournament/application/ballotEntry";
+import { diffBallots } from "@/lib/ballots/result";
+import { DEBATE_IMPORTANCE_MAX, DEBATE_IMPORTANCE_MIN } from "@/lib/draw/importance";
 import { buildApiBallot } from "../../ballotInput";
 import { ApiError, badRequest, conflict, notFound } from "../../errors";
 import { defineRoute, slugParam } from "../../router";
@@ -322,12 +326,13 @@ const drawRoutes = [
     body: s.object({
       venueId: s.optional(s.nullable(idSchema("Venue id; null to clear."))),
       teams: s.optional(s.record(idSchema("Team id."), {
-        maxKeys: 4,
-        keyPattern: /^(OG|OO|CG|CO|AFF|NEG)$/,
+        maxKeys: 64,
+        keyPattern: /^(OG|OO|CG|CO|AFF|NEG|P[1-9][0-9]*)$/,
         description: "Side -> team id for every side: changes the matchup or swaps sides (refused while the debate has ballots).",
       })),
       adjudicators: s.optional(panelSchema),
-      importance: s.optional(s.integer({ min: -2, max: 10 })),
+      // CrabbyTab's 0-10 importance scale (src/lib/draw/importance.ts), not Tabbycat's -2..2.
+      importance: s.optional(s.integer({ min: DEBATE_IMPORTANCE_MIN, max: DEBATE_IMPORTANCE_MAX })),
       override: overrideSchema,
       expectedVersion: expectedVersionSchema,
     }, { minProperties: 1 }),
@@ -395,7 +400,7 @@ const drawRoutes = [
         chairId: s.optional(idSchema("Chair adjudicator id.")),
         panellistIds: s.array(idSchema("Adjudicator id."), { max: 20, unique: true }),
         traineeIds: s.array(idSchema("Adjudicator id."), { max: 20, unique: true }),
-        importance: s.integer({ min: 0, max: 10 }),
+        importance: s.integer({ min: DEBATE_IMPORTANCE_MIN, max: DEBATE_IMPORTANCE_MAX }),
       }), { max: 500 }),
     }),
     successStatus: 200,
@@ -416,6 +421,10 @@ const drawRoutes = [
 /* ------------------------------------------------------------------------ */
 
 const sides = ["OG", "OO", "CG", "CO", "AFF", "NEG"] as const;
+/** Every side code a ballot may name: two-team, BP and poly positions (P1, P2, ...). */
+const SIDE_KEY = /^(OG|OO|CG|CO|AFF|NEG|P[1-9][0-9]*)$/;
+const speechesBySide = (description?: string) =>
+  s.record(s.array(speechSchema, { max: 8 }), { maxKeys: 64, keyPattern: SIDE_KEY, ...(description ? { description } : {}) });
 const speechSchema = s.object({
   speakerId: idSchema("Speaker id (from the team's roster)."),
   speakerName: s.optional(s.string({ max: 120 })),
@@ -425,22 +434,26 @@ const speechSchema = s.object({
 }, { strict: false });
 
 const ballotEntrySchema = s.object({
-  speakerScores: s.object(Object.fromEntries(sides.map((side) => [side, s.optional(s.array(speechSchema, { max: 8 }))])), {
-    description: "Consensus ballots: speeches by side. Voting ballots: leave sides empty and send `sheets`.",
-  }),
-  ranks: s.optional(s.record(s.integer({ min: 1, max: 4 }), {
-    maxKeys: 4,
-    keyPattern: /^(OG|OO|CG|CO|AFF|NEG)$/,
-    description: "Consensus ballots: rank by side (BP 1-4; two-team 1 = winner, 2 = loser). Voting ballots: omit.",
+  speakerScores: speechesBySide(
+    "Consensus ballots: speeches by side (AFF/NEG, OG/OO/CG/CO, or P1…PN with N teams per debate). Voting ballots: leave sides empty and send `sheets`."
+  ),
+  ranks: s.optional(s.record(s.integer({ min: 1, max: 64 }), {
+    maxKeys: 64,
+    keyPattern: SIDE_KEY,
+    description: "Consensus ballots: rank by side (BP 1-4; two-team 1 = winner, 2 = loser; N teams: read from the totals). Voting ballots: omit.",
+  })),
+  winners: s.optional(s.array(s.string({ max: 8 }), {
+    max: 64,
+    description: "N teams per debate, ballots without speaker scores: the advancing sides (two; one in the last round).",
   })),
   sheets: s.optional(s.array(s.object({
     adjudicatorId: idSchema("Voting adjudicator id."),
     adjudicatorName: s.optional(s.string({ max: 120 })),
-    speakerScores: s.object(Object.fromEntries(sides.map((side) => [side, s.optional(s.array(speechSchema, { max: 8 }))]))),
+    speakerScores: speechesBySide(),
   }, { strict: false }), { max: 9 })),
   forfeitSide: s.optional(s.enum(sides)),
   motionId: s.optional(idSchema("Motion debated.")),
-  vetoes: s.optional(s.record(idSchema("Motion id."), { maxKeys: 4, keyPattern: /^(OG|OO|CG|CO|AFF|NEG)$/ })),
+  vetoes: s.optional(s.record(idSchema("Motion id."), { maxKeys: 64, keyPattern: SIDE_KEY })),
   selfSplit: s.optional(s.boolean("Voting ballots of a solo adjudicator: a 2:1 split decision (needs allowSelfSplitBallots).")),
 }, { strict: false, description: "The ballot as the tab-room form records it; results are computed from it." });
 
@@ -451,6 +464,63 @@ async function loadBallotContext(tabRoom: SessionTabRoom, context: WriteContext 
   await tabRoom.loadAll("rounds", "debates", "ballots", "teams", "motions", "adjudicators", "venues");
   const debate = await sessionDebate(tabRoom, round, context.params.debateId);
   return { round, debate };
+}
+
+/**
+ * Blind double entry: a check is compared with the version it checks, as the tab-room form does
+ * (lib/ballots/result diffBallots). A differing entry is refused with the differences unless the
+ * client chose to keep it (`acceptDifferences`), which the form offers after showing them.
+ */
+export function checkBlindEntry(
+  ballot: BallotSubmission,
+  ballots: BallotSubmission[],
+  tournament: Tournament,
+  acceptDifferences: boolean
+): void {
+  const checked = ballots.find((item) =>
+    item.debateId === ballot.debateId && item.version === ballot.checksVersion && !item.discarded && item.id !== ballot.id
+  );
+  if (!checked) {
+    throw new ApiError(422, "validation_failed", "The ballot is not valid.", {
+      issues: [{ path: "checksVersion", message: `version ${ballot.checksVersion} of this debate's ballot does not exist or was discarded` }],
+    });
+  }
+  if (acceptDifferences) return;
+  const differences = diffBallots(checked, ballot, tournament.format);
+  if (differences.length > 0) {
+    throw new ApiError(409, "conflict", `This entry differs from ballot v${checked.version}, which it checks.`, { differences });
+  }
+}
+
+/**
+ * Tabbycat lets a confirmed ballot be set back to unconfirmed. CrabbyTab keeps every version, so
+ * the confirmed version is discarded (withdrawing the result, under the same rules as a discard)
+ * and its content saved again as a new unconfirmed version that awaits confirmation.
+ */
+async function unconfirmBallot(
+  tabRoom: SessionTabRoom,
+  ballot: BallotSubmission,
+  actorName: string,
+  now: Date,
+  override?: { reason: string }
+): Promise<string> {
+  if (!ballot.confirmed || ballot.discarded) throw conflict(`Ballot v${ballot.version} is not the confirmed version.`);
+  await tabRoom.discardBallot(ballot.id, actorName, override);
+  const version = nextBallotVersion(tabRoom.session.view<BallotSubmission>("ballots"), ballot.debateId);
+  const {
+    id: _id, confirmedBy: _by, confirmedTimestamp: _at, discardedBy: _discardedBy,
+    discardedTimestamp: _discardedAt, checksVersion: _checks, syncVersion: _syncVersion, ...content
+  } = ballot as BallotSubmission & { syncVersion?: number };
+  const copy: BallotSubmission = {
+    ...content,
+    id: tabRoom.createId(`ballot-${ballot.debateId}-v${version}`),
+    version,
+    confirmed: false,
+    discarded: false,
+    timestamp: now.toISOString(),
+  };
+  await tabRoom.submitBallot(copy);
+  return copy.id;
 }
 
 const ballotRoutes = [
@@ -471,7 +541,8 @@ const ballotRoutes = [
       entry: ballotEntrySchema,
       sides: s.optional(s.record(idSchema("Team id."), { maxKeys: 4, keyPattern: /^(AFF|NEG|OG|OO|CG|CO)$/, description: "Manual-ballot sides only." })),
       confirmed: s.optional(s.boolean()),
-      checksVersion: s.optional(s.integer({ min: 1, description: "Blind double entry: the version this entry checks." })),
+      checksVersion: s.optional(s.integer({ min: 1, description: "Blind double entry: the version this entry checks. An entry that differs from it is refused with 409 and the differences, as the tab-room form shows them." })),
+      acceptDifferences: s.optional(s.boolean("With `checksVersion`: save this entry even though it differs from the checked version (the form's keep-my-entry choice).")),
       override: overrideSchema,
     }),
     response: s.ref("Ballot"),
@@ -489,11 +560,15 @@ const ballotRoutes = [
           debate,
           teams: session.view<Team>("teams"),
           motions: session.view<Motion>("motions"),
+          rounds: session.view<Round>("rounds"),
           existingBallots: session.view<BallotSubmission>("ballots"),
           submitter: { id: apiActorId(context), name: apiActorName(context) },
           now: context.now,
           createId: (prefix) => tabRoom.createId(prefix),
         });
+        if (context.body.checksVersion !== undefined) {
+          checkBlindEntry(ballot, session.view<BallotSubmission>("ballots"), session.tournament, context.body.acceptDifferences === true);
+        }
         await tabRoom.submitBallot(ballot, context.body.override);
         return () => serializeBallot(requireFound(session.latest<BallotSubmission>("ballots", ballot.id), "Ballot"));
       });
@@ -503,12 +578,16 @@ const ballotRoutes = [
     method: "PATCH",
     path: "/tournaments/{slug}/rounds/{roundSeq}/pairings/{debateId}/ballots/{ballotId}",
     operationId: "reviewBallot",
-    summary: "Confirm or discard a ballot version",
+    summary: "Confirm, discard or unconfirm a ballot version",
+    description:
+      "`unconfirm` (the confirmed version only) withdraws the result: that version is discarded and " +
+      "its content saved as a new unconfirmed version, which is returned. Changing a completed " +
+      "round's result needs an override, as in the tab room.",
     tag: "ballots",
     auth: { kind: "token", resource: "results", access: "write" },
     params: ballotParams,
     body: s.object({
-      action: s.enum(["confirm", "discard"] as const),
+      action: s.enum(["confirm", "discard", "unconfirm"] as const),
       override: overrideSchema,
       expectedVersion: expectedVersionSchema,
     }),
@@ -520,10 +599,37 @@ const ballotRoutes = [
         const ballot = session.view<BallotSubmission>("ballots").find((item) => item.id === context.params.ballotId);
         if (!ballot || ballot.debateId !== debate.id) throw notFound("Ballot");
         ApiCommandSession.assertVersion(ballot as { syncVersion?: number }, context.body.expectedVersion);
+        let resultId = ballot.id;
         if (context.body.action === "confirm") await tabRoom.confirmBallot(ballot.id, debate.id, context.body.override);
-        else await tabRoom.discardBallot(ballot.id, apiActorName(context), context.body.override);
-        return () => serializeBallot(requireFound(session.latest<BallotSubmission>("ballots", ballot.id), "Ballot"));
+        else if (context.body.action === "discard") await tabRoom.discardBallot(ballot.id, apiActorName(context), context.body.override);
+        else resultId = await unconfirmBallot(tabRoom, ballot, apiActorName(context), context.now, context.body.override);
+        return () => serializeBallot(requireFound(session.latest<BallotSubmission>("ballots", resultId), "Ballot"));
       });
+    },
+  }),
+  defineRoute({
+    method: "DELETE",
+    path: "/tournaments/{slug}/rounds/{roundSeq}/pairings/{debateId}/ballots/{ballotId}",
+    operationId: "discardBallot",
+    summary: "Discard a ballot version",
+    description:
+      "The same as PATCH with `action: discard` (Tabbycat's ballot DELETE): the version is kept, " +
+      "marked discarded. Discarding the confirmed version withdraws the result; in a completed round " +
+      "that needs an override.",
+    tag: "ballots",
+    auth: { kind: "token", resource: "results", access: "write" },
+    params: ballotParams,
+    body: s.object({ override: overrideSchema }),
+    successStatus: 204,
+    response: s.unknown(),
+    async handler(context) {
+      await runWrite(context, async (tabRoom, session) => {
+        const { debate } = await loadBallotContext(tabRoom, context as never);
+        const ballot = session.view<BallotSubmission>("ballots").find((item) => item.id === context.params.ballotId);
+        if (!ballot || ballot.debateId !== debate.id || ballot.discarded) throw notFound("Ballot");
+        await tabRoom.discardBallot(ballot.id, apiActorName(context), context.body?.override);
+      });
+      return { status: 204, body: null };
     },
   }),
 ];
@@ -559,7 +665,7 @@ async function saveBreakDraft(tabRoom: SessionTabRoom, input: Partial<BreakCateg
     qualificationRule: input.qualificationRule ?? previous?.qualificationRule ?? "standard",
   };
   const tournament = tabRoom.session.tournament;
-  const teamsInDebate = tournament.preferences?.teamsInDebate || (tournament.format === "bp" ? 4 : 2);
+  const teamsInDebate = teamsInDebateFor(tournament);
   const error = validateBreakCategoryDraft(draft, categories, teamsInDebate, editingId);
   if (error) throw new ApiError(422, "validation_failed", error);
   const createdId = tabRoom.createId("bc");
@@ -1098,7 +1204,7 @@ const feedbackRoutes = [
       return runWrite(context, async (tabRoom, session) => {
         const debate = requireFound(await session.one<Debate>("debates", context.body.debateId), "Debate");
         const preferences = session.tournament.preferences;
-        const { feedbackMinScore = 1, feedbackMaxScore = 5 } = preferences;
+        const { feedbackMinScore = 1, feedbackMaxScore = 10 } = preferences;
         if (context.body.score < feedbackMinScore || context.body.score > feedbackMaxScore) {
           throw new ApiError(422, "validation_failed", `score must be between ${feedbackMinScore} and ${feedbackMaxScore}.`);
         }

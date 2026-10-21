@@ -1,3 +1,4 @@
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { isVenueAvailableForRound, isVenueCheckedIn } from "@/lib/venues/venues";
 import type {
@@ -10,12 +11,12 @@ import type {
   Team,
   Venue,
 } from "@/types";
-import { notFound } from "../errors";
+import { ApiError, notFound } from "../errors";
 import { defineRoute, listOf, pageOf, pageQueryShape, pageRequest, slugParam } from "../router";
 import { s } from "../schema";
 import { asType, serializeBallot, serializeDebate, serializeFeedback } from "../serializers";
 import type { QueryFilter } from "../store";
-import { debateInRound, findSpeaker, idSchema, roundBySeq, roundSeqSchema } from "./shared";
+import { debateInRound, findSpeaker, idSchema, roundBySeq, roundSeqSchema, type AnyContext } from "./shared";
 
 const roundParams = s.object({ slug: slugParam, roundSeq: roundSeqSchema });
 const debateParams = s.object({ slug: slugParam, roundSeq: roundSeqSchema, debateId: idSchema("Debate (pairing) id.") });
@@ -88,20 +89,37 @@ const pairingRoutes = [
 /* Ballots                                                                   */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * Public tokens and anonymous clients read ballots only once the tab director releases them
+ * (Tabbycat `ballots_released`), and then only what the public view publishes: confirmed ballots
+ * of rounds whose results are public, with speaker scores and scoresheets on the same terms as the
+ * public results pages (lib/publicView/projection.ts).
+ */
+function requirePublicBallots(context: AnyContext): void {
+  if (context.data.view === "public" && !getPublicSiteSettings(context.tournament.preferences).ballots) {
+    throw new ApiError(403, "forbidden", "Ballots have not been released to the public.");
+  }
+}
+
+const publicBallotNote =
+  " Public tokens and anonymous clients: once ballots are released, the confirmed ballots of rounds " +
+  "whose results are public, as the public site shows them.";
+
 const ballotRoutes = [
   defineRoute({
     method: "GET",
     path: "/tournaments/{slug}/rounds/{roundSeq}/ballots",
     operationId: "listRoundBallots",
     summary: "List a round's ballots",
-    description: "Paginated; every version, including unconfirmed and discarded ones.",
+    description: "Paginated; every version, including unconfirmed and discarded ones." + publicBallotNote,
     tag: "ballots",
-    auth: { kind: "token", resource: "results", access: "read" },
+    auth: { kind: "token", resource: "results", access: "read", public: true },
     params: roundParams,
     query: s.object({ ...pageQueryShape, confirmed: s.optional(s.boolean("Only confirmed (true) or unconfirmed (false) ballots.")) }),
     paginated: true,
     response: pageOf(s.ref("Ballot")),
     async handler(context) {
+      requirePublicBallots(context);
       const round = await roundBySeq(context, context.params.roundSeq);
       const filters: QueryFilter[] = [{ field: "roundId", op: "==", value: round.id }];
       if (context.query.confirmed !== undefined) filters.push({ field: "confirmed", op: "==", value: context.query.confirmed });
@@ -114,12 +132,13 @@ const ballotRoutes = [
     path: "/tournaments/{slug}/rounds/{roundSeq}/pairings/{debateId}/ballots",
     operationId: "listDebateBallots",
     summary: "List a debate's ballots",
-    description: "Every version, oldest first.",
+    description: "Every version, oldest first." + publicBallotNote,
     tag: "ballots",
-    auth: { kind: "token", resource: "results", access: "read" },
+    auth: { kind: "token", resource: "results", access: "read", public: true },
     params: debateParams,
     response: listOf(s.ref("Ballot")),
     async handler(context) {
+      requirePublicBallots(context);
       const round = await roundBySeq(context, context.params.roundSeq);
       const debate = await debateInRound(context, round, context.params.debateId);
       const ballots = (await context.data.all("ballots", [{ field: "debateId", op: "==", value: debate.id }]))
@@ -133,11 +152,13 @@ const ballotRoutes = [
     path: "/tournaments/{slug}/rounds/{roundSeq}/pairings/{debateId}/ballots/{ballotId}",
     operationId: "getBallot",
     summary: "Get a ballot",
+    description: publicBallotNote.trim(),
     tag: "ballots",
-    auth: { kind: "token", resource: "results", access: "read" },
+    auth: { kind: "token", resource: "results", access: "read", public: true },
     params: s.object({ slug: slugParam, roundSeq: roundSeqSchema, debateId: idSchema("Debate id."), ballotId: idSchema("Ballot id.") }),
     response: s.ref("Ballot"),
     async handler(context) {
+      requirePublicBallots(context);
       const round = await roundBySeq(context, context.params.roundSeq);
       const debate = await debateInRound(context, round, context.params.debateId);
       const record = await context.data.get("ballots", context.params.ballotId);

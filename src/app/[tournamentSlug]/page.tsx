@@ -31,6 +31,7 @@ import {
 
 type Translate = (key: MessageKey, values?: MessageValues) => string;
 
+import { isPolyFormat, teamsInDebateFor, tournamentSides } from "@/lib/debateSides";
 function debateStatus(debate: Debate, t: Translate): { tone: Tone; label: string } {
   if (debate.byeTeamId) {
     return { tone: "info", label: t(debate.byeResult === "win" ? "results.home.status.byeWin" : "results.home.status.byeAbsent") };
@@ -119,7 +120,7 @@ export default function TournamentDashboardPage() {
   const isBP = tournament?.format === "bp";
   const base = `/${tournament?.slug}`;
   const roundStatus = activeRound ? describeRoundStatus(activeRound) : null;
-  const sides = ((isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[])
+  const sides = ((tournament ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[])
     .map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
 
   const workflow: { label: MessageKey; href: string }[] = [
@@ -136,7 +137,11 @@ export default function TournamentDashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title={tournament?.name || t("results.home.fallbackTitle")}
-        description={isBP ? t("results.home.formatBp") : t("results.home.formatTwoTeam")}
+        description={isBP
+          ? t("results.home.formatBp")
+          : tournament && isPolyFormat(tournament.format)
+            ? t("results.home.formatPoly", { count: teamsInDebateFor(tournament) })
+            : t("results.home.formatTwoTeam")}
         actions={
           <Link href={`${base}/public`} target="_blank" rel="noreferrer" className={buttonClasses({ variant: "secondary" })}>
             {t("results.home.publicIndex")}

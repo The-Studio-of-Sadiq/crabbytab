@@ -5,11 +5,13 @@ import { Settings2 } from "lucide-react";
 import type { DrawType, Round, Team, Tournament, TwoTeamSide } from "@/types";
 import { getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { sideLabel, sideNamesFor, translatedSideName } from "@/lib/sideNames";
 import type { MessageKey } from "@/lib/i18n";
 import { Alert } from "@/components/ui/Feedback";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input, Select } from "@/components/ui/Field";
+import { isTwoTeamFormat } from "@/lib/debateSides";
 
 interface DrawSetupPanelProps {
   tournament: Tournament;
@@ -36,7 +38,7 @@ const DRAW_TYPE_LABELS: Record<Exclude<DrawType, "elimination">, MessageKey> = {
 export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTeam }: DrawSetupPanelProps) {
   const { t } = useI18n();
   const isBP = tournament.format === "bp";
-  const usesPreallocatedSides = !isBP && tournament.preferences?.sideAllocationRule === "preallocated";
+  const usesPreallocatedSides = isTwoTeamFormat(tournament.format) && tournament.preferences?.sideAllocationRule === "preallocated";
   // Seeded draws rank by seed; round robins schedule by seed (BP: seeds 1..N for the preset tables).
   const usesSeeds = round.drawType === "seeded" || round.drawType === "round_robin";
   const titleSeeds = tournament.preferences?.teamSeedMode === "title";
@@ -172,9 +174,16 @@ export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTe
         {usesPreallocatedSides && (
           <fieldset className="border-t border-border pt-3">
             <legend className="text-xs font-semibold text-fg">
-              {affCount !== negCount
-                ? t("tabroom.draw.setup.sidesLegendUnequal", { aff: affCount, neg: negCount })
-                : t("tabroom.draw.setup.sidesLegend", { aff: affCount, neg: negCount })}
+              {sideNamesFor(tournament.preferences) === "aff-neg"
+                ? affCount !== negCount
+                  ? t("tabroom.draw.setup.sidesLegendUnequal", { aff: affCount, neg: negCount })
+                  : t("tabroom.draw.setup.sidesLegend", { aff: affCount, neg: negCount })
+                : t(affCount !== negCount ? "tabroom.draw.setup.sidesLegendNamedUnequal" : "tabroom.draw.setup.sidesLegendNamed", {
+                    aff: affCount,
+                    neg: negCount,
+                    affSide: sideLabel("AFF", tournament.preferences, "full"),
+                    negSide: sideLabel("NEG", tournament.preferences, "full"),
+                  })}
             </legend>
             <div className="mt-2 grid max-h-64 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
               {roundTeams.map((team) => (
@@ -186,8 +195,8 @@ export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTe
                     onChange={(e) => setSides((current) => ({ ...current, [team.id]: e.target.value as TwoTeamSide | "" }))}
                   >
                     <option value="">{t("tabroom.draw.setup.sideNotSet")}</option>
-                    <option value="AFF">{t("side.AFF")}</option>
-                    <option value="NEG">{t("side.NEG")}</option>
+                    <option value="AFF">{translatedSideName(t, "AFF", tournament.preferences)}</option>
+                    <option value="NEG">{translatedSideName(t, "NEG", tournament.preferences)}</option>
                   </Select>
                 </label>
               ))}

@@ -65,6 +65,12 @@ export interface EmailRecipient {
   panellists?: string;
   privateUrl?: string;
   passcode?: string;
+  /** The private URL key alone (Tabbycat KEY), set with the private URL. */
+  key?: string;
+  /** An adjudicator's position on their panel this round: Chair, Panellist or Trainee (Tabbycat POSITION). */
+  position?: string;
+  /** The team's long name, institution included (Tabbycat LONG); the team name when it has none. */
+  longName?: string;
   /** Automatic notifications: the recipient's side, round result, running points and ballot summary. */
   side?: string;
   result?: string;
@@ -268,6 +274,7 @@ export function resolveEmailRecipients(
           teamId: team.id,
           ...(speaker.privateUrlKey ? { speakerId: speaker.id } : {}),
           team: team.name,
+          longName: team.longName || team.name,
           institution: team.institutionName,
           round: round?.name,
           ...teamRegistrationVariables(team, options.breakCategories),
@@ -307,12 +314,20 @@ export function resolveEmailRecipients(
           (debate.adjudicators.panellistIds || []).includes(adjudicator.id) ||
           (debate.adjudicators.traineeIds || []).includes(adjudicator.id)
       );
+      const position = !assignedDebate
+        ? undefined
+        : assignedDebate.adjudicators.chairId === adjudicator.id
+          ? "Chair"
+          : (assignedDebate.adjudicators.panellistIds || []).includes(adjudicator.id)
+            ? "Panellist"
+            : "Trainee";
       addRecipient({
         email: adjudicator.email,
         name: adjudicator.name,
         adjudicatorId: adjudicator.id,
         institution: adjudicator.institutionName,
         round: round?.name,
+        ...(position ? { position } : {}),
         ...debateVariables(assignedDebate, adjudicators, options.venues),
         ...(options.includePrivateCredentials
           ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, options)
@@ -346,7 +361,7 @@ export function speakerOrTeamCredentials(
   team: Pick<Team, "privateUrlKey" | "privatePasscode" | "speakers">,
   speakerId: string | undefined,
   options: { privateUrlOrigin?: string; tournamentSlug?: string }
-): Pick<EmailRecipient, "privateUrl" | "passcode"> {
+): Pick<EmailRecipient, "privateUrl" | "passcode" | "key"> {
   const speaker = speakerId ? (team.speakers ?? []).find((item) => item.id === speakerId) : undefined;
   return speaker?.privateUrlKey && speaker.privatePasscode
     ? privateCredentials("speaker", speaker.privateUrlKey, speaker.privatePasscode, options)
@@ -359,7 +374,7 @@ export function privateCredentials(
   privateUrlKey: string | undefined,
   passcode: string | undefined,
   options: { privateUrlOrigin?: string; tournamentSlug?: string }
-): Pick<EmailRecipient, "privateUrl" | "passcode"> {
+): Pick<EmailRecipient, "privateUrl" | "passcode" | "key"> {
   const path = privateUrlKey && options.tournamentSlug
     ? type === "adjudicator"
       ? getAdjudicatorPrivatePath(options.tournamentSlug, privateUrlKey)
@@ -370,6 +385,7 @@ export function privateCredentials(
   return {
     privateUrl: path && options.privateUrlOrigin ? new URL(path, options.privateUrlOrigin).toString() : "",
     passcode: passcode || "",
+    key: privateUrlKey || "",
   };
 }
 
@@ -391,7 +407,8 @@ export function findCredentialEmailConflict(recipients: EmailRecipient[]): strin
 
 export function usesPrivateCredentials(subject: string, body: string): boolean {
   return templateUsesVariable(`${subject}\n${body}`, "private_url") ||
-    templateUsesVariable(`${subject}\n${body}`, "passcode");
+    templateUsesVariable(`${subject}\n${body}`, "passcode") ||
+    templateUsesVariable(`${subject}\n${body}`, "key");
 }
 
 function templateUsesVariable(template: string, variable: string): boolean {
@@ -418,6 +435,9 @@ export function renderEmailTemplate(
     panellists: recipient.panellists || "",
     private_url: recipient.privateUrl || "",
     passcode: recipient.passcode || "",
+    key: recipient.key || "",
+    position: recipient.position || "",
+    long_name: recipient.longName || "",
     side: recipient.side || "",
     result: recipient.result || "",
     points: recipient.points || "",

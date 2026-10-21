@@ -17,6 +17,7 @@ import {
   type BreakCategoryResult,
 } from "@/lib/breakqual/calculator";
 import { buildBreakCategorySchedule, eliminationRoundCount, slugify, validateBreakSize } from "@/lib/setup/presets";
+import { isPolyFormat, teamsInDebateFor } from "@/lib/debateSides";
 import {
   applyGuards,
   checkBreakCategoryDeletion,
@@ -156,21 +157,28 @@ export async function generateBreakCommand(
   const category = breakCategories.find((item) => item.id === categoryId);
   if (!category) return null;
 
-  const teamsInDebate = tournament.preferences?.teamsInDebate || (tournament.format === "bp" ? 4 : 2);
+  const teamsInDebate = teamsInDebateFor(tournament);
+  const poly = isPolyFormat(tournament.format);
   const maxBreakSize = Math.max(0, ...breakCategories.map((item) => item.breakSize));
-  const roundCount = eliminationRoundCount(maxBreakSize, teamsInDebate);
-  if (roundCount === 0) {
-    throw new Error("No valid elimination-round sequence is configured for these break sizes.");
-  }
-
   const eliminationRounds = rounds
     .filter((round) => round.stage === "elimination" && !round.cancelled)
     .sort((left, right) => left.seq - right.seq);
+  // Poly tournaments have no generated elimination bracket (Tabbycat draws them by hand), so every
+  // break category takes part in every elimination round the tab room has added.
+  const roundCount = poly ? eliminationRounds.length : eliminationRoundCount(maxBreakSize, teamsInDebate);
+  if (roundCount === 0) {
+    throw new Error(poly
+      ? "Add an elimination round (drawn manually) before generating the break."
+      : "No valid elimination-round sequence is configured for these break sizes.");
+  }
+
   if (eliminationRounds.length < roundCount) {
     throw new Error("The pre-created elimination rounds do not cover the configured break size.");
   }
 
-  const schedule = buildBreakCategorySchedule(breakCategories, roundCount, teamsInDebate);
+  const schedule = poly
+    ? eliminationRounds.map(() => breakCategories.map((item) => item.id))
+    : buildBreakCategorySchedule(breakCategories, roundCount, teamsInDebate);
   const roundIndexById = new Map(eliminationRounds.map((round, index) => [round.id, index]));
   const updatedRounds = rounds.map((round) => {
     if (round.stage !== "elimination" || round.cancelled) return round;
@@ -372,7 +380,7 @@ export interface BreakCategoryDraft {
 export function validateBreakCategoryDraft(
   draft: BreakCategoryDraft,
   categories: BreakCategory[],
-  teamsInDebate: 4 | 2,
+  teamsInDebate: number,
   editingId?: string
 ): string {
   const name = draft.name.trim();

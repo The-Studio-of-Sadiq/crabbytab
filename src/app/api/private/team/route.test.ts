@@ -56,6 +56,22 @@ describe("POST /api/private/team with speaker URLs", () => {
     expect(JSON.stringify(body)).not.toContain("ann@example.com");
   });
 
+  it("shows opponents by code name when the public site uses team code names", async () => {
+    fake.store.set(T, { name: "Open", slug: "open", format: "wsdc", preferences: { teamCodeNames: "everywhere" } });
+    fake.store.set(`${T}/teams/beta`, { name: "Beta", codeName: "Falcon", privateUrlKey: "team_beta", privatePasscode: "beta-pass", speakers: [] });
+    fake.store.set(`${T}/rounds/r1`, { name: "Round 1", seq: 1, stage: "preliminary", drawStatus: "confirmed" });
+    fake.store.set(`${T}/debates/d1`, {
+      roundId: "r1",
+      teams: { AFF: { teamId: "alpha", teamName: "Alpha" }, NEG: { teamId: "beta", teamName: "Beta" } },
+    });
+    const response = await POST(request({ tournamentId: "t1", privateUrlKey: "team_alpha", passcode: "team-pass" }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.debates).toHaveLength(1);
+    expect(JSON.stringify(body.debates)).toContain("Falcon");
+    expect(JSON.stringify(body.debates)).not.toContain("Beta");
+  });
+
   it("refuses a speaker key with the team passcode or another team's passcode", async () => {
     for (const passcode of ["team-pass", "beta-pass", "wrong"]) {
       const response = await POST(request({ tournamentId: "t1", privateUrlKey: "spk_ann", passcode }));

@@ -260,3 +260,42 @@ describe("draws computed in the background", () => {
     expect(roundChangedBetween(round.id, before, { ...before, ballots: [{ ...ballot, confirmed: true }] })).toBe(true);
   });
 });
+
+describe("the motion a new draw records on its debates", () => {
+  const round = createRoundRecord({ tournamentId: tournament.id, roundSeq: 1, name: "Round 1", abbr: "R1", stage: "preliminary" });
+  const motion = (id: string, seq: number) => ({ id, tournamentId: tournament.id, text: `Motion ${id}`, rounds: [round.id], seq, released: false });
+
+  async function draw(motions: ReturnType<typeof motion>[]): Promise<Debate[]> {
+    const saved: { debates?: Debate[] } = {};
+    await generateDrawCommand(round.id, {
+      tournament,
+      rounds: [round],
+      teams: [],
+      venues: [],
+      debates: [],
+      ballots: [],
+      motions,
+      standings: [],
+      generateRoundDraw: () => [{ id: "room-1", roundId: round.id, teams: {}, adjudicators: {} } as unknown as Debate],
+      localRepository: {
+        saveDebates: (debates: Debate[]) => { saved.debates = debates; },
+        saveBallots: () => undefined,
+        markDebatesRemoved: () => undefined,
+        saveRounds: () => undefined,
+      },
+      recordAuditEvent: async () => undefined,
+    });
+    return saved.debates ?? [];
+  }
+
+  it("records the round's only motion", async () => {
+    const [debate] = await draw([motion("m1", 1)]);
+    expect(debate).toMatchObject({ motionId: "m1", motionText: "Motion m1" });
+  });
+
+  it("records no motion when the round has several (the ballot says which was debated)", async () => {
+    const [debate] = await draw([motion("m1", 1), motion("m2", 2), motion("m3", 3)]);
+    expect(debate.motionId).toBeUndefined();
+    expect(debate.motionText).toBeUndefined();
+  });
+});

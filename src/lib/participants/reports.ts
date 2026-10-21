@@ -5,6 +5,52 @@ import { participantGender } from "@/lib/adjudicators/diversity";
 /* ─── Break eligibility grid (Tabbycat breakqual-edit-eligibility) ───────────── */
 
 /**
+ * The break categories a team is eligible for, as the break calculation, liveness and the public
+ * pages read it: a general category takes every team unless the tab director marked it
+ * "Ineligible" there; any other category takes the teams that list it in `breakCategories`.
+ */
+export function teamEligibleCategoryIds(
+  team: Pick<Team, "id" | "breakCategories">,
+  categories: Pick<BreakCategory, "id" | "isGeneral" | "teamOverrides">[]
+): Set<string> {
+  return new Set(
+    categories
+      .filter((category) =>
+        category.isGeneral
+          ? category.teamOverrides?.[team.id] !== "ineligible"
+          : Boolean(team.breakCategories?.includes(category.id))
+      )
+      .map((category) => category.id)
+  );
+}
+
+/**
+ * General categories whose eligibility the draft changes (team id -> eligible category ids). A team
+ * leaves a general category through the "Ineligible" override, which the grid sets or clears;
+ * unticking a team that had another override (e.g. "Withdrawn") replaces it. Returns only the
+ * changed categories.
+ */
+export function generalCategoryEligibilityChanges<C extends Pick<BreakCategory, "id" | "isGeneral" | "teamOverrides">>(
+  categories: C[],
+  draft: ReadonlyMap<string, ReadonlySet<string>>
+): C[] {
+  return categories.flatMap((category) => {
+    if (!category.isGeneral) return [];
+    const overrides = { ...(category.teamOverrides ?? {}) };
+    let changed = false;
+    for (const [teamId, eligible] of draft) {
+      const wasEligible = overrides[teamId] !== "ineligible";
+      const isEligible = eligible.has(category.id);
+      if (wasEligible === isEligible) continue;
+      if (isEligible) delete overrides[teamId];
+      else overrides[teamId] = "ineligible";
+      changed = true;
+    }
+    return changed ? [{ ...category, teamOverrides: overrides }] : [];
+  });
+}
+
+/**
  * Teams whose eligible break categories differ from the draft (team id -> category ids). Category
  * ids keep the order of `categories` (then any unknown ids the team already had, so data for a
  * deleted category is not silently dropped by an unrelated edit). Returns only changed teams.

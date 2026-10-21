@@ -99,18 +99,32 @@ export async function runParticipantWrite<T>(
   });
 }
 
+/** Named command refusals that are 409 conflicts: the tournament's current state prevents the write. */
+const CONFLICT_ERRORS: ReadonlySet<string> = new Set([
+  "DrawHasResultsError",
+  "RoundChangedDuringComputeError",
+  // The allocator refuses (as Tabbycat's AdjudicatorAllocationError) when there are no panels to
+  // fill or no available (voting) adjudicators; nothing is changed.
+  "AdjudicatorAllocationError",
+]);
+
+/** Named command refusals that are 422 validation failures: the requested change is not valid. */
+const VALIDATION_ERRORS: ReadonlySet<string> = new Set([
+  // A round's stage and draw type do not fit together (Tabbycat Round.clean()).
+  "RoundValidationError",
+]);
+
 /**
  * Commands report refusals that are not rule violations as errors of their own: named ones
- * (e.g. DrawHasResultsError) become 409, plain `Error`s with a user-facing message (e.g. "That
- * round no longer exists.") become 422. Rule violations, API errors and infrastructure errors
- * (which carry a `code`) pass through.
+ * (e.g. DrawHasResultsError, AdjudicatorAllocationError) become 409, RoundValidationError and
+ * plain `Error`s with a user-facing message (e.g. "That round no longer exists.") become 422.
+ * Rule violations, API errors and infrastructure errors (which carry a `code`) pass through.
  */
 export function commandError(error: unknown): unknown {
   if (!(error instanceof Error) || error instanceof ApiError || isTournamentRuleError(error)) return error;
   if ("code" in error || error.name === "SchemaValidationError") return error;
-  if (error.name === "DrawHasResultsError" || error.name === "RoundChangedDuringComputeError") {
-    return new ApiError(409, "conflict", error.message);
-  }
+  if (CONFLICT_ERRORS.has(error.name)) return new ApiError(409, "conflict", error.message);
+  if (VALIDATION_ERRORS.has(error.name)) return new ApiError(422, "validation_failed", error.message);
   if (error.constructor === Error) return new ApiError(422, "validation_failed", error.message);
   return error;
 }

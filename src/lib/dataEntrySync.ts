@@ -18,6 +18,9 @@ export const DATA_ENTRY_FIELDS = {
     "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
   ],
   institutions: ["id", "tournamentId", "name", "code", "region"],
+  // Rooms are set up by administrators; staff only check existing rooms in (Tabbycat
+  // assistant-venues-statuses), so only the check-in fields are accepted.
+  venues: ["id", "tournamentId", "checkedIn", "checkedInAt", "checkInHistory"],
   ballots: [
     "id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText", "speakerScores",
     "teamScores", "timestamp", "sheets", "vetoes", "forfeitSide", "noSpeakerScores", "selfSplit",
@@ -74,6 +77,8 @@ export function requiredDataEntryPermission(
       return "ballots.intake";
     case "institutions":
       return "participants.edit";
+    case "venues":
+      return "checkins.edit";
     case "teams":
     case "adjudicators":
       return !isNew && changedKeys.every((key) => CHECK_IN_ONLY_KEYS.has(key)) ? "checkins.edit" : "participants.edit";
@@ -87,7 +92,7 @@ export function requiredDataEntryPermission(
  */
 export const DATA_ENTRY_GUARDED_FIELDS = {
   teams: { institutionConflictIds: "conflicts" },
-  adjudicators: { conflicts: "conflicts", baseScore: "scores", testScore: "scores", breaking: "scores" },
+  adjudicators: { conflicts: "conflicts", baseScore: "scores", testScore: "scores", breaking: "scores", isTester: "scores" },
 } as const satisfies Partial<Record<DataEntryCollection, Record<string, "conflicts" | "scores">>>;
 
 type GuardedKind = "conflicts" | "scores";
@@ -146,7 +151,7 @@ function validateGuardedField(key: string, value: unknown): void {
   const valid =
     key === "conflicts" ? validConflictList(value) :
     key === "institutionConflictIds" ? Array.isArray(value) && value.length <= MAX_CONFLICTS && value.every(validDataEntryId) :
-    key === "breaking" ? typeof value === "boolean" :
+    key === "breaking" || key === "isTester" ? typeof value === "boolean" :
     validScore(value);
   if (!valid) throw new Error(key === "conflicts" || key === "institutionConflictIds" ? "Invalid conflicts." : "Invalid adjudicator score.");
 }
@@ -265,6 +270,12 @@ export function prepareAssistantBallot(
     throw new Error(`Ballot ${String(record.id)} must contain scores for every debate side.`);
   }
 
+  // Speeches per side: the tournament's substantive speakers, plus the reply (two-team only).
+  const configuredSubstantive = preferences?.substantiveSpeakers;
+  const substantive = typeof configuredSubstantive === "number" && Number.isInteger(configuredSubstantive) && configuredSubstantive > 0
+    ? configuredSubstantive
+    : sides.length === 4 ? 2 : 3;
+  const maxPosition = substantive + (preferences?.replyScoresEnabled === true && sides.length === 2 ? 1 : 0);
   const usedRanks = new Set<number>();
   for (const side of sides) {
     const score = teamScores[side];
@@ -283,7 +294,7 @@ export function prepareAssistantBallot(
     if (typeof score.rank === "number") usedRanks.add(score.rank);
 
     const entries = speakerScores[side] ?? [];
-    if (!Array.isArray(entries) || entries.length > 8) {
+    if (!Array.isArray(entries) || entries.length > maxPosition) {
       throw new Error(`Ballot ${String(record.id)} contains invalid speaker scores.`);
     }
     for (const entry of entries) {
@@ -293,12 +304,11 @@ export function prepareAssistantBallot(
         typeof entry.position !== "number" ||
         !Number.isInteger(entry.position) ||
         entry.position < 1 ||
-        entry.position > 4 ||
+        entry.position > maxPosition ||
         typeof entry.score !== "number"
       ) {
         throw new Error(`Ballot ${String(record.id)} contains invalid speaker scores.`);
       }
-      const substantive = preferences?.substantiveSpeakers ?? (sides.length === 4 ? 2 : 3);
       const isReply = entry.position > substantive && preferences?.replyScoresEnabled === true;
       // With score criteria a speech score is a weighted sum, not a score on the scale; the
       // tab room re-validates the criteria when it confirms the ballot.
@@ -415,5 +425,41 @@ export function redactAssistantDebate(
       : { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
     ...(motionVisible && motionId !== undefined ? { motionId } : {}),
     ...(motionVisible && motionText !== undefined ? { motionText } : {}),
+  };
+}
+
+/**
+ * Whether a data-entry staff member may receive a round's results (ballots and the points on its
+ * debates). Tabbycat keeps standings and silent rounds' results from assistants unless they hold
+ * the standings permissions (VIEW_TEAMSTANDINGS…), so:
+ * - `standings.view`: every round;
+ * - released results are public anyway;
+ * - ballot staff (`results.enter`, `results.confirm_others`, `ballots.intake`): rounds still being
+ *   entered, and completed rounds that are not silent;
+ * - everyone else: released results only.
+ */
+export function assistantMaySeeRoundResults(
+  round: { silent?: boolean; completed?: boolean; resultsReleased?: boolean } | undefined,
+  permissions: readonly string[]
+): boolean {
+  if (permissions.includes("standings.view")) return true;
+  if (round?.resultsReleased === true) return true;
+  const ballotStaff = ["results.enter", "results.confirm_others", "ballots.intake"].some((permission) =>
+    permissions.includes(permission));
+  if (!ballotStaff || !round) return false;
+  return round.completed !== true || round.silent !== true;
+}
+
+/** A debate without its results (team points, speaker totals, bye results), for staff who may not see them. */
+export function withoutDebateResults(debate: Record<string, unknown>): Record<string, unknown> {
+  const { byeResult: _byeResult, teams, ...rest } = debate;
+  if (!isRecord(teams)) return rest;
+  return {
+    ...rest,
+    teams: Object.fromEntries(Object.entries(teams).map(([side, slot]) => {
+      if (!isRecord(slot)) return [side, slot];
+      const { points: _points, speakerScoreTotal: _speakerScoreTotal, ...kept } = slot;
+      return [side, kept];
+    })),
   };
 }

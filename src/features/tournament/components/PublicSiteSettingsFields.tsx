@@ -161,6 +161,11 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             onChange={(event) => set("showAdjudicatorInstitutions", event.target.checked ? undefined : false)}
           />
           <Checkbox
+            label={t("setup.config.showUnaccredited")}
+            checked={site.showUnaccredited}
+            onChange={(event) => set("showUnaccredited", event.target.checked ? true : undefined)}
+          />
+          <Checkbox
             label={t("setup.config.showEmoji")}
             checked={site.showEmoji}
             onChange={(event) => set("showEmoji", event.target.checked ? undefined : false)}

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getEligibleTeamsForRound } from "@/lib/draw/generator";
 import { MANUAL_SIDES_FLAG } from "@/lib/draw/manualSides";
+import { clampDebateImportance, DEBATE_IMPORTANCE_MAX, DEBATE_IMPORTANCE_MIN } from "@/lib/draw/importance";
 import { getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
 import { isVenueAvailableForRound } from "@/lib/venues/venues";
 import { anticipateRound, panelsFromAnticipatedDraw, prioritisePanels } from "@/features/tournament/application/preformedPanels";
@@ -21,8 +22,9 @@ import { defineRoute, slugParam } from "../../router";
 import { s } from "../../schema";
 import { serializeDebate, serializeRound } from "../../serializers";
 import type { SessionTabRoom } from "../../tabRoom";
-import { idSchema, roundSeqSchema } from "../shared";
+import { idSchema, roundBySeq, roundSeqSchema } from "../shared";
 import { sessionDebate, sessionRound } from "./rounds";
+import { isPolyFormat, isTwoTeamFormat, polySides, teamsInDebateFor, tournamentSides } from "@/lib/debateSides";
 import { overrideSchema, requireFound, runWrite } from "./shared";
 
 /**
@@ -36,13 +38,13 @@ const roundParams = s.object({ slug: slugParam, roundSeq: roundSeqSchema });
 const debateParams = s.object({ slug: slugParam, roundSeq: roundSeqSchema, debateId: idSchema("Debate (pairing) id.") });
 
 export function formatSides(tournament: Tournament): DebateSide[] {
-  return tournament.format === "bp" ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+  return tournamentSides(tournament);
 }
 
 const teamsSchema = s.record(idSchema("Team id."), {
-  maxKeys: 4,
-  keyPattern: /^(OG|OO|CG|CO|AFF|NEG)$/,
-  description: "Side -> team id: every side of the format (AFF/NEG, or OG/OO/CG/CO for BP).",
+  maxKeys: 64,
+  keyPattern: /^(OG|OO|CG|CO|AFF|NEG|P[1-9][0-9]*)$/,
+  description: "Side -> team id: every side of the format (AFF/NEG, OG/OO/CG/CO for BP, or P1…PN with N teams per debate; such a room may hold fewer teams, P1…Pk).",
 });
 
 /**
@@ -56,8 +58,11 @@ export function resolveDebateTeams(
   exceptDebateId?: string
 ): Record<DebateSide, DebateTeamSlot> {
   const tournament = tabRoom.session.tournament;
-  const sides = formatSides(tournament);
   const given = Object.keys(teamsBySide);
+  // A poly room may hold fewer teams than the format's count (as a random draw's last room).
+  const sides = isPolyFormat(tournament.format)
+    ? polySides(Math.min(Math.max(given.length, 1), teamsInDebateFor(tournament)))
+    : formatSides(tournament);
   if (given.length !== sides.length || !sides.every((side) => given.includes(side))) {
     throw new ApiError(422, "validation_failed", `teams must name exactly the sides ${sides.join(", ")}.`);
   }
@@ -120,7 +125,8 @@ export const pairingWriteRoutes = [
     body: s.object({
       teams: teamsSchema,
       venueId: s.optional(idSchema("Venue id.")),
-      importance: s.optional(s.integer({ min: -2, max: 10 })),
+      // CrabbyTab's 0-10 importance scale (src/lib/draw/importance.ts), not Tabbycat's -2..2.
+      importance: s.optional(s.integer({ min: DEBATE_IMPORTANCE_MIN, max: DEBATE_IMPORTANCE_MAX })),
       override: overrideSchema,
     }),
     response: s.ref("Pairing"),
@@ -130,7 +136,7 @@ export const pairingWriteRoutes = [
         if (round.cancelled) throw conflict(`${round.name} is cancelled.`);
         const tournament = session.tournament;
         const roundDebates = session.view<Debate>("debates").filter((debate) => debate.roundId === round.id);
-        const sidesOnBallot = tournament.format !== "bp" && tournament.preferences?.sideAllocationRule === "manual_ballot";
+        const sidesOnBallot = isTwoTeamFormat(tournament.format) && tournament.preferences?.sideAllocationRule === "manual_ballot";
         let debate: Debate = {
           id: `debate-${round.id}-${randomUUID()}`,
           tournamentId: tournament.id,
@@ -138,7 +144,7 @@ export const pairingWriteRoutes = [
           roundSeq: round.seq,
           bracket: 0,
           roomRank: Math.max(0, ...roundDebates.map((item) => item.roomRank ?? 0)) + 1,
-          importance: context.body.importance ?? 0,
+          importance: clampDebateImportance(context.body.importance),
           resultStatus: "none",
           sidesConfirmed: false,
           flags: sidesOnBallot ? [MANUAL_SIDES_FLAG] : [],
@@ -227,7 +233,7 @@ const panelFields = {
   chairId: s.optional(s.nullable(idSchema("Chair adjudicator id; null clears it."))),
   panellistIds: s.array(idSchema("Adjudicator id."), { max: 20, unique: true }),
   traineeIds: s.array(idSchema("Adjudicator id."), { max: 20, unique: true }),
-  importance: s.integer({ min: 0, max: 10 }),
+  importance: s.integer({ min: DEBATE_IMPORTANCE_MIN, max: DEBATE_IMPORTANCE_MAX }),
 };
 const panelResponse = s.object({
   id: s.string(),
@@ -325,9 +331,8 @@ export const preformedPanelWriteRoutes = [
     params: panelParams,
     response: panelResponse,
     async handler(context) {
-      const records = await context.data.all("rounds", [{ field: "seq", op: "==", value: Number(context.params.roundSeq) }]);
-      const round = records[0] as unknown as Round | undefined;
-      if (!round) throw notFound("Round");
+      // The same round as every other route for this sequence number (roundBySeq's stable choice).
+      const round = await roundBySeq(context, context.params.roundSeq);
       const panel = (round.preformedPanels ?? []).find((item) => item.id === context.params.panelId);
       if (!panel) throw notFound("Preformed panel");
       return { ...panel };

@@ -194,7 +194,10 @@ tournaments, for practising before an event.
   speakers (some in ESL / novice categories), adjudicators with scores and a few conflicts, rooms,
   preliminary and elimination rounds, motions and Open / ESL break categories
   (`src/lib/rehearsal/demoTournament.ts`). It is saved as a new tournament on this device (never
-  overwriting one); its URL starts with `demo-` and its name with "Demo —".
+  overwriting one); its URL starts with `demo-` and its name with "Demo —". It runs under its
+  format's rules preset, as the setup wizard applies it (WSDC: Proposition/Opposition sides, voting
+  ballots scored by Style/Content/Strategy criteria, random pairing; BP: consensus ballots), with
+  motions kept on. *Simulate results* scores criteria too when the tournament uses them.
 - **Rehearsal tools** (admin sidebar, `/[tournament]/rehearsal`): for a round with a draw,
   *Simulate results* creates one random, valid, confirmed ballot per unresulted debate and
   *Simulate feedback* one feedback submission per expected source/target pair along the configured

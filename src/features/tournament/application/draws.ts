@@ -202,7 +202,10 @@ export async function generateDrawCommand(
     throw new RoundChangedDuringComputeError(round.name);
   }
 
-  const roundMotion = orderRoundMotions(motions, round.id)[0];
+  // Only a round with exactly one motion knows each debate's motion at draw time; with several,
+  // the ballot records which motion was debated (Tabbycat), so none is assumed here.
+  const roundMotionsInOrder = orderRoundMotions(motions, round.id);
+  const roundMotion = roundMotionsInOrder.length === 1 ? roundMotionsInOrder[0] : undefined;
   if (roundMotion) {
     generated.forEach((debate) => {
       debate.motionId = roundMotion.id;

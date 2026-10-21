@@ -293,7 +293,7 @@ describe("Standings Calculator (calculateStandings)", () => {
     expect(result.replies.find((row) => row.speakerId === "g1")!.metrics.speaks_sum).toBe(39);
   });
 
-  it("awards a BP bye win full points without inventing speaker scores", () => {
+  it("awards a BP bye win 1 point and a win without inventing speaker scores", () => {
     const tournament = createMockTournament("bp", false);
     const teams: Team[] = [
       { id: "t1", tournamentId: "tourn-test", name: "Team 1", speakers: [{ id: "s1", name: "Speaker 1" }, { id: "s2", name: "Speaker 2" }], breakCategories: [], speakerCategories: [] },
@@ -376,13 +376,17 @@ describe("Standings Calculator (calculateStandings)", () => {
     const result = calculateStandings(tournament, rounds, teams, [priorDebate, byeDebate], [priorBallot]);
     const teamStanding = result.teams.find((row) => row.teamId === "t1")!;
 
-    expect(teamStanding.points).toBe(6);
-    expect(teamStanding.firstPlaces).toBe(2);
+    // Tabbycat records a bye as 1 point and a win in every format: in BP a third place.
+    expect(teamStanding.points).toBe(4);
+    expect(teamStanding.firstPlaces).toBe(1);
+    expect(teamStanding.thirdPlaces).toBe(1);
+    expect(teamStanding.metrics.thirds).toBe(1);
+    expect(teamStanding.wins).toBe(1);
     // Speaks come only from the debate actually spoken; the bye is not a 0 either.
     expect(teamStanding.totalSpeakerScore).toBe(150);
     expect(teamStanding.metrics.speaks_avg).toBe(150);
     expect(teamStanding.averageSpeakerScore).toBe(75);
-    expect(teamStanding.roundResults.find((r) => r.roundSeq === 2)).toMatchObject({ bye: true, points: 3 });
+    expect(teamStanding.roundResults.find((r) => r.roundSeq === 2)).toMatchObject({ bye: true, points: 1 });
     expect(result.speakers.find((row) => row.speakerId === "s1")).toMatchObject({
       totalScore: 80,
       speechesCount: 1,
@@ -459,7 +463,8 @@ describe("Standings Calculator (calculateStandings)", () => {
 
     const result = calculateStandings(tournament, [], [team], [byeDebate], []);
     expect(result.teams[0]).toMatchObject({ points: 1, wins: 1, totalSpeakerScore: 0 });
-    expect(result.teams[0].metrics).toMatchObject({ wins: 1, speaks_sum: 0, speaks_avg: 0, margin_sum: 0, margin_avg: 0 });
+    // Tabbycat's bye TeamScore has points and a win but no score or margin: those aggregates are null.
+    expect(result.teams[0].metrics).toMatchObject({ wins: 1, points: 1, speaks_sum: null, speaks_avg: null, speaks_stddev: null, margin_sum: null, margin_avg: null });
     expect(result.speakers.filter((row) => row.speechesCount > 0)).toHaveLength(0);
     expect(result.replies).toHaveLength(0);
   });

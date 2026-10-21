@@ -1,3 +1,4 @@
+import type { PublicTabs } from "@/lib/publicView/derived";
 import type { PublicBaseSection } from "@/lib/publicView/snapshot";
 import type { PublicViewReader } from "@/lib/publicView/store";
 import { badRequest } from "./errors";
@@ -38,6 +39,11 @@ export interface TournamentData {
    * the whole tournament (standings); it reads in pages of `ALL_PAGE_SIZE`.
    */
   all(collection: ReadableCollection, filters?: QueryFilter[]): Promise<StoredRecord[]>;
+  /**
+   * Public view only: the tabs computed when the view was published (top-N limits applied), as the
+   * public site shows them; null when none is published.
+   */
+  publicTabs?(): Promise<PublicTabs | null>;
 }
 
 const ALL_PAGE_SIZE = 500;
@@ -155,6 +161,10 @@ export function createPublicData(reader: PublicViewReader): TournamentData {
     },
     async all(collection, filters) {
       return sorted(await load(collection)).filter((record) => matchesFilters(record, filters));
+    },
+    async publicTabs() {
+      const tabs = await reader.readBase("tabs");
+      return tabs !== null && typeof tabs === "object" ? (tabs as PublicTabs) : null;
     },
   };
 }

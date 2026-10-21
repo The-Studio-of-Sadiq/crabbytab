@@ -1,5 +1,6 @@
 import type { AuditCategory, Debate, FeedbackQuestion, FeedbackSubmission } from "@/types";
 import { validateFeedbackAnswers } from "@/lib/feedback/questions";
+import { supersededFeedbackIds, type FeedbackVersionOptions } from "@/lib/feedback/versions";
 
 export interface FeedbackAuditEvent {
   action: string;
@@ -27,6 +28,10 @@ export async function addFeedbackCommand(
       passcode?: string
     ): Promise<void>;
     recordAuditEvent(event: FeedbackAuditEvent): Promise<void>;
+    /** The new record's id; absent = `fb-<time>`. The audit event names the same id. */
+    createId?(): string;
+    /** How feedback is versioned in the record's round (teams on the orallist); see feedback/versions. */
+    versionOptions?: FeedbackVersionOptions;
   }
 ): Promise<void> {
   const answerError = validateFeedbackAnswers(input.questions ?? [], data.answers ?? {});
@@ -34,11 +39,17 @@ export async function addFeedbackCommand(
 
   const feedback: FeedbackSubmission = {
     ...data,
-    id: `fb-${Date.now()}`,
+    id: input.createId ? input.createId() : `fb-${Date.now()}`,
     tournamentId: input.tournamentId,
     timestamp: new Date().toISOString(),
   };
-  input.repository.saveFeedback([...input.feedback, feedback]);
+  // As Tabbycat, confirmed feedback replaces the source's earlier confirmed feedback on the same
+  // target in the same debate (it is kept, unconfirmed), so nothing is counted twice.
+  const superseded = new Set(supersededFeedbackIds([feedback], input.feedback, input.versionOptions));
+  input.repository.saveFeedback([
+    ...input.feedback.map((item) => (superseded.has(item.id) ? { ...item, confirmed: false } : item)),
+    feedback,
+  ]);
   if (input.privatePasscode) {
     const privateUrlKey = input.privateUrlKey || (
       feedback.sourceType === "adjudicator"
@@ -63,6 +74,7 @@ export async function addFeedbackCommand(
       sourceType: feedback.sourceType,
       score: feedback.score,
       confirmed: feedback.confirmed,
+      ...(superseded.size > 0 ? { supersededFeedbackIds: [...superseded] } : {}),
     },
   });
 }

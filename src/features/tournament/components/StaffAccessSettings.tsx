@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Select, Switch } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { PublishSettingsNotice } from "@/features/tournament/components/PublishSettingsNotice";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { ASSISTANT_ACCESS_LEVELS, resolveAssistantAccess } from "@/lib/staffPermissions";
 
@@ -35,11 +36,14 @@ export function StaffAccessSettings({
   const [access, setAccess] = useState<AssistantAccessLevel>(resolveAssistantAccess(preferences.assistantAccess));
   const [individualBallots, setIndividualBallots] = useState(preferences.individualBallots === true);
   const [privateUrlBallots, setPrivateUrlBallots] = useState(preferences.privateUrlBallots !== false);
+  const [privateUrlFeedback, setPrivateUrlFeedback] = useState(preferences.privateUrlFeedback !== false);
   const [selfSplit, setSelfSplit] = useState(preferences.allowSelfSplitBallots === true);
   const [confirmation, setConfirmation] = useState<PrivateBallotConfirmation>(
     preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair"
   );
   const [saving, setSaving] = useState(false);
+  // Set once a save succeeds: these settings reach public pages and private URLs only when uploaded.
+  const [savedToDevice, setSavedToDevice] = useState(false);
   const [status, setStatus] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
   useEffect(() => {
@@ -47,12 +51,14 @@ export function StaffAccessSettings({
     setIndividualBallots(preferences.individualBallots === true);
     setConfirmation(preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair");
     setPrivateUrlBallots(preferences.privateUrlBallots !== false);
+    setPrivateUrlFeedback(preferences.privateUrlFeedback !== false);
     setSelfSplit(preferences.allowSelfSplitBallots === true);
   }, [
     preferences.assistantAccess,
     preferences.individualBallots,
     preferences.privateBallotConfirmation,
     preferences.privateUrlBallots,
+    preferences.privateUrlFeedback,
     preferences.allowSelfSplitBallots,
   ]);
 
@@ -63,6 +69,7 @@ export function StaffAccessSettings({
     individualBallots !== (preferences.individualBallots === true) ||
     confirmation !== (preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair") ||
     privateUrlBallots !== (preferences.privateUrlBallots !== false) ||
+    privateUrlFeedback !== (preferences.privateUrlFeedback !== false) ||
     selfSplit !== (preferences.allowSelfSplitBallots === true);
 
   const save = async () => {
@@ -77,10 +84,12 @@ export function StaffAccessSettings({
           individualBallots,
           privateBallotConfirmation: confirmation,
           privateUrlBallots,
+          privateUrlFeedback,
           allowSelfSplitBallots: selfSplit,
         },
       });
       setStatus({ tone: "success", text: t("setup.staff.accessSaved") });
+      setSavedToDevice(true);
     } catch (error) {
       setStatus({ tone: "danger", text: error instanceof Error ? error.message : t("setup.staff.accessSaveError") });
     } finally {
@@ -113,6 +122,12 @@ export function StaffAccessSettings({
           label={t("setup.staff.privateUrlBallotsLabel")}
           description={t("setup.staff.privateUrlBallotsHelp")}
         />
+        <Switch
+          checked={privateUrlFeedback}
+          onCheckedChange={setPrivateUrlFeedback}
+          label={t("setup.staff.privateUrlFeedbackLabel")}
+          description={t("setup.staff.privateUrlFeedbackHelp")}
+        />
         <Select
           label={t("setup.staff.ballotConfirmLabel")}
           help={t("setup.staff.ballotConfirmHelp")}
@@ -140,6 +155,7 @@ export function StaffAccessSettings({
           description={votingUsed ? t("setup.staff.selfSplitOn") : t("setup.staff.individualBallotsOff")}
         />
         {status && <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>{status.text}</Alert>}
+        {savedToDevice && <PublishSettingsNotice />}
         <div>
           <Button variant="primary" size="sm" loading={saving} disabled={!changed} onClick={() => void save()}>
             {t("setup.staff.accessSave")}

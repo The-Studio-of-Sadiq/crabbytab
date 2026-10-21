@@ -1,5 +1,6 @@
 import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import type { BallotSubmission, Debate, DebateSide, Round, Team } from "@/types";
+import { compareSides, isPolySide } from "@/lib/debateSides";
 
 export interface BracketTeam {
   side: DebateSide;
@@ -51,7 +52,7 @@ export function bracketRounds(
   isBP: boolean
 ): BracketRound[] {
   const ballotByDebate = latestBallots(ballots);
-  const order = isBP ? BP_ORDER : TWO_TEAM_ORDER;
+  const lastSeq = Math.max(0, ...rounds.filter((round) => round.cancelled !== true).map((round) => round.seq));
   return rounds
     .filter((round) => {
       const drawPublic = (round as Round & { drawPublic?: boolean }).drawPublic;
@@ -67,12 +68,21 @@ export function bracketRounds(
         .filter((debate) => debate.roundId === round.id)
         .map((debate): BracketMatch & { order: number; roomRank: number } => {
           const ballot = ballotByDebate.get(debate.id);
+          // Poly rooms list their own positions; a team advances by its declared result or, on a
+          // scored ballot, by finishing in the top two (top one in the last round), as Tabbycat.
+          const polyOrder = Object.keys(debate.teams || {}).filter(isPolySide).sort(compareSides) as DebateSide[];
+          const poly = polyOrder.length > 0;
+          const order = poly ? polyOrder : isBP ? BP_ORDER : TWO_TEAM_ORDER;
           const teams = order
             .map((side) => ({ side, slot: debate.teams?.[side] }))
             .filter((entry): entry is { side: DebateSide; slot: NonNullable<typeof entry.slot> } => Boolean(entry.slot?.teamId))
             .map(({ side, slot }) => {
               const score = ballot?.teamScores?.[side];
-              const advanced = Boolean(score && (isBP ? score.points >= 2 : score.win === true));
+              const advanced = Boolean(score && (
+                poly
+                  ? score.win === true || (score.rank !== undefined && score.rank <= (round.seq >= lastSeq ? 1 : 2))
+                  : isBP ? score.points >= 2 : score.win === true
+              ));
               return {
                 side,
                 teamId: slot.teamId,

@@ -1,7 +1,8 @@
 "use client";
 
 import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
-import { translatedSideName } from "@/lib/sideNames";
+import { sideMessage, translatedSideName } from "@/lib/sideNames";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -83,6 +84,7 @@ import {
 } from "@/features/tournament/components/public/PublicSitePanels";
 import { usePublicExtras } from "@/features/tournament/components/public/usePublicExtras";
 import { PublicFormLinks } from "@/features/tournament/components/public/forms/PublicBallotForm";
+import { PublicSiteLinks } from "@/features/tournament/components/public/PublicSiteLinks";
 import { getPublicSiteSettings, orderPublicMotions } from "@/lib/publicFeatures";
 import { debateMotion, publicRecordPath } from "@/lib/publicRecords";
 
@@ -174,7 +176,7 @@ export default function PublicTournamentPage() {
     (categoryId) => (publicTabs?.breakCategoryTabs?.[categoryId]?.length ?? 0) > 0
   );
   const showTeamTab = tabRoundCount > 0 && ((release.teamTab && Boolean(publicTabs?.teamTab)) || breakCategoryTabIds.length > 0);
-  const showSpeakerTab = release.speakerTab && tabRoundCount > 0 && Boolean(publicTabs?.speakerTab);
+  const overallSpeakerTab = release.speakerTab && Boolean(publicTabs?.speakerTab);
   const showRepliesTab = release.repliesTab && tabRoundCount > 0 && Boolean(publicTabs?.repliesTab);
   const teamTabOptions = [
     ...(release.teamTab && publicTabs?.teamTab ? [{ id: "all", name: t("public.allTeams") }] : []),
@@ -193,8 +195,15 @@ export default function PublicTournamentPage() {
   // The projection only sends public categories; each one with speakers gets its own speaker tab.
   const publicSpeakerCategories = sortSpeakerCategories(
     (prefs?.speakerCategories ?? []).filter((category) => category.public)
-  ).filter((category) => speakersInCategory(teams, category.id, prefs?.speakerCategories ?? []) > 0);
-  const selectedSpeakerCategory = publicSpeakerCategories.find((category) => category.id === speakerCategoryId);
+  ).filter((category) =>
+    speakersInCategory(teams, category.id, prefs?.speakerCategories ?? []) > 0 &&
+    // Category tabs are released with the speaker tab or on their own (`releaseSpeakerCategoryTabs`).
+    Boolean(publicTabs?.speakerCategoryTabs?.[category.id])
+  );
+  const showSpeakerTab = tabRoundCount > 0 && (overallSpeakerTab || publicSpeakerCategories.length > 0);
+  const selectedSpeakerCategory =
+    publicSpeakerCategories.find((category) => category.id === speakerCategoryId) ??
+    (overallSpeakerTab ? undefined : publicSpeakerCategories[0]);
   const speakerTabRows = (selectedSpeakerCategory
     ? publicTabs?.speakerCategoryTabs?.[selectedSpeakerCategory.id]
     : publicTabs?.speakerTab) ?? [];
@@ -294,7 +303,8 @@ export default function PublicTournamentPage() {
     (ballot) => publicRoundIds.has(ballot.roundId) || tabRoundIds.has(ballot.roundId)
   );
   const motionStatistics = new Map(
-    !site.motionTab ? [] : computeMotionStatistics(releasedMotions, debates, motionStatisticBallots, isBP).map((statistic) => [
+    // Tabbycat has no motion statistics for more or fewer than two teams (other than BP).
+    !site.motionTab || isPolyFormat(tournament?.format) ? [] : computeMotionStatistics(releasedMotions, debates, motionStatisticBallots, isBP).map((statistic) => [
       statistic.motion.id,
       statistic,
     ])
@@ -433,9 +443,10 @@ export default function PublicTournamentPage() {
     feedbackProgress: t("public.tab.feedbackProgress"),
   };
   const shownTab = availableTabs.includes(activeTab) ? activeTab : availableTabs[0];
-  const drawSides = (isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
+  const poly = isPolyFormat(tournament?.format);
+  const drawSides = (tournament && poly ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"]) as DebateSide[];
   const sideHeader = (side: DebateSide) =>
-    isBP ? <abbr title={t(`side.${side}`)} className="no-underline">{side}</abbr> : translatedSideName(t, side, tournament?.preferences);
+    isBP ? <abbr title={sideMessage(t, side)} className="no-underline">{side}</abbr> : translatedSideName(t, side, tournament?.preferences);
 
   const roundPicker = (pickable: typeof rounds, selectedId: string | undefined) => (
     <ChoiceChips
@@ -475,6 +486,7 @@ export default function PublicTournamentPage() {
       )}
       <WelcomePanel message={site.welcomeMessage} staff={site.tournamentStaff} />
       <PublicFormLinks slug={tournamentSlug} ballot={site.ballotForm} feedback={site.feedbackForm && prefs?.feedbackEnabled !== false} />
+      <PublicSiteLinks slug={tournamentSlug} schedule={prefs?.publicSchedule === true} checkins={prefs?.publicCheckInStatus === true} />
 
       {availableTabs.length === 0 || !shownTab ? (
         <EmptyState title={t("public.nothingPublished")} />
@@ -564,8 +576,7 @@ export default function PublicTournamentPage() {
                             </>
                           ) : (
                             <>
-                              <TH>{translatedSideName(t, "AFF", tournament?.preferences)}</TH>
-                              <TH>{translatedSideName(t, "NEG", tournament?.preferences)}</TH>
+                              {drawSides.map((side) => <TH key={side}>{translatedSideName(t, side, tournament?.preferences)}</TH>)}
                             </>
                           )}
                           <TH>{t("public.col.adjudicators")}</TH>
@@ -592,7 +603,10 @@ export default function PublicTournamentPage() {
                                 {drawSides.map((side) => {
                                   const tSlot = d.teams[side];
                                   const tScore = ballot?.teamScores?.[side];
-                                  const won = tScore ? (isBP ? tScore.rank === 1 : tScore.win) : undefined;
+                                  // Poly: ranked (scored), advancing (results only) or neither (score-only voting ballots).
+                                  const won = tScore
+                                    ? isBP ? tScore.rank === 1 : poly ? (tScore.rank !== undefined ? tScore.rank === 1 : tScore.win) : tScore.win
+                                    : undefined;
                                   return (
                                     <TD key={side}>
                                       <div className="font-medium text-fg">
@@ -608,10 +622,13 @@ export default function PublicTournamentPage() {
                                       </div>
                                       {tScore && (
                                         <div className="font-mono text-[11px] text-fg-muted">
-                                          {isBP ? t("public.rank", { rank: tScore.rank }) : tScore.win ? t("public.win") : t("public.loss")}
+                                          {isBP || (poly && tScore.rank !== undefined)
+                                            ? t("public.rank", { rank: tScore.rank ?? 0 })
+                                            : poly ? (tScore.win ? t("results.ballot.advances") : "")
+                                            : tScore.win ? t("public.win") : t("public.loss")}
                                           {roundTeamSpeaksReleased && (
                                             <>
-                                              {isBP && <> &bull; {t("public.points", { points: tScore.points })}</>}
+                                              {(isBP || (poly && tScore.rank !== undefined)) && <> &bull; {t("public.points", { points: tScore.points })}</>}
                                               {" "}&bull; {t("public.speaks", { speaks: formatNumber(tScore.totalSpeakerScore, SCORE_DISPLAY_OPTIONS) })}
                                             </>
                                           )}
@@ -747,7 +764,7 @@ export default function PublicTournamentPage() {
                       <TH align="center" className="w-12">#</TH>
                       <TH>{t("public.col.team")}</TH>
                       <TH>{t("public.col.institution")}</TH>
-                      <TH align="right">{isBP ? t("public.col.points") : t("public.col.wins")}</TH>
+                      <TH align="right">{isBP || poly ? t("public.col.points") : t("public.col.wins")}</TH>
                       <TH align="right">{t("public.col.totalSpeaks")}</TH>
                       <TH align="right">{t("public.col.avgSpeaks")}</TH>
                       {teamExtra.map((metric) => (
@@ -764,7 +781,7 @@ export default function PublicTournamentPage() {
                           <PublicTeamName team={teamsById.get(row.teamId)} name={row.teamName} recordHref={teamHref(row.teamId)} />
                         </TD>
                         <TD className="text-fg-muted">{row.institutionCode || "—"}</TD>
-                        <TD numeric className="font-semibold">{isBP ? row.points : row.wins ?? row.points}</TD>
+                        <TD numeric className="font-semibold">{isBP || poly ? row.points : row.wins ?? row.points}</TD>
                         <TD numeric>{formatDecimal(row.totalSpeakerScore, 1)}</TD>
                         <TD numeric className="text-fg-muted">{formatDecimal(row.averageSpeakerScore, 2)}</TD>
                         {teamExtra.map((metric) => (
@@ -793,7 +810,7 @@ export default function PublicTournamentPage() {
                 <ChoiceChips
                   label={t("public.speakerCategory")}
                   className="border-b border-border px-4 py-2"
-                  options={[{ id: "all", name: t("public.allSpeakers") }, ...publicSpeakerCategories].map((category) => ({
+                  options={[...(overallSpeakerTab ? [{ id: "all", name: t("public.allSpeakers") }] : []), ...publicSpeakerCategories].map((category) => ({
                     value: category.id,
                     label: category.name,
                   }))}
@@ -919,7 +936,7 @@ export default function PublicTournamentPage() {
                             {t("public.vetoes", { count: total })}
                             {entries.length > 1 && (
                               <span className="ms-2">
-                                {t("public.vetoesBySide", { sides: formatList(entries.map(([side, count]) => `${t(`side.${side}`)} ${count}`)) })}
+                                {t("public.vetoesBySide", { sides: formatList(entries.map(([side, count]) => `${translatedSideName(t, side, tournament?.preferences)} ${count}`)) })}
                               </span>
                             )}
                           </p>
@@ -976,6 +993,7 @@ export default function PublicTournamentPage() {
             <ParticipantsPanel
               participants={participants}
               showBreakCategories={site.breakCategoriesOnParticipants}
+              showUnaccredited={site.showUnaccredited}
               teamHref={teamHref}
               adjudicatorHref={adjudicatorHref}
             />
@@ -999,6 +1017,7 @@ export default function PublicTournamentPage() {
               lists={adjudicatorLists}
               showCore={release.adjudicatorCore}
               showBreaking={release.breakingAdjudicators}
+              showUnaccredited={site.showUnaccredited}
             />
           )}
         </TabPanel>

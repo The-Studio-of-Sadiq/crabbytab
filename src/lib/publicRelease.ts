@@ -11,6 +11,10 @@ export interface PublicRelease {
   teamTab: boolean;
   speakerTab: boolean;
   repliesTab: boolean;
+  /** Tabbycat `speaker_category_tabs_released`; absent follows the speaker tab. */
+  speakerCategoryTabs: boolean;
+  /** Tabbycat `all_results_released`: results of every completed round, silent and elimination included. */
+  allResults: boolean;
   breakCategoryIds: Set<string>;
   /** Participant lists (Tabbycat's public participants / institutions / adjudication core pages). */
   participants: boolean;
@@ -24,6 +28,8 @@ export type ReleasePreferences = Pick<
   | "releaseTeamTab"
   | "releaseSpeakerTab"
   | "releaseRepliesTab"
+  | "releaseSpeakerCategoryTabs"
+  | "releaseAllResults"
   | "releasedBreakCategoryIds"
   | "publicParticipants"
   | "publicInstitutionsList"
@@ -58,6 +64,8 @@ export type BooleanReleaseKind =
   | "teamTab"
   | "speakerTab"
   | "repliesTab"
+  | "speakerCategoryTabs"
+  | "allResults"
   | "participants"
   | "institutions"
   | "adjudicatorCore"
@@ -71,6 +79,8 @@ const RELEASE_PREFERENCE_KEYS = {
   teamTab: "releaseTeamTab",
   speakerTab: "releaseSpeakerTab",
   repliesTab: "releaseRepliesTab",
+  speakerCategoryTabs: "releaseSpeakerCategoryTabs",
+  allResults: "releaseAllResults",
   participants: "publicParticipants",
   institutions: "publicInstitutionsList",
   adjudicatorCore: "publicAdjudicatorCore",
@@ -83,6 +93,10 @@ export function getPublicRelease(preferences?: Partial<TournamentPreferences> | 
     teamTab: preferences?.releaseTeamTab === true,
     speakerTab: preferences?.releaseSpeakerTab === true,
     repliesTab: preferences?.releaseRepliesTab === true && preferences?.replyScoresEnabled !== false,
+    speakerCategoryTabs: typeof preferences?.releaseSpeakerCategoryTabs === "boolean"
+      ? preferences.releaseSpeakerCategoryTabs
+      : preferences?.releaseSpeakerTab === true,
+    allResults: preferences?.releaseAllResults === true,
     breakCategoryIds: new Set(
       Array.isArray(preferences?.releasedBreakCategoryIds) ? preferences.releasedBreakCategoryIds : []
     ),

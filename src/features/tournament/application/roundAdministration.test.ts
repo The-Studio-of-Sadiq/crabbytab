@@ -46,6 +46,17 @@ function createDependencies(rounds: PreliminaryRoundCountDependencies["rounds"] 
 }
 
 describe("setPreliminaryRoundCountCommand", () => {
+  it("groups new rounds into schedule slots by prelim_panels", async () => {
+    const { dependencies, getRounds } = createDependencies();
+    await setPreliminaryRoundCountCommand(4, { ...dependencies, preliminaryPanels: 2 });
+    expect(getRounds().map((item) => [item.name, item.scheduleGroup])).toEqual([
+      ["Round 1 (A)", 1],
+      ["Round 1 (B)", 1],
+      ["Round 2 (A)", 2],
+      ["Round 2 (B)", 2],
+    ]);
+  });
+
   it("clamps and floors the count, with first-round defaults and prior write order", async () => {
     const { dependencies, calls, getRounds, getActiveRound } = createDependencies();
 

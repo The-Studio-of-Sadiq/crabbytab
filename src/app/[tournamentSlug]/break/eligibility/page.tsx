@@ -12,7 +12,11 @@ import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { focusRing } from "@/components/ui/focus";
 import { cn } from "@/components/ui/cn";
-import { teamsWithEligibilityChanges } from "@/lib/participants/reports";
+import {
+  generalCategoryEligibilityChanges,
+  teamEligibleCategoryIds,
+  teamsWithEligibilityChanges,
+} from "@/lib/participants/reports";
 
 const checkboxClass = cn(
   "h-4 w-4 cursor-pointer rounded-sm accent-[rgb(var(--color-accent))]",
@@ -22,10 +26,12 @@ const checkboxClass = cn(
 
 /**
  * Team x break category eligibility grid (Tabbycat breakqual-edit-eligibility). Changes are kept
- * as a draft and saved together in one write, so a half-edited grid never reaches the break.
+ * as a draft and saved together, so a half-edited grid never reaches the break. A general category
+ * takes every team, so its column shows and sets the "Ineligible" override instead of the team's
+ * own category list, exactly as the break, liveness and public pages read it.
  */
 export default function BreakEligibilityPage() {
-  const { tournament, teams, breakCategories, saveEntityBatch, isOwnerOrAdmin } = useTournament();
+  const { tournament, teams, breakCategories, saveEntityBatch, saveBreakCategories, isOwnerOrAdmin } = useTournament();
   const { t, plural } = useI18n();
   const categories = useMemo(() => [...breakCategories].sort((a, b) => a.seq - b.seq), [breakCategories]);
   // Team id -> category ids, only for teams the organiser has touched.
@@ -34,9 +40,25 @@ export default function BreakEligibilityPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
-  const eligibleOf = (teamId: string): Set<string> =>
-    draft.get(teamId) ?? new Set(teams.find((team) => team.id === teamId)?.breakCategories ?? []);
-  const changed = useMemo(() => teamsWithEligibilityChanges(teams, draft, categories), [teams, draft, categories]);
+  const storedEligibility = (teamId: string): Set<string> => {
+    const team = teams.find((item) => item.id === teamId);
+    return team ? teamEligibleCategoryIds(team, categories) : new Set();
+  };
+  const eligibleOf = (teamId: string): Set<string> => draft.get(teamId) ?? storedEligibility(teamId);
+  const nonGeneral = useMemo(() => categories.filter((category) => !category.isGeneral), [categories]);
+  const changedTeams = useMemo(() => teamsWithEligibilityChanges(teams, draft, nonGeneral), [teams, draft, nonGeneral]);
+  const changedCategories = useMemo(() => generalCategoryEligibilityChanges(categories, draft), [categories, draft]);
+  // Teams whose eligibility the draft changes in any category, for the save button's count.
+  const changed = useMemo(
+    () =>
+      teams.filter((team) => {
+        const wanted = draft.get(team.id);
+        if (!wanted) return false;
+        const stored = teamEligibleCategoryIds(team, categories);
+        return wanted.size !== stored.size || [...wanted].some((id) => !stored.has(id));
+      }),
+    [teams, draft, categories]
+  );
   const needle = query.trim().toLowerCase();
   const shownTeams = useMemo(
     () =>
@@ -54,7 +76,7 @@ export default function BreakEligibilityPage() {
     setDraft((current) => {
       const next = new Map(current);
       for (const teamId of teamIds) {
-        const set = new Set(next.get(teamId) ?? teams.find((team) => team.id === teamId)?.breakCategories ?? []);
+        const set = new Set(next.get(teamId) ?? storedEligibility(teamId));
         if (eligible) set.add(categoryId);
         else set.delete(categoryId);
         next.set(teamId, set);
@@ -68,8 +90,13 @@ export default function BreakEligibilityPage() {
     setSaving(true);
     setMessage(null);
     try {
-      // The audit summary is stored with the record, so it stays in English.
-      await saveEntityBatch({ teamsUpdated: changed }, "Break eligibility edited");
+      // General categories record "Ineligible" overrides (audited by the break category save);
+      // other categories are the teams' own lists. The audit summary stays in English.
+      if (changedCategories.length > 0) {
+        const updated = new Map(changedCategories.map((category) => [category.id, category]));
+        await saveBreakCategories(breakCategories.map((category) => updated.get(category.id) ?? category));
+      }
+      if (changedTeams.length > 0) await saveEntityBatch({ teamsUpdated: changedTeams }, "Break eligibility edited");
       setDraft(new Map());
       setMessage({ tone: "success", text: plural("results.break.eligibilityGrid.saved", changed.length) });
     } catch (error) {
@@ -125,6 +152,9 @@ export default function BreakEligibilityPage() {
         <EmptyState title={t("results.break.eligibilityGrid.noCategories")} />
       ) : (
         <>
+          {categories.some((category) => category.isGeneral) && (
+            <p className="text-sm text-fg-muted">{t("results.break.eligibilityGrid.generalHint")}</p>
+          )}
           <div className="w-full sm:w-72">
             <Input
               type="search"

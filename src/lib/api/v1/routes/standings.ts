@@ -8,6 +8,7 @@ import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 import { rankTeamSubset } from "@/lib/standings/subset";
 import { calculateFeedbackSummaries } from "@/lib/feedback/scores";
 import { getPublicRelease, isAnyTabReleased, isTabRound } from "@/lib/publicRelease";
+import type { PublicSpeakerTabRow, PublicTabs, PublicTeamTabRow } from "@/lib/publicView/derived";
 import { calculateStandings, countedSubstantiveSpeeches, type StandingsCalculationResult } from "@/lib/standings/calculator";
 import type {
   Adjudicator,
@@ -137,6 +138,81 @@ function speakersInCategory(context: AnyContext, rows: SpeakerStandingRow[], cat
   const categories = context.tournament.preferences?.speakerCategories ?? [];
   if (!categories.some((category) => category.id === categoryId)) throw notFound("Speaker category");
   return speakerRowsInCategory(rows, categoryId, categories);
+}
+
+/**
+ * The tab as the public site shows it, when recomputing from the public view would not give it.
+ * With a site-wide top-N limit the public view carries no results for the tab's rounds (so ranks
+ * below the cutoff cannot be rebuilt), and a speaker or break category tab can have a limit of its
+ * own: then public tokens get the tab computed at publish time, exactly as the public page shows
+ * it. `round` and `metrics` need the full results, so they are refused in that case. Returns
+ * undefined when the request is answered by recomputing as before.
+ */
+async function publishedTab(
+  context: AnyContext,
+  tab: Tab,
+  options: StandingsOptions & { category?: string }
+): Promise<Array<Record<string, unknown>> | undefined> {
+  if (context.data.view !== "public" || !context.data.publicTabs) return undefined;
+  const preferences = context.tournament.preferences;
+  const site = getPublicSiteSettings(preferences);
+  const siteLimited = site.teamTabLimit > 0 || site.speakerTabLimit > 0 || site.repliesTabLimit > 0;
+  const tabs: PublicTabs | null = await context.data.publicTabs();
+  const categoryLimited = options.category !== undefined && (tab === "teams"
+    ? (tabs?.limits.breakCategories?.[options.category] ?? 0) > 0
+    : (preferences?.speakerCategories?.find((category) => category.id === options.category)?.limit ?? 0) > 0);
+  if (!siteLimited && !categoryLimited) return undefined;
+  if (!(options.category !== undefined && tab === "teams") && !getPublicRelease(preferences)[RELEASE_KIND[tab]]) {
+    throw new ApiError(403, "forbidden", "This tab has not been released to the public.");
+  }
+  if (options.round !== undefined || options.metrics) {
+    throw new ApiError(422, "validation_failed", "The public tab shows only its top ranks, so it cannot be recomputed.", {
+      issues: [{ path: options.round !== undefined ? "round" : "metrics", message: "is not available while a public tab limit is set" }],
+    });
+  }
+  if (!tabs) throw new ApiError(503, "unavailable", "The public tab has not been published yet; publish the public view again.");
+  const teamRows = (rows: PublicTeamTabRow[] | undefined) => (rows ?? []).map(publishedTeamRow);
+  const speakerRows = (rows: PublicSpeakerTabRow[] | undefined) => (rows ?? []).map(publishedSpeakerRow);
+  if (tab === "teams") {
+    if (options.category === undefined) return teamRows(tabs.teamTab);
+    const rows = tabs.breakCategoryTabs?.[options.category];
+    if (!rows) throw new ApiError(403, "forbidden", "This break category's tab has not been released to the public.");
+    return teamRows(rows);
+  }
+  if (tab === "replies") return speakerRows(tabs.repliesTab);
+  if (options.category === undefined) return speakerRows(tabs.speakerTab);
+  const rows = tabs.speakerCategoryTabs?.[options.category];
+  if (!rows) throw notFound("Speaker category");
+  return speakerRows(rows);
+}
+
+/** A published team tab row in the API's row shape (only the tab's "extra" metrics are published). */
+function publishedTeamRow(row: PublicTeamTabRow): Record<string, unknown> {
+  return {
+    rank: row.rank,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    institution: row.institutionCode || undefined,
+    points: row.points,
+    totalSpeakerScore: row.totalSpeakerScore,
+    averageSpeakerScore: row.averageSpeakerScore,
+    metrics: row.metrics,
+  };
+}
+
+function publishedSpeakerRow(row: PublicSpeakerTabRow): Record<string, unknown> {
+  return {
+    rank: row.rank,
+    ineligible: row.ineligible === true,
+    speakerId: row.speakerId,
+    speakerName: row.speakerName,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    totalScore: row.totalScore,
+    averageScore: row.averageScore,
+    speechesCount: row.speechesCount,
+    metrics: row.metrics,
+  };
 }
 
 type SpeechKind = "substantive" | "reply" | "ghost";
@@ -280,6 +356,8 @@ export const standingsReadRoutes = [
     response: listOf(teamStandingSchema),
     async handler(context) {
       const metrics = parseMetrics(context.query.metrics, "teams");
+      const published = await publishedTab(context, "teams", { round: context.query.round, metrics, category: context.query.category });
+      if (published) return { data: published };
       const standings = await computeStandings(context, "teams", { round: context.query.round, metrics });
       const rows = context.query.category
         ? await teamsInBreakCategory(context, standings.teams, context.query.category, metrics)
@@ -368,6 +446,8 @@ export const standingsReadRoutes = [
     response: listOf(speakerStandingSchema),
     async handler(context) {
       const metrics = parseMetrics(context.query.metrics, "speakers");
+      const published = await publishedTab(context, "speakers", { round: context.query.round, metrics, category: context.query.category });
+      if (published) return { data: published };
       const standings = await computeStandings(context, "speakers", { round: context.query.round, metrics });
       const rows = context.query.category ? speakersInCategory(context, standings.speakers, context.query.category) : standings.speakers;
       return { data: rows.map(speakerRow) };
@@ -386,6 +466,8 @@ export const standingsReadRoutes = [
     response: listOf(speakerStandingSchema),
     async handler(context) {
       const metrics = parseMetrics(context.query.metrics, "replies");
+      const published = await publishedTab(context, "replies", { round: context.query.round, metrics });
+      if (published) return { data: published };
       const standings = await computeStandings(context, "replies", { round: context.query.round, metrics });
       return { data: standings.replies.map(speakerRow) };
     },

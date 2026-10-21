@@ -274,3 +274,51 @@ describe("two-team private ballots", () => {
     expect(ballot.teamScores.NEG).toMatchObject({ win: true, totalSpeakerScore: 0 });
   });
 });
+
+describe("the motion a participant ballot records", () => {
+  const motions = [
+    { id: "m1", text: "Motion one" },
+    { id: "m2", text: "Motion two" },
+    { id: "m3", text: "Motion three" },
+  ];
+  // Debates drawn before the fix carry the round's first motion; it must not be assumed.
+  const drawn: Debate = { ...debate, motionId: "m1", motionText: "Motion one" };
+  const build = (input: Record<string, unknown>, roundMotions: typeof motions, preferences: Partial<Tournament["preferences"]> = {}) =>
+    buildPrivateBallot(
+      { ...ballotInput(), ...input },
+      {
+        tournament: { ...tournament, preferences: { ...tournament.preferences, ...preferences } },
+        adjudicator: chair,
+        debate: drawn,
+        teams,
+        tournamentId: "t1",
+        roundMotions,
+      }
+    );
+
+  it("requires the debated motion when the round has several", () => {
+    expect(() => build({}, motions)).toThrow("Choose the motion that was debated.");
+    expect(() => build({ motionId: "elsewhere" }, motions)).toThrow("not one of this round's motions");
+    expect(build({ motionId: "m3" }, motions)).toMatchObject({ motionId: "m3", motionText: "Motion three" });
+  });
+
+  it("records the only motion, and none when motions are off and there are several", () => {
+    expect(build({}, [motions[1]])).toMatchObject({ motionId: "m2", motionText: "Motion two" });
+    const off = build({ motionId: "m3" }, motions, { enableMotions: false });
+    expect(off.motionId).toBeUndefined();
+    expect(off.motionText).toBeUndefined();
+  });
+
+  it("takes motion vetoes only when they are on, from the round's other motions", () => {
+    expect(() => build({ motionId: "m1", vetoes: { OG: "m2" } }, motions)).toThrow("Motion vetoes are not enabled");
+    const vetoed = build({ motionId: "m1", vetoes: { OG: "m2", OO: "", CG: "m3" } }, motions, { enableMotionVetoes: true });
+    expect(vetoed.vetoes).toEqual({ OG: "m2", CG: "m3" });
+    expect(() => build({ motionId: "m1", vetoes: { OG: "m1" } }, motions, { enableMotionVetoes: true })).toThrow("cannot veto the motion that was debated");
+    expect(() => build({ motionId: "m1", vetoes: { XX: "m2" } }, motions, { enableMotionVetoes: true })).toThrow("unknown side");
+  });
+
+  it("keeps the debate's motion for callers that do not pass the round's motions", () => {
+    const ballot = buildPrivateBallot(ballotInput(), { tournament, adjudicator: chair, debate: drawn, teams, tournamentId: "t1" });
+    expect(ballot).toMatchObject({ motionId: "m1", motionText: "Motion one" });
+  });
+});

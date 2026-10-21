@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAllocationWeights,
+  AdjudicatorAllocationError,
   autoAllocateAdjudicators,
   calculateAdjudicatorFeedbackScores,
   calculateAdjDebateConflict,
@@ -804,7 +805,7 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(weights.PRIORITY_STRENGTH_MISMATCH).toBe(2_000_000);
   });
 
-  it("respects minAdjScoreToVote by excluding judges below threshold from voting panel", () => {
+  it("seats judges below minAdjScoreToVote as trainees, never as voters (Tabbycat)", () => {
     const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const teamsMap = new Map<string, Team>();
     teams.forEach((t) => teamsMap.set(t.id, t));
@@ -831,9 +832,10 @@ describe("Adjudicator Allocator Preferences", () => {
     );
 
     expect(result[0].chairId).toBe("adj-high");
-    // lowJudge has score 1.2 < 2.0, so cannot be voting chair or panellist
+    // lowJudge has score 1.2 < 2.0, so cannot be voting chair or panellist, but is still allocated
+    // as a trainee (Tabbycat seats non-voters as trainees instead of leaving them out).
     expect(result[0].panellistIds).not.toContain("adj-low");
-    expect(result[0].traineeIds).not.toContain("adj-low");
+    expect(result[0].traineeIds).toContain("adj-low");
   });
 
   it("assigns only adjudicators explicitly marked as trainees to trainee slots", () => {
@@ -869,8 +871,9 @@ describe("Adjudicator Allocator Preferences", () => {
     const debate = createDebate("d1", teams);
     const uncheckJudge = createAdj("adj-1", "Unchecked Judge", 6.0, false);
 
-    // When skipAdjCheckins is false (default), unchecked judge is skipped
-    const resSkipped = autoAllocateAdjudicators(
+    // When skipAdjCheckins is false (default), unchecked judge is skipped: nobody is available, so
+    // the allocation is refused (Tabbycat AdjudicatorAllocationError) instead of emptying panels.
+    expect(() => autoAllocateAdjudicators(
       [debate],
       teamsMap,
       [uncheckJudge],
@@ -885,8 +888,7 @@ describe("Adjudicator Allocator Preferences", () => {
           skipAdjCheckins: false,
         },
       }
-    );
-    expect(resSkipped[0].chairId).toBeUndefined();
+    )).toThrow(AdjudicatorAllocationError);
 
     // When skipAdjCheckins is true, unchecked judge is available and allocated
     const resAllowed = autoAllocateAdjudicators(

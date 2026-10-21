@@ -34,6 +34,8 @@ describe("getPublicRelease", () => {
       teamTab: false,
       speakerTab: false,
       repliesTab: false,
+      speakerCategoryTabs: false,
+      allResults: false,
       breakCategoryIds: new Set(),
       participants: false,
       institutions: false,
@@ -42,6 +44,14 @@ describe("getPublicRelease", () => {
     });
     expect(isAnyTabReleased(release)).toBe(false);
     expect(getPublicRelease(null).teamTab).toBe(false);
+  });
+
+  it("releases speaker category tabs with the speaker tab unless set on their own", () => {
+    expect(getPublicRelease({ releaseSpeakerTab: true }).speakerCategoryTabs).toBe(true);
+    expect(getPublicRelease({ releaseSpeakerTab: true, releaseSpeakerCategoryTabs: false }).speakerCategoryTabs).toBe(false);
+    expect(getPublicRelease({ releaseSpeakerCategoryTabs: true }).speakerCategoryTabs).toBe(true);
+    expect(getPublicRelease({ releaseAllResults: true }).allResults).toBe(true);
+    expect(isAnyTabReleased(getPublicRelease({ releaseSpeakerCategoryTabs: true }))).toBe(false);
   });
 
   it("reads releases and ignores the replies tab when replies are not scored", () => {

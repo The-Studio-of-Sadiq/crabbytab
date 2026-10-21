@@ -41,6 +41,12 @@ export const STAFF_PERMISSIONS = [
   "adjudicators.scores_edit",
   /** Change adjudicator allocations of draws they can see (Tabbycat EDIT_DEBATEADJUDICATORS). */
   "allocation.edit",
+  /**
+   * See standings, the break, analytics and the results of silent and unreleased rounds (Tabbycat
+   * VIEW_TEAMSTANDINGS, VIEW_SPEAKERSSTANDINGS, VIEW_MOTIONSTAB, VIEW_BREAK). Not part of the
+   * tabulation assistant set, as in Tabbycat.
+   */
+  "standings.view",
 ] as const;
 
 export type StaffPermission = (typeof STAFF_PERMISSIONS)[number];
@@ -59,6 +65,7 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   "feedback.view": "See feedback and adjudicator scores",
   "adjudicators.scores_edit": "Edit adjudicator scores and breaking",
   "allocation.edit": "Edit adjudicator allocations",
+  "standings.view": "See standings, break and analytics",
 };
 
 /**
@@ -126,7 +133,7 @@ export const PERMISSION_GROUPS: Record<PermissionGroupId, PermissionGroup> = {
   adjudication_core: {
     label: "Adjudication core",
     description:
-      "Allocate adjudicators, see feedback, set adjudicator scores and breaking, see draws and motions early (Tabbycat's Adjudication Core group).",
+      "Allocate adjudicators, see feedback, set adjudicator scores and breaking, see draws and motions early, see standings (Tabbycat's Adjudication Core group).",
     permissions: [
       "feedback.view",
       "adjudicators.scores_edit",
@@ -134,6 +141,7 @@ export const PERMISSION_GROUPS: Record<PermissionGroupId, PermissionGroup> = {
       "conflicts.view",
       "draw.display",
       "motions.display",
+      "standings.view",
     ],
   },
 };
@@ -317,6 +325,23 @@ export function resolveStaffPermissions(
 
 export function hasStaffPermission(permissions: readonly string[] | null | undefined, permission: StaffPermission): boolean {
   return Boolean(permissions?.includes(permission));
+}
+
+/**
+ * Whether the viewer may change adjudicator base and test scores and the breaking and tester flags
+ * (Tabbycat EDIT_BASEJUDGESCORES_IND, EDIT_ADJ_BREAK, EDIT_ADJ_TESTER): administrators, or data-entry
+ * staff with `adjudicators.scores_edit` who can also see the scores (`feedback.view`), since the
+ * data-entry sync ignores score fields from staff who cannot read them.
+ */
+export function mayEditAdjudicatorScores(access: {
+  isOwnerOrAdmin: boolean;
+  isDataEntryAssistant: boolean;
+  permissions: readonly string[];
+}): boolean {
+  if (access.isOwnerOrAdmin) return true;
+  return access.isDataEntryAssistant &&
+    hasStaffPermission(access.permissions, "adjudicators.scores_edit") &&
+    hasStaffPermission(access.permissions, "feedback.view");
 }
 
 export class StaffPermissionError extends Error {

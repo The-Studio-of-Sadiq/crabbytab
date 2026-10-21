@@ -29,7 +29,7 @@ export function AdjudicatorFlagToggle({
   /** Shown as the tooltip when disabled (e.g. "On the adjudication core, so always a tester"). */
   disabledReason?: string;
 }) {
-  const { adjudicators, updateAdjudicators } = useTournament();
+  const { adjudicators, updateAdjudicators, isDataEntryAssistant } = useTournament();
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -42,7 +42,9 @@ export function AdjudicatorFlagToggle({
     try {
       // Save from the latest copy so a concurrent edit of another field is not overwritten.
       const latest = adjudicators.find((item) => item.id === adjudicator.id) ?? adjudicator;
-      await updateAdjudicators([{ ...latest, [flag]: next || undefined }]);
+      // Staff changes reach the cloud through the data-entry sync, which only sees fields that are
+      // present, so they record an explicit false; administrators remove the field.
+      await updateAdjudicators([{ ...latest, [flag]: next || (isDataEntryAssistant ? false : undefined) }]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t("results.feedback.tester.saveFailed"));
     } finally {

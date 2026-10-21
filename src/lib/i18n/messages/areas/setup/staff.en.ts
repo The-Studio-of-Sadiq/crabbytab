@@ -56,6 +56,9 @@ export const staffEn = {
   "setup.staff.privateUrlBallotsLabel": "Ballot submissions from adjudicators through private URLs",
   "setup.staff.privateUrlBallotsHelp":
     "Off: only the tab room enters ballots; private URLs no longer accept them (Tabbycat's \"Disabled (tab staff only)\").",
+  "setup.staff.privateUrlFeedbackLabel": "Feedback submissions through private URLs",
+  "setup.staff.privateUrlFeedbackHelp":
+    "Off: private URLs no longer accept feedback; take it on the public feedback form or in the tab room (Tabbycat's participant feedback setting).",
   "setup.staff.selfSplitLabel": "Allow self-split ballots for solo adjudicators",
   "setup.staff.selfSplitOn":
     "A solo adjudicator on a voting ballot may declare their decision a 2:1 split, recorded as 2 votes to 1 (Karl Popper rules).",
@@ -250,12 +253,13 @@ export const staffEn = {
   "setup.staff.groupEquity": "Equity",
   "setup.staff.groupEquityDescription": "See and edit conflicts (Tabbycat's Equity group).",
   "setup.staff.groupAdjudicationCore": "Adjudication core",
-  "setup.staff.groupAdjudicationCoreDescription": "Allocate adjudicators, see feedback, set adjudicator scores and breaking adjudicators, and see draws and motions early (Tabbycat's Adjudication Core group).",
+  "setup.staff.groupAdjudicationCoreDescription": "Allocate adjudicators, see feedback, set adjudicator scores and breaking adjudicators, see draws and motions early, and see standings (Tabbycat's Adjudication Core group).",
   "setup.staff.permConflictsView": "See conflicts",
   "setup.staff.permConflictsEdit": "Edit conflicts",
   "setup.staff.permFeedbackView": "See feedback and adjudicator scores",
   "setup.staff.permAdjudicatorScoresEdit": "Edit adjudicator scores and breaking",
   "setup.staff.permAllocationEdit": "Edit adjudicator allocations",
+  "setup.staff.permStandingsView": "See standings, break and analytics",
   "setup.staff.customGroupBadge": "Custom group",
   "setup.staff.customGroupsTitle": "Custom permission groups",
   "setup.staff.customGroupsDescription": "Name your own groups of the permissions above (Tabbycat's groups). Every permission is still checked by the server.",
@@ -269,4 +273,10 @@ export const staffEn = {
   "setup.staff.customGroupsSave": "Save custom groups",
   "setup.staff.customGroupsSaved": "Custom permission groups saved. Staff in them have the new permissions from their next request.",
   "setup.staff.customGroupsError": "Could not save the custom permission groups.",
+
+  // Notice after saving settings that the cloud copy serves (PublishSettingsNotice)
+  "setup.publishNotice.title": "Saved on this device only",
+  "setup.publishNotice.body":
+    "Public pages, private URLs and other devices use the published cloud copy, so this change takes effect there once it is uploaded and published.",
+  "setup.publishNotice.published": "Uploaded and published. Public pages and private URLs now use this setting.",
 } as const;

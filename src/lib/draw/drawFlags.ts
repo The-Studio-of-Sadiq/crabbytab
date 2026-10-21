@@ -2,7 +2,7 @@ import type { Debate, DebateSide, Round, Team, TeamStandingRow } from "@/types";
 import { buildMatchupHistory, getEligibleTeamsForRound } from "./generator";
 import { sameInstitution } from "./history";
 import { sidesPending } from "./manualSides";
-import { BP_SIDES, TWO_TEAM_SIDES } from "./sideAllocator";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 import { earlierDebates, validateDraw, type DrawIssue, type ValidateDrawInput } from "./validateDraw";
 
 /**
@@ -140,8 +140,9 @@ function imbalanceAfter(
 
 export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags> {
   const { tournament, round, teams } = input;
-  const isBP = tournament.format === "bp";
-  const sides = isBP ? BP_SIDES : TWO_TEAM_SIDES;
+  const sides = tournamentSides(tournament);
+  // Poly positions are never balanced (Tabbycat's poly draw allocates them at random).
+  const balancesSides = !isPolyFormat(tournament.format);
   const label = roundLabels(input.rounds);
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const name = (teamId: string) => teamsById.get(teamId)?.name ?? teamId;
@@ -205,7 +206,7 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
           params: { team: name(slot.teamId), sideCounts: sides.map((item) => ({ side: item, count: counts[item] })) },
         });
       }
-      const imbalance = pending || round.stage !== "preliminary"
+      const imbalance = pending || round.stage !== "preliminary" || !balancesSides
         ? null
         : imbalanceAfter(pastSides, side, sides, allowedImbalance);
       if (imbalance) {
@@ -245,6 +246,37 @@ export function computeDrawFlags(input: DrawFlagsInput): Map<string, DebateFlags
 
 /* Draw details ------------------------------------------------------------------------------- */
 
+/**
+ * What the draw generator did, as Tabbycat records it (draw/generator/__init__.py
+ * DRAW_FLAG_DESCRIPTIONS): one-up-one-down swaps and random-draw swaps on the debate, bubbling on
+ * the team. Stored in Debate.flags and DebateTeamSlot.flags.
+ */
+export const TABBYCAT_DRAW_FLAGS = [
+  "max_swapped",
+  "1u1d_hist",
+  "1u1d_inst",
+  "1u1d_other",
+  "bub_up_hist",
+  "bub_dn_hist",
+  "bub_up_inst",
+  "bub_dn_inst",
+  "bub_up_accom",
+  "bub_dn_accom",
+  "no_bub_updn",
+] as const;
+
+export type TabbycatDrawFlag = (typeof TABBYCAT_DRAW_FLAGS)[number];
+
+export function isTabbycatDrawFlag(flag: string): flag is TabbycatDrawFlag {
+  return (TABBYCAT_DRAW_FLAGS as readonly string[]).includes(flag);
+}
+
+/** The Tabbycat draw flags of a team's placement: its debate's, then its own. */
+export function tabbycatDrawFlagsOf(debate: Debate, teamId: string): TabbycatDrawFlag[] {
+  const slot = Object.values(debate.teams ?? {}).find((item) => item?.teamId === teamId);
+  return [...new Set([...(debate.flags ?? []), ...(slot?.flags ?? [])].filter(isTabbycatDrawFlag))];
+}
+
 export type RoundSide = DebateSide | "bye" | "tbc";
 
 export interface TeamDrawDetails {
@@ -255,7 +287,15 @@ export interface TeamDrawDetails {
   /** Team points from the current standings (absent when no standings are given or the team is unranked). */
   points?: number;
   /** This round's placement: null when the team is not placed. */
-  current: { debateId: string; room: string; side: RoundSide; opponents: string[]; pulledUp: boolean } | null;
+  current: {
+    debateId: string;
+    room: string;
+    side: RoundSide;
+    opponents: string[];
+    pulledUp: boolean;
+    /** Tabbycat's draw flags for this placement (see TABBYCAT_DRAW_FLAGS). */
+    drawFlags: TabbycatDrawFlag[];
+  } | null;
   /** Earlier rounds, oldest first: the side taken, "bye", "tbc" (sides not yet recorded) or null (did not debate). */
   sidesByRound: { roundLabel: string; side: RoundSide | null }[];
   sideCounts: Record<string, number>;
@@ -269,7 +309,7 @@ export interface TeamDrawDetails {
  */
 export function buildDrawDetails(input: DrawFlagsInput): TeamDrawDetails[] {
   const { tournament, round, teams } = input;
-  const sides = tournament.format === "bp" ? BP_SIDES : TWO_TEAM_SIDES;
+  const sides = tournamentSides(tournament);
   const label = roundLabels(input.rounds);
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const name = (teamId: string) => teamsById.get(teamId)?.name ?? teamId;
@@ -309,7 +349,7 @@ export function buildDrawDetails(input: DrawFlagsInput): TeamDrawDetails[] {
   const current = new Map<string, TeamDrawDetails["current"]>();
   for (const debate of roundDebates) {
     if (debate.byeTeamId) {
-      current.set(debate.byeTeamId, { debateId: debate.id, room: "Bye", side: "bye", opponents: [], pulledUp: false });
+      current.set(debate.byeTeamId, { debateId: debate.id, room: "Bye", side: "bye", opponents: [], pulledUp: false, drawFlags: [] });
       continue;
     }
     const pending = sidesPending(debate);
@@ -321,6 +361,7 @@ export function buildDrawDetails(input: DrawFlagsInput): TeamDrawDetails[] {
         side: pending ? "tbc" : side,
         opponents: slots.filter(([, other]) => other.teamId !== slot.teamId).map(([, other]) => name(other.teamId)),
         pulledUp: Boolean(slot.pulledUp),
+        drawFlags: tabbycatDrawFlagsOf(debate, slot.teamId),
       });
     }
   }

@@ -8,6 +8,7 @@ import { tabroomTeamName } from "@/lib/codeNames";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
+import { allocationPositionOpen } from "@/lib/adjudicators/allocationPositions";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n";
 import type { AdjudicatorPanelStrategy, Institution } from "@/types";
@@ -821,6 +822,12 @@ export default function AllocationPage() {
     const adj = adjsMap.get(payload.adjId);
     if (!adj) return;
     setManualAssignmentError("");
+    if (!allocationPositionOpen(target.role, tournament?.preferences)) {
+      const message = t(target.role === "panellist" ? "tabroom.allocation.panellistPositionClosed" : "tabroom.allocation.traineePositionClosed");
+      setManualAssignmentError(message);
+      setAnnouncement(message);
+      return;
+    }
     const room = roomLabelOf(target.debateId);
     const debate = roundDebates.find((d) => d.id === target.debateId);
     const previousChair =
@@ -1243,9 +1250,14 @@ export default function AllocationPage() {
               const isPanellistHovered = dragOverTarget === panellistDropKey;
               const isTraineeHovered = dragOverTarget === traineeDropKey;
 
-              // A picked judge is not offered its own current slot.
+              // A picked judge is not offered its own current slot, nor a position the tournament
+              // turned off (no_panellist_position / no_trainee_position).
               const showTarget = (role: SlotRole) =>
-                Boolean(picked) && !(picked?.sourceDebateId === debate.id && picked?.sourceType === role);
+                Boolean(picked) &&
+                allocationPositionOpen(role, tournament?.preferences) &&
+                !(picked?.sourceDebateId === debate.id && picked?.sourceType === role);
+              const panellistsOpen = allocationPositionOpen("panellist", tournament?.preferences);
+              const traineesOpen = allocationPositionOpen("trainee", tournament?.preferences);
 
               const chipProps = {
                 roomLabel,
@@ -1457,11 +1469,12 @@ export default function AllocationPage() {
                       </div>
                     </div>
 
-                    {/* Panellists Drop Zone */}
+                    {/* Panellists Drop Zone (hidden when the position is off, unless someone still sits there) */}
+                    {(panellistsOpen || panellistIds.length > 0) && (
                     <div
-                      onDragOver={(e) => handleDragOverJudgeSlot(e, panellistDropKey)}
-                      onDragLeave={(e) => handleDragLeaveJudgeSlot(e, panellistDropKey)}
-                      onDrop={(e) => handleDropJudgeSlot(e, debate.id, "panellist")}
+                      onDragOver={panellistsOpen ? (e) => handleDragOverJudgeSlot(e, panellistDropKey) : undefined}
+                      onDragLeave={panellistsOpen ? (e) => handleDragLeaveJudgeSlot(e, panellistDropKey) : undefined}
+                      onDrop={panellistsOpen ? (e) => handleDropJudgeSlot(e, debate.id, "panellist") : undefined}
                       className={cn(
                         "rounded-md border p-2 transition-colors",
                         dropZoneClass(isPanellistHovered, dragJudgeClashPreview.length > 0, "border-border bg-background")
@@ -1506,13 +1519,18 @@ export default function AllocationPage() {
                           </div>
                         )}
                       </div>
+                      {!panellistsOpen && (
+                        <p className="mt-1.5 text-[11px] text-fg-muted">{t("tabroom.allocation.panellistPositionClosed")}</p>
+                      )}
                     </div>
+                    )}
 
-                    {/* Trainees Drop Zone */}
+                    {/* Trainees Drop Zone (hidden when the position is off, unless someone still sits there) */}
+                    {(traineesOpen || traineeIds.length > 0) && (
                     <div
-                      onDragOver={(e) => handleDragOverJudgeSlot(e, traineeDropKey)}
-                      onDragLeave={(e) => handleDragLeaveJudgeSlot(e, traineeDropKey)}
-                      onDrop={(e) => handleDropJudgeSlot(e, debate.id, "trainee")}
+                      onDragOver={traineesOpen ? (e) => handleDragOverJudgeSlot(e, traineeDropKey) : undefined}
+                      onDragLeave={traineesOpen ? (e) => handleDragLeaveJudgeSlot(e, traineeDropKey) : undefined}
+                      onDrop={traineesOpen ? (e) => handleDropJudgeSlot(e, debate.id, "trainee") : undefined}
                       className={cn(
                         "rounded-md border p-2 transition-colors",
                         dropZoneClass(isTraineeHovered, false, "border-border bg-background")
@@ -1557,7 +1575,11 @@ export default function AllocationPage() {
                           </span>
                         )}
                       </div>
+                      {!traineesOpen && (
+                        <p className="mt-1.5 text-[11px] text-fg-muted">{t("tabroom.allocation.traineePositionClosed")}</p>
+                      )}
                     </div>
+                    )}
                   </div>
                 </Card>
               );

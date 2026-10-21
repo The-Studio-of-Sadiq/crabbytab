@@ -1,12 +1,15 @@
 import type { AdjudicatorSheet, BallotSubmission, Debate, DebateSide, SpeakerScoreEntry } from "@/types";
 import {
+  aggregatePolyVotingSheets,
   aggregateVotingSheets,
-  ballotSides,
   markGhostSpeeches,
+  polyBallotProblem,
+  rulesSides,
   selfSplitAllowed,
   sheetOutcome,
   type BallotRules,
 } from "@/lib/ballots/result";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
 
 /**
  * Individual ballots (Tabbycat `individual_ballots` and "merge latest ballots"): with voting
@@ -17,7 +20,10 @@ import {
  *
  * Like Tabbycat's `populate_from_merge`, the sheets must agree on everything that is not a score:
  * which speaker gave each speech, the motion, vetoes and (manual-ballot sides) which team took which
- * side. Disagreements are reported, never resolved silently.
+ * side. Disagreements are reported, never resolved silently: as Tabbycat, a disagreeing speaker
+ * (and its iron-person flag), motion or veto is cleared from the merged result and everything
+ * else is kept, so the tab room only fills in what the sheets disagree on. A merge with
+ * disagreements is never confirmed automatically.
  */
 
 function declaredWinnerOf(ballot: BallotSubmission): { declaredWinner?: DebateSide } {
@@ -58,12 +64,37 @@ export function latestIndividualBallots(ballots: readonly BallotSubmission[], de
 export interface IndividualMerge {
   /** Voting adjudicators who have not submitted a sheet yet. */
   missingAdjudicatorIds: string[];
-  /** Disagreements between sheets; the merge is unusable while there are any. */
+  /** Disagreements between sheets; the merge cannot be confirmed as it is while there are any. */
   errors: string[];
   /** The individual ballots merged (one per voting adjudicator who submitted). */
   merged: BallotSubmission[];
-  /** Scores of the merged voting ballot; absent when there are errors or no sheets. */
+  /** Speeches whose speaker the sheets disagree on; cleared in `result` (Tabbycat's populate_from_merge). */
+  clearedSpeeches: { side: DebateSide; index: number }[];
+  /**
+   * Scores of the merged voting ballot, with disagreeing speakers, motion and vetoes cleared.
+   * Absent when there are no sheets or the sheets cannot be merged at all (different teams on a
+   * side, a sheet without a winner).
+   */
   result?: Pick<BallotSubmission, "speakerScores" | "teamScores" | "sheets" | "motionId" | "motionText" | "vetoes" | "noSpeakerScores" | "selfSplit">;
+}
+
+/** Clears the speakers the sheets disagreed on (`IndividualMerge.clearedSpeeches`) in every sheet. */
+export function clearConflictingSpeakers(
+  sheets: AdjudicatorSheet[],
+  cleared: readonly { side: DebateSide; index: number }[]
+): AdjudicatorSheet[] {
+  if (cleared.length === 0) return sheets;
+  return sheets.map((sheet) => {
+    const speakerScores = { ...sheet.speakerScores };
+    for (const { side, index } of cleared) {
+      const entries = [...(speakerScores[side] ?? [])];
+      if (!entries[index]) continue;
+      const { ghost: _ghost, ...rest } = entries[index];
+      entries[index] = { ...rest, speakerId: "", speakerName: "" };
+      speakerScores[side] = entries;
+    }
+    return { ...sheet, speakerScores };
+  });
 }
 
 function speakerKey(entry: SpeakerScoreEntry | undefined): string {
@@ -81,42 +112,55 @@ export function mergeIndividualBallots(
   adjudicatorNames: ReadonlyMap<string, string> = new Map()
 ): IndividualMerge {
   if (rules.format === "bp") {
-    return { missingAdjudicatorIds: [], errors: ["British Parliamentary panels submit one consensus ballot."], merged: [] };
+    return { missingAdjudicatorIds: [], errors: ["British Parliamentary panels submit one consensus ballot."], merged: [], clearedSpeeches: [] };
   }
+  const poly = isPolyFormat(rules.format);
+  const polyProblem = polyBallotProblem(rules);
+  if (polyProblem) return { missingAdjudicatorIds: [], errors: [polyProblem], merged: [], clearedSpeeches: [] };
   const voters = votingAdjudicatorIds(debate);
   const latest = latestIndividualBallots(ballots, debate.id);
   const merged = voters.map((id) => latest.get(id)).filter((ballot): ballot is BallotSubmission => Boolean(ballot));
   const missingAdjudicatorIds = voters.filter((id) => !latest.has(id));
   const errors: string[] = [];
-  if (merged.length === 0) return { missingAdjudicatorIds, errors, merged };
+  // Disagreements Tabbycat cannot merge around at all; the others clear the field (see above).
+  const blocking: string[] = [];
+  const clearedSpeeches: { side: DebateSide; index: number }[] = [];
+  let motionConflict = false;
+  const vetoConflicts = new Set<DebateSide>();
+  if (merged.length === 0) return { missingAdjudicatorIds, errors, merged, clearedSpeeches };
 
-  const sides = ballotSides(rules.format);
+  const sides = poly ? rulesSides({ ...rules, sides: debateSides(debate, rules) }) : rulesSides(rules);
   const name = (ballot: BallotSubmission) =>
     adjudicatorNames.get(ballot.submitterId || "") || ballot.submitterName || "An adjudicator";
   const [first, ...others] = merged;
   for (const other of others) {
     if ((other.motionId || "") !== (first.motionId || "")) {
       errors.push(`${name(other)} and ${name(first)} recorded different motions.`);
+      motionConflict = true;
     }
     for (const side of sides) {
       if ((other.teamScores?.[side]?.teamId || "") !== (first.teamScores?.[side]?.teamId || "")) {
-        errors.push(`${name(other)} and ${name(first)} put different teams on ${side}.`);
+        blocking.push(`${name(other)} and ${name(first)} put different teams on ${side}.`);
       }
       if ((other.vetoes?.[side] || "") !== (first.vetoes?.[side] || "")) {
         errors.push(`${name(other)} and ${name(first)} recorded different ${side} vetoes.`);
+        vetoConflicts.add(side);
       }
       const a = first.speakerScores?.[side] ?? [];
       const b = other.speakerScores?.[side] ?? [];
       const positions = Math.max(a.length, b.length);
       for (let index = 0; index < positions; index += 1) {
-        if (speakerKey(a[index]) !== speakerKey(b[index]) || a[index]?.position !== b[index]?.position) {
+        if (a[index]?.position !== b[index]?.position) {
+          blocking.push(`${name(other)} and ${name(first)} list different speeches for ${side}.`);
+        } else if (speakerKey(a[index]) !== speakerKey(b[index])) {
           errors.push(`${name(other)} and ${name(first)} list different speakers for ${side} speech ${index + 1}.`);
+          if (!clearedSpeeches.some((item) => item.side === side && item.index === index)) clearedSpeeches.push({ side, index });
         }
       }
     }
   }
 
-  const sheets: AdjudicatorSheet[] = merged.map((ballot) => ({
+  const markedSheets: AdjudicatorSheet[] = merged.map((ballot) => ({
     adjudicatorId: ballot.submitterId || "",
     adjudicatorName: name(ballot),
     speakerScores: Object.fromEntries(
@@ -125,29 +169,60 @@ export function mergeIndividualBallots(
     // The adjudicator's own result is their declared winner (winnersInBallots, results-only ballots).
     ...declaredWinnerOf(ballot),
   }));
-  for (const [index, sheet] of sheets.entries()) {
+  const sheets = clearConflictingSpeakers(markedSheets, clearedSpeeches);
+  // Poly sheets record scores only (Tabbycat's PolyNoWinScoresheet), so they have no winner.
+  for (const [index, sheet] of poly ? [] : sheets.entries()) {
     if (!sheetOutcome(sheet, rules).winner) {
-      errors.push(`${name(merged[index])}'s scoresheet has no winner (tied team totals, or a declared winner that does not fit the totals).`);
+      blocking.push(`${name(merged[index])}'s scoresheet has no winner (tied team totals, or a declared winner that does not fit the totals).`);
     }
   }
-  if (errors.length > 0) return { missingAdjudicatorIds, errors: [...new Set(errors)], merged };
+  if (blocking.length > 0) {
+    return { missingAdjudicatorIds, errors: [...new Set([...blocking, ...errors])], merged, clearedSpeeches };
+  }
+  const uniqueErrors = [...new Set(errors)];
+  const motion = motionConflict
+    ? {}
+    : {
+        ...(first.motionId !== undefined ? { motionId: first.motionId } : {}),
+        ...(first.motionText !== undefined ? { motionText: first.motionText } : {}),
+      };
+  const agreedVetoes = first.vetoes
+    ? Object.fromEntries(Object.entries(first.vetoes).filter(([side]) => !vetoConflicts.has(side as DebateSide)))
+    : undefined;
+  const vetoes = agreedVetoes && Object.keys(agreedVetoes).length > 0 ? { vetoes: agreedVetoes } : {};
 
   const teamIds = Object.fromEntries(sides.map((side) => [side, first.teamScores?.[side]?.teamId || debate.teams?.[side]?.teamId || ""]));
   // A solo adjudicator's own sheet may declare a 2:1 split (allowSelfSplitBallots).
   const selfSplit = merged.length === 1 && merged[0].selfSplit === true && selfSplitAllowed(rules, voters.length);
   try {
+    if (poly) {
+      const aggregated = aggregatePolyVotingSheets(sheets, teamIds, { ...rules, sides });
+      return {
+        missingAdjudicatorIds,
+        errors: uniqueErrors,
+        merged,
+        clearedSpeeches,
+        result: {
+          speakerScores: aggregated.speakerScores,
+          teamScores: aggregated.teamScores,
+          sheets,
+          ...motion,
+          ...vetoes,
+        },
+      };
+    }
     const aggregated = aggregateVotingSheets(sheets, debate.adjudicators?.chairId, teamIds, rules, { selfSplit });
     return {
       missingAdjudicatorIds,
-      errors,
+      errors: uniqueErrors,
       merged,
+      clearedSpeeches,
       result: {
         speakerScores: aggregated.speakerScores,
         teamScores: aggregated.teamScores,
         sheets,
-        ...(first.motionId !== undefined ? { motionId: first.motionId } : {}),
-        ...(first.motionText !== undefined ? { motionText: first.motionText } : {}),
-        ...(first.vetoes !== undefined ? { vetoes: first.vetoes } : {}),
+        ...motion,
+        ...vetoes,
         ...(merged.every((ballot) => ballot.noSpeakerScores) ? { noSpeakerScores: true } : {}),
         ...(aggregated.selfSplit ? { selfSplit: true } : {}),
       },
@@ -155,8 +230,9 @@ export function mergeIndividualBallots(
   } catch (error) {
     return {
       missingAdjudicatorIds,
-      errors: [error instanceof Error ? error.message : "The scoresheets could not be merged."],
+      errors: [...uniqueErrors, error instanceof Error ? error.message : "The scoresheets could not be merged."],
       merged,
+      clearedSpeeches,
     };
   }
 }

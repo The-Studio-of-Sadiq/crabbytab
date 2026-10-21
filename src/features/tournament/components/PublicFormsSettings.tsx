@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input, Switch } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { PublishSettingsNotice } from "@/features/tournament/components/PublishSettingsNotice";
 import { MIN_PUBLIC_FORMS_PASSWORD_LENGTH } from "@/lib/publicFormsPasswordRules";
 
 type Status = { tone: "success" | "danger" | "warning"; text: string };
@@ -34,6 +35,8 @@ export function PublicFormsSettings({
   const [feedbackForm, setFeedbackForm] = useState(preferences.publicFeedbackForm === true);
   const [usePassword, setUsePassword] = useState(preferences.publicFormsUsePassword === true);
   const [saving, setSaving] = useState(false);
+  // Set once a save succeeds: these settings reach public pages and private URLs only when uploaded.
+  const [savedToDevice, setSavedToDevice] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [passwordSet, setPasswordSet] = useState<boolean | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -82,6 +85,7 @@ export function PublicFormsSettings({
         },
       });
       setStatus({ tone: "success", text: t("setup.publicForms.saved") });
+      setSavedToDevice(true);
     } catch (caught) {
       setStatus({ tone: "danger", text: caught instanceof Error && caught.message ? caught.message : t("setup.publicForms.saveError") });
     } finally {
@@ -145,6 +149,7 @@ export function PublicFormsSettings({
           <Alert tone="warning" role="alert">{t("setup.publicForms.passwordMissingWarning")}</Alert>
         )}
         {status && <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>{status.text}</Alert>}
+        {savedToDevice && <PublishSettingsNotice />}
         <div>
           <Button variant="primary" size="sm" loading={saving} disabled={!changed} onClick={() => void save()}>
             {t("setup.publicForms.save")}

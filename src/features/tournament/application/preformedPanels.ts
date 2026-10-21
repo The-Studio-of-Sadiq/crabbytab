@@ -1,15 +1,25 @@
+import { teamsInDebateFor } from "@/lib/debateSides";
 import type {
   Adjudicator,
   AuditCategory,
   BallotSubmission,
   BreakCategory,
   Debate,
+  FeedbackSubmission,
   PreformedPanel,
   Round,
   Team,
   Tournament,
 } from "@/types";
 import { calculateStandings } from "@/lib/standings/calculator";
+import { ballotModeFor } from "@/lib/ballots/result";
+import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
+import {
+  allocateAdjudicatorsToPreformedPanels,
+  type PreformedPanelFillResult,
+} from "@/lib/draw/allocator";
+import type { TabbycatHungarianMode } from "@/lib/draw/tabbycatHungarian";
+import { concurrentBookings, isEarlierScheduleSlot } from "./schedule";
 import {
   calculateAnticipatedDraw,
   importanceByBracket,
@@ -92,6 +102,35 @@ export function panelsFromPreformedIds(adjudicators: Adjudicator[]): PreformedPa
   });
 }
 
+function isPowerOfTwo(value: number): boolean {
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+function bitLength(value: number): number {
+  return value <= 0 ? 0 : Math.floor(Math.log2(value)) + 1;
+}
+
+/**
+ * Teams expected in an elimination round of a break of `breakSize`, after `earlierRounds`
+ * elimination rounds of the same category (Tabbycat adjallocation/preformed/anticipated.py): a
+ * two-team partial break first debates its partial round (2 × (break − half the next power of
+ * two)); later rounds, and BP, halve from the largest power of two in the break. A partial
+ * elimination (two-team break not a power of two, BP 6 × 2^n) counts from its second round.
+ */
+export function anticipatedEliminationTeamCount(breakSize: number, earlierRounds: number, teamsPerDebate: number): number {
+  if (breakSize <= 1) return 0;
+  const partialTwoTeam = teamsPerDebate === 2 && !isPowerOfTwo(breakSize);
+  const partialBp = teamsPerDebate === 4 && isPowerOfTwo(Math.floor(breakSize / 6));
+  let previous = earlierRounds;
+  if (previous > 0 && (partialTwoTeam || partialBp)) previous -= 1;
+  if (previous === 0 && teamsPerDebate === 2) {
+    const secondRoundTeams = 2 ** bitLength(breakSize - 1) / 2;
+    return (breakSize - secondRoundTeams) * 2;
+  }
+  const shift = bitLength(breakSize) - 1 - previous;
+  return shift < 0 ? 0 : 2 ** shift;
+}
+
 export interface AnticipationSource {
   tournament: Tournament;
   rounds: Round[];
@@ -113,7 +152,7 @@ export interface Anticipation {
  * had before it (confirmed ballots only). Swing teams are not counted for the team total.
  */
 export function anticipateRound(round: Round, source: AnticipationSource): Anticipation {
-  const teamsPerDebate = source.tournament.format === "bp" ? 4 : 2;
+  const teamsPerDebate = teamsInDebateFor(source.tournament);
   const live = source.rounds.filter((item) => !item.cancelled);
   const prelims = live.filter((item) => item.stage === "preliminary");
   const open = source.breakCategories.find((category) => category.isGeneral);
@@ -121,7 +160,8 @@ export function anticipateRound(round: Round, source: AnticipationSource): Antic
   const thresholds =
     round.stage === "preliminary" && open
       ? openLiveThresholds({
-          teamsPerDebate,
+          // Tabbycat's liveness is BP's for four teams and the two-team one otherwise.
+          teamsPerDebate: teamsPerDebate === 4 ? 4 : 2,
           roundSeq: round.seq,
           breakSize: open.breakSize,
           totalTeams: regularTeams.length,
@@ -131,8 +171,19 @@ export function anticipateRound(round: Round, source: AnticipationSource): Antic
 
   if (round.stage === "elimination") {
     const category = source.breakCategories.find((item) => round.breakCategoryIds?.includes(item.id)) ?? open;
+    const earlierEliminationRounds = category
+      ? live.filter(
+          (item) => item.stage === "elimination" && item.seq < round.seq && item.breakCategoryIds?.includes(category.id)
+        ).length
+      : 0;
     return {
-      rooms: calculateAnticipatedDraw({ teamsPerDebate, pointsBefore: new Map(), teamCount: category?.breakSize ?? regularTeams.length }),
+      rooms: calculateAnticipatedDraw({
+        teamsPerDebate,
+        pointsBefore: new Map(),
+        teamCount: category
+          ? anticipatedEliminationTeamCount(category.breakSize, earlierEliminationRounds, teamsPerDebate)
+          : regularTeams.length,
+      }),
       thresholds: null,
       notice: "Elimination round: every room is equally live, so panels are not annotated with brackets.",
     };
@@ -166,6 +217,8 @@ export function anticipateRound(round: Round, source: AnticipationSource): Antic
     rooms: calculateAnticipatedDraw({
       teamsPerDebate,
       previousDebates: previousDebates.map((debate) => Object.values(debate.teams).map((slot) => slot.teamId)),
+      // Tabbycat: points available in the previous round are multiples of its weight.
+      previousRoundWeight: previous.weight ?? 1,
       pointsBefore,
       teamCount: regularTeams.length,
       thresholds,
@@ -292,4 +345,51 @@ export async function savePreformedPanelsCommand(
     roundId,
     details: { panels },
   });
+}
+
+/**
+ * Which of Tabbycat's allocators fills panels: the Tabbycat strategy chosen for the tournament, or
+ * (for CrabbyTab's own strategies) the one Tabbycat picks from the ballots: voting when there is
+ * one ballot per adjudicator, else consensus.
+ */
+export function panelFillMode(round: Round, tournament: Tournament): TabbycatHungarianMode {
+  const strategy = tournament.preferences?.adjudicatorPanelStrategy;
+  if (strategy === "tabbycat_voting") return "voting";
+  if (strategy === "tabbycat_consensus") return "consensus";
+  return ballotModeFor(round, tournament) === "voting" ? "voting" : "consensus";
+}
+
+/**
+ * Tabbycat's "auto-allocate adjudicators to preformed panels" for `round`: returns the panels with
+ * their members replaced (not saved: the panel page saves after review) and Tabbycat's warnings.
+ * Adjudicators already used by a concurrent round are not available. Throws
+ * AdjudicatorAllocationError when there is nothing to fill or nobody to fill it with.
+ */
+export function autoFillPreformedPanels(
+  round: Round,
+  panels: PreformedPanel[],
+  source: {
+    tournament: Tournament;
+    rounds: Round[];
+    debates: Debate[];
+    adjudicators: Adjudicator[];
+    feedback: FeedbackSubmission[];
+  }
+): PreformedPanelFillResult {
+  const booked = concurrentBookings(round, source.rounds, source.debates);
+  const earlier = new Set(
+    source.rounds.filter((item) => !item.cancelled && isEarlierScheduleSlot(item, round)).map((item) => item.id)
+  );
+  return allocateAdjudicatorsToPreformedPanels(
+    panels,
+    source.adjudicators.filter((adjudicator) => !booked.has(`adjudicator:${adjudicator.id}`)),
+    {
+      mode: panelFillMode(round, source.tournament),
+      roundId: round.id,
+      preferences: source.tournament.preferences,
+      feedbackScores: calculateScaledFeedbackScores(source.feedback, source.debates, source.tournament.preferences),
+      feedbackWeight: round.feedbackWeight,
+      pastDebates: source.debates.filter((debate) => earlier.has(debate.roundId)),
+    }
+  );
 }

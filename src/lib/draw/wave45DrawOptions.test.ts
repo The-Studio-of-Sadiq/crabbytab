@@ -150,7 +150,7 @@ describe("graph_one properties over random fields", () => {
         opponents: new Map(),
         sides: new Map(teams.map((t) => [t.id, Array.from({ length: 3 }, () => (rng() < 0.5 ? "AFF" : "NEG") as DebateSide)])),
       };
-      const config = graphOne(methods[trial % methods.length], { maxTimesPerSide: 3, pairingMethod: trial % 2 ? "slide" : "fold", pairingDeviationPenalty: trial % 3 === 0 ? 1 : 0 });
+      const config = graphOne(methods[trial % methods.length], { maxAllowedSideImbalance: 3, pairingMethod: trial % 2 ? "slide" : "fold", pairingDeviationPenalty: trial % 3 === 0 ? 1 : 0 });
       let draw: PairedDebateDraft[];
       try {
         draw = generateTwoTeamDraw(teams, standings, history, "uadc", config, createSeededRng(trial));
@@ -177,6 +177,8 @@ describe("graph_one properties over random fields", () => {
   });
 });
 
+// The hard side limit is the imbalance cap (maxAllowedSideImbalance); with three earlier rounds, a
+// cap of 3 forbids a fourth round on the same side. maxTimesPerSide is never a hard limit.
 describe("side limits as a pairing constraint (one-up-one-down and fold)", () => {
   function sides(entries: Record<string, DebateSide[]>): MatchupHistory {
     return { opponents: new Map(), sides: new Map(Object.entries(entries)) };
@@ -187,7 +189,7 @@ describe("side limits as a pairing constraint (one-up-one-down and fold)", () =>
     const teams = ["A", "B", "C", "D"].map((id) => team(id));
     const standings = teams.map((t, i) => standing(t.id, 1, i + 1));
     const history = sides({ A: ["AFF", "AFF", "AFF"], D: ["AFF", "AFF", "AFF"], B: ["NEG", "NEG"], C: ["NEG", "NEG"] });
-    const config: Partial<TwoTeamDrawConfig> = { pairingMethod: "fold", conflictAvoidance: "one_up_one_down", maxTimesPerSide: 3 };
+    const config: Partial<TwoTeamDrawConfig> = { pairingMethod: "fold", conflictAvoidance: "one_up_one_down", maxAllowedSideImbalance: 3 };
     const draw = generateTwoTeamDraw(teams, standings, history, "uadc", config, createSeededRng(3));
     for (const debate of draw) {
       for (const side of TWO_TEAM_SIDES) {
@@ -206,7 +208,7 @@ describe("side limits as a pairing constraint (one-up-one-down and fold)", () =>
     const draw = generateTwoTeamDraw(teams, standings, history, "uadc", {
       pairingMethod: "fold",
       conflictAvoidance: "one_up_one_down",
-      maxTimesPerSide: 3,
+      maxAllowedSideImbalance: 3,
     }, createSeededRng(3));
     expect(rooms(draw)).not.toContain("AvB");
     for (const debate of draw) expect(["A", "B"]).not.toContain(debate.teamsWithSides.AFF.id);
@@ -217,8 +219,23 @@ describe("side limits as a pairing constraint (one-up-one-down and fold)", () =>
     const teams = ["A", "B"].map((id) => team(id));
     const standings = [standing("A", 1, 1), standing("B", 1, 2)];
     const history = sides({ A: ["AFF", "AFF", "AFF"], B: ["AFF", "AFF", "AFF"] });
-    expect(() => generateTwoTeamDraw(teams, standings, history, "uadc", { maxTimesPerSide: 3 }, createSeededRng(1)))
+    expect(() => generateTwoTeamDraw(teams, standings, history, "uadc", { maxAllowedSideImbalance: 3 }, createSeededRng(1)))
       .toThrow(/side limits/);
+  });
+
+  // Regression: maxTimesPerSide was a hard limit (default 5), so these fields could not be drawn.
+  it("never fails a draw over maxTimesPerSide, with any conflict avoidance", () => {
+    const teams = ["A", "B", "C", "D"].map((id) => team(id));
+    const standings = teams.map((t, i) => standing(t.id, 1, i + 1));
+    const history = sides({ A: ["AFF", "AFF", "AFF"], B: ["AFF", "AFF", "AFF"], C: ["AFF", "AFF", "AFF"], D: ["AFF", "AFF", "AFF"] });
+    for (const conflictAvoidance of ["one_up_one_down", "min_cost", "off"] as const) {
+      const draw = generateTwoTeamDraw(teams, standings, history, "uadc", {
+        conflictAvoidance,
+        sideBalancePenalty: 100,
+        maxTimesPerSide: 2,
+      }, createSeededRng(1));
+      expect(draw.flatMap((debate) => debate.teams.map((t) => t.id)).sort()).toEqual(["A", "B", "C", "D"]);
+    }
   });
 });
 

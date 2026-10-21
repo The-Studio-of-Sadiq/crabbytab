@@ -4,10 +4,10 @@ import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/components/i18n/I18nProvider";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
 import { cn } from "@/components/ui/cn";
@@ -57,6 +57,16 @@ export function SetupShell({
               </span>
             )}
             <EntryPreferenceControls />
+            {user && (
+              <Link
+                href="/account/password"
+                className={buttonClasses({ variant: "ghost", size: "sm" })}
+                title={t("setup.entry.account.changePassword")}
+              >
+                <KeyRound aria-hidden="true" />
+                <span className="max-sm:sr-only">{t("setup.entry.account.changePassword")}</span>
+              </Link>
+            )}
             {user && (
               <Button
                 variant="ghost"

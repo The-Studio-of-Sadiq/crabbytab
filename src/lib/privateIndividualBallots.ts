@@ -1,6 +1,11 @@
 import type { BallotSubmission, Debate, Round, Tournament } from "@/types";
-import { ballotModeFor, type BallotRules } from "@/lib/ballots/result";
-import { buildMergedBallot, isIndividualBallot, mergeIndividualBallots } from "@/lib/ballots/individualBallots";
+import { ballotModeFor, debateBallotRules, usesVotingBallots, type BallotRules } from "@/lib/ballots/result";
+import {
+  buildMergedBallot,
+  isIndividualBallot,
+  mergeIndividualBallots,
+  votingAdjudicatorIds,
+} from "@/lib/ballots/individualBallots";
 import { isTabRoomConfirmed, type ExistingBallotRecord, type PrivateBallotWritePlan } from "@/lib/privateSync";
 
 /** Individual ballots apply to voting rounds of two-team tournaments that switched them on. */
@@ -10,6 +15,43 @@ export function usesIndividualBallots(
 ): boolean {
   return tournament.preferences?.individualBallots === true &&
     ballotModeFor(round, { format: tournament.format, preferences: tournament.preferences }) === "voting";
+}
+
+/**
+ * A private-URL ballot in a voting round without individual ballots. Tabbycat gives the chair the
+ * per-adjudicator form there, so the result always has every voting adjudicator's sheet; a private
+ * URL here records only the submitter's own sheet. So:
+ * - when the submitter is the debate's only voting adjudicator, their sheet is the whole panel and
+ *   becomes a proper voting ballot (sheets and votes, and a declared 2:1 split if allowed);
+ * - otherwise the ballot is kept unconfirmed for the tab room, which enters the panel's sheets
+ *   ("Fill from portal ballots" takes this one) instead of letting one sheet become the result.
+ * Other rounds (consensus, or individual ballots) are returned unchanged.
+ */
+export function votingRoundPrivateBallot(
+  ballot: BallotSubmission,
+  context: {
+    tournament: Pick<Tournament, "format" | "preferences">;
+    round: (Pick<Round, "stage"> & Partial<Pick<Round, "seq">>) | undefined;
+    debate: Pick<Debate, "id" | "teams" | "adjudicators">;
+    rounds?: readonly Pick<Round, "seq">[];
+  }
+): BallotSubmission {
+  const { tournament, round, debate } = context;
+  const rules = debateBallotRules(tournament, round, debate, context.rounds);
+  if (!usesVotingBallots(rules) || usesIndividualBallots(tournament, round)) return ballot;
+  const { confirmedBy: _confirmedBy, confirmedTimestamp: _confirmedTimestamp, ...unconfirmed } = ballot;
+  const pending: BallotSubmission = { ...unconfirmed, confirmed: false };
+  const voters = votingAdjudicatorIds(debate);
+  if (voters.length !== 1 || voters[0] !== ballot.submitterId) return pending;
+  const merge = mergeIndividualBallots(
+    debate,
+    [{ ...ballot, singleAdjudicator: true }],
+    rules,
+    new Map([[ballot.submitterId ?? "", ballot.submitterName ?? ""]])
+  );
+  if (!merge.result || merge.errors.length > 0 || merge.missingAdjudicatorIds.length > 0) return pending;
+  const { selfSplit: _selfSplit, noSpeakerScores: _noSpeakerScores, ...own } = ballot;
+  return { ...own, ...merge.result };
 }
 
 /**

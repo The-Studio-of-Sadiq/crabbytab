@@ -23,6 +23,8 @@ export const DATA_ENTRY_COLLECTIONS = [
   "teams",
   "adjudicators",
   "institutions",
+  // Room check-ins only: the server keeps just the check-in fields (lib/dataEntrySync.ts).
+  "venues",
   "ballots",
   "feedback",
   "ballotIntake",

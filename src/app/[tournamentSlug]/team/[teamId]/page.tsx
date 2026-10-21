@@ -13,6 +13,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Feedback";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { hasCodeName } from "@/lib/codeNames";
+import { translatedSideName } from "@/lib/sideNames";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import { adminTeamRecord, teamConflicts, teamFeedback, type AdminTeamRecordRow } from "@/lib/participants/teamRecord";
 import { speakerCategoryNames, speakerCategoryRefs, effectiveSpeakerCategories } from "@/lib/speakerCategories";
@@ -80,9 +81,12 @@ export default function AdminTeamRecordPage() {
     if (!row.result) return row.status === "unconfirmed" ? t("setup.importsExtra.teamRecord.unconfirmed") : "—";
     const outcome = row.result.forfeit
       ? t("setup.importsExtra.teamRecord.forfeit")
-      : isBP && row.result.rank !== undefined
+      : (isBP || tournament?.format === "poly") && row.result.rank !== undefined
         ? t("setup.importsExtra.teamRecord.rank", { rank: row.result.rank })
-        : row.result.win
+        : tournament?.format === "poly"
+          // N teams per room without a rank: advancing (results only) or scores only.
+          ? row.result.win ? t("results.ballot.advances") : "—"
+          : row.result.win
           ? t("setup.importsExtra.teamRecord.win")
           : t("setup.importsExtra.teamRecord.loss");
     return row.result.speakerTotal !== undefined
@@ -163,7 +167,7 @@ export default function AdminTeamRecordPage() {
                       <Badge className="ms-2" tone="warning">{t("setup.importsExtra.teamRecord.unreleased")}</Badge>
                     )}
                   </TD>
-                  <TD className="text-xs">{row.bye ? "—" : t(`side.${row.side}` as MessageKey)}</TD>
+                  <TD className="text-xs">{row.bye ? "—" : translatedSideName(t, row.side, tournament?.preferences)}</TD>
                   <TD className="text-xs">
                     {row.opponents.length > 0 ? formatList(row.opponents) : "—"}
                     {row.venueName && <span className="block text-[11px] text-fg-muted">{row.venueName}</span>}

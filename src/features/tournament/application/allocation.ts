@@ -19,7 +19,13 @@ import {
   type IntelligentAllocationContext,
 } from "@/lib/draw/allocator";
 import { calculateScaledFeedbackScores } from "@/lib/feedback/scores";
-import { allocateVenuesToDebates, applyAdjudicatorVenueRequirements } from "@/lib/draw/venueAllocator";
+import {
+  allocateVenuesBestEffort,
+  applyAdjudicatorVenueRequirements,
+  withAllocatedVenues,
+  type VenueAllocationOutcome,
+} from "@/lib/draw/venueAllocator";
+import type { VenueConstraintContext } from "@/lib/venues/venues";
 import { RoundChangedDuringComputeError, roundChangedBetween } from "./draws";
 import { applyGuards, checkAutoAllocation, checkDebateEdits, type RuleOverride } from "./stateGuards";
 import { concurrentBookings, isEarlierScheduleSlot } from "./schedule";
@@ -183,29 +189,28 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
     };
   });
   // Rooms are re-allocated after the panels are known when adjudicators have hard room
-  // requirements or soft room constraints (Tabbycat allocates rooms after adjudicators too).
+  // requirements or soft room constraints (Tabbycat allocates rooms after adjudicators too). A room
+  // shortage or a panel with clashing room categories never aborts the allocation: the rooms that
+  // fit are allocated and every unmet requirement is reported as a warning.
   const hasAdjudicatorVenueRequirements = input.adjudicators.some(
     (adjudicator) => (adjudicator.venueRequirements &&
       Object.values(adjudicator.venueRequirements).some((value) => value !== undefined && value !== false)) ||
       (adjudicator.venueConstraints?.length ?? 0) > 0
   );
-  const finalRoundDebates = hasAdjudicatorVenueRequirements
-    ? (() => {
-        const withRequirements = applyAdjudicatorVenueRequirements(
-          updatedRoundDebates,
-          adjudicators
-        );
-        const venueAssignments = allocateVenuesToDebates(withRequirements, venues, {
-          teams: input.teams,
-          adjudicators: input.adjudicators,
-          institutions: input.institutions,
-        });
-        return withRequirements.map((debate) => {
-          const venue = venueAssignments.get(debate.id);
-          return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
-        });
-      })()
-    : updatedRoundDebates;
+  let finalRoundDebates: Debate[] = updatedRoundDebates;
+  if (hasAdjudicatorVenueRequirements) {
+    const withRequirements = applyAdjudicatorVenueRequirements(updatedRoundDebates, adjudicators);
+    const outcome = allocateVenuesBestEffort(withRequirements.debates, venues, {
+      teams: input.teams,
+      adjudicators: input.adjudicators,
+      institutions: input.institutions,
+    });
+    intelligentContext.warnings!.push(
+      ...withRequirements.problems.map((problem) => problem.message),
+      ...outcome.unassigned.map((problem) => problem.message)
+    );
+    finalRoundDebates = withAllocatedVenues(withRequirements.debates, outcome);
+  }
   return {
     roundDebates: finalRoundDebates,
     panelledDebates: updatedRoundDebates,
@@ -223,6 +228,27 @@ export function computeAutoAllocation(input: AutoAllocationInput): AutoAllocatio
       })),
     },
   };
+}
+
+/**
+ * The draw page's "auto-allocate rooms": re-allocates the round's rooms best-effort. Rooms already
+ * used by a concurrent round (same schedule slot) are busy and never offered, so the allocation
+ * cannot double-book them. Returns the round's debates with their new rooms and the debates left
+ * without one (with the reason).
+ */
+export function computeRoundVenueAllocation(
+  round: Round,
+  input: { rounds: Round[]; debates: Debate[]; venues: Venue[] } & VenueConstraintContext
+): { roundDebates: Debate[]; unassigned: VenueAllocationOutcome["unassigned"] } {
+  const roundDebates = input.debates.filter((debate) => debate.roundId === round.id);
+  const booked = concurrentBookings(round, input.rounds, input.debates);
+  const venues = input.venues.filter((venue) => !booked.has(`venue:${venue.id}`));
+  const outcome = allocateVenuesBestEffort(roundDebates, venues, {
+    teams: input.teams,
+    adjudicators: input.adjudicators,
+    institutions: input.institutions,
+  });
+  return { roundDebates: withAllocatedVenues(roundDebates, outcome), unassigned: outcome.unassigned };
 }
 
 export async function autoAllocateCommand(

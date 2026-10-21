@@ -68,6 +68,7 @@ Compared per debate between the old and new draw (`checkDebateEdits`):
 | Any team or panel change in a completed round | `round_completed` | Overridable |
 | Any team or panel change in an advanced elimination round | `elimination_advanced` | Hard |
 | Auto-allocate a round with live ballots, or a completed round | `debate_has_ballots`, `round_completed` | Overridable |
+| Auto-allocate a round whose draw is already released (Tabbycat refuses: unrelease first) | `draw_released` | Overridable |
 
 Changing rooms, venue requirements or a published draw's panels needs no override (Tabbycat
 also allows these after release). Panel changes still hide revealed adjudicators, as before.
@@ -120,6 +121,14 @@ category schedule changes. Before, it reset every elimination round.
 | Speaker and reply score ranges and steps, ghost speeches in team scores, margins including dissenters, low-point wins / winner declaration, panel score aggregation, speech ranks, maximum margin, the reply-speaker rule, forfeits, bye results | `scoring_changed_after_ballots` | Overridable |
 
 Enforced in `saveTournamentCommand`. The settings form disables the locked fields and says why.
+
+The settings form saves only the preferences the organiser changed on the page
+(`lib/setup/configForm.ts`): fields the tournament never set show the value the engine falls back
+to and are not written, so saving an untouched page leaves the stored preferences unchanged. Before
+saving it refuses an empty number, a minimum at or above its maximum (speaker, reply and
+adjudicator feedback scores, as Tabbycat), a score step of 0 or less, and fewer than one
+substantive speaker. Zero is accepted wherever Tabbycat accepts it (score minimums, the Rényi
+order, the position cost exponent); the score step may be any positive number.
 Discarded ballots do not lock anything.
 
 ### Deleting records

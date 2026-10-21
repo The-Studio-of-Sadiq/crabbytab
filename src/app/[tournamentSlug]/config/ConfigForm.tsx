@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
 import {
   Save,
@@ -43,6 +43,7 @@ import {
   RoundStage,
 } from "@/types";
 import { PrecedenceEditor, ExtraMetricsEditor } from "@/components/setup/PrecedenceEditor";
+import { DEFAULT_POLY_TEAMS_IN_DEBATE, isPolyFormat, isTwoTeamFormat, validatePolyTeamsInDebate } from "@/lib/debateSides";
 import {
   TEAM_METRIC_LABELS,
   SPEAKER_METRIC_LABELS,
@@ -67,6 +68,16 @@ import { validateScoreCriteria } from "@/lib/ballots/ballotRules";
 import { PublicSiteSettingsFields } from "@/features/tournament/components/PublicSiteSettingsFields";
 import { ConfigTransferCard } from "@/features/tournament/components/ConfigTransferCard";
 import { TeamNamingCard } from "@/features/tournament/components/TeamNamingCard";
+import { PublishSettingsNotice } from "@/features/tournament/components/PublishSettingsNotice";
+import {
+  configFormPreferences,
+  configFormProblems,
+  configPreferencesToSave,
+  numberFieldValue,
+  parseNumberField,
+  rebaseConfigPreferences,
+  type ConfigFormProblem,
+} from "@/lib/setup/configForm";
 
 type SettingsCategory = "draw" | "rounds" | "format" | "scoring" | "standings" | "visibility";
 
@@ -98,6 +109,21 @@ const QUESTION_TYPE_LABELS: Record<FeedbackQuestionType, MessageKey> = {
   select_many: "setup.config.questionTypeSelectMany",
 };
 
+/** Why the settings form refuses to save (lib/setup/configForm.ts configFormProblems). */
+const CONFIG_FORM_PROBLEMS: Record<ConfigFormProblem, MessageKey> = {
+  substantiveSpeakers: "setup.config.problemSubstantiveSpeakers",
+  speakerScoreNumbers: "setup.config.problemSpeakerScoreNumbers",
+  speakerScoreRange: "setup.config.problemSpeakerScoreRange",
+  speakerScoreStep: "setup.config.problemSpeakerScoreStep",
+  replyScoreNumbers: "setup.config.problemReplyScoreNumbers",
+  replyScoreRange: "setup.config.problemReplyScoreRange",
+  feedbackScoreNumbers: "setup.config.problemFeedbackScoreNumbers",
+  feedbackScoreRange: "setup.config.problemFeedbackScoreRange",
+  minAdjScoreToVote: "setup.config.problemMinAdjScoreToVote",
+  renyiOrder: "setup.config.problemRenyiOrder",
+  bpPositionCostExponent: "setup.config.problemBpPositionCostExponent",
+};
+
 /** Number inputs for draw penalties and score bounds read as figures. */
 const NUMBER_CLASS = "font-mono tabular-nums";
 
@@ -117,84 +143,25 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     saveEntityBatch,
   } = useTournament();
 
-  const defaultPrefs: TournamentPreferences = {
-    teamsInDebate: 4,
-    substantiveSpeakers: 2,
-    replyScoresEnabled: false,
-    minSpeakerScore: 68,
-    maxSpeakerScore: 84,
-    stepSpeakerScore: 1,
-    minReplyScore: 34,
-    maxReplyScore: 42,
-    drawRule: "power_paired",
-    sideAllocationRule: "balanced",
-    ballotDoubleEntry: false,
-    publicDraw: true,
-    publicResults: true,
-    publicStandings: true,
-    publicMotions: true,
-    publicCheckInStatus: false,
-    checkInExpiresAfterHours: 0,
-    feedbackEnabled: true,
-    feedbackMinScore: 1,
-    feedbackMaxScore: 10,
-    feedbackQuestions: [],
-    // Tabbycat Draw Rules defaults:
-    minAdjScoreToVote: 1.5,
-    adjConflictPenalty: 1000000,
-    adjHistoryPenalty: 10000,
-    importanceMismatchPenalty: 10000000,
-    adjudicatorPanelStrategy: "crabbytab_v1",
-    usePreformedPanels: false,
-    skipAdjCheckins: false,
-    noPanellistAdjs: false,
-    noTraineeAdjs: false,
-    // What the draw uses when the setting was never saved (generator.ts); showing Tabbycat's 1 here
-    // would misstate how a tournament with no saved value is drawn.
-    teamInstitutionPenalty: 200,
-    teamHistoryPenalty: 1000,
-    avoidSameInstitution: true,
-    avoidTeamHistory: true,
-    previouslySawPullupPenalty: 0,
-    sideBalancePenalty: 0,
-    pairingDeviationPenalty: 0,
-    maxTimesPerSide: 5,
-    maxAllowedSideImbalance: 0,
-    oddBracketMethod: "intermediate_bubble",
-    pairingMethod: "fold",
-    conflictAvoidance: "one_up_one_down",
-    pullupRestriction: "none",
-    pullupPenalty: 0,
-    bpPullupDistribution: "anywhere",
-    bpPositionCost: "renyi_entropy",
-    renyiOrder: 1.0,
-    bpPositionCostExponent: 4.0,
-    bpAssignmentMethod: "hungarian",
-    byeTeamResults: "absent",
-    byeTeamSelectionMethod: "none",
-    marginIncludesDissenters: true,
-    ballotIntroExplanation: "",
-    teamScoreIncludesGhosts: false,
-  };
-
   const [format, setFormat] = useState<TournamentFormat>(tournament?.format || "bp");
-  const [prefs, setPrefs] = useState<TournamentPreferences>(() => ({
-    ...defaultPrefs,
-    ...(tournament?.preferences || {}),
-  }));
+  // What the form loaded (stored preferences over the engine fallbacks): saving writes only the
+  // fields that differ from it (lib/setup/configForm.ts).
+  const baselineRef = useRef<TournamentPreferences>(configFormPreferences(tournament?.preferences, tournament?.format || "bp"));
+  const [prefs, setPrefs] = useState<TournamentPreferences>(() => baselineRef.current);
 
   useEffect(() => {
     if (tournament) {
       setFormat(tournament.format || "bp");
-      setPrefs((p) => ({
-        ...defaultPrefs,
-        ...p,
-        ...(tournament.preferences || {}),
-      }));
+      const next = configFormPreferences(tournament.preferences, tournament.format || "bp");
+      const previous = baselineRef.current;
+      baselineRef.current = next;
+      setPrefs((p) => rebaseConfigPreferences(previous, next, p));
     }
   }, [tournament]);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
+  // Set once a save succeeds: release switches and portal settings reach public pages only when uploaded.
+  const [savedToDevice, setSavedToDevice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackQuestionError, setFeedbackQuestionError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -279,13 +246,19 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
       setSaveError(t("setup.config.scoreCriteriaError", { errors: criteriaErrors.join(" ") }));
       return;
     }
+    const formProblems = configFormProblems(prefs, format);
+    if (formProblems.length > 0) {
+      setSaveError(formProblems.map((problem) => t(CONFIG_FORM_PROBLEMS[problem])).join(" "));
+      return;
+    }
 
     setIsSaving(true);
     try {
       await saveTournament({
         ...tournament,
         format,
-        preferences: prefs,
+        // Only the fields changed on this page: an untouched save leaves the preferences as stored.
+        preferences: configPreferencesToSave(tournament.preferences, baselineRef.current, prefs),
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -296,6 +269,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
     }
 
     setSavedSuccess(true);
+    setSavedToDevice(true);
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
@@ -432,9 +406,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     min="0"
                     label={t("setup.config.minAdjScoreLabel")}
                     help={t("setup.config.minAdjScoreHelp")}
-                    value={prefs.minAdjScoreToVote ?? 1.5}
+                    value={numberFieldValue(prefs.minAdjScoreToVote)}
                     onChange={(e) =>
-                      setPrefs((p) => ({ ...p, minAdjScoreToVote: parseFloat(e.target.value) || 0 }))
+                      setPrefs((p) => ({ ...p, minAdjScoreToVote: parseNumberField(e.target.value) }))
                     }
                     className={NUMBER_CLASS}
                   />
@@ -491,7 +465,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-3">
-                  {penaltyInput("teamInstitutionPenalty", 1, "setup.config.teamInstitutionPenaltyLabel", "setup.config.teamInstitutionPenaltyHelp")}
+                  {penaltyInput("teamInstitutionPenalty", 200, "setup.config.teamInstitutionPenaltyLabel", "setup.config.teamInstitutionPenaltyHelp")}
                   {penaltyInput("teamHistoryPenalty", 1000, "setup.config.teamHistoryPenaltyLabel", "setup.config.teamHistoryPenaltyHelp")}
                   {penaltyInput("previouslySawPullupPenalty", 0, "setup.config.sawPullupPenaltyLabel", "setup.config.sawPullupPenaltyHelp")}
                 </div>
@@ -513,7 +487,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   <option value="balanced">{t("setup.config.sideBalanced")}</option>
                   <option value="random">{t("setup.config.sideRandom")}</option>
                   <option value="preallocated">{t("setup.config.sidePreallocated")}</option>
-                  <option value="manual_ballot" disabled={format === "bp"}>{t("setup.config.sideManualBallot")}</option>
+                  <option value="manual_ballot" disabled={!isTwoTeamFormat(format)}>{t("setup.config.sideManualBallot")}</option>
                 </Select>
 
                 <Select
@@ -530,12 +504,13 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
 
                 <Input
                   type="number"
-                  min="1"
+                  min="0"
+                  step="1"
                   label={t("setup.config.maxTimesPerSideLabel")}
-                  help={t("setup.config.maxTimesPerSideHelp")}
+                  help={t("setup.config.maxTimesPerSideMinCostHelp")}
                   value={prefs.maxTimesPerSide ?? 5}
                   onChange={(e) =>
-                    setPrefs((p) => ({ ...p, maxTimesPerSide: Math.max(1, parseInt(e.target.value, 10) || 1) }))
+                    setPrefs((p) => ({ ...p, maxTimesPerSide: Math.max(0, parseInt(e.target.value, 10) || 0) }))
                   }
                   className={NUMBER_CLASS}
                 />
@@ -577,7 +552,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 <Select
                   label={t("setup.config.oddBracketLabel")}
                   help={t("setup.config.oddBracketHelp")}
-                  value={prefs.oddBracketMethod ?? "intermediate_bubble"}
+                  value={prefs.oddBracketMethod ?? "pullup_top"}
                   onChange={(e) => setPrefs((p) => ({ ...p, oddBracketMethod: e.target.value as OddBracketMethod }))}
                 >
                   <option value="intermediate_bubble">{t("setup.config.oddIntermediateBubble")}</option>
@@ -651,9 +626,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   min="0"
                   label={t("setup.config.renyiOrderLabel")}
                   help={t("setup.config.renyiOrderHelp")}
-                  value={prefs.renyiOrder ?? 1.0}
+                  value={numberFieldValue(prefs.renyiOrder)}
                   onChange={(e) =>
-                    setPrefs((p) => ({ ...p, renyiOrder: parseFloat(e.target.value) || 1.0 }))
+                    setPrefs((p) => ({ ...p, renyiOrder: parseNumberField(e.target.value) }))
                   }
                   className={NUMBER_CLASS}
                 />
@@ -664,9 +639,9 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                   min="0"
                   label={t("setup.config.bpExponentLabel")}
                   help={t("setup.config.bpExponentHelp")}
-                  value={prefs.bpPositionCostExponent ?? 4.0}
+                  value={numberFieldValue(prefs.bpPositionCostExponent)}
                   onChange={(e) =>
-                    setPrefs((p) => ({ ...p, bpPositionCostExponent: parseFloat(e.target.value) || 4.0 }))
+                    setPrefs((p) => ({ ...p, bpPositionCostExponent: parseNumberField(e.target.value) }))
                   }
                   className={NUMBER_CLASS}
                 />
@@ -835,7 +810,15 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 onChange={(e) => {
                   const newFmt = e.target.value as TournamentFormat;
                   setFormat(newFmt);
-                  if (newFmt === "bp") {
+                  if (isPolyFormat(newFmt)) {
+                    // Tabbycat's Public Speaking shape: six teams, one speech each.
+                    setPrefs((p) => ({
+                      ...p,
+                      teamsInDebate: DEFAULT_POLY_TEAMS_IN_DEBATE,
+                      substantiveSpeakers: 1,
+                      replyScoresEnabled: false,
+                    }));
+                  } else if (newFmt === "bp") {
                     setPrefs((p) => ({
                       ...p,
                       teamsInDebate: 4,
@@ -856,19 +839,35 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 <option value="uadc">{t("setup.config.formatUadc")}</option>
                 <option value="australs">{t("setup.config.formatAustrals")}</option>
                 <option value="wsdc">{t("setup.config.formatWsdc")}</option>
+                <option value="poly">{t("setup.config.formatPoly")}</option>
               </Select>
+
+              {isPolyFormat(format) && (
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  label={t("setup.config.teamsPerRoomLabel")}
+                  help={validatePolyTeamsInDebate(prefs.teamsInDebate) || t("setup.config.teamsPerRoomHelp")}
+                  value={numberFieldValue(prefs.teamsInDebate)}
+                  disabled={ballotShapeLocked}
+                  onChange={(e) => setPrefs((p) => ({ ...p, teamsInDebate: parseNumberField(e.target.value) }))}
+                  className={NUMBER_CLASS}
+                />
+              )}
 
               <Input
                 type="number"
                 min="1"
                 max="5"
                 label={t("setup.config.substantiveSpeakersLabel")}
-                value={prefs.substantiveSpeakers}
+                step="1"
+                value={numberFieldValue(prefs.substantiveSpeakers)}
                 disabled={ballotShapeLocked}
                 onChange={(e) =>
                   setPrefs((p) => ({
                     ...p,
-                    substantiveSpeakers: parseInt(e.target.value, 10),
+                    substantiveSpeakers: parseNumberField(e.target.value),
                   }))
                 }
                 className={NUMBER_CLASS}
@@ -903,9 +902,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     type="number"
                     label={t("setup.config.minSpeakerScoreLabel")}
                     help={t("setup.config.defaultValue", { value: 68 })}
-                    value={prefs.minSpeakerScore}
+                    step="any"
+                    value={numberFieldValue(prefs.minSpeakerScore)}
                     onChange={(e) =>
-                      setPrefs((p) => ({ ...p, minSpeakerScore: parseFloat(e.target.value) || 68 }))
+                      setPrefs((p) => ({ ...p, minSpeakerScore: parseNumberField(e.target.value) }))
                     }
                     className={NUMBER_CLASS}
                   />
@@ -913,24 +913,25 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     type="number"
                     label={t("setup.config.maxSpeakerScoreLabel")}
                     help={t("setup.config.defaultValue", { value: 84 })}
-                    value={prefs.maxSpeakerScore}
+                    step="any"
+                    value={numberFieldValue(prefs.maxSpeakerScore)}
                     onChange={(e) =>
-                      setPrefs((p) => ({ ...p, maxSpeakerScore: parseFloat(e.target.value) || 84 }))
+                      setPrefs((p) => ({ ...p, maxSpeakerScore: parseNumberField(e.target.value) }))
                     }
                     className={NUMBER_CLASS}
                   />
-                  <Select
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
                     label={t("setup.config.scoreStepLabel")}
-                    help={t("setup.config.scoreStepHelp")}
-                    value={prefs.stepSpeakerScore}
+                    help={t("setup.config.scoreStepAnyHelp")}
+                    value={numberFieldValue(prefs.stepSpeakerScore)}
                     onChange={(e) =>
-                      setPrefs((p) => ({ ...p, stepSpeakerScore: parseFloat(e.target.value) || 1 }))
+                      setPrefs((p) => ({ ...p, stepSpeakerScore: parseNumberField(e.target.value) }))
                     }
                     className={NUMBER_CLASS}
-                  >
-                    <option value={1}>{t("setup.config.scoreStepWhole")}</option>
-                    <option value={0.5}>{t("setup.config.scoreStepHalf")}</option>
-                  </Select>
+                  />
                 </div>
 
                 {prefs.replyScoresEnabled && (
@@ -939,9 +940,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                       type="number"
                       label={t("setup.config.minReplyScoreLabel")}
                       help={t("setup.config.minReplyScoreHelp")}
-                      value={prefs.minReplyScore ?? 34}
+                      step="any"
+                      value={numberFieldValue(prefs.minReplyScore)}
                       onChange={(e) =>
-                        setPrefs((p) => ({ ...p, minReplyScore: parseFloat(e.target.value) || 34 }))
+                        setPrefs((p) => ({ ...p, minReplyScore: parseNumberField(e.target.value) }))
                       }
                       className={NUMBER_CLASS}
                     />
@@ -949,9 +951,10 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                       type="number"
                       label={t("setup.config.maxReplyScoreLabel")}
                       help={t("setup.config.maxReplyScoreHelp")}
-                      value={prefs.maxReplyScore ?? 42}
+                      step="any"
+                      value={numberFieldValue(prefs.maxReplyScore)}
                       onChange={(e) =>
-                        setPrefs((p) => ({ ...p, maxReplyScore: parseFloat(e.target.value) || 42 }))
+                        setPrefs((p) => ({ ...p, maxReplyScore: parseNumberField(e.target.value) }))
                       }
                       className={NUMBER_CLASS}
                     />
@@ -975,7 +978,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 <Checkbox
                   label={t("setup.config.marginDissentersLabel")}
                   description={t("setup.config.marginDissentersHelp")}
-                  checked={prefs.marginIncludesDissenters ?? true}
+                  checked={prefs.marginIncludesDissenters === true}
                   onChange={(e) => setPrefs((p) => ({ ...p, marginIncludesDissenters: e.target.checked }))}
                 />
                 <Checkbox
@@ -1039,7 +1042,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                 {(
                   [
                     ["enableMotionVetoes", "setup.config.motionVetoesLabel", "setup.config.motionVetoesHelp"],
-                    ...(tournament?.format !== "bp"
+                    ...(isTwoTeamFormat(tournament?.format)
                       ? [["enableForfeits", "setup.config.forfeitsLabel", "setup.config.forfeitsHelp"]]
                       : []),
                   ] as Array<["enableMotionVetoes" | "enableForfeits", MessageKey, MessageKey]>
@@ -1052,6 +1055,12 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                     onChange={(e) => setPrefs((p) => ({ ...p, [key]: e.target.checked }))}
                   />
                 ))}
+                <Checkbox
+                  label={t("setup.config.motionReuseLabel")}
+                  description={t("setup.config.motionReuseHelp")}
+                  checked={prefs.enableMotionReuse !== false}
+                  onChange={(e) => setPrefs((p) => ({ ...p, enableMotionReuse: e.target.checked }))}
+                />
 
                 <ResultsRulesSettings
                   prefs={prefs}
@@ -1078,18 +1087,20 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
                       <Input
                         type="number"
                         label={t("setup.config.feedbackMinLabel")}
-                        value={prefs.feedbackMinScore ?? 1}
+                        step="any"
+                        value={numberFieldValue(prefs.feedbackMinScore)}
                         onChange={(e) =>
-                          setPrefs((p) => ({ ...p, feedbackMinScore: parseInt(e.target.value, 10) || 1 }))
+                          setPrefs((p) => ({ ...p, feedbackMinScore: parseNumberField(e.target.value) }))
                         }
                         className={NUMBER_CLASS}
                       />
                       <Input
                         type="number"
                         label={t("setup.config.feedbackMaxLabel")}
-                        value={prefs.feedbackMaxScore ?? 10}
+                        step="any"
+                        value={numberFieldValue(prefs.feedbackMaxScore)}
                         onChange={(e) =>
-                          setPrefs((p) => ({ ...p, feedbackMaxScore: parseInt(e.target.value, 10) || 10 }))
+                          setPrefs((p) => ({ ...p, feedbackMaxScore: parseNumberField(e.target.value) }))
                         }
                         className={NUMBER_CLASS}
                       />
@@ -1499,6 +1510,7 @@ function ConfigFormContent({ category }: { category: SettingsCategory }) {
             </Button>
           </div>
         </div>
+        {savedToDevice && <PublishSettingsNotice />}
         {saveError && (
           <Alert tone="danger" role="alert">{saveError}</Alert>
         )}

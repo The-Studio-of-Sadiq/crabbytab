@@ -8,7 +8,12 @@ and `src/lib/breakqual/calculator.ts`.
 ## What counts
 
 Only confirmed, non-discarded ballots in non-cancelled **preliminary** rounds count. A bye awarded
-as a win counts as a win with no speeches. **BP records no wins** (wave 4/5): as in Tabbycat, whose
+as a win counts as a win with no speeches and **1 point in every format** (Tabbycat
+`bye_team_results` "points", `draw/manager.py`): in BP that is a third place (`thirds`) that also
+counts in `wins`. Before this a BP bye was worth 3 points and a first. A drawn debate whose result
+is not confirmed yet still counts for **draw strength** (its opponents) and for **pull-ups**
+(`pullups`, `pullup_debates`), as Tabbycat counts every preliminary debate for those; it adds
+nothing to points, wins, speaks or margins. **BP records no wins** (wave 4/5): as in Tabbycat, whose
 BP preliminary results leave `TeamScore.win` unset, `wins` (and the draw strength built on it) is 0
 for every BP team; BP ranks on points, and `wins` / `draw_strength_wins` are offered for two-team
 formats only. Before wave 4/5 a BP 1st or 2nd counted as a win. Forfeits and results-only ballots
@@ -26,6 +31,13 @@ a round computes the standings from that round and every earlier non-cancelled r
 are left out of every metric, CSV exports use the same rounds, and the break-liveness column is
 hidden (it describes the next round from all results). Public standings, the break and the draw
 always use the full standings.
+
+Choosing a **break category** on the team standings ranks that category's teams among themselves
+(Tabbycat's standings by break category): every team not marked ineligible for a general category,
+otherwise the teams eligible for it, ranked with `rankTeamSubset` (ranks restart at 1 and
+who-beat-whom compares the teams tied inside the category), as on the public break category tabs
+(`breakCategoryStandings`, `src/lib/standings/categoryStandings.ts`). The search then filters those
+rows without changing their ranks.
 
 ## Team precedence
 
@@ -63,6 +75,8 @@ ballots record no votes and carry none, as in Tabbycat.
 
 Speaker metrics: total, average, std. dev. (lower is better), **trimmed mean**, speeches given,
 reply total, average, std. dev. (lower is better) and count. Default: total, then average.
+The **replies tab** is always ranked on the average reply score alone, Tabbycat's fixed
+`('replies_avg',)` precedence (before, it used the speaker precedence).
 
 **Team metrics on the speaker tab (wave 4/5)**, as Tabbycat's `standings/speakers.py`: team
 points (`team_points`, unweighted like Tabbycat's), team wins (`team_wins`, two-team only), team
@@ -81,12 +95,26 @@ after upgrading; nothing stored changes.
 **Eligibility** (Tabbycat's `standings_missed_debates` / `standings_missed_replies`):
 `standingsMissedDebates` is the number of substantive speeches a speaker may miss and still be
 ranked; absent or negative means no limit (the default). A speaker needs at least
-*(preliminary rounds with results − limit)* speeches; rounds whose ballots carry no speaker scores
-are not counted. Ineligible speakers stay on the tab, listed
-after everyone ranked, with no rank (`ineligible: true`, `rank: 0`; shown as "—"). Only rounds
-that have at least one result count, so a round in progress never makes anyone ineligible
-(Tabbycat counts every preliminary round up to the tab's round). `standingsMissedReplies` does
-the same for the replies tab.
+*(preliminary rounds drawn so far − limit)* speeches. As Tabbycat (every preliminary round up to
+the tab's round), a drawn round counts whether or not its results are in, so with a limit set a
+speaker can show as unranked while a round is in progress. One exception: a round whose confirmed
+ballots carry no speaker scores at all (`speakersInBallots`) is not counted, since it would make
+every speaker ineligible. Ineligible speakers stay on the tab, listed after everyone ranked, with
+no rank (`ineligible: true`, `rank: 0`; shown as "—"). `standingsMissedReplies` does the same for
+the replies tab.
+
+A metric with no data yet has **no value** (`null`, shown as "—"), not 0, as in Tabbycat, whose
+metrics are SQL aggregates: a sum, average or standard deviation over no results is `NULL`, while a
+count is 0. So a team with no confirmed results yet (for example after a bye that awards nothing)
+has no points, speaker scores or margins but 0 wins, and a speaker with no speeches has no total,
+average, standard deviation, trimmed mean or speech-rank sum but 0 speeches. No value ranks below
+every value, whether the metric ranks higher or lower first, and teams with no value tie with each
+other: Tabbycat's `ORDER BY ... NULLS LAST` (`standings/ranking.py`). A standard deviation of 0 is
+the best value, but a team with no scores ranks last on it, not first. (Tabbycat sorts in Python
+instead, counting `None` as 0, when the precedence includes who-beat-whom, draw strength or average
+individual speaker score; CrabbyTab ranks no value last in every precedence.) Draw brackets read no
+value as 0, as Tabbycat's draw does (`or 0`). Swing teams stay out of the rankings (a deliberate CrabbyTab choice: Tabbycat ranks
+them, and only bye teams are left out).
 
 ## Extra columns
 
@@ -97,12 +125,16 @@ page and the released public team and speaker tabs, but are not used to rank.
 
 **Break eligibility** (*Breaks → Edit eligibility*, `/break/eligibility`, Tabbycat
 `breakqual-edit-eligibility`) is a team × category checkbox grid with a "whole column" checkbox
-per category (for the teams shown by the search). Changes are a draft until saved in one write;
-regenerate a break for it to use them. **Breaking adjudicators** (`/break/adjudicators`) lists every
+per category (for the teams shown by the search). A **general** category's column shows and sets
+the *Ineligible* override (every team is in a general category unless marked ineligible, which is
+what the break, liveness and public pages read); other columns are the team's own categories.
+Changes are a draft until saved; regenerate a break for it to use them. **Breaking adjudicators** (`/break/adjudicators`) lists every
 adjudicator with an inline breaking toggle (also on the feedback overview); releasing the public
 list stays a separate step.
 
-Categories are processed from highest priority down; a team breaks in at most one. Manual
+Categories are processed from highest priority down; a team that breaks in a category is left
+out of every **lower-priority** one ("different break"). Categories of **equal priority** do not
+exclude each other, so a team can break in both (Tabbycat's `priority__gt`). Manual
 overrides either force a team in ("Manually included", which takes a break place first) or
 remove it (ineligible, withdrawn, different break, disqualified, lost coin toss). The
 qualification rule (Standard, AIDA 1996, AIDA 2016 Australs/Easters, AIDA 2019 Australs open) then orders the remaining
@@ -115,6 +147,14 @@ institution cap of `3 + floor(max(0, break size − 16) / 8)`: 3 up to a 23-team
 5 for 32–39, and so on. The break size is the category's, including manually included teams. Like
 the AIDA 2016 rules it needs wins, so it is refused for BP. (WADL is not a Tabbycat break rule and
 is not offered.)
+
+**Institution rank** (AIDA rules; Tabbycat's `RankFromInstitutionAnnotator`) is a team's place
+among its institution's teams in the category's standings: teams tied in the standings share it
+(so 3rd= and 3rd= are both under a cap of 3), and every team in those standings counts, including
+ineligible, excluded and already-broken ones. Under the AIDA 2016/2019 rules, teams with fewer wins
+than the last breaking place can be neither breaking teams nor **reserves** (Tabbycat removes them
+from the eligible teams first), and capped teams tied on every precedence metric are reinserted
+together.
 
 ### Ties at the cutoff
 
@@ -183,6 +223,8 @@ the points teams earned in the earlier preliminary rounds:
   rounds (Tabbycat uses the round's sequence number, which is the same when no round is cancelled).
 - These are strict mathematical bounds: they ignore institution caps, overrides and teams breaking
   in a higher-priority category, as Tabbycat's do.
+- Points are the raw sum of points, not multiplied by round weights (Tabbycat's
+  `Sum('teamscore__points')`); the same raw points drive *Prioritise debates by liveness*.
 
 Shown as text badges ("Open: live", "ESL: safe"):
 
@@ -234,6 +276,19 @@ WSDC (with its Style/Content/Strategy score criteria), APDA and Karl Popper (Cze
 scoring, individual voting ballots and self-split ballots). Each sets the team/speaker counts,
 score scale and the preferences the Tabbycat preset sets that CrabbyTab supports, including side
 names, motions on/off, maximum margin, reply step, speech ranks, declared winners and speaker
-scores only in preliminary rounds; what it cannot apply is listed in the wizard. Not offered:
-Public Speaking (six teams per room). There is no Tabbycat "Japan BP" preset; use British
-Parliamentary.
+scores only in preliminary rounds, the UI options (team and adjudicator institutions shown or
+hidden), BP's 15-minute preparation time, Joynt's public side allocations, UADC's team feedback on
+every adjudicator and public feedback progress, APDA's seeded first round and title seeds, and Karl
+Popper's motion reuse, public feedback form (instead of private URLs) and unaccredited column. Every
+Tabbycat preset setting CrabbyTab supports is applied, so the wizard lists nothing as unsupported;
+anything a later Tabbycat preset adds that CrabbyTab cannot apply would be listed there. There is
+no Tabbycat "Japan BP" preset; use British Parliamentary.
+
+Tabbycat's hidden presets: "Public information options" and the participant data entry choice
+(private URLs, public forms or tab staff only; its PrivateURLs / PublicForms presets) are offered
+on the wizard's public step; "Tab release options" is the **Release the tab** button on the
+release panel (every tab, the motion tab, scoresheets, all results, every break, the breaking
+adjudicators and the diversity page public; draw, team standings, break categories and check-ins
+off); the round-robin presets apply when the wizard's draw rule is round robin (history and
+institution avoidance off, numeric seeds). New tournaments start with motion vetoes on (Tabbycat's
+default), unless a preset turns them off.

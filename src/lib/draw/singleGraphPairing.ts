@@ -164,10 +164,11 @@ export function singleGraphPair(
   const minCostOptions: MinCostPairingOptions = { ...options, pairingMethod: method, isTopBracket: false };
 
   // Tabbycat's assignment cost (null = not allowed).
-  const tabbycatCost = (a: SingleGraphTeam, b: SingleGraphTeam): number | null => {
+  const tabbycatCost = (a: SingleGraphTeam, b: SingleGraphTeam, preferred: boolean): number | null => {
     const [hi, lo] = a.wins >= b.wins ? [a, b] : [b, a];
     if (hi.wins !== lo.wins && levelIndex.get(lo.wins)! - levelIndex.get(hi.wins)! > 1) return null;
     if (!options.canMeet(a.team, b.team)) return null;
+    if (preferred && options.preferredCanMeet && !options.preferredCanMeet(a.team, b.team)) return null;
     let cost = conflictCost(a.team, b.team, history, minCostOptions);
     const size = bracketSize(hi.wins);
     if (hi.wins !== lo.wins) {
@@ -187,10 +188,12 @@ export function singleGraphPair(
     return mixedRoomCost + (pullupPenalty === 0 ? precedence.get(lo.team.id)!.order : 0);
   };
   const tieScale = Math.floor(n / 2) * (mixedRoomCost + maxBracket) + 1;
-  const pairs = minCostPerfectMatching(n, (i, j) => {
-    const cost = tabbycatCost(entries[i], entries[j]);
+  // Rooms Tabbycat's max_times_on_one_side would not offer are avoided when possible, never required.
+  const solve = (preferred: boolean) => minCostPerfectMatching(n, (i, j) => {
+    const cost = tabbycatCost(entries[i], entries[j], preferred);
     return cost === null ? null : cost * tieScale + tieBreak(entries[i], entries[j]);
   });
+  const pairs = (options.preferredCanMeet ? solve(true) : null) ?? solve(false);
   if (!pairs) throw noValidDrawError(n);
 
   const rooms = pairs.map(([i, j]) => (entries[i].wins >= entries[j].wins ? [entries[i], entries[j]] : [entries[j], entries[i]]));

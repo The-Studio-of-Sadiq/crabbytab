@@ -272,9 +272,12 @@ describe("tab-room team names under team code names", () => {
   it("shows code names with real-name tooltips in admin-tooltips-real", () => {
     expect(tabroomTeamName(team, "Alpha Real", "admin-tooltips-real")).toEqual({ name: "Fox", tooltip: { kind: "real", name: "Alpha Real" } });
   });
-  it("shows the real name alone when off, everywhere, or without a code name", () => {
+  it("shows the code name alone everywhere, as Tabbycat does for admins too", () => {
+    expect(tabroomTeamName(team, undefined, "everywhere")).toEqual({ name: "Fox" });
+    expect(tabroomTeamName({ name: "Beta" }, undefined, "everywhere")).toEqual({ name: "Beta" });
+  });
+  it("shows the real name alone when off, or without a code name", () => {
     expect(tabroomTeamName(team, undefined, "off")).toEqual({ name: "Alpha Real" });
-    expect(tabroomTeamName(team, undefined, "everywhere")).toEqual({ name: "Alpha Real" });
     expect(tabroomTeamName({ name: "Beta", codeName: "Beta" }, undefined, "admin-tooltips-real")).toEqual({ name: "Beta" });
     expect(tabroomTeamName(undefined, "Stored", "admin-tooltips-real")).toEqual({ name: "Stored" });
   });

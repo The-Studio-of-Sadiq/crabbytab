@@ -169,7 +169,7 @@ describe("calculateStandings: BP default precedence reproduces legacy order exac
     const t1 = result.teams.find((r) => r.teamId === "t1")!;
     const t2 = result.teams.find((r) => r.teamId === "t2")!;
     expect(t1.metrics.points).toBe(t2.metrics.points); // both 3 total points
-    expect(t2.metrics.speaks_sum).toBeGreaterThan(t1.metrics.speaks_sum);
+    expect(t2.metrics.speaks_sum).toBeGreaterThan(t1.metrics.speaks_sum!);
     expect(t2.rank).toBeLessThan(t1.rank); // t2 ranks above t1 on speaks_sum
   });
 });
@@ -250,7 +250,7 @@ describe("calculateStandings: custom precedence changes the order", () => {
     const t1 = result.teams.find((r) => r.teamId === "t1")!;
     const t3 = result.teams.find((r) => r.teamId === "t3")!;
     expect(t1.metrics.wins).toBe(t3.metrics.wins); // both 1-0 after round 1
-    expect(t1.metrics.draw_strength_wins).toBeGreaterThan(t3.metrics.draw_strength_wins);
+    expect(t1.metrics.draw_strength_wins).toBeGreaterThan(t3.metrics.draw_strength_wins!);
     expect(t1.rank).toBeLessThan(t3.rank);
   });
 });

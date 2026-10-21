@@ -227,7 +227,7 @@ describe("Round draw eligibility", () => {
     }
   });
 
-  it("requires one available venue for every debate room", () => {
+  it("allocates the rooms that fit and leaves the rest without a venue when venues run short", () => {
     const twoTeamTournament = {
       id: "t1",
       format: "uadc",
@@ -258,14 +258,20 @@ describe("Round draw eligibility", () => {
     });
     expect(drawWithEnoughVenues).toHaveLength(66);
     expect(drawWithEnoughVenues.every((debate, index) => debate.venueId === `venue-${index}`)).toBe(true);
-    expect(() => generateRoundDraw({
+    // Tabbycat's VenueAllocator: a shortage never stops the draw; the lowest room goes without.
+    const shortDraw = generateRoundDraw({
       tournament: twoTeamTournament,
       round,
       teams: drawTeams,
       venues: availableVenues.slice(0, 65),
       pastDebates: [],
       standings: [],
-    })).toThrow("Not enough available venues: 66 required, but only 65 available.");
+    });
+    expect(shortDraw).toHaveLength(66);
+    const withoutVenue = shortDraw.filter((debate) => !debate.venueId);
+    expect(withoutVenue).toHaveLength(1);
+    expect(withoutVenue[0].venueName).toBe(`Room ${withoutVenue[0].roomRank}`);
+    expect(new Set(shortDraw.flatMap((debate) => (debate.venueId ? [debate.venueId] : []))).size).toBe(65);
   });
 
   it("persists the selected lowest-ranked team as a confirmed bye", () => {
