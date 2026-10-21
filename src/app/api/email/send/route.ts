@@ -6,12 +6,14 @@ import {
 } from "@/lib/email/authorize";
 import {
   EmailCampaignInputError,
+  type EmailBreakCategory,
   EMAIL_RECIPIENT_GROUPS,
   EmailRecipientGroup,
   findCredentialEmailConflict,
   MAX_CAMPAIGN_RECIPIENTS,
   prepareEmailMessages,
   resolveEmailRecipients,
+  institutionCoachRecipients,
   sendEmailCampaign,
   usesPrivateCredentials,
 } from "@/lib/email/messaging";
@@ -120,7 +122,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Break category names for {{break_categories}}, read only when the template uses them.
+    let breakCategories: EmailBreakCategory[] = [];
+    if (/\{\{\s*break_categories\s*\}\}/.test(`${subject}\n${messageBody}`)) {
+      const categorySnapshot = await firestore.collection("tournaments").doc(tournamentId).collection("breakCategories").get();
+      breakCategories = categorySnapshot.docs.map((document) => ({ ...document.data(), id: document.id }) as EmailBreakCategory);
+    }
+
+    // Institution coaches (Tabbycat Coach): read only for that group.
+    const coaches = group === "institution_coaches"
+      ? institutionCoachRecipients(
+          (await firestore.collection("tournaments").doc(tournamentId).collection("institutions").get()).docs
+            .map((document) => document.data())
+            .filter((institution) => typeof institution.deletedAt !== "string")
+            .map((institution) => ({
+              name: String(institution.name ?? ""),
+              coaches: Array.isArray(institution.coaches) ? institution.coaches : [],
+            }))
+        )
+      : [];
     const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round, {
+      coaches,
+      breakCategories,
       includePrivateCredentials: includesPrivateCredentials,
       privateUrlOrigin: request.nextUrl.origin,
       tournamentSlug: tournament.slug,

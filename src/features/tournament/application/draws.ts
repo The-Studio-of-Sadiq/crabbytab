@@ -16,6 +16,7 @@ import { resolveRecordedSides } from "@/lib/draw/manualSides";
 import { applyGuards, checkDrawGeneration, type RuleOverride } from "./stateGuards";
 import { concurrentBookings, isEarlierScheduleSlot, roundRobinIndex } from "./schedule";
 import { orderRoundMotions } from "@/lib/motions/roundMotions";
+import { legacyRoundRobinInProgress } from "@/lib/draw/roundRobin";
 
 export interface DrawAuditEvent {
   action: string;
@@ -138,7 +139,12 @@ export function withGenerationIds<T extends Pick<Debate, "id">>(generated: T[], 
 export async function generateDrawCommand(
   roundId: string,
   dependencies: GenerateDrawDependencies,
-  options: { discardExistingResults?: boolean; override?: RuleOverride } = {}
+  options: {
+    discardExistingResults?: boolean;
+    override?: RuleOverride;
+    /** Extra audit details (e.g. per-request draw options given through the API). */
+    auditDetails?: Record<string, unknown>;
+  } = {}
 ): Promise<void> {
   const { tournament, rounds, teams, institutions = [], venues, debates, ballots, motions, standings } = dependencies;
   const round = rounds.find((item) => item.id === roundId);
@@ -168,6 +174,14 @@ export async function generateDrawCommand(
   const booked = concurrentBookings(round, rounds, debates);
   // Sides recorded on confirmed ballots (manual-ballot sides) count in the side history.
   const pastDebates = resolveRecordedSides(debates.filter((debate) => previousRoundIds.has(debate.roundId)), ballots);
+  // A two-team round-robin cycle begun with the legacy rotation keeps it, so the schedule never
+  // changes mid-cycle; new cycles use Tabbycat's Berger schedule in seed order and are marked.
+  const twoTeamRoundRobin = round.drawType === "round_robin" && tournament.format !== "bp";
+  const legacyRoundRobin = twoTeamRoundRobin && legacyRoundRobinInProgress(
+    round,
+    rounds.filter((item) => previousRoundIds.has(item.id)),
+    new Set(debates.map((debate) => debate.roundId))
+  );
   // Recorded on the round so this exact draw can be reproduced from the same inputs.
   const seed = randomSeed();
   const generated = withGenerationIds(await dependencies.generateRoundDraw({
@@ -180,6 +194,7 @@ export async function generateDrawCommand(
     standings,
     seed,
     roundRobinIndex: roundRobinIndex(round, rounds),
+    ...(legacyRoundRobin ? { legacyRoundRobin: true } : {}),
   }), seed);
 
   const current = dependencies.latest?.() ?? { rounds, debates, ballots };
@@ -198,6 +213,8 @@ export async function generateDrawCommand(
   const removedDebates = current.debates.filter((debate) => debate.roundId === roundId);
   const updatedDebates = [...current.debates.filter((debate) => debate.roundId !== roundId), ...generated];
   const updatedRound: Round = { ...round, drawStatus: "draft", adjudicatorsRevealed: false, drawSeed: seed };
+  if (twoTeamRoundRobin && !legacyRoundRobin) updatedRound.roundRobinAlgorithm = "berger_seed";
+  else delete updatedRound.roundRobinAlgorithm;
   const updatedRounds = current.rounds.map((item) => item.id === round.id ? updatedRound : item);
 
   // Results of the replaced draw are kept as discarded versions, never re-attached to new matchups.
@@ -255,6 +272,7 @@ export async function generateDrawCommand(
       conflictAvoidance: tournament.preferences?.conflictAvoidance,
       sideAllocationRule: tournament.preferences?.sideAllocationRule,
       seed,
+      ...options.auditDetails,
     },
   });
   if (cloudError) throw new DrawCloudSyncIncompleteError(cloudError);

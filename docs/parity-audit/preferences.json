@@ -1,0 +1,1192 @@
+[
+ {
+  "item": "scoring.score_min (Minimum speaker score)",
+  "tabbycat": "options/preferences.py:28",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) minSpeakerScore; src/lib/scoring/validator.ts; src/features/tournament/components/ballot/SpeechRows.tsx; src/app/[tournamentSlug]/config/ConfigForm.tsx",
+  "note": "Enforced by validateSpeakerScore on ballot entry, private ballots and API writes."
+ },
+ {
+  "item": "scoring.score_max (Maximum speaker score)",
+  "tabbycat": "options/preferences.py:38",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) maxSpeakerScore; src/lib/scoring/validator.ts; src/app/[tournamentSlug]/config/ConfigForm.tsx",
+  "note": "Enforced by the score validator."
+ },
+ {
+  "item": "scoring.score_step (Speaker score step)",
+  "tabbycat": "options/preferences.py:47",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) stepSpeakerScore; src/lib/scoring/validator.ts; src/lib/ballots/ballotRules.ts",
+  "note": "Step enforced by validator."
+ },
+ {
+  "item": "scoring.maximum_margin (Maximum margin)",
+  "tabbycat": "options/preferences.py:56",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) maximumMargin; src/lib/ballots/ballotRules.ts; src/features/tournament/components/ballot/ResultsRulesSettings.tsx",
+  "note": "0/absent = no limit, as Tabbycat."
+ },
+ {
+  "item": "scoring.reply_score_min (Minimum reply score)",
+  "tabbycat": "options/preferences.py:66",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) minReplyScore; src/lib/scoring/validator.ts",
+  "note": ""
+ },
+ {
+  "item": "scoring.reply_score_max (Maximum reply score)",
+  "tabbycat": "options/preferences.py:75",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) maxReplyScore; src/lib/scoring/validator.ts",
+  "note": ""
+ },
+ {
+  "item": "scoring.reply_score_step (Reply score step)",
+  "tabbycat": "options/preferences.py:84",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) stepReplyScore; src/lib/scoring/validator.ts; src/features/tournament/components/ballot/ResultsRulesSettings.tsx",
+  "note": "Absent = half the substantive step (Tabbycat default 0.5)."
+ },
+ {
+  "item": "scoring.margin_includes_dissenters (Margin includes dissenters)",
+  "tabbycat": "options/preferences.py:93",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) marginIncludesDissenters; src/lib/ballots/result.ts",
+  "note": "Read when computing voting-ballot margins."
+ },
+ {
+  "item": "scoring.score_aggregation_function (Panel score aggregation function)",
+  "tabbycat": "options/preferences.py:103",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) scoreAggregation; src/lib/ballots/ballotRules.ts; src/lib/ballots/result.ts; src/features/tournament/components/ballot/ResultsRulesSettings.tsx",
+  "note": "mean/median."
+ },
+ {
+  "item": "scoring.ballot_introduction (Ballot introduction/explanation)",
+  "tabbycat": "options/preferences.py:116",
+  "status": "PARTIAL",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotIntroExplanation; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx:473; src/app/[tournamentSlug]/print/ballots/page.tsx",
+  "note": "Shown on tab-room entry and printed ballots, but NOT on the adjudicator private-URL ballot form (src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx never reads it), which is where Tabbycat mainly shows it."
+ },
+ {
+  "item": "scoring.teamscore_includes_ghosts (Team score includes ghosts)",
+  "tabbycat": "options/preferences.py:127",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamScoreIncludesGhosts; src/lib/ballots/result.ts; src/lib/standings/calculator.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.adj_min_voting_score (Minimum adjudicator score to vote)",
+  "tabbycat": "options/preferences.py:141",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) minAdjScoreToVote; src/lib/draw/allocator.ts:996",
+  "note": "Adjudicators below it are placed as trainees."
+ },
+ {
+  "item": "draw_rules.adj_conflict_penalty (Adjudicator conflict penalty)",
+  "tabbycat": "options/preferences.py:150",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) adjConflictPenalty; src/lib/draw/allocator.ts:88 getAllocationWeights; src/features/tournament/application/allocation.ts:151",
+  "note": "0 switches conflict avoidance off."
+ },
+ {
+  "item": "draw_rules.adj_history_penalty (Adjudicator history penalty)",
+  "tabbycat": "options/preferences.py:159",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) adjHistoryPenalty; src/lib/draw/allocator.ts:89; src/features/tournament/application/allocation.ts:152",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.preformed_panel_mismatch_penalty (Importance mismatch penalty)",
+  "tabbycat": "options/preferences.py:168",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) importanceMismatchPenalty; src/lib/draw/allocator.ts:90 (PRIORITY_STRENGTH_MISMATCH, used by placePreformedPanels and strengthMismatchCost)",
+  "note": "Also reused as the strength-vs-priority weight in ordinary allocation (scaled by STRENGTH_COST_SCALE), a broader meaning than Tabbycat's."
+ },
+ {
+  "item": "draw_rules.team_institution_penalty (Team institution penalty)",
+  "tabbycat": "options/preferences.py:177",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamInstitutionPenalty; src/lib/draw/generator.ts:313-315 -> src/lib/draw/twoTeamDraw.ts penalties",
+  "note": "Two-team draws only (Tabbycat also ignores it in BP). Unset in a stored tournament falls back to 200; config form default is 1."
+ },
+ {
+  "item": "draw_rules.team_history_penalty (Team history penalty)",
+  "tabbycat": "options/preferences.py:187",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamHistoryPenalty; src/lib/draw/generator.ts:310-312",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.avoid_same_institution (Avoid same institution)",
+  "tabbycat": "options/preferences.py:196",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) avoidSameInstitution; src/lib/draw/generator.ts:105,313,466",
+  "note": "Off sets the penalty to 0; also used by random grouping."
+ },
+ {
+  "item": "draw_rules.avoid_team_history (Avoid team history)",
+  "tabbycat": "options/preferences.py:206",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) avoidTeamHistory; src/lib/draw/generator.ts:310",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.pullup_debates_penalty (Previously saw pullup penalty)",
+  "tabbycat": "options/preferences.py:215",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) previouslySawPullupPenalty; src/lib/draw/generator.ts; src/lib/draw/minCostPairing.ts; src/lib/draw/twoTeamDraw.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.side_penalty (Side balance penalty)",
+  "tabbycat": "options/preferences.py:224",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) sideBalancePenalty; src/lib/draw/minCostPairing.ts; src/lib/draw/twoTeamDraw.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.pairing_penalty (Pairing deviation penalty)",
+  "tabbycat": "options/preferences.py:233",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) pairingDeviationPenalty; src/lib/draw/minCostPairing.ts; src/lib/draw/singleGraphPairing.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.max_times_per_side (Maximum number of times per side)",
+  "tabbycat": "options/preferences.py:244",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) maxTimesPerSide; src/lib/draw/sideAllocator.ts; src/lib/draw/powerPaired.ts; src/lib/draw/validateDraw.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.prelim_panels (Preliminary panels per schedule slot)",
+  "tabbycat": "options/preferences.py:255",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) preliminaryPanels; src/features/tournament/application/schedule.ts preliminaryPanelsOf; src/features/tournament/components/schedule/RoundScheduleCard.tsx; Round.scheduleGroup",
+  "note": "Groups rounds into schedule slots; concurrent-slot rounds are excluded from 'previous round incomplete' checks (stateGuards.ts)."
+ },
+ {
+  "item": "draw_rules.draw_odd_bracket (Odd bracket resolution method)",
+  "tabbycat": "options/preferences.py:265",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) oddBracketMethod; src/lib/draw/twoTeamDraw.ts; src/lib/draw/oddBrackets.ts; src/lib/draw/singleGraphPairing.ts",
+  "note": "All Tabbycat methods incl. intermediate1/2, plus pullup_lowest_ds_rank variants."
+ },
+ {
+  "item": "draw_rules.draw_side_allocations (Side allocations method)",
+  "tabbycat": "options/preferences.py:286",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) sideAllocationRule; src/lib/draw/generator.ts:280-300; src/lib/draw/manualSides.ts",
+  "note": "random/balance/preallocated/manual-ballot all implemented."
+ },
+ {
+  "item": "draw_rules.draw_pairing_method (Pairing method)",
+  "tabbycat": "options/preferences.py:301",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) pairingMethod; src/lib/draw/twoTeamDraw.ts; src/lib/draw/minCostPairing.ts",
+  "note": "slide/fold/random/adjacent/fold_top_adjacent_rest."
+ },
+ {
+  "item": "draw_rules.draw_avoid_conflicts (Conflict avoidance method)",
+  "tabbycat": "options/preferences.py:318",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) conflictAvoidance; src/lib/draw/twoTeamDraw.ts; src/lib/draw/minCostPairing.ts; src/lib/draw/singleGraphPairing.ts",
+  "note": "graph -> min_cost, graph_one -> min_cost_with_pullups."
+ },
+ {
+  "item": "draw_rules.draw_pullup_restriction (Pullup restriction)",
+  "tabbycat": "options/preferences.py:335",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) pullupRestriction; src/lib/draw/twoTeamDraw.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.draw_pullup_penalty (Pullup penalty)",
+  "tabbycat": "options/preferences.py:353",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) pullupPenalty; src/lib/draw/singleGraphPairing.ts; src/lib/draw/powerPaired.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.bp_pullup_distribution (BP pullup distribution)",
+  "tabbycat": "options/preferences.py:362",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) bpPullupDistribution; src/lib/draw/powerPaired.ts:82-150",
+  "note": "anywhere; one_room = 'bottom'; adds 'top'."
+ },
+ {
+  "item": "draw_rules.bp_position_cost (BP position cost)",
+  "tabbycat": "options/preferences.py:375",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) bpPositionCost; src/lib/draw/sideAllocator.ts",
+  "note": "simple/entropy(renyi_entropy)/variance(sum_squared_deviations)."
+ },
+ {
+  "item": "draw_rules.bp_renyi_order (Rényi order (BP))",
+  "tabbycat": "options/preferences.py:391",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) renyiOrder; src/lib/draw/sideAllocator.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.bp_position_cost_exponent (BP position cost exponent)",
+  "tabbycat": "options/preferences.py:403",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) bpPositionCostExponent; src/lib/draw/sideAllocator.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.bp_assignment_method (BP assignment method)",
+  "tabbycat": "options/preferences.py:414",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) bpAssignmentMethod; src/lib/draw/sideAllocator.ts",
+  "note": "hungarian_preshuffled = 'hungarian', hungarian = 'hungarian_unshuffled', plus 'random'."
+ },
+ {
+  "item": "draw_rules.draw_skip_adj_checkins (Skip adjudicator check-ins)",
+  "tabbycat": "options/preferences.py:427",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) skipAdjCheckins; src/lib/draw/allocator.ts:982; src/lib/draw/validateDraw.ts",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.no_panellist_position (No panellist adjudicators)",
+  "tabbycat": "options/preferences.py:436",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) noPanellistAdjs; src/lib/draw/allocator.ts:997; src/features/tournament/application/allocation.ts:148",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.no_trainee_position (No trainee adjudicators)",
+  "tabbycat": "options/preferences.py:445",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) noTraineeAdjs; src/lib/draw/allocator.ts:998",
+  "note": ""
+ },
+ {
+  "item": "draw_rules.bye_team_results (Bye team results)",
+  "tabbycat": "options/preferences.py:455",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) byeTeamResults; src/lib/draw/generator.ts:587 createByeDebates; src/lib/standings/calculator.ts:153",
+  "note": "none->absent, points->win (team points only, as Tabbycat)."
+ },
+ {
+  "item": "draw_rules.bye_team_selection (Bye team selection method)",
+  "tabbycat": "options/preferences.py:469",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) byeTeamSelectionMethod; src/lib/draw/generator.ts:84,239; src/features/tournament/components/SwingTeamPanel.tsx",
+  "note": "off/random/lowest."
+ },
+ {
+  "item": "draw_rules.max_times_on_one_side (Maximum allowed side imbalance)",
+  "tabbycat": "options/preferences.py:484",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) maxAllowedSideImbalance; src/lib/draw/sideAllocator.ts; src/lib/draw/powerPaired.ts; src/lib/draw/drawFlags.ts",
+  "note": ""
+ },
+ {
+  "item": "feedback.adj_min_score (Minimum adjudicator score)",
+  "tabbycat": "options/preferences.py:499",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackMinScore; src/lib/feedback/scores.ts; src/lib/scoring/validator.ts; feedback pages and private portals",
+  "note": ""
+ },
+ {
+  "item": "feedback.adj_max_score (Maximum adjudicator score)",
+  "tabbycat": "options/preferences.py:508",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackMaxScore; src/lib/feedback/scores.ts; src/lib/scoring/validator.ts",
+  "note": ""
+ },
+ {
+  "item": "feedback.adj_score_step (Adjudicator score step)",
+  "tabbycat": "options/preferences.py:517",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackScoreStep; src/lib/scoring/validator.ts; src/components/feedback/FeedbackOptionsFields.tsx",
+  "note": ""
+ },
+ {
+  "item": "feedback.feedback_paths (Allow and expect feedback to be submitted by)",
+  "tabbycat": "options/preferences.py:526",
+  "status": "BETTER",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackPaths/eliminationFeedbackPaths (FeedbackPathConfig); src/lib/feedback/paths.ts; private portals; src/lib/feedback/progress.ts",
+  "note": "Every Tabbycat choice expressible (incl. with-p-on-p via panellistsOnEachOther), plus separate elimination-round paths and per-source weights (feedbackSourceWeights)."
+ },
+ {
+  "item": "feedback.feedback_from_teams (Allow and expect feedback to be submitted by teams on)",
+  "tabbycat": "options/preferences.py:543",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) FeedbackPathConfig.teams (TeamFeedbackTargets); src/lib/feedback/paths.ts",
+  "note": "orallist / voting-allowed / all-allowed / all-voting / all / none mapped."
+ },
+ {
+  "item": "feedback.show_unexpected_feedback (Show unexpected feedback submissions in participants pages)",
+  "tabbycat": "options/preferences.py:560",
+  "status": "PARTIAL",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showUnexpectedFeedback; src/app/[tournamentSlug]/feedback/page.tsx:261; src/components/feedback/FeedbackOptionsFields.tsx",
+  "note": "Only applied on the admin feedback progress page; the public feedback-progress view (lib/publicView/derived.ts) ignores it, whereas Tabbycat's setting is specifically about the public participants pages."
+ },
+ {
+  "item": "feedback.show_unaccredited (Show unaccredited)",
+  "tabbycat": "options/preferences.py:569",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx:494-516 (Trainees column)",
+  "note": "No setting: trainees are always shown in their own column on the public draw, which covers the setting's purpose."
+ },
+ {
+  "item": "feedback.feedback_introduction (Feedback introduction/explanation)",
+  "tabbycat": "options/preferences.py:578",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackIntroduction; src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx:948; private team page; src/components/feedback/FeedbackOptionsFields.tsx",
+  "note": "Plain text."
+ },
+ {
+  "item": "debate_rules.teams_in_debate (Number of teams per debate)",
+  "tabbycat": "options/preferences.py:594",
+  "status": "HAVE",
+  "crabbytab": "Tournament.format + src/types/index.ts (TournamentPreferences) teamsInDebate; src/lib/draw/generator.ts; breaks.ts",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.ballots_per_debate_prelim (Ballots per debate, preliminary rounds)",
+  "tabbycat": "options/preferences.py:604",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotMode (consensus/voting); src/lib/ballots/result.ts; src/lib/privateBallot.ts; src/features/tournament/components/StaffAccessSettings.tsx",
+  "note": "BP forced consensus, as Tabbycat."
+ },
+ {
+  "item": "debate_rules.ballots_per_debate_elim (Ballots per debate, elimination rounds)",
+  "tabbycat": "options/preferences.py:617",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) eliminationBallotMode; ballotModeFor(); src/lib/ballots/result.ts",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.winners_in_ballots (Winner Declaration in ballot(s))",
+  "tabbycat": "options/preferences.py:630",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) winnersInBallots; src/lib/ballots/ballotRules.ts; src/lib/ballots/result.ts; src/lib/ballots/individualBallots.ts",
+  "note": "All four modes."
+ },
+ {
+  "item": "debate_rules.speakers_in_ballots (Require speaker scores)",
+  "tabbycat": "options/preferences.py:645",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) speakersInBallots; src/lib/ballots/ballotRules.ts; src/lib/ballots/result.ts; src/lib/standings/calculator.ts; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx",
+  "note": "always/prelim/never."
+ },
+ {
+  "item": "debate_rules.substantive_speakers (Substantive speakers)",
+  "tabbycat": "options/preferences.py:659",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) substantiveSpeakers; src/lib/ballots/result.ts; src/lib/standings/calculator.ts; print ballots; registration validation",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.side_names (Side names)",
+  "tabbycat": "options/preferences.py:669",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) sideNames; src/lib/sideNames.ts; src/components/ui/SideBadge.tsx; public/admin/print pages",
+  "note": "7 name pairs."
+ },
+ {
+  "item": "debate_rules.reply_scores_enabled (Reply scores)",
+  "tabbycat": "options/preferences.py:679",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) replyScoresEnabled; src/lib/ballots/result.ts; src/lib/standings/calculator.ts; src/lib/privateBallot.ts; src/lib/publicRelease.ts getPublicRelease",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.require_substantive_for_reply (Require reply speaker to have given a substantive speech)",
+  "tabbycat": "options/preferences.py:688",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) requireSubstantiveForReply; src/lib/ballots/ballotRules.ts; src/lib/ballots/result.ts",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.speaker_ranks (Use of speech ranks)",
+  "tabbycat": "options/preferences.py:697",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) speakerRanks; src/lib/ballots/ballotRules.ts; SpeechRows.tsx; srank metric in standings",
+  "note": "none/any/high-points."
+ },
+ {
+  "item": "debate_rules.preparation_time (Preparation Time)",
+  "tabbycat": "options/preferences.py:711",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) preparationTime; src/features/tournament/application/motionRelease.ts preparationMinutes; RoundScheduleCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "debate_rules.enable_forfeits (Enable forfeits)",
+  "tabbycat": "options/preferences.py:722",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) enableForfeits; src/lib/ballots/result.ts; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "standings.standings_missed_debates (Speeches missable for standings eligibility)",
+  "tabbycat": "options/preferences.py:736",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) standingsMissedDebates; src/lib/standings/calculator.ts",
+  "note": ""
+ },
+ {
+  "item": "standings.standings_missed_replies (Replies missable for standings eligibility)",
+  "tabbycat": "options/preferences.py:745",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) standingsMissedReplies; src/lib/standings/calculator.ts",
+  "note": ""
+ },
+ {
+  "item": "standings.team_standings_precedence (Team standings precedence)",
+  "tabbycat": "options/preferences.py:754",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamStandingsPrecedence (TeamMetricId); src/lib/standings/precedence.ts; src/lib/standings/calculator.ts",
+  "note": "All Tabbycat team metrics present (incl. wbw, num_adjs, num_iron, pullup_debates)."
+ },
+ {
+  "item": "standings.team_standings_extra_metrics (Team standings extra metrics)",
+  "tabbycat": "options/preferences.py:770",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamStandingsExtra; src/lib/standings/precedence.ts",
+  "note": ""
+ },
+ {
+  "item": "standings.speaker_standings_precedence (Speaker standings precedence)",
+  "tabbycat": "options/preferences.py:782",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) speakerStandingsPrecedence; src/lib/standings/precedence.ts; src/lib/standings/calculator.ts; src/lib/standings/metrics.ts",
+  "note": "Trimmed mean drop count configurable (speakerTrim)."
+ },
+ {
+  "item": "standings.speaker_standings_extra_metrics (Speaker standings extra metrics)",
+  "tabbycat": "options/preferences.py:798",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) speakerStandingsExtra; src/lib/standings/precedence.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.team_tab_released (Release team tab to public)",
+  "tabbycat": "options/preferences.py:815",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseTeamTab; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx; src/app/[tournamentSlug]/public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "tab_release.team_tab_limit (Top teams cutoff)",
+  "tabbycat": "options/preferences.py:824",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamTabLimit; src/lib/publicFeatures.ts getPublicSiteSettings; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.speaker_tab_released (Release speaker tab to public)",
+  "tabbycat": "options/preferences.py:833",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseSpeakerTab; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx",
+  "note": ""
+ },
+ {
+  "item": "tab_release.speaker_tab_limit (Top speakers cutoff)",
+  "tabbycat": "options/preferences.py:842",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) speakerTabLimit; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.replies_tab_released (Release replies tab to public)",
+  "tabbycat": "options/preferences.py:851",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseRepliesTab; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx",
+  "note": ""
+ },
+ {
+  "item": "tab_release.replies_tab_limit (Top replies cutoff)",
+  "tabbycat": "options/preferences.py:860",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) repliesTabLimit; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.break_category_tabs_released",
+  "tabbycat": "options/preferences.py:869",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseBreakCategoryTabs; src/lib/publicFeatures.ts getPublicSiteSettings; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.speaker_category_tabs_released",
+  "tabbycat": "options/preferences.py:878",
+  "status": "HAVE",
+  "crabbytab": "SpeakerCategory.public/limit in src/types/index.ts (TournamentPreferences); src/app/[tournamentSlug]/public/page.tsx; src/lib/speakerCategories.ts",
+  "note": "Per-category flag instead of one switch (finer-grained)."
+ },
+ {
+  "item": "tab_release.motion_tab_released (Release motions tab to public)",
+  "tabbycat": "options/preferences.py:889",
+  "status": "PARTIAL",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicMotions; src/app/[tournamentSlug]/public/page.tsx:160,264-290 (computeMotionStatistics)",
+  "note": "No separate switch: motion statistics are shown whenever public motions are on, so an organiser cannot publish motions without the win/selection statistics (or vice versa)."
+ },
+ {
+  "item": "tab_release.adjudicators_tab_released (Release adjudicator tab to public)",
+  "tabbycat": "options/preferences.py:898",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseAdjudicatorTab; src/lib/publicFeatures.ts getPublicSiteSettings; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "tab_release.adjudicators_tab_shows (Adjudicator tab displays)",
+  "tabbycat": "options/preferences.py:907",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) adjudicatorTabShows; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": "test/final/all."
+ },
+ {
+  "item": "tab_release.ballots_released (Release ballots to public)",
+  "tabbycat": "options/preferences.py:921",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releaseBallots; src/lib/publicFeatures.ts getPublicSiteSettings; src/app/[tournamentSlug]/public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "tab_release.all_results_released (Release all round results to public)",
+  "tabbycat": "options/preferences.py:930",
+  "status": "HAVE",
+  "crabbytab": "Round.resultsReleased (src/types/index.ts:662); src/lib/publicView/projection.ts:253; ReleasePanel",
+  "note": "Per-round release (incl. silent and elimination rounds) instead of one global switch; documented as a deliberate design in docs/tabbycat-parity-plan.md section D."
+ },
+ {
+  "item": "tab_release.private_ballots_released (Release ballots through private URLs)",
+  "tabbycat": "options/preferences.py:939",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releasePrivateBallots; src/app/api/private/sync/route.ts:487; src/app/[tournamentSlug]/private/team/[key]/page.tsx:756",
+  "note": ""
+ },
+ {
+  "item": "data_entry.participant_ballots (Ballot submissions from adjudicators)",
+  "tabbycat": "options/preferences.py:953",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx:682 (canSubmitBallot); src/lib/privateBallot.ts; src/types/index.ts (TournamentPreferences) publicBallotForm (declared only)",
+  "note": "Private-URL ballots are always enabled (no 'off' switch). The 'public' mode is not implemented: publicBallotForm is declared in the type and resolved in getPublicSiteSettings but has no UI and no reader (dead field). Public numeric-id forms are a documented deliberate omission."
+ },
+ {
+  "item": "data_entry.participant_feedback (Feedback submissions from participants)",
+  "tabbycat": "options/preferences.py:967",
+  "status": "PARTIAL",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackEnabled; private portals; src/types/index.ts (TournamentPreferences) publicFeedbackForm (declared only)",
+  "note": "off/private-urls via feedbackEnabled. 'public' mode not implemented; publicFeedbackForm is a dead field (no UI, no reader)."
+ },
+ {
+  "item": "data_entry.public_use_password (Require password for submission)",
+  "tabbycat": "options/preferences.py:981",
+  "status": "NA",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicFormsUsePassword (declared only, never read)",
+  "note": "Only meaningful with public forms, which CrabbyTab deliberately omits (private URL + passcode instead). Note the dead declared field."
+ },
+ {
+  "item": "data_entry.public_password (Password for public submission)",
+  "tabbycat": "options/preferences.py:990",
+  "status": "NA",
+  "crabbytab": "none (type comment says it would live in serverOnly/publicForms; not implemented)",
+  "note": "As public_use_password; private URLs use per-participant passcodes (src/lib/passcode.ts)."
+ },
+ {
+  "item": "data_entry.disable_ballot_confirms (Bypass double checking)",
+  "tabbycat": "options/preferences.py:1001",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotDoubleEntry (off = single entry confirms); src/features/tournament/components/ballot/useRoundIntake.ts:28",
+  "note": "Inverted sense: ballotDoubleEntry false is Tabbycat's bypass."
+ },
+ {
+  "item": "data_entry.enable_blind_checks (Enforce blind confirmations)",
+  "tabbycat": "options/preferences.py:1010",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotCheckMode 'blind'; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx:137",
+  "note": ""
+ },
+ {
+  "item": "data_entry.assistant_access (Assistant user access)",
+  "tabbycat": "options/preferences.py:1021",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) assistantAccess; src/lib/staffPermissions.ts; src/lib/staffAccessServer.ts; src/app/api/tournaments/[tournamentId]/access/route.ts",
+  "note": "All four levels, enforced server-side."
+ },
+ {
+  "item": "data_entry.public_checkins_submit (Participant self-checkin)",
+  "tabbycat": "options/preferences.py:1036",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) allowSelfCheckIn; src/lib/selfCheckIn.ts",
+  "note": ""
+ },
+ {
+  "item": "data_entry.checkin_window_people (Check-In Window (People))",
+  "tabbycat": "options/preferences.py:1044",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) checkInExpiresAfterHours; src/lib/draw/allocator.ts:987; src/lib/draw/generator.ts; src/lib/draw/validateDraw.ts; checkins page",
+  "note": ""
+ },
+ {
+  "item": "data_entry.checkin_window_venues (Check-In Window (Rooms))",
+  "tabbycat": "options/preferences.py:1053",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) venueCheckInExpiresAfterHours; src/app/[tournamentSlug]/checkins/page.tsx",
+  "note": "Display only, as Tabbycat."
+ },
+ {
+  "item": "data_entry.ballots_confirm_digits (Ballot Digit Checks)",
+  "tabbycat": "options/preferences.py:1063",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotsConfirmDigits; src/app/[tournamentSlug]/print/ballots/page.tsx; src/features/tournament/components/PrintOptionsCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "data_entry.score_return_location (Score return location)",
+  "tabbycat": "options/preferences.py:1072",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotReturnLocation; src/app/[tournamentSlug]/print/ballots/page.tsx; src/features/tournament/components/PrintOptionsCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "data_entry.feedback_return_location (Feedback return location)",
+  "tabbycat": "options/preferences.py:1081",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) feedbackReturnLocation; src/app/[tournamentSlug]/print/feedback/page.tsx; src/features/tournament/components/PrintOptionsCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "data_entry.enable_postponements (Enable postponements)",
+  "tabbycat": "options/preferences.py:1090",
+  "status": "HAVE",
+  "crabbytab": "Debate.postponed; src/app/[tournamentSlug]/draw/page.tsx:868; src/features/tournament/application/stateGuards.ts:272,332-348; src/lib/draw/generator.ts:166",
+  "note": "Always available (no toggle); a postponed debate only raises a soft 'previous round incomplete' warning, so it does not block the next draw."
+ },
+ {
+  "item": "data_entry.individual_ballots (Individual voting ballots)",
+  "tabbycat": "options/preferences.py:1099",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) individualBallots; src/lib/privateIndividualBallots.ts; src/lib/ballots/individualBallots.ts; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx:565",
+  "note": ""
+ },
+ {
+  "item": "data_entry.allow_self_split_ballots (Allow self-split ballots for solo adjudicators)",
+  "tabbycat": "options/preferences.py:1109",
+  "status": "MISSING",
+  "crabbytab": "none (src/lib/setup/presets.ts:394 lists it as unsupported)",
+  "note": "grep: selfsplit|self-split|self_split|solo. A solo adjudicator cannot record a split decision."
+ },
+ {
+  "item": "public_features.search_engine_indexing (Include site in search engines)",
+  "tabbycat": "options/preferences.py:1124",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) searchEngineIndexing; src/lib/publicView/robots.ts; public layouts",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_participants (Enable public view of participants list)",
+  "tabbycat": "options/preferences.py:1138",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicParticipants; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx; src/app/[tournamentSlug]/public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_institutions_list (Enable public view of institutions list)",
+  "tabbycat": "options/preferences.py:1147",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicInstitutionsList; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_diversity (Enable public view of diversity info)",
+  "tabbycat": "options/preferences.py:1156",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicDiversity; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts; PublicSitePanels.tsx",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_checkins (Enable public view of the checkin statuses)",
+  "tabbycat": "options/preferences.py:1167",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicCheckInStatus; src/lib/publicView/projection.ts:609; src/app/api/public/tournaments/[slug]/checkins",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_break_categories (Show break categories on participants page)",
+  "tabbycat": "options/preferences.py:1176",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicBreakCategories; src/lib/publicView/projection.ts; src/app/[tournamentSlug]/public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_side_allocations (Show pre-allocated sides to public)",
+  "tabbycat": "options/preferences.py:1185",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicSideAllocations; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_draw (Enable public view of draw)",
+  "tabbycat": "options/preferences.py:1194",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicDrawMode; src/lib/publicFeatures.ts getPublicSiteSettings isRoundDrawPublic; src/lib/publicView/projection.ts",
+  "note": "off/current/all."
+ },
+ {
+  "item": "public_features.public_results (Enable public view of results)",
+  "tabbycat": "options/preferences.py:1208",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicResults + Round.resultsReleased; src/lib/publicView/projection.ts:253",
+  "note": "Absent defaults to on (Tabbycat off) but each round still needs its own release."
+ },
+ {
+  "item": "public_features.public_motions (Enable public view of motions)",
+  "tabbycat": "options/preferences.py:1217",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicMotions; src/lib/publicView/projection.ts:272-279,500",
+  "note": "Absent defaults to on; motions still need per-round release."
+ },
+ {
+  "item": "public_features.public_team_standings (Enable public view of team standings)",
+  "tabbycat": "options/preferences.py:1226",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicStandings; src/app/[tournamentSlug]/public/page.tsx:159",
+  "note": "Gate applied by the public page."
+ },
+ {
+  "item": "public_features.public_record (Enable public record pages)",
+  "tabbycat": "options/preferences.py:1235",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicRecordPages; src/features/tournament/components/public/PublicRecordPages.tsx; public team/adjudicator pages",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_breaking_teams (Release team breaks to public)",
+  "tabbycat": "options/preferences.py:1244",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) releasedBreakCategoryIds; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx buildPublicBreak",
+  "note": "Per break category."
+ },
+ {
+  "item": "public_features.public_break_metrics_to_show (Number of metrics to show on public break page)",
+  "tabbycat": "options/preferences.py:1255",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicBreakMetrics; src/lib/publicView/derived.ts",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_breaking_adjs (Release adjudicators break to public)",
+  "tabbycat": "options/preferences.py:1264",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicBreakingAdjudicators; src/lib/publicRelease.ts getPublicRelease; src/features/tournament/components/ReleasePanel.tsx",
+  "note": ""
+ },
+ {
+  "item": "public_features.feedback_progress (Enable public view of unsubmitted feedback)",
+  "tabbycat": "options/preferences.py:1273",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicFeedbackProgress; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "public_features.public_schedule (Enable public view of schedule)",
+  "tabbycat": "options/preferences.py:1282",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicSchedule; src/lib/schedule/publicSchedule.ts; src/app/api/public/tournaments/[slug]/schedule (+ical)",
+  "note": "Adds an iCalendar feed."
+ },
+ {
+  "item": "public_features.tournament_staff (Tournament staff)",
+  "tabbycat": "options/preferences.py:1291",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) tournamentStaff; src/app/[tournamentSlug]/public/page.tsx",
+  "note": "Plain text, not HTML."
+ },
+ {
+  "item": "public_features.welcome_message (Welcome message)",
+  "tabbycat": "options/preferences.py:1302",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) welcomeMessage; src/app/[tournamentSlug]/public/page.tsx",
+  "note": "Plain text (no HTML formatting), a deliberate safety choice."
+ },
+ {
+  "item": "ui_options.show_splitting_adjudicators (Show splitting adjudicators)",
+  "tabbycat": "options/preferences.py:1317",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showSplittingAdjudicators; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "ui_options.team_code_names (Team code names)",
+  "tabbycat": "options/preferences.py:1327",
+  "status": "PARTIAL",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) teamCodeNames; src/lib/publicView/names.ts createPublicNamer; src/lib/publicFeatures.ts getPublicSiteSettings publicUsesTeamCodeNames",
+  "note": "Public naming honours every mode, but the admin-side behaviours (admin-tooltips-code / admin-tooltips-real swapping names and tooltips on tab-room pages, and the 'all-tooltips' public tooltip) are not implemented: no admin page reads the setting."
+ },
+ {
+  "item": "ui_options.participant_code_names (Participant code names)",
+  "tabbycat": "options/preferences.py:1345",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) participantCodeNames; src/lib/publicView/names.ts",
+  "note": ""
+ },
+ {
+  "item": "ui_options.show_emoji (Show emoji)",
+  "tabbycat": "options/preferences.py:1358",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showEmoji; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "ui_options.show_team_institutions (Show team institutions)",
+  "tabbycat": "options/preferences.py:1367",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showTeamInstitutions; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "ui_options.show_adjudicator_institutions (Show adjudicator institutions)",
+  "tabbycat": "options/preferences.py:1376",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showAdjudicatorInstitutions; src/lib/publicView/derived.ts; src/lib/publicView/projection.ts",
+  "note": ""
+ },
+ {
+  "item": "ui_options.show_speakers_in_draw (Show speakers in draw)",
+  "tabbycat": "options/preferences.py:1385",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) showSpeakersInDraw; src/app/[tournamentSlug]/public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "ui_options.show_seed_in_importer (Enable team seed in importer)",
+  "tabbycat": "options/preferences.py:1394",
+  "status": "PARTIAL",
+  "crabbytab": "Team.seed; src/features/tournament/components/DrawSetupPanel.tsx:38-50",
+  "note": "Seeds are entered per team in the seeded-draw setup panel, not in the team importer; no numeric/title seed column option. grep: seedInImporter|showSeed|seed in src/lib/csv."
+ },
+ {
+  "item": "email.reply_to_name (Reply-to name)",
+  "tabbycat": "options/preferences.py:1413",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts replyToName/replyToHeader; src/lib/email/notificationService.ts",
+  "note": "Stored server-only."
+ },
+ {
+  "item": "email.reply_to_address (Reply-to address)",
+  "tabbycat": "options/preferences.py:1423",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts replyToAddress; EmailSettingsPanel.tsx",
+  "note": ""
+ },
+ {
+  "item": "email.email_hook_key (Email status secret key)",
+  "tabbycat": "options/preferences.py:1434",
+  "status": "HAVE",
+  "crabbytab": "src/app/api/email/webhook/route.ts (verifyWebhookSignature); src/lib/email/deliveryStatus.ts",
+  "note": "Generic signed delivery webhook with a deployment-level secret instead of a per-tournament SendGrid key."
+ },
+ {
+  "item": "email.enable_ballot_receipts (Ballot receipts)",
+  "tabbycat": "options/preferences.py:1446",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) notifyBallotReceipt; src/lib/email/notificationService.ts:324; src/lib/email/notifications.ts",
+  "note": ""
+ },
+ {
+  "item": "email.ballot_email_subject (Ballot receipt subject line)",
+  "tabbycat": "options/preferences.py:1456",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx ballot_receipt",
+  "note": "Editable subject+body template."
+ },
+ {
+  "item": "email.ballot_email_message (Ballot receipt message)",
+  "tabbycat": "options/preferences.py:1465",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx ballot_receipt",
+  "note": ""
+ },
+ {
+  "item": "?.team_points_email_subject",
+  "tabbycat": "options/preferences.py:1483",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx team_points; src/types/index.ts (TournamentPreferences) notifyTeamPoints",
+  "note": ""
+ },
+ {
+  "item": "?.team_points_email_message",
+  "tabbycat": "options/preferences.py:1491",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx team_points",
+  "note": ""
+ },
+ {
+  "item": "?.adj_email_subject",
+  "tabbycat": "options/preferences.py:1501",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx draw_adjudicators; src/types/index.ts (TournamentPreferences) notifyDrawReleased",
+  "note": ""
+ },
+ {
+  "item": "?.adj_email_message",
+  "tabbycat": "options/preferences.py:1509",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx draw_adjudicators",
+  "note": ""
+ },
+ {
+  "item": "?.team_draw_email_subject",
+  "tabbycat": "options/preferences.py:1519",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx draw_teams",
+  "note": ""
+ },
+ {
+  "item": "?.team_draw_email_message",
+  "tabbycat": "options/preferences.py:1527",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx draw_teams",
+  "note": ""
+ },
+ {
+  "item": "?.url_email_subject",
+  "tabbycat": "options/preferences.py:1537",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx private_url (and feedback_url)",
+  "note": ""
+ },
+ {
+  "item": "?.url_email_message",
+  "tabbycat": "options/preferences.py:1545",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx private_url",
+  "note": ""
+ },
+ {
+  "item": "?.motion_email_subject",
+  "tabbycat": "options/preferences.py:1559",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx motions_released; src/types/index.ts (TournamentPreferences) notifyMotionsReleased",
+  "note": ""
+ },
+ {
+  "item": "?.motion_email_message",
+  "tabbycat": "options/preferences.py:1567",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx motions_released",
+  "note": ""
+ },
+ {
+  "item": "?.team_email_subject",
+  "tabbycat": "options/preferences.py:1576",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx; src/lib/email/messaging.ts renderEmailTemplate",
+  "note": "No 'team registration details' template: the compose form can email teams with {{team}}/{{institution}}, but there is no {{speakers}} (or code name) variable to tell a team who is registered on it."
+ },
+ {
+  "item": "?.team_email_message",
+  "tabbycat": "options/preferences.py:1584",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/email/messaging.ts renderEmailTemplate:320-343",
+  "note": "Same gap as team_email_subject (no speakers variable)."
+ },
+ {
+  "item": "motions.enable_motions (Enable motions)",
+  "tabbycat": "options/preferences.py:1601",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) enableMotions; src/lib/ballots/ballotRules.ts motionsEnabled; src/lib/ballots/result.ts:626; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx:116; print ballots",
+  "note": ""
+ },
+ {
+  "item": "data_entry.ballots_hide_motions (Ballot Hide Motions)",
+  "tabbycat": "options/preferences.py:1610",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) ballotsHideMotions; src/app/[tournamentSlug]/print/ballots/page.tsx; src/features/tournament/components/PrintOptionsCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "motions.motion_vetoes_enabled (Motion vetoes)",
+  "tabbycat": "options/preferences.py:1619",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) enableMotionVetoes; src/lib/ballots/result.ts; src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx; analytics page",
+  "note": ""
+ },
+ {
+  "item": "motions.show_motions_in_results (Show motions in results)",
+  "tabbycat": "options/preferences.py:1628",
+  "status": "MISSING",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (public results table has no motion column)",
+  "note": "grep: motionsInResults|show_motions_in_results|motionId in public page. Public results/record pages never show which motion was debated."
+ },
+ {
+  "item": "motions.public_motions_order (Order to display motions)",
+  "tabbycat": "options/preferences.py:1637",
+  "status": "HAVE",
+  "crabbytab": "src/types/index.ts (TournamentPreferences) publicMotionsOrder; src/lib/publicFeatures.ts getPublicSiteSettings orderPublicMotions; src/app/[tournamentSlug]/public/page.tsx:264",
+  "note": "Default 'forward' (Tabbycat 'reverse')."
+ },
+ {
+  "item": "motions.enable_motion_reuse (Allow motion reuse)",
+  "tabbycat": "options/preferences.py:1650",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/RoundMotionsPanel.tsx:115-132; src/lib/motions/roundMotions.ts copyMotionsToRound",
+  "note": "Always allowed (no toggle)."
+ },
+ {
+  "item": "registration.speakers_in_team (Speakers per team)",
+  "tabbycat": "options/preferences.py:1664",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.minSpeakers/maxSpeakers; src/types/index.ts (TournamentPreferences) substantiveSpeakers; src/lib/registration/validation.ts; src/lib/registration/types.ts RegistrationSettings; src/features/tournament/components/registration/RegistrationSettingsForm.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.team_name_generator (Team name standard)",
+  "tabbycat": "options/preferences.py:1673",
+  "status": "HAVE",
+  "crabbytab": "src/lib/registration/names.ts; src/features/tournament/application/registrationApproval.ts",
+  "note": "user/alphabetical/numerical/initials."
+ },
+ {
+  "item": "registration.reg_team_fields (Customizable team fields)",
+  "tabbycat": "options/preferences.py:1688",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/registration/validation.ts; src/lib/registration/types.ts RegistrationSettings; src/features/tournament/components/registration/RegistrationSettingsForm.tsx; src/app/register/[slug]/page.tsx",
+  "note": "Team form fields are fixed: no option to let registrants choose institution prefix, break categories, seed or emoji. grep: emoji|seed|prefix|breakCategor in register page/validation."
+ },
+ {
+  "item": "registration.reg_institution_fields (Customizable institution fields)",
+  "tabbycat": "options/preferences.py:1704",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.institutionRegion; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.reg_speaker_fields (Customizable speaker fields)",
+  "tabbycat": "options/preferences.py:1717",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.speakerFields (phone, gender) + speakerCategories; RegisteredSpeaker.email; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.reg_adjudicator_fields (Customizable adjudicator fields)",
+  "tabbycat": "options/preferences.py:1733",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.adjudicatorFields; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.institution_registration (Enable institutional registration)",
+  "tabbycat": "options/preferences.py:1748",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.institutionRegistration; src/lib/registration/validation.ts:395",
+  "note": "Enforced server-side."
+ },
+ {
+  "item": "registration.institution_participant_registration (Enable institutional participant registration)",
+  "tabbycat": "options/preferences.py:1757",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.representativesOnly; src/app/api/tournaments/[tournamentId]/registration/representativeLinks.ts; src/lib/registration/service.ts",
+  "note": "Representative links register teams/adjudicators up to allocated places."
+ },
+ {
+  "item": "registration.reg_institution_slots (Use participant slots)",
+  "tabbycat": "options/preferences.py:1766",
+  "status": "HAVE",
+  "crabbytab": "src/lib/registration/service.ts (allocate action, teamsAllocated/adjudicatorsAllocated); src/lib/registration/quota.ts",
+  "note": "Institutions request places; tab room allocates."
+ },
+ {
+  "item": "registration.reg_block_over_allocated (Block registration when over allocated slots)",
+  "tabbycat": "options/preferences.py:1775",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.blockOverAllocation; src/lib/registration/service.ts",
+  "note": ""
+ },
+ {
+  "item": "registration.reg_institution_slot_transfers (Enable institution slot transfers)",
+  "tabbycat": "options/preferences.py:1784",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.slotTransfers; src/lib/registration/service.ts:457-490; src/lib/registration/transfers.ts",
+  "note": ""
+ },
+ {
+  "item": "registration.open_team_registration (Enable open team registration)",
+  "tabbycat": "options/preferences.py:1793",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.teamRegistration; src/lib/registration/validation.ts:401",
+  "note": ""
+ },
+ {
+  "item": "registration.open_adj_registration (Enable open adjudicator registration)",
+  "tabbycat": "options/preferences.py:1802",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.adjudicatorRegistration; src/lib/registration/validation.ts:402",
+  "note": ""
+ },
+ {
+  "item": "registration.code_name_generator (Code name standard)",
+  "tabbycat": "options/preferences.py:1811",
+  "status": "HAVE",
+  "crabbytab": "src/lib/registration/names.ts CodeNameGenerator; registrationApproval.ts",
+  "note": "user/emoji/last_names."
+ },
+ {
+  "item": "registration.registration_confirmation (Registration confirmation)",
+  "tabbycat": "options/preferences.py:1825",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.confirmation; src/lib/registration/autoApprove.ts; src/app/api/public/tournaments/[slug]/registration/route.ts",
+  "note": "always/open/never."
+ },
+ {
+  "item": "registration.institution_register_message (Institution register message)",
+  "tabbycat": "options/preferences.py:1839",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.institutionMessage; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.adjudicator_register_message (Adjudicator register message)",
+  "tabbycat": "options/preferences.py:1850",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.adjudicatorMessage; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.team_register_message (Team register message)",
+  "tabbycat": "options/preferences.py:1861",
+  "status": "HAVE",
+  "crabbytab": "RegistrationSettings.teamMessage; src/app/register/[slug]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "registration.institution_registration_email_subject (Institution registration email subject)",
+  "tabbycat": "options/preferences.py:1872",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx registration_received/registration_approved; src/app/api/public/tournaments/[slug]/registration/route.ts:194",
+  "note": "Generic received/approved templates cover institution registrations."
+ },
+ {
+  "item": "registration.institution_registration_email_body (Institution registration email body)",
+  "tabbycat": "options/preferences.py:1881",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx registration_received/registration_approved",
+  "note": ""
+ },
+ {
+  "item": "registration.slots_allocated_email_subject (Slots allocated email subject)",
+  "tabbycat": "options/preferences.py:1892",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx slots_allocated; src/app/api/tournaments/[tournamentId]/registration/representativeLinks.ts:41",
+  "note": ""
+ },
+ {
+  "item": "registration.slots_allocated_email_body (Slots allocated email body)",
+  "tabbycat": "options/preferences.py:1901",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/settings.ts (TEMPLATE_EVENTS, templateFor); src/features/tournament/components/EmailSettingsPanel.tsx slots_allocated",
+  "note": ""
+ }
+]

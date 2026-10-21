@@ -38,7 +38,9 @@ export const CONFLICT_KIND_KEYS: Record<ConflictKind, MessageKey> = {
  */
 export function RecordedConflicts() {
   const { t } = useI18n();
-  const { tournament, teams, adjudicators, institutions, isOwnerOrAdmin, saveEntityBatch } = useTournament();
+  const { tournament, teams, adjudicators, institutions, isOwnerOrAdmin: isAdministrator, isDataEntryAssistant, staffPermissions, saveEntityBatch } = useTournament();
+  // Equity staff edit conflicts too (docs/staff-access.md); the data-entry sync route re-checks.
+  const isOwnerOrAdmin = isAdministrator || (isDataEntryAssistant && staffPermissions.includes("conflicts.edit"));
   const data = useMemo(() => ({ teams, adjudicators, institutions }), [teams, adjudicators, institutions]);
   const conflicts = useMemo(() => listDeclaredConflicts(data), [data]);
   const [teamId, setTeamId] = useState("");

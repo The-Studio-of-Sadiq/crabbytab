@@ -8,6 +8,7 @@ import { useTournament } from "@/contexts/TournamentContext";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Alert } from "@/components/ui/Feedback";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { db } from "@/lib/firebase";
 import { planReleaseSync } from "@/features/tournament/application/syncStatus";
 
@@ -36,6 +37,7 @@ export function ReleaseActionDialog({
   onClose: () => void;
   variant?: "primary" | "danger";
 }) {
+  const { t, plural } = useI18n();
   const { user } = useAuth();
   const { isOwnerOrAdmin, pendingChanges, divergedRecords, uploadIssue, uploadToCloud, cloudSyncMessage } =
     useTournament();
@@ -72,14 +74,14 @@ export function ReleaseActionDialog({
           onClose();
           return;
         }
-        setError(outcome.publishError || "Public pages were not updated.");
+        setError(outcome.publishError || t("tabroom.common.release.notUpdated"));
         setPhase("failed");
       })
       .catch((uploadError: unknown) => {
-        setError(uploadError instanceof Error ? uploadError.message : "The upload failed.");
+        setError(uploadError instanceof Error ? uploadError.message : t("tabroom.common.release.uploadFailed"));
         setPhase("failed");
       });
-  }, [phase, uploadToCloud, onClose]);
+  }, [phase, uploadToCloud, onClose, t]);
 
   const confirm = async () => {
     if (plan.kind === "blocked") return;
@@ -90,7 +92,7 @@ export function ReleaseActionDialog({
         await apply();
         setReleaseSaved(true);
       } catch (applyError) {
-        setError(applyError instanceof Error ? applyError.message : "The change could not be saved. Please try again.");
+        setError(applyError instanceof Error ? applyError.message : t("tabroom.common.release.saveFailed"));
         setPhase("confirm");
         return;
       }
@@ -106,7 +108,7 @@ export function ReleaseActionDialog({
   const busy = phase === "saving" || phase === "uploading";
   const howItReachesThePublic =
     plan.kind === "upload"
-      ? "Confirming saves this change, uploads this device's changes and publishes public pages in one step. Viewers' pages refresh within about a minute."
+      ? t("tabroom.common.release.uploadHelp")
       : "";
 
   return (
@@ -122,16 +124,16 @@ export function ReleaseActionDialog({
       footer={
         <>
           <Button ref={cancelRef} variant="secondary" onClick={onClose} disabled={busy}>
-            {releaseSaved ? "Close" : "No, cancel"}
+            {releaseSaved ? t("common.close") : t("common.noCancel")}
           </Button>
           {plan.kind !== "blocked" && (
             <Button
               variant={variant === "danger" ? "danger" : "primary"}
               onClick={confirm}
               loading={busy}
-              loadingText={phase === "saving" ? "Saving…" : "Uploading…"}
+              loadingText={phase === "saving" ? t("common.saving") : t("tabroom.common.release.uploading")}
             >
-              {phase === "failed" ? "Try upload again" : plan.kind === "local-only" ? "Save on this device" : confirmLabel}
+              {phase === "failed" ? t("tabroom.common.release.tryAgain") : plan.kind === "local-only" ? t("tabroom.common.release.saveLocal") : confirmLabel}
             </Button>
           )}
         </>
@@ -139,23 +141,23 @@ export function ReleaseActionDialog({
     >
       <div className="space-y-3">
         {plan.kind === "blocked" && (
-          <Alert tone="warning" role="alert" title="This can't be released right now">
+          <Alert tone="warning" role="alert" title={t("tabroom.common.release.blockedTitle")}>
             {plan.reason}
           </Alert>
         )}
         {plan.kind === "local-only" && <Alert tone="info">{plan.reason}</Alert>}
         {plan.kind === "upload" && plan.otherPendingTotal > 0 && phase === "confirm" && (
-          <Alert tone="info" title={`${plan.otherPendingTotal} other change(s) will be uploaded too`}>
-            Changes made on this device since the last upload are published together with this release.
+          <Alert tone="info" title={plural("tabroom.common.release.otherChanges", plan.otherPendingTotal)}>
+            {t("tabroom.common.release.otherChangesHelp")}
           </Alert>
         )}
         {phase === "uploading" && (
           <p role="status" className="text-xs text-fg-muted">
-            {cloudSyncMessage || "Uploading…"}
+            {cloudSyncMessage || t("tabroom.common.release.uploading")}
           </p>
         )}
         {error && (
-          <Alert tone="danger" role="alert" title={releaseSaved ? "Saved on this device, but not public yet" : undefined}>
+          <Alert tone="danger" role="alert" title={releaseSaved ? t("tabroom.common.release.savedNotPublic") : undefined}>
             {error}
           </Alert>
         )}

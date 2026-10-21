@@ -6,7 +6,7 @@ import {
   orderPublicMotions,
   robotsForPublicPage,
 } from "@/lib/publicFeatures";
-import { assignTeamEmoji, generateTeamCodeNames, hasCodeName, lastNamesCodeName, TEAM_EMOJI } from "@/lib/codeNames";
+import { assignTeamEmoji, generateTeamCodeNames, hasCodeName, lastNamesCodeName, tabroomTeamName, TEAM_EMOJI } from "@/lib/codeNames";
 import { createSeededRng } from "@/lib/draw/rng";
 import { bracketRounds } from "@/lib/publicBracket";
 import { adjudicatorRecord, publicRecordPath, teamRecord } from "@/lib/publicRecords";
@@ -52,6 +52,14 @@ describe("getPublicSiteSettings", () => {
     expect(settings.speakerTabLimit).toBe(2);
     expect(settings.breakMetrics).toBe(-1);
     expect(settings.welcomeMessage).toHaveLength(5000);
+  });
+
+  it("releases the motion tab with the motions page unless set on its own", () => {
+    expect(getPublicSiteSettings({})).toMatchObject({ motionsPage: true, motionTab: true, motionsInResults: false });
+    expect(getPublicSiteSettings({ publicMotions: false })).toMatchObject({ motionsPage: false, motionTab: false });
+    expect(getPublicSiteSettings({ publicMotions: false, motionTabReleased: true }).motionTab).toBe(true);
+    expect(getPublicSiteSettings({ motionTabReleased: false })).toMatchObject({ motionsPage: true, motionTab: false });
+    expect(getPublicSiteSettings({ showMotionsInResults: true }).motionsInResults).toBe(true);
   });
 
   it("needs motion vetoes enabled for veto statistics", () => {
@@ -251,5 +259,23 @@ describe("private scoresheets", () => {
     const ballots = [ballot("b1", "d1", "r1", true, { sheets })];
     expect(getPrivatePortalBallots(ballots, [round("r1", 1, { resultsReleased: false })], "team", true, true)).toEqual([]);
     expect(getPrivatePortalBallots(ballots, [round("r1", 1, { adjudicatorsRevealed: false })], "team", true, true)[0]).not.toHaveProperty("sheets");
+  });
+});
+
+describe("tab-room team names under team code names", () => {
+  const team = { name: "Alpha Real", codeName: "Fox" };
+  it("shows real names with code-name tooltips in all-tooltips and admin-tooltips-code", () => {
+    for (const mode of ["all-tooltips", "admin-tooltips-code"] as const) {
+      expect(tabroomTeamName(team, "Alpha Real", mode)).toEqual({ name: "Alpha Real", tooltip: { kind: "code", name: "Fox" } });
+    }
+  });
+  it("shows code names with real-name tooltips in admin-tooltips-real", () => {
+    expect(tabroomTeamName(team, "Alpha Real", "admin-tooltips-real")).toEqual({ name: "Fox", tooltip: { kind: "real", name: "Alpha Real" } });
+  });
+  it("shows the real name alone when off, everywhere, or without a code name", () => {
+    expect(tabroomTeamName(team, undefined, "off")).toEqual({ name: "Alpha Real" });
+    expect(tabroomTeamName(team, undefined, "everywhere")).toEqual({ name: "Alpha Real" });
+    expect(tabroomTeamName({ name: "Beta", codeName: "Beta" }, undefined, "admin-tooltips-real")).toEqual({ name: "Beta" });
+    expect(tabroomTeamName(undefined, "Stored", "admin-tooltips-real")).toEqual({ name: "Stored" });
   });
 });

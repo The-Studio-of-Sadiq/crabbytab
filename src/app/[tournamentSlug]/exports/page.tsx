@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { csvFileStem } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 import {
@@ -43,50 +44,51 @@ export default function ExportsPage() {
     rounds,
     breakCategories,
   } = useTournament();
+  const { t } = useI18n();
   const [message, setMessage] = useState("");
 
-  if (loading) return <p className="p-6 text-sm text-fg-muted">Loading…</p>;
+  if (loading) return <p className="p-6 text-sm text-fg-muted">{t("setup.common.loading")}</p>;
   if (!tournament || !isOwnerOrAdmin) {
-    return <p role="alert" className="p-6 text-sm text-danger">Only tournament administrators can export tournament data.</p>;
+    return <p role="alert" className="p-6 text-sm text-danger">{t("setup.data.exports.adminOnly")}</p>;
   }
 
   const speakerCategories = tournament.preferences?.speakerCategories ?? [];
   const context = { institutions, breakCategories, speakerCategories };
   const groups: Array<{ title: string; items: ExportItem[] }> = [
     {
-      title: "Participants",
+      title: t("setup.data.exports.groupParticipants"),
       items: [
-        { key: "teams", label: "Teams", description: "One row per team with its speakers, institution and break categories.", build: () => teamsCsv(teams, context) },
-        { key: "speakers", label: "Speakers", description: "One row per speaker with team, institution, email and speaker categories.", build: () => speakersCsv(teams, context) },
-        { key: "adjudicators", label: "Adjudicators", description: "Scores, trainee/independent status, adjudication core and breaking flags.", build: () => adjudicatorsCsv(adjudicators, context) },
-        { key: "institutions", label: "Institutions", description: "Name, code, region and how many teams and adjudicators each has.", build: () => institutionsCsv(institutions, teams, adjudicators) },
+        { key: "teams", label: t("setup.data.exports.teams"), description: t("setup.data.exports.teamsHelp"), build: () => teamsCsv(teams, context) },
+        { key: "speakers", label: t("setup.data.exports.speakers"), description: t("setup.data.exports.speakersHelp"), build: () => speakersCsv(teams, context) },
+        { key: "adjudicators", label: t("setup.data.exports.adjudicators"), description: t("setup.data.exports.adjudicatorsHelp"), build: () => adjudicatorsCsv(adjudicators, context) },
+        { key: "institutions", label: t("setup.data.exports.institutions"), description: t("setup.data.exports.institutionsHelp"), build: () => institutionsCsv(institutions, teams, adjudicators) },
       ],
     },
     {
-      title: "Rounds and breaks",
+      title: t("setup.data.exports.groupRounds"),
       items: [
         {
           key: "availability",
-          label: "Availability",
-          description: "Who is available in each round (check-ins with their expiry, round availability, venues).",
+          label: t("setup.data.exports.availability"),
+          description: t("setup.data.exports.availabilityHelp"),
           build: () => availabilityCsv({ rounds, teams, adjudicators, venues, checkInExpiresAfterHours: tournament.preferences?.checkInExpiresAfterHours }),
         },
-        { key: "break-eligibility", label: "Break eligibility", description: "Each team's eligibility, overrides and speaker-category rule per break category.", build: () => breakEligibilityCsv(teams, breakCategories, speakerCategories) },
-        { key: "conflicts", label: "Conflicts", description: "Adjudicator and team conflicts, in the format the conflicts import reads.", build: () => conflictsCsv({ adjudicators, teams, institutions }) },
+        { key: "break-eligibility", label: t("setup.data.exports.breakEligibility"), description: t("setup.data.exports.breakEligibilityHelp"), build: () => breakEligibilityCsv(teams, breakCategories, speakerCategories) },
+        { key: "conflicts", label: t("setup.data.exports.conflicts"), description: t("setup.data.exports.conflictsHelp"), build: () => conflictsCsv({ adjudicators, teams, institutions }) },
       ],
     },
   ];
 
   const download = (item: ExportItem) => {
     downloadCsv(csvFileStem(tournament.shortName || tournament.name, item.key), item.build());
-    setMessage(`${item.label} exported.`);
+    setMessage(t("setup.data.exports.exported", { label: item.label }));
   };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <PageHeader
-        title="Data exports"
-        description="CSV files for spreadsheets and other tools. They hold participant details (including email addresses), so share them carefully. Private URL keys and passcodes are never exported."
+        title={t("setup.data.exports.title")}
+        description={t("setup.data.exports.description")}
       />
       {message && <Alert tone="success" role="status">{message}</Alert>}
       {groups.map((group) => (
@@ -99,9 +101,9 @@ export default function ExportsPage() {
                   <p className="text-sm font-medium text-fg">{item.label}</p>
                   <p className="text-xs text-fg-muted">{item.description}</p>
                 </div>
-                <Button size="sm" onClick={() => download(item)} aria-label={`Export ${item.label} as CSV`}>
+                <Button size="sm" onClick={() => download(item)} aria-label={t("setup.data.exports.exportLabel", { label: item.label })}>
                   <FileDown aria-hidden="true" />
-                  Export CSV
+                  {t("setup.data.exports.exportCsv")}
                 </Button>
               </div>
             ))}

@@ -17,6 +17,13 @@ import {
   type TournamentEmailSettings,
 } from "@/lib/email/settings";
 
+/** Events with no automatic trigger: their templates are sent from the compose form. */
+export type ManualTemplateEvent = "private_url" | "feedback_url" | "team_registration";
+
+function isManualTemplateEvent(event: TemplateEvent): event is ManualTemplateEvent {
+  return event === "private_url" || event === "feedback_url" || event === "team_registration";
+}
+
 const COMMON_VARIABLES = ["name", "email", "tournament", "round", "institution"];
 
 /** Translated labels for TEMPLATE_EVENT_INFO; the English originals there are used by the server. */
@@ -29,6 +36,7 @@ const EVENT_LABELS: Record<TemplateEvent, { label: MessageKey; when: MessageKey 
   motions_released: { label: "setup.email.eventMotionsReleased", when: "setup.email.eventMotionsReleasedWhen" },
   private_url: { label: "setup.email.eventPrivateUrl", when: "setup.email.eventPrivateUrlWhen" },
   feedback_url: { label: "setup.email.eventFeedbackUrl", when: "setup.email.eventFeedbackUrlWhen" },
+  team_registration: { label: "setup.email.eventTeamRegistration", when: "setup.email.eventTeamRegistrationWhen" },
   registration_received: {
     label: "setup.email.eventRegistrationReceived",
     when: "setup.email.eventRegistrationReceivedWhen",
@@ -51,8 +59,8 @@ export function EmailSettingsPanel({
 }: {
   tournamentId: string;
   user: User;
-  /** Manual events (private URL, feedback URL) are sent from the compose form. */
-  onUseTemplate?: (template: EmailTemplate) => void;
+  /** Manual events (private URL, feedback URL, team registration) are sent from the compose form. */
+  onUseTemplate?: (template: EmailTemplate, event: ManualTemplateEvent) => void;
 }) {
   const [settings, setSettings] = useState<TournamentEmailSettings | null>(null);
   const [defaults, setDefaults] = useState<Record<TemplateEvent, EmailTemplate> | null>(null);
@@ -215,8 +223,8 @@ export function EmailSettingsPanel({
         />
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="primary" size="sm" loading={saving} onClick={() => void save()}>{t("setup.email.saveSettings")}</Button>
-          {onUseTemplate && (event === "private_url" || event === "feedback_url") && (
-            <Button variant="secondary" size="sm" onClick={() => onUseTemplate(template)}>
+          {onUseTemplate && isManualTemplateEvent(event) && (
+            <Button variant="secondary" size="sm" onClick={() => onUseTemplate(template, event)}>
               {t("setup.email.useInCompose")}
             </Button>
           )}

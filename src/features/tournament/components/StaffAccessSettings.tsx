@@ -34,6 +34,8 @@ export function StaffAccessSettings({
   const preferences = tournament.preferences;
   const [access, setAccess] = useState<AssistantAccessLevel>(resolveAssistantAccess(preferences.assistantAccess));
   const [individualBallots, setIndividualBallots] = useState(preferences.individualBallots === true);
+  const [privateUrlBallots, setPrivateUrlBallots] = useState(preferences.privateUrlBallots !== false);
+  const [selfSplit, setSelfSplit] = useState(preferences.allowSelfSplitBallots === true);
   const [confirmation, setConfirmation] = useState<PrivateBallotConfirmation>(
     preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair"
   );
@@ -44,14 +46,24 @@ export function StaffAccessSettings({
     setAccess(resolveAssistantAccess(preferences.assistantAccess));
     setIndividualBallots(preferences.individualBallots === true);
     setConfirmation(preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair");
-  }, [preferences.assistantAccess, preferences.individualBallots, preferences.privateBallotConfirmation]);
+    setPrivateUrlBallots(preferences.privateUrlBallots !== false);
+    setSelfSplit(preferences.allowSelfSplitBallots === true);
+  }, [
+    preferences.assistantAccess,
+    preferences.individualBallots,
+    preferences.privateBallotConfirmation,
+    preferences.privateUrlBallots,
+    preferences.allowSelfSplitBallots,
+  ]);
 
   const votingUsed = tournament.format !== "bp" &&
     (preferences.ballotMode === "voting" || preferences.eliminationBallotMode === "voting");
   const changed =
     access !== resolveAssistantAccess(preferences.assistantAccess) ||
     individualBallots !== (preferences.individualBallots === true) ||
-    confirmation !== (preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair");
+    confirmation !== (preferences.privateBallotConfirmation === "tab_room" ? "tab_room" : "chair") ||
+    privateUrlBallots !== (preferences.privateUrlBallots !== false) ||
+    selfSplit !== (preferences.allowSelfSplitBallots === true);
 
   const save = async () => {
     setSaving(true);
@@ -64,6 +76,8 @@ export function StaffAccessSettings({
           assistantAccess: access,
           individualBallots,
           privateBallotConfirmation: confirmation,
+          privateUrlBallots,
+          allowSelfSplitBallots: selfSplit,
         },
       });
       setStatus({ tone: "success", text: t("setup.staff.accessSaved") });
@@ -93,6 +107,12 @@ export function StaffAccessSettings({
             <option key={level} value={level}>{t(ACCESS_LEVEL_KEYS[level])}</option>
           ))}
         </Select>
+        <Switch
+          checked={privateUrlBallots}
+          onCheckedChange={setPrivateUrlBallots}
+          label={t("setup.staff.privateUrlBallotsLabel")}
+          description={t("setup.staff.privateUrlBallotsHelp")}
+        />
         <Select
           label={t("setup.staff.ballotConfirmLabel")}
           help={t("setup.staff.ballotConfirmHelp")}
@@ -111,6 +131,13 @@ export function StaffAccessSettings({
           description={votingUsed
             ? t("setup.staff.individualBallotsOn")
             : t("setup.staff.individualBallotsOff")}
+        />
+        <Switch
+          checked={selfSplit}
+          onCheckedChange={setSelfSplit}
+          disabled={!votingUsed}
+          label={t("setup.staff.selfSplitLabel")}
+          description={votingUsed ? t("setup.staff.selfSplitOn") : t("setup.staff.individualBallotsOff")}
         />
         {status && <Alert role={status.tone === "danger" ? "alert" : "status"} tone={status.tone}>{status.text}</Alert>}
         <div>

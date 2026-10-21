@@ -1,4 +1,5 @@
 import { isAvailableForRound } from "@/lib/roundAvailability";
+import { isVenueAvailableForRound, isVenueCheckedIn } from "@/lib/venues/venues";
 import type {
   Adjudicator,
   BallotIntakeRecord,
@@ -9,7 +10,7 @@ import type {
   Team,
   Venue,
 } from "@/types";
-import { badRequest, notFound } from "../errors";
+import { notFound } from "../errors";
 import { defineRoute, listOf, pageOf, pageQueryShape, pageRequest, slugParam } from "../router";
 import { s } from "../schema";
 import { asType, serializeBallot, serializeDebate, serializeFeedback } from "../serializers";
@@ -156,31 +157,42 @@ const feedbackRoutes = [
     path: "/tournaments/{slug}/feedback",
     operationId: "listFeedback",
     summary: "List feedback",
-    description: "Paginated. Filter by round, target adjudicator or source (team/adjudicator id). Use one filter at a time.",
+    description:
+      "Paginated. Filters combine (Tabbycat's round[], source, source_type and target): `roundId` " +
+      "takes one id or several separated by commas. One filter is applied by the query and the others " +
+      "to its page, so a page may hold fewer than `limit` items while `nextCursor` is still set.",
     tag: "feedback",
     auth: { kind: "token", resource: "feedback", access: "read" },
     params: s.object({ slug: slugParam }),
     query: s.object({
       ...pageQueryShape,
-      roundId: s.optional(idSchema("Only feedback from this round.")),
+      roundId: s.optional(s.string({ min: 1, max: 1000, pattern: /^[A-Za-z0-9_.:-]+(,[A-Za-z0-9_.:-]+)*$/, description: "Round id(s), comma-separated." })),
       targetAdjudicatorId: s.optional(idSchema("Only feedback on this adjudicator.")),
       sourceId: s.optional(idSchema("Only feedback given by this team or adjudicator.")),
+      sourceType: s.optional(s.enum(["team", "adjudicator"] as const, "Only feedback from teams or from adjudicators.")),
     }),
     paginated: true,
     response: pageOf(s.ref("Feedback")),
     async handler(context) {
-      const { roundId, targetAdjudicatorId, sourceId } = context.query;
-      const filters: QueryFilter[] = [
-        ...(roundId ? [{ field: "roundId", op: "==" as const, value: roundId }] : []),
+      const { targetAdjudicatorId, sourceId, sourceType } = context.query;
+      const roundIds = context.query.roundId ? [...new Set(context.query.roundId.split(","))] : [];
+      const all: QueryFilter[] = [
         ...(targetAdjudicatorId ? [{ field: "targetAdjudicatorId", op: "==" as const, value: targetAdjudicatorId }] : []),
         ...(sourceId ? [{ field: "sourceId", op: "==" as const, value: sourceId }] : []),
+        ...(roundIds.length === 1 ? [{ field: "roundId", op: "==" as const, value: roundIds[0] }] : []),
+        ...(sourceType ? [{ field: "sourceType", op: "==" as const, value: sourceType }] : []),
       ];
-      // Each extra equality filter would need its own composite index in Firestore.
-      if (filters.length > 1) {
-        throw badRequest("Filter feedback by one of roundId, targetAdjudicatorId or sourceId at a time.");
-      }
-      const page = await context.data.page("feedback", pageRequest(context.query), filters);
-      return { ...page, data: page.data.map((record) => serializeFeedback(asType<FeedbackSubmission>(record))) };
+      // Firestore needs a composite index for every combination of equality filters, so only the
+      // most selective one goes to the query; the rest filter the page it returns.
+      const [primary, ...rest] = all;
+      const page = await context.data.page("feedback", pageRequest(context.query), primary ? [primary] : []);
+      const matches = (record: Record<string, unknown>) =>
+        rest.every((filter) => record[filter.field] === filter.value) &&
+        (roundIds.length <= 1 || roundIds.includes(String(record.roundId)));
+      return {
+        ...page,
+        data: page.data.filter(matches).map((record) => serializeFeedback(asType<FeedbackSubmission>(record))),
+      };
     },
   }),
   defineRoute({
@@ -228,6 +240,21 @@ export function personCheckinStatus(
   };
 }
 
+/** A room's check-in, with the venue check-in expiry applied (rooms are present unless checked out). */
+export function venueCheckinStatus(
+  venue: Pick<Venue, "id" | "checkedIn" | "checkedInAt">,
+  expiresAfterHours: number | undefined,
+  now: Date
+): CheckinStatus {
+  const expiry = typeof expiresAfterHours === "number" && expiresAfterHours > 0 ? expiresAfterHours : null;
+  return {
+    id: venue.id,
+    checkedIn: venue.checkedIn === true && isVenueCheckedIn(venue, expiry ?? undefined, now.getTime()),
+    checkedInAt: venue.checkedInAt ?? null,
+    expiresAfterHours: expiry,
+  };
+}
+
 const checkinRoutes = [
   defineRoute({
     method: "GET",
@@ -236,10 +263,12 @@ const checkinRoutes = [
     summary: "Get a round's availability",
     description:
       "Whether each team, adjudicator and venue is available for the round (round availability, " +
-      "else check-in, with the check-in expiry applied; venues use their tournament-wide flag).",
+      "else check-in, with the check-in expiry applied; venues: the round's entry, else their default). " +
+      "`?teams=true`, `?adjudicators=true` and `?venues=true` limit the response to those kinds.",
     tag: "availabilities",
     auth: { kind: "token", resource: "checkins", access: "read" },
     params: roundParams,
+    query: s.object({ teams: s.optional(s.boolean()), adjudicators: s.optional(s.boolean()), venues: s.optional(s.boolean()) }),
     response: s.object({
       roundId: s.string(),
       teams: s.array(availabilityEntry),
@@ -249,10 +278,13 @@ const checkinRoutes = [
     async handler(context) {
       const round = await roundBySeq(context, context.params.roundSeq);
       const expiry = context.tournament.preferences?.checkInExpiresAfterHours;
+      // Tabbycat's kind filters: with none given, every kind is listed.
+      const only = (["teams", "adjudicators", "venues"] as const).filter((kind) => context.query[kind] === true);
+      const wanted = (kind: "teams" | "adjudicators" | "venues") => only.length === 0 || only.includes(kind);
       const [teams, adjudicators, venues] = await Promise.all([
-        context.data.all("teams"),
-        context.data.all("adjudicators"),
-        context.data.all("venues"),
+        wanted("teams") ? context.data.all("teams") : [],
+        wanted("adjudicators") ? context.data.all("adjudicators") : [],
+        wanted("venues") ? context.data.all("venues") : [],
       ]);
       const person = (record: Team | Adjudicator) => ({
         id: record.id,
@@ -265,7 +297,7 @@ const checkinRoutes = [
         adjudicators: adjudicators.map((record) => person(asType<Adjudicator>(record))),
         venues: venues.map((record) => {
           const venue = asType<Venue>(record);
-          return { id: venue.id, name: venue.name, available: venue.available !== false };
+          return { id: venue.id, name: venue.name, available: isVenueAvailableForRound(venue, round.id) };
         }),
       };
     },
@@ -331,8 +363,7 @@ const checkinRoutes = [
     async handler(context) {
       const record = await context.data.get("venues", context.params.venueId);
       if (!record) throw notFound("Venue");
-      const venue = asType<Venue>(record);
-      return { id: venue.id, checkedIn: venue.checkedIn === true, checkedInAt: null, expiresAfterHours: null };
+      return venueCheckinStatus(asType<Venue>(record), context.tournament.preferences?.venueCheckInExpiresAfterHours, context.now);
     },
   }),
   defineRoute({

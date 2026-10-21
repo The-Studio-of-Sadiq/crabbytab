@@ -19,6 +19,8 @@ interface DrawSetupPanelProps {
   updateTeam: (team: Team) => Promise<void>;
 }
 
+const SEED_TITLE_KEYS: MessageKey[] = ["common.seedTitle0", "common.seedTitle1", "common.seedTitle2", "common.seedTitle3"];
+
 const DRAW_TYPE_LABELS: Record<Exclude<DrawType, "elimination">, MessageKey> = {
   power_paired: "tabroom.draw.setup.type.power_paired",
   random: "tabroom.draw.setup.type.random",
@@ -35,7 +37,9 @@ export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTe
   const { t } = useI18n();
   const isBP = tournament.format === "bp";
   const usesPreallocatedSides = !isBP && tournament.preferences?.sideAllocationRule === "preallocated";
-  const usesSeeds = round.drawType === "seeded";
+  // Seeded draws rank by seed; round robins schedule by seed (BP: seeds 1..N for the preset tables).
+  const usesSeeds = round.drawType === "seeded" || round.drawType === "round_robin";
+  const titleSeeds = tournament.preferences?.teamSeedMode === "title";
   const roundTeams = useMemo(
     () => getEligibleTeamsForRound(teams, round).slice().sort((a, b) => a.name.localeCompare(b.name)),
     [teams, round]
@@ -53,9 +57,7 @@ export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTe
     setSides(Object.fromEntries(roundTeams.map((team) => [team.id, round.preallocatedSides?.[team.id] ?? ""])));
   }, [roundTeams, round.preallocatedSides]);
 
-  const drawTypes = (Object.keys(DRAW_TYPE_LABELS) as (keyof typeof DRAW_TYPE_LABELS)[]).filter(
-    (type) => !isBP || (type !== "seeded" && type !== "round_robin")
-  );
+  const drawTypes = Object.keys(DRAW_TYPE_LABELS) as (keyof typeof DRAW_TYPE_LABELS)[];
   const affCount = Object.values(sides).filter((side) => side === "AFF").length;
   const negCount = Object.values(sides).filter((side) => side === "NEG").length;
 
@@ -121,22 +123,43 @@ export function DrawSetupPanel({ tournament, round, teams, updateRound, updateTe
           <p className="max-w-md text-[11px] text-fg-muted">{t("tabroom.draw.setup.drawTypeHelp")}</p>
         </div>
 
-        {usesSeeds && !isBP && (
+        {usesSeeds && (
           <fieldset className="border-t border-border pt-3">
-            <legend className="text-xs font-semibold text-fg">{t("tabroom.draw.setup.seedsLegend")}</legend>
+            <legend className="text-xs font-semibold text-fg">
+              {round.drawType === "round_robin"
+                ? t(isBP ? "tabroom.draw.setup.seedsLegendRoundRobinBP" : "tabroom.draw.setup.seedsLegendRoundRobin")
+                : t("tabroom.draw.setup.seedsLegend")}
+            </legend>
             <div className="mt-2 grid max-h-64 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
               {roundTeams.map((team) => (
                 <label key={team.id} className="flex items-center justify-between gap-2 text-xs text-fg">
                   <span className="truncate">{team.name}</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    className="h-7 w-20 font-mono text-xs"
-                    value={seeds[team.id] ?? ""}
-                    onChange={(e) => setSeeds((current) => ({ ...current, [team.id]: e.target.value }))}
-                  />
+                  {titleSeeds ? (
+                    // Tabbycat's descriptive seeds (show_seed_in_importer = "title"), stored as 0–3.
+                    <Select
+                      className="h-7 w-32 text-xs"
+                      value={seeds[team.id] ?? ""}
+                      onChange={(e) => setSeeds((current) => ({ ...current, [team.id]: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {SEED_TITLE_KEYS.map((key, value) => (
+                        <option key={key} value={String(value)}>{t(key)}</option>
+                      ))}
+                      {seeds[team.id] && !/^[0-3]$/.test(seeds[team.id]) && (
+                        <option value={seeds[team.id]}>{seeds[team.id]}</option>
+                      )}
+                    </Select>
+                  ) : (
+                    <Input
+                      type="number"
+                      min={0}
+                      step={1}
+                      inputMode="numeric"
+                      className="h-7 w-20 font-mono text-xs"
+                      value={seeds[team.id] ?? ""}
+                      onChange={(e) => setSeeds((current) => ({ ...current, [team.id]: e.target.value }))}
+                    />
+                  )}
                 </label>
               ))}
             </div>

@@ -12,7 +12,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { adjudicatorRecord, publicRecordPath, teamRecord } from "@/lib/publicRecords";
-import { PublicPersonName, PublicTeamName, publicRecordLinkClass } from "@/features/tournament/components/public/PublicSitePanels";
+import { PublicDebateMotionLabel, PublicPersonName, PublicTeamName, publicRecordLinkClass } from "@/features/tournament/components/public/PublicSitePanels";
 
 function RecordShell({ slug, title, children }: { slug: string; title: React.ReactNode; children: React.ReactNode }) {
   const { tournament, loading, cloudLoadError, publicRoundsLoading } = useTournament();
@@ -44,7 +44,7 @@ function Notice({ children }: { children: React.ReactNode }) {
 }
 
 export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string }) {
-  const { tournament, teams, rounds, debates, ballots, breakCategories } = useTournament();
+  const { tournament, teams, rounds, debates, ballots, breakCategories, motions } = useTournament();
   const { t, formatList, formatNumber } = useI18n();
   const settings = getPublicSiteSettings(tournament?.preferences);
   const team = teams.find((item) => item.id === teamId);
@@ -54,7 +54,7 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
   if (!team) {
     return <RecordShell slug={slug} title={t("public.record.teamTitle")}><Notice>{t("public.record.notFound")}</Notice></RecordShell>;
   }
-  const rows = teamRecord(team.id, rounds, debates, ballots);
+  const rows = teamRecord(team.id, rounds, debates, ballots, settings.motionsInResults ? motions : undefined);
   const categoryNames = (team.breakCategories ?? [])
     .map((id) => breakCategories.find((category) => category.id === id)?.name)
     .filter((name): name is string => Boolean(name));
@@ -89,6 +89,7 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
                   <TH scope="col">{t("public.col.side")}</TH>
                   <TH scope="col">{t("public.col.debate")}</TH>
                   <TH scope="col">{t("public.col.result")}</TH>
+                  {settings.motionsInResults && <TH scope="col">{t("public.col.motion")}</TH>}
                 </TR>
               </THead>
               <TBody>
@@ -110,6 +111,9 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
                         <span className="ms-2 text-fg-muted">{t("public.speaks", { speaks: formatNumber(row.speakerScoreTotal, SCORE_DISPLAY_OPTIONS) })}</span>
                       )}
                     </TD>
+                    {settings.motionsInResults && (
+                      <TD className="text-xs"><PublicDebateMotionLabel motion={row.motion} /></TD>
+                    )}
                   </TR>
                 ))}
               </TBody>
@@ -122,7 +126,7 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
 }
 
 export function AdjudicatorRecordPage({ slug, adjudicatorId }: { slug: string; adjudicatorId: string }) {
-  const { tournament, adjudicators, rounds, debates } = useTournament();
+  const { tournament, adjudicators, rounds, debates, ballots, motions } = useTournament();
   const { t } = useI18n();
   const settings = getPublicSiteSettings(tournament?.preferences);
   const adjudicator = adjudicators.find((item) => item.id === adjudicatorId);
@@ -133,7 +137,7 @@ export function AdjudicatorRecordPage({ slug, adjudicatorId }: { slug: string; a
   if (!adjudicator || adjudicator.anonymous) {
     return <RecordShell slug={slug} title={t("public.record.adjudicatorTitle")}><Notice>{t("public.record.notFound")}</Notice></RecordShell>;
   }
-  const rows = adjudicatorRecord(adjudicator.id, rounds, debates);
+  const rows = adjudicatorRecord(adjudicator.id, rounds, debates, settings.motionsInResults ? { ballots, motions } : undefined);
   return (
     <RecordShell slug={slug} title={<PublicPersonName name={adjudicator.name} />}>
       <Card className="space-y-1 p-4 text-[13px] text-fg-muted">
@@ -152,6 +156,7 @@ export function AdjudicatorRecordPage({ slug, adjudicatorId }: { slug: string; a
                   <TH scope="col">{t("public.col.round")}</TH>
                   <TH scope="col">{t("public.col.role")}</TH>
                   <TH scope="col">{t("public.col.debate")}</TH>
+                  {settings.motionsInResults && <TH scope="col">{t("public.col.motion")}</TH>}
                 </TR>
               </THead>
               <TBody>
@@ -170,6 +175,9 @@ export function AdjudicatorRecordPage({ slug, adjudicatorId }: { slug: string; a
                       ))}
                       {row.venueName && <span className="block text-[11px] text-fg-muted">{row.venueName}</span>}
                     </TD>
+                    {settings.motionsInResults && (
+                      <TD className="text-xs"><PublicDebateMotionLabel motion={row.motion} /></TD>
+                    )}
                   </TR>
                 ))}
               </TBody>

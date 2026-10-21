@@ -10,6 +10,7 @@ import { exportStandingsToCsv } from "@/lib/csv/importer";
 import { csvFileStem, speakerStandingsCsv } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 import { ReleasePanel } from "@/features/tournament/components/ReleasePanel";
+import { TabroomTeamName } from "@/features/tournament/components/TabroomTeamName";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -18,6 +19,9 @@ import { TabPanel, Tabs, type TabItem } from "@/components/ui/Tabs";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { Award, Download, Medal, Printer, Search, Users } from "lucide-react";
 import { resolveSpeakerExtra, resolveTeamExtra } from "@/lib/standings/precedence";
+import { calculateStandingsAsOf } from "@/lib/standings/asOfRound";
+import { roundBreakLiveness } from "@/lib/breakqual/liveness";
+import { BreakLivenessBadges } from "@/features/tournament/components/BreakLivenessBadges";
 import { effectiveSpeakerCategories, speakerCategoryNames, speakerRowsInCategory, speakersInCategory } from "@/lib/speakerCategories";
 
 type StandingsTab = "teams" | "speakers" | "replies";
@@ -76,14 +80,21 @@ const bpPointTone = (points: number) =>
 export default function StandingsPage() {
   const {
     tournament,
-    teamStandings,
-    speakerStandings,
-    replyStandings,
+    teamStandings: allTeamStandings,
+    speakerStandings: allSpeakerStandings,
+    replyStandings: allReplyStandings,
     breakCategories,
     teams,
+    rounds,
+    debates,
+    ballots,
   } = useTournament();
   const { t, plural, formatNumber, formatDecimal, formatList } = useI18n();
   const formatScore = useFormatScore();
+  const teamsById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  // A team is found by the name the tab room shows and by its code name.
+  const teamMatches = (teamId: string, storedName: string, query: string) =>
+    storedName.toLowerCase().includes(query) || (teamsById.get(teamId)?.codeName ?? "").toLowerCase().includes(query);
   /** Same digits as `formatMetricValue`: integers as they are, anything else to two decimals. */
   const formatMetric = (value: number | undefined) =>
     value === undefined || !Number.isFinite(value)
@@ -95,6 +106,21 @@ export default function StandingsPage() {
   const [activeTab, setActiveTab] = useState<StandingsTab>("teams");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  /** Tabbycat's admin standings are per round: "" = after every round (the shared default). */
+  const [asOfRoundId, setAsOfRoundId] = useState("");
+  const asOfOptions = useMemo(
+    () => rounds.filter((round) => round.stage === "preliminary" && !round.cancelled).sort((a, b) => a.seq - b.seq),
+    [rounds]
+  );
+  const asOfRound = asOfOptions.find((round) => round.id === asOfRoundId);
+  // Only computed when an earlier round is chosen; the default reuses the shared standings.
+  const asOfStandings = useMemo(
+    () => (tournament && asOfRound ? calculateStandingsAsOf(tournament, rounds, teams, debates, ballots, asOfRound.id) : null),
+    [tournament, asOfRound, rounds, teams, debates, ballots]
+  );
+  const teamStandings = asOfStandings?.teams ?? allTeamStandings;
+  const speakerStandings = asOfStandings?.speakers ?? allSpeakerStandings;
+  const replyStandings = asOfStandings?.replies ?? allReplyStandings;
 
   const isBP = tournament?.format === "bp";
   // "Extra" metrics: calculated and shown, but not used to rank (Tabbycat's *_extra_metrics).
@@ -123,7 +149,7 @@ export default function StandingsPage() {
   // Filter Team Standings
   const filteredTeams = teamStandings.filter((row) => {
     const matchesSearch =
-      row.teamName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      teamMatches(row.teamId, row.teamName, searchQuery.toLowerCase()) ||
       (row.institutionCode || "").toLowerCase().includes(searchQuery.toLowerCase());
 
     if (!matchesSearch) return false;
@@ -138,7 +164,7 @@ export default function StandingsPage() {
   const filteredSpeakers = speakersInView.filter(
     (s) =>
       s.speakerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.teamName.toLowerCase().includes(searchQuery.toLowerCase())
+      teamMatches(s.teamId, s.teamName, searchQuery.toLowerCase())
   );
 
   const handleExport = () => {
@@ -167,7 +193,18 @@ export default function StandingsPage() {
         : "results.standings.exportRepliesHint"
   );
   const noMatches = t(searchQuery || selectedCategory !== "all" ? "results.standings.noMatches" : "results.standings.noResults");
-  const teamColumns = (isBP ? 11 : 9) + teamExtra.length;
+  // Break liveness before the next preliminary round (none once every preliminary round is done).
+  // Liveness is about the next round from the full results, so it is not shown "as of" a round.
+  const liveness = useMemo(
+    () => (tournament && !asOfRound ? roundBreakLiveness({ tournament, rounds, teams, debates, ballots, breakCategories }) : null),
+    [tournament, asOfRound, rounds, teams, debates, ballots, breakCategories]
+  );
+  const livenessRound = liveness
+    ? rounds
+        .filter((round) => round.stage === "preliminary" && !round.cancelled)
+        .sort((a, b) => a.seq - b.seq)[liveness.roundSeq - 1]
+    : undefined;
+  const teamColumns = (isBP ? 11 : 9) + teamExtra.length + (liveness ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -189,7 +226,22 @@ export default function StandingsPage() {
 
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <Tabs id={TABS_ID} items={tabs} value={activeTab} onValueChange={changeTab} ariaLabel={t("results.standings.tabsLabel")} className="md:flex-1" />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {asOfOptions.length > 1 && (
+            <Select
+              aria-label={t("results.standings.asOfRound")}
+              value={asOfRoundId}
+              onChange={(e) => setAsOfRoundId(e.target.value)}
+              className="w-44"
+            >
+              <option value="">{t("results.standings.asOfAllRounds")}</option>
+              {asOfOptions.map((round) => (
+                <option key={round.id} value={round.id}>
+                  {t("results.standings.asOfRoundOption", { round: round.name })}
+                </option>
+              ))}
+            </Select>
+          )}
           {categoryOptions.length > 0 && (
             <Select
               aria-label={t(activeTab === "teams" ? "results.standings.breakCategory" : "results.standings.speakerCategory")}
@@ -218,8 +270,19 @@ export default function StandingsPage() {
         </div>
       </div>
 
+      {asOfRound && (
+        <p role="status" className="text-xs text-fg-muted">
+          {t("results.standings.asOfNote", { round: asOfRound.name })}
+        </p>
+      )}
+
       {activeTab === "teams" && (
         <TabPanel id={TABS_ID} value="teams">
+          {liveness && livenessRound && (
+            <p className="mb-2 text-xs text-fg-muted">
+              {t("results.standings.livenessNote", { round: livenessRound.name })}
+            </p>
+          )}
           <TableContainer className={TABLE_FRAME}>
             <Table>
               <THead>
@@ -247,6 +310,7 @@ export default function StandingsPage() {
                     <TH key={metric} align="right">{t(TEAM_METRIC_KEYS[metric])}</TH>
                   ))}
                   <TH>{t("results.standings.colRoundResults")}</TH>
+                  {liveness && <TH>{t("results.standings.colLiveness")}</TH>}
                 </TR>
               </THead>
               <TBody>
@@ -254,7 +318,7 @@ export default function StandingsPage() {
                 {filteredTeams.map((team) => (
                   <TR key={team.teamId}>
                     <TD numeric className="text-fg-muted">{formatNumber(team.rank)}</TD>
-                    <TD className="font-medium">{team.teamName}</TD>
+                    <TD className="font-medium"><TabroomTeamName team={teamsById.get(team.teamId)} name={team.teamName} /></TD>
                     <TD className="text-fg-muted">{team.institutionCode || "—"}</TD>
                     <TD numeric className="text-[13px] font-semibold">{formatNumber(team.points)}</TD>
                     <TD numeric>{formatDecimal(team.totalSpeakerScore, 1)}</TD>
@@ -291,6 +355,11 @@ export default function StandingsPage() {
                         ))}
                       </div>
                     </TD>
+                    {liveness && (
+                      <TD>
+                        <BreakLivenessBadges entries={liveness.byTeam.get(team.teamId)} categories={breakCategories} />
+                      </TD>
+                    )}
                   </TR>
                 ))}
               </TBody>
@@ -332,7 +401,7 @@ export default function StandingsPage() {
                       )}
                       {spk.ineligible && <Badge className="ms-2">{t("results.standings.unrankedSpeeches")}</Badge>}
                     </TD>
-                    <TD>{spk.teamName}</TD>
+                    <TD><TabroomTeamName team={teamsById.get(spk.teamId)} name={spk.teamName} /></TD>
                     <TD className="text-fg-muted">{spk.institutionCode || "—"}</TD>
                     <TD numeric className="text-fg-muted">{formatNumber(spk.speechesCount)}</TD>
                     <TD numeric className="text-[13px] font-semibold">{formatDecimal(spk.totalScore, 1)}</TD>
@@ -382,7 +451,7 @@ export default function StandingsPage() {
                       {rep.speakerName}
                       {rep.ineligible && <Badge className="ms-2">{t("results.standings.unrankedReplies")}</Badge>}
                     </TD>
-                    <TD>{rep.teamName}</TD>
+                    <TD><TabroomTeamName team={teamsById.get(rep.teamId)} name={rep.teamName} /></TD>
                     <TD numeric className="text-fg-muted">{formatNumber(rep.speechesCount)}</TD>
                     <TD numeric className="text-[13px] font-semibold">{formatDecimal(rep.totalScore, 1)}</TD>
                     <TD numeric>{formatDecimal(rep.averageScore, 2)}</TD>

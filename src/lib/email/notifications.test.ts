@@ -117,6 +117,15 @@ describe("releasedRoundNotifications", () => {
     ]);
   });
 
+  it("emails teams on a teams-only release but adjudicators and motions only on the full release", () => {
+    const staged = [
+      round("r1", 1, { drawStatus: "teams_released", adjudicatorsRevealed: true, motionsReleased: true }),
+      round("r2", 2, { drawStatus: "locked", adjudicatorsRevealed: true, motionsReleased: true }),
+    ];
+    const due = releasedRoundNotifications({ notifyDrawReleased: true, notifyMotionsReleased: true }, staged);
+    expect(due.map((item) => `${item.event}:${item.round.id}`)).toEqual(["draw_teams:r1"]);
+  });
+
   it("never emails results when public results are switched off", () => {
     const due = releasedRoundNotifications({ notifyTeamPoints: true, publicResults: false }, rounds);
     expect(due).toEqual([]);

@@ -16,6 +16,7 @@ import {
 } from "@/features/tournament/application/debateXmlImport";
 import { aggregateVotingSheets, consensusTeamScores, type BallotRules, type SideRecord } from "@/lib/ballots/result";
 import { calculateBreaks } from "@/lib/breakqual/calculator";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 import { generateRoundDraw } from "@/lib/draw/generator";
 import { calculateStandings } from "@/lib/standings/calculator";
 import type {
@@ -479,13 +480,19 @@ function breaksFor(fixture: LoadedFixture): BreakResult[] {
   const { tournament, data, config } = fixture;
   const standings = standingsUpTo(fixture, config.rounds.played).teams;
   try {
-    const results = calculateBreaks(data.breakCategories, data.teams, standings, tournament.format);
+    const results = calculateBreaks(
+      data.breakCategories,
+      data.teams,
+      standings,
+      tournament.format,
+      resolveTeamPrecedence(tournament.format, tournament.preferences)
+    );
     return results.map((result) => ({
       category: result.category.id,
       rule: result.category.qualificationRule ?? "standard",
       breakSize: result.category.breakSize,
       reserveSize: result.category.reserveSize ?? 0,
-      breaking: result.breakingTeams.map((entry) => ({ team: entry.team.id, rank: entry.rank, breakRank: entry.seed })),
+      breaking: result.breakingTeams.map((entry) => ({ team: entry.team.id, rank: entry.rank, breakRank: entry.breakRank ?? entry.seed })),
       reserves: result.reserveTeams.map((entry) => ({ team: entry.team.id, rank: entry.rank })),
       cutoffTies: result.cutoffTies.map((tie) => ({
         cutoff: tie.cutoff,

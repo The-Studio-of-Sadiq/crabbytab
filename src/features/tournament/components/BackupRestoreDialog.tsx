@@ -5,24 +5,27 @@ import { AlertTriangle, CheckCircle2, Info, Loader2, X } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { CLOUD_COLLECTIONS, type CloudCollectionName } from "@/features/tournament/collections";
 import type { BackupDiff, BackupValidation } from "@/features/tournament/application/tournamentBackup";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n";
 
-const COLLECTION_LABELS: Record<CloudCollectionName, string> = {
-  rounds: "Rounds",
-  teams: "Teams",
-  adjudicators: "Adjudicators",
-  venues: "Venues",
-  motions: "Motions",
-  breakCategories: "Break categories",
-  debates: "Debates",
-  ballots: "Ballots",
-  feedback: "Feedback",
-  institutions: "Institutions",
-  auditEvents: "Audit log (always merged)",
-  ballotIntake: "Ballot intake",
+const COLLECTION_LABELS: Record<CloudCollectionName, MessageKey> = {
+  rounds: "setup.data.backup.collection.rounds",
+  teams: "setup.data.backup.collection.teams",
+  adjudicators: "setup.data.backup.collection.adjudicators",
+  venues: "setup.data.backup.collection.venues",
+  motions: "setup.data.backup.collection.motions",
+  breakCategories: "setup.data.backup.collection.breakCategories",
+  debates: "setup.data.backup.collection.debates",
+  ballots: "setup.data.backup.collection.ballots",
+  feedback: "setup.data.backup.collection.feedback",
+  institutions: "setup.data.backup.collection.institutions",
+  auditEvents: "setup.data.backup.collection.auditEvents",
+  ballotIntake: "setup.data.backup.collection.ballotIntake",
 };
 
 /** Validates a backup, shows how it differs from this tournament, then merges or replaces. */
 export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
+  const { t, plural } = useI18n();
   const { tournament, previewTournamentBackup, importTournamentBackup, replaceTournamentWithBackup } = useTournament();
   const titleId = useId();
   const fileInputId = useId();
@@ -55,7 +58,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
     try {
       setPreview(await previewTournamentBackup(chosen));
     } catch (readError) {
-      setError(readError instanceof Error ? readError.message : "Could not read the backup.");
+      setError(readError instanceof Error ? readError.message : t("setup.data.backup.readFailed"));
     } finally {
       setBusy("");
     }
@@ -70,13 +73,13 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
       else await replaceTournamentWithBackup(file);
       setDone(
         mode === "merging"
-          ? "Backup merged. Records that were missing here were added; existing records were kept."
-          : "Tournament data replaced with the backup. Your previous data was downloaded as a pre-restore backup."
+          ? t("setup.data.backup.merged")
+          : t("setup.data.backup.replaced")
       );
       setPreview(null);
       setFile(null);
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "The restore failed. Nothing was changed.");
+      setError(runError instanceof Error ? runError.message : t("setup.data.backup.restoreFailed"));
     } finally {
       setBusy("");
     }
@@ -103,10 +106,9 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4">
           <div>
-            <h2 id={titleId} className="text-sm font-bold">Restore tournament backup</h2>
+            <h2 id={titleId} className="text-sm font-bold">{t("setup.data.backup.title")}</h2>
             <p className="mt-1 text-xs text-gray-600">
-              Choose a backup of {tournament?.name ?? "this tournament"}. It is checked and compared with the data on
-              this device before anything changes.
+              {t("setup.data.backup.intro", { tournament: tournament?.name ?? t("setup.data.backup.thisTournament") })}
             </p>
           </div>
           <button
@@ -114,7 +116,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             disabled={Boolean(busy)}
             className="rounded p-1 text-gray-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -122,7 +124,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
 
         <div className="space-y-4 overflow-y-auto px-5 py-4 text-xs">
           <div>
-            <label htmlFor={fileInputId} className="mb-1 block font-semibold text-gray-700">Backup file (.json)</label>
+            <label htmlFor={fileInputId} className="mb-1 block font-semibold text-gray-700">{t("setup.data.backup.fileLabel")}</label>
             <input
               id={fileInputId}
               ref={fileInputRef}
@@ -136,7 +138,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
 
           {busy === "reading" && (
             <p className="flex items-center gap-2 text-gray-600" role="status">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking the backup…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("setup.data.backup.checking")}
             </p>
           )}
           {error && (
@@ -154,12 +156,14 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
             <>
               {errors.length > 0 && (
                 <div role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800">
-                  <p className="font-bold">This backup cannot be restored ({errors.length} problem{errors.length === 1 ? "" : "s"}):</p>
+                  <p className="font-bold">{plural("setup.data.backup.cannotRestore", errors.length)}</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5">
                     {errors.map((issue, index) => (
                       <li key={index}>
-                        <span className="font-semibold">Error</span>
-                        {issue.collection !== "file" && ` in ${issue.collection}${issue.recordId ? ` (${issue.recordId})` : ""}`}: {issue.message}
+                        <span className="font-semibold">{t("setup.data.backup.error")}</span>
+                        {issue.collection !== "file" && (issue.recordId
+                          ? t("setup.data.backup.issueInRecord", { collection: issue.collection, record: issue.recordId })
+                          : t("setup.data.backup.issueIn", { collection: issue.collection }))}: {issue.message}
                       </li>
                     ))}
                   </ul>
@@ -167,12 +171,14 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
               )}
               {warnings.length > 0 && (
                 <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
-                  <p className="font-bold">Warnings ({warnings.length}): these records can still be restored.</p>
+                  <p className="font-bold">{t("setup.data.backup.warnings", { count: warnings.length })}</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-5">
                     {warnings.map((issue, index) => (
                       <li key={index}>
-                        <span className="font-semibold">Warning</span>
-                        {issue.collection !== "file" && ` in ${issue.collection}${issue.recordId ? ` (${issue.recordId})` : ""}`}: {issue.message}
+                        <span className="font-semibold">{t("setup.data.backup.warning")}</span>
+                        {issue.collection !== "file" && (issue.recordId
+                          ? t("setup.data.backup.issueInRecord", { collection: issue.collection, record: issue.recordId })
+                          : t("setup.data.backup.issueIn", { collection: issue.collection }))}: {issue.message}
                       </li>
                     ))}
                   </ul>
@@ -182,19 +188,19 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
               {diff && usable && (
                 <div className="space-y-2">
                   <p className="font-semibold text-gray-800">
-                    Backup exported {preview.validation.backup?.exportedAt ?? "at an unknown time"}.
-                    {diff.hasChanges ? " Compared with this device:" : " It matches the data on this device."}
+                    {t("setup.data.backup.exportedAt", { time: preview.validation.backup?.exportedAt ?? t("setup.data.backup.unknownTime") })}
+                    {diff.hasChanges ? t("setup.data.backup.compared") : t("setup.data.backup.matches")}
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left tabby-table">
-                      <caption className="sr-only">Differences between the backup and this device</caption>
+                      <caption className="sr-only">{t("setup.data.backup.tableCaption")}</caption>
                       <thead>
                         <tr>
-                          <th scope="col">Records</th>
-                          <th scope="col" className="text-right">Only in backup</th>
-                          <th scope="col" className="text-right">Only here</th>
-                          <th scope="col" className="text-right">Different</th>
-                          <th scope="col" className="text-right">Same</th>
+                          <th scope="col">{t("setup.data.backup.colRecords")}</th>
+                          <th scope="col" className="text-right">{t("setup.data.backup.colOnlyBackup")}</th>
+                          <th scope="col" className="text-right">{t("setup.data.backup.colOnlyHere")}</th>
+                          <th scope="col" className="text-right">{t("setup.data.backup.colDifferent")}</th>
+                          <th scope="col" className="text-right">{t("setup.data.backup.colSame")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -202,7 +208,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
                           const row = diff.collections[name];
                           return (
                             <tr key={name}>
-                              <th scope="row" className="font-medium">{COLLECTION_LABELS[name]}</th>
+                              <th scope="row" className="font-medium">{t(COLLECTION_LABELS[name])}</th>
                               <td className="text-right font-mono">{row.added}</td>
                               <td className="text-right font-mono">{row.removed}</td>
                               <td className="text-right font-mono">{row.changed}</td>
@@ -215,15 +221,14 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
                   </div>
                   {diff.tournamentSettingsChanged && (
                     <p className="flex items-start gap-2 text-gray-700">
-                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Tournament settings differ. Replace uses the backup&apos;s
-                      settings; the URL, owner and administrators never change.
+                      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t("setup.data.backup.settingsDiffer")}
                     </p>
                   )}
 
                   <div className="grid gap-3 pt-2 sm:grid-cols-2">
                     <div className="rounded border border-gray-200 p-3">
-                      <p className="font-bold">Merge</p>
-                      <p className="mt-1 text-gray-600">Adds the records that are only in the backup. Records on this device are kept as they are.</p>
+                      <p className="font-bold">{t("setup.data.backup.mergeTitle")}</p>
+                      <p className="mt-1 text-gray-600">{t("setup.data.backup.mergeHelp")}</p>
                       <button
                         type="button"
                         onClick={() => run("merging")}
@@ -231,14 +236,13 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
                         className="mt-3 inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
                       >
                         {busy === "merging" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                        Merge backup
+                        {t("setup.data.backup.mergeButton")}
                       </button>
                     </div>
                     <div className="rounded border border-red-200 p-3">
-                      <p className="font-bold text-red-800">Replace</p>
+                      <p className="font-bold text-red-800">{t("setup.data.backup.replaceTitle")}</p>
                       <p className="mt-1 text-gray-600">
-                        Makes this tournament exactly match the backup: {removedTotal} record{removedTotal === 1 ? "" : "s"} only on
-                        this device will be deleted and {changedTotal} will be overwritten. A pre-restore backup downloads first.
+                        {plural("setup.data.backup.replaceHelp", removedTotal, { changed: changedTotal })}
                       </p>
                       <label className="mt-2 flex items-start gap-2">
                         <input
@@ -248,7 +252,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
                           disabled={Boolean(busy)}
                           className="mt-0.5"
                         />
-                        <span>I understand that this replaces the tournament&apos;s data on this device.</span>
+                        <span>{t("setup.data.backup.replaceConfirm")}</span>
                       </label>
                       <button
                         type="button"
@@ -257,7 +261,7 @@ export function BackupRestoreDialog({ onClose }: { onClose: () => void }) {
                         className="mt-3 inline-flex items-center gap-1.5 rounded bg-red-600 px-3 py-1.5 font-bold text-white hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
                       >
                         {busy === "replacing" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                        Replace this tournament&apos;s data
+                        {t("setup.data.backup.replaceButton")}
                       </button>
                     </div>
                   </div>

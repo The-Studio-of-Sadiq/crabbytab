@@ -1,5 +1,6 @@
 "use client";
 
+import { drawStageOf, type DrawStage } from "@/lib/draw/drawStatus";
 import React from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -39,15 +40,18 @@ function debateStatus(debate: Debate, t: Translate): { tone: Tone; label: string
   return { tone: "neutral", label: t("results.home.status.noResult") };
 }
 
-const DRAW_STATUS_KEYS: Partial<Record<string, MessageKey>> = {
+/** By draw stage (lib/draw/drawStatus.ts): the stored "confirmed" is the public release. */
+const DRAW_STAGE_KEYS: Record<DrawStage, MessageKey> = {
   released: "results.home.drawStatus.released",
-  confirmed: "results.home.drawStatus.confirmed",
+  teams_released: "results.home.drawStatus.teamsReleased",
+  locked: "results.home.drawStatus.confirmed",
   draft: "results.home.drawStatus.draft",
+  none: "results.home.drawStatus.none",
 };
 
 /** describeRoundStatus's label in the viewer's language (the tone still comes from it). */
 function roundStatusLabel(round: Pick<Round, "drawStatus" | "resultsReleased" | "completed">, t: Translate): string {
-  const draw = t((round.drawStatus && DRAW_STATUS_KEYS[round.drawStatus]) || "results.home.drawStatus.none");
+  const draw = t(DRAW_STAGE_KEYS[drawStageOf(round)]);
   if (round.completed) return t("results.home.drawStatus.completed", { status: draw });
   if (round.resultsReleased) return t("results.home.drawStatus.resultsPublished", { status: draw });
   return draw;

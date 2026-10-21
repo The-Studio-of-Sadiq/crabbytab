@@ -1,5 +1,7 @@
 import Papa from "papaparse";
-import { safeVenueUrl } from "@/lib/venues/venues";
+import { parseVenueCategoryList, safeVenueUrl, withVenueCategories } from "@/lib/venues/venues";
+import type { TeamSeedMode } from "@/types";
+import { parseTeamSeed } from "@/lib/teamSeeds";
 import { Team, Adjudicator, Institution, Venue, VenueRequirements, Motion, Round, TeamStandingRow, SpeakerStandingRow, BreakCategory, Speaker } from "@/types";
 import { parseCategoryList, resolveBreakCategoryRefs } from "@/lib/teamCategories";
 import { csvFileStem, teamStandingsCsv } from "@/lib/csv/exporters";
@@ -150,7 +152,8 @@ const MAX_SPEAKER_COLUMNS = 5;
 export function parseTeamRow(
   row: Record<string, string>,
   rowNumber: number,
-  breakCategories: BreakCategory[] = []
+  breakCategories: BreakCategory[] = [],
+  options: { seedMode?: TeamSeedMode } = {}
 ): ParsedTeamRow {
   const issues: ImportIssue[] = [];
   const name = getField(row, "name", "team", "Team", "team_name", "Team Name").trim().replace(/\s+/g, " ");
@@ -186,6 +189,15 @@ export function parseTeamRow(
     });
   }
 
+  // The seed column is read only when the tournament asks for seeds (Tabbycat show_seed_in_importer).
+  const seedMode = options.seedMode ?? "off";
+  let seed: number | undefined;
+  if (seedMode !== "off") {
+    const parsedSeed = parseTeamSeed(getField(row, "seed", "Seed"), seedMode);
+    if (parsedSeed.ok) seed = parsedSeed.seed;
+    else issues.push({ severity: "error", message: `${parsedSeed.error} (CSV row ${rowNumber})` });
+  }
+
   const category = getField(row, "category", "Category").trim();
   const institutionName = getField(row, "institution", "Institution", "inst", "Inst").trim();
   const team: TeamDraft = {
@@ -198,6 +210,7 @@ export function parseTeamRow(
     speakers,
     breakCategories: resolvedBreaks.ids,
     speakerCategories: category ? [category.toLowerCase()] : [],
+    ...(seed !== undefined ? { seed } : {}),
     checkedIn: true,
   };
   return { team, issues, speakerCategoryNames };
@@ -335,7 +348,8 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
     const name = getField(row, "name", "Name", "room", "Room", "venue", "Venue") || `Room ${idx + 1}`;
     const priorityRaw = getField(row, "priority", "Priority") || "10";
     const priority = parseInt(priorityRaw, 10) || 10;
-    const category = getField(row, "category", "Category") || undefined;
+    // Several categories are separated by ";" or "," ("Accessible; Large").
+    const categories = parseVenueCategoryList(getField(row, "category", "Category", "categories", "Categories") || "");
     const capacityRaw = getField(row, "capacity", "Capacity", "seats", "Seats");
     const capacity = capacityRaw?.trim() ? Number(capacityRaw) : undefined;
     const accessibleRaw = getField(row, "accessible", "Accessible");
@@ -353,19 +367,18 @@ export function parseVenuesCsv(csvContent: string, tournamentId: string): Venue[
       throw new Error(`Invalid venue capacity on CSV row ${idx + 2}: ${capacityRaw}`);
     }
 
-    venues.push({
+    venues.push(withVenueCategories({
       id: `venue-${Date.now()}-${idx}`,
       tournamentId,
       name: name.trim(),
       priority,
-      category,
       capacity,
       accessible: parseCsvFlag(accessibleRaw, "accessible", idx + 2),
       online: parseCsvFlag(onlineRaw, "online", idx + 2),
       nearTabRoom: parseCsvFlag(getField(row, "near_tab_room", "nearTabRoom"), "near_tab_room", idx + 2),
       ...(urlRaw ? { url: safeVenueUrl(urlRaw) } : {}),
       available: true,
-    });
+    } as Venue, categories));
   });
 
   return venues;

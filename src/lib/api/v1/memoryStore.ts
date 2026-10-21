@@ -17,6 +17,8 @@ export interface MemoryTournament {
   tournament: StoredRecord;
   collections: Partial<Record<ApiCollection, StoredRecord[]>>;
   apiTokens?: StoredRecord[];
+  /** `serverOnly/staffPermissionGroups.groups`. */
+  customPermissionGroups?: unknown;
 }
 
 export interface MemoryApiStore extends ApiStore {
@@ -80,6 +82,9 @@ export function createMemoryApiStore(initial: MemoryTournament[] = []): MemoryAp
     return {
       tournamentId,
       ...tournamentReader(state),
+      async getCustomPermissionGroups() {
+        return clone(state().customPermissionGroups ?? []);
+      },
       async transaction(fn) {
         const working = clone(state());
         const transaction: TournamentTransaction = {

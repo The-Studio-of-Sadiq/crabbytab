@@ -115,6 +115,12 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             <option value="forward">{t("setup.config.motionsOrderForward")}</option>
             <option value="reverse">{t("setup.config.motionsOrderReverse")}</option>
           </Select>
+          <Checkbox
+            label={t("setup.config.motionsInResultsLabel")}
+            description={t("setup.config.motionsInResultsHelp")}
+            checked={site.motionsInResults}
+            onChange={(event) => set("showMotionsInResults", event.target.checked || undefined)}
+          />
         </div>
       </section>
 

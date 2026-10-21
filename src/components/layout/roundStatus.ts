@@ -1,4 +1,5 @@
 import type { Round } from "@/types";
+import { drawStageOf } from "@/lib/draw/drawStatus";
 import type { Tone } from "@/components/ui/Badge";
 import { DEFAULT_LOCALE, translate, type MessageKey, type MessageValues } from "@/lib/i18n";
 
@@ -18,12 +19,16 @@ export function describeRoundStatus(
   label: string;
   tone: Tone;
 } {
+  // By stage: the stored "confirmed" is the public release; "locked" is confirmed-but-unreleased.
+  const stage = drawStageOf(round);
   const draw =
-    round.drawStatus === "released"
+    stage === "released"
       ? { short: t("setup.shell.roundStatusReleasedShort"), label: t("setup.shell.roundStatusReleased"), tone: "success" as const }
-      : round.drawStatus === "confirmed"
-      ? { short: t("setup.shell.roundStatusConfirmedShort"), label: t("setup.shell.roundStatusConfirmed"), tone: "success" as const }
-      : round.drawStatus === "draft"
+      : stage === "teams_released"
+      ? { short: t("setup.shell.roundStatusTeamsReleasedShort"), label: t("setup.shell.roundStatusTeamsReleased"), tone: "info" as const }
+      : stage === "locked"
+      ? { short: t("setup.shell.roundStatusConfirmedShort"), label: t("setup.shell.roundStatusConfirmed"), tone: "info" as const }
+      : stage === "draft"
       ? { short: t("setup.shell.roundStatusDraftShort"), label: t("setup.shell.roundStatusDraft"), tone: "warning" as const }
       : { short: t("setup.shell.roundStatusNoDrawShort"), label: t("setup.shell.roundStatusNoDraw"), tone: "neutral" as const };
   if (round.completed) return { ...draw, label: t("setup.shell.roundStatusCompleted", { status: draw.label }) };

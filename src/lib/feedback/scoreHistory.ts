@@ -2,6 +2,8 @@ import type { Adjudicator, AdjudicatorScoreChange } from "@/types";
 
 export interface ScoreChangeContext {
   timestamp: string;
+  /** The tournament's current round, recorded with the change (Tabbycat AdjudicatorBaseScoreHistory.round). */
+  roundId?: string;
   actorId?: string;
   actorName?: string;
   reason?: string;
@@ -27,6 +29,7 @@ export function scoreChangesBetween(
     ...(previous[field] !== undefined ? { previous: previous[field] } : {}),
     ...(next[field] !== undefined ? { value: next[field] } : {}),
     timestamp: context.timestamp,
+    ...(context.roundId ? { roundId: context.roundId } : {}),
     ...(context.actorId ? { actorId: context.actorId } : {}),
     ...(context.actorName ? { actorName: context.actorName } : {}),
     ...(reason ? { reason } : {}),
@@ -59,6 +62,7 @@ export function isAdjudicatorScoreChange(value: unknown): value is AdjudicatorSc
     typeof record.timestamp === "string" &&
     optionalNumber("previous") &&
     optionalNumber("value") &&
+    optionalString("roundId") &&
     optionalString("actorId") &&
     optionalString("actorName") &&
     optionalString("reason");

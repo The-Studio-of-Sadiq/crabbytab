@@ -6,12 +6,17 @@ import { asType } from "../serializers";
 import { entityReadRoutes } from "./entities";
 import { meRoutes } from "./me";
 import { roundDataReadRoutes } from "./roundData";
+import { scheduleRoutes, userGroupRoutes } from "./scheduleAndGroups";
 import { standingsReadRoutes } from "./standings";
 import { tournamentReadRoutes } from "./tournament";
 import { entityWriteRoutes } from "./write/entities";
+import { breakAndFeedbackWriteRoutes } from "./write/breaksAndFeedback";
+import { pairingWriteRoutes, preformedPanelWriteRoutes } from "./write/pairings";
+import { participantWriteRoutes } from "./write/participant";
+import { settingsItemWriteRoutes } from "./write/settingsItems";
 import { roundWriteRoutes } from "./write/rounds";
 import { tournamentWriteRoutes } from "./write/tournament";
-import { currentDrawRoundId, getPublicSiteSettings, isRoundDrawPublic } from "@/lib/publicFeatures";
+import { currentDrawRoundIds, getPublicSiteSettings, isRoundDrawPublic } from "@/lib/publicFeatures";
 
 const rootRoute = defineRoute({
   method: "GET",
@@ -79,9 +84,9 @@ const legacyDrawsRoute = defineRoute({
     const publicView = context.data.view === "public";
     // Public access sees only the rounds on the public draw page (the draw mode decides).
     const drawMode = getPublicSiteSettings(context.tournament.preferences).drawMode;
-    const currentRoundId = currentDrawRoundId(allRounds);
+    const currentRoundIds = currentDrawRoundIds(allRounds, context.tournament.preferences?.currentRoundId);
     const visibleRounds = rounds.filter((round) =>
-      !publicView || isRoundDrawPublic(round, drawMode, currentRoundId)
+      !publicView || isRoundDrawPublic(round, drawMode, currentRoundIds)
     );
     const debatesByRound = await Promise.all(visibleRounds.map((round) =>
       context.data.all("debates", [{ field: "roundId", op: "==", value: round.id }])
@@ -133,6 +138,7 @@ export const READ_ROUTES: readonly ApiRoute[] = [
   ...roundDataReadRoutes,
   ...standingsReadRoutes,
   ...meRoutes,
+  ...userGroupRoutes,
   legacyDrawsRoute,
 ];
 
@@ -141,6 +147,12 @@ export const WRITE_ROUTES: readonly ApiRoute[] = [
   publishRoute,
   ...entityWriteRoutes,
   ...roundWriteRoutes,
+  ...pairingWriteRoutes,
+  ...preformedPanelWriteRoutes,
+  ...participantWriteRoutes,
+  ...breakAndFeedbackWriteRoutes,
+  ...settingsItemWriteRoutes,
+  ...scheduleRoutes,
 ];
 
 export const API_ROUTES: readonly ApiRoute[] = [...READ_ROUTES, ...WRITE_ROUTES];

@@ -165,7 +165,7 @@ describe("rounds, draws and allocation", () => {
 
   it("regenerates a draft draw, soft-deleting the replaced debates", async () => {
     const oldIds = round2Debates().map((debate) => debate.id);
-    const result = await api.call("POST", `${base}/rounds/2/pairings/generate-draw`, { token: writer, body: {} });
+    const result = await api.call("POST", `${base}/rounds/2/pairings/generate-draw`, { token: writer, body: { replaceExistingDraw: true } });
     expect(result.status).toBe(200);
     const value = body<{ round: Json; pairings: Json[] }>(result);
     expect(value.round).toMatchObject({ drawStatus: "draft", drawSeed: expect.any(Number) });
@@ -177,7 +177,7 @@ describe("rounds, draws and allocation", () => {
 
   it("refuses to regenerate a completed round's draw", async () => {
     const before = snapshot();
-    const result = await api.call("POST", `${base}/rounds/1/pairings/generate-draw`, { token: writer, body: { discardExistingResults: true } });
+    const result = await api.call("POST", `${base}/rounds/1/pairings/generate-draw`, { token: writer, body: { replaceExistingDraw: true, discardExistingResults: true } });
     expect(result.status).toBe(409);
     expect(body(result)).toMatchObject({ error: { code: "rule_violation" } });
     expect(snapshot()).toBe(before);

@@ -29,9 +29,13 @@ know in advance how long they will take.
 
 Teams are ranked by the team standings. Teams that share a standings rank, and teams with
 no standing yet, are shuffled with the seeded random source, as Tabbycat breaks draw ties
-at random. Two-team brackets group teams by wins; BP brackets group them by team points.
+at random. Brackets group teams by the first metric of the team-standings precedence, as
+Tabbycat's draw managers do (`team.points` is the first precedence metric). With the default
+precedence that is team points, so round weights and points for byes shape the brackets; a
+tournament whose precedence starts with wins is bracketed by wins. A team without a value
+counts as 0. This applies to two-team and BP power pairing.
 
-A room's `pulledUp` teams are those with fewer wins (BP: points) than the best team in the
+A room's `pulledUp` teams are those in a lower bracket than the best team in the
 room. The generator stores this on each debate slot. Standings count it as the `pullups`
 metric (more ranks higher, as Tabbycat's `npullups`) and every team in such a room in the
 `pullup_debates` metric. The draw history counts pull-ups and pull-up debates for later rounds.
@@ -144,6 +148,25 @@ Pairing pairs the affirmative list with the negative list. Fold reverses the neg
 list, and random shuffles both. `min_cost` is a Hungarian assignment of affirmative to
 negative teams. Missing or uneven allocations are reported, not guessed.
 
+The Draw page shows every preliminary round's pre-allocations in one team × round grid
+(Tabbycat's *Side Pre-Allocations* page). Rounds without a draw are editable; drawn rounds
+show the side each team took. Two bulk actions fill the grid:
+
+- **Generate random sides for every round without a draw** (Tabbycat's
+  `generatesideallocations` command). Each round gives exactly half its teams the
+  affirmative; teams that have affirmed least in the earlier generated rounds affirm first,
+  ties broken by a seeded shuffle, so every team's affirmative count stays within one of
+  the others' (Tabbycat shuffles each round independently). The seed is recorded in the
+  audit log, and the same seed and field give the same sides. A round with an odd number of
+  teams is reported, not filled. If any open round already has sides, or the grid has
+  unsaved edits, the action asks for confirmation before replacing them; drawn rounds are
+  never touched.
+- **Copy sides from a previous round** (Tabbycat's bulk apply, same or opposite sides):
+  from a confirmed or released round into a round without a draw. Teams with no known side
+  in the source round (a bye, absent, or sides still to be recorded on the ballot) are
+  skipped and counted; their entries are left as they were. The result is saved with *Save
+  sides*.
+
 ## Other draw types
 
 - **Random** (and power-paired rounds before any results): two-team rounds shuffle the
@@ -151,10 +174,50 @@ negative teams. Missing or uneven allocations are reported, not guessed.
   minimum-cost matching over history and institution clashes, so later random rounds avoid
   rematches. BP random rounds spread institutions across rooms and then balance positions
   within each room.
-- **Seeded** (two-team): one bracket ordered by `Team.seed`, highest first. Equal seeds are
-  in random order. The bracket is paired with the configured pairing method and conflict
-  avoidance. Every team needs a seed. Set seeds on the Draw page.
-- **Round robin** and **manual** are unchanged.
+- **Seeded**: teams ordered by `Team.seed`, highest first; equal seeds are in random order.
+  Two-team: one bracket paired with the configured pairing method and conflict avoidance.
+  BP (Tabbycat's `SeededDrawManager` with 4 teams): every team counts as 0 points, so the
+  whole field is one bracket and the BP assignment places teams by position history alone
+  (with the unshuffled assignment method, rows follow seed order). Every team needs a seed.
+  Set seeds on the Draw page.
+- **Round robin**, two-team (Tabbycat's Berger schedule): teams are ordered by seed,
+  ascending (seed 1 first), equal seeds by team id; every team needs a seed. The round's
+  index is the position of its schedule slot among the preliminary round-robin slots
+  (parallel panels share it). The first team stays fixed and the rest rotate by index − 1.
+  An index past N − 1 (more round-robin rounds than a single cycle has) is an error, not a
+  silent wrap to the start of the schedule. Sides follow the side rule.
+- **Round robin**, BP (Tabbycat's `BPRoundRobinDrawGenerator`): Tabbycat's preset tables,
+  which exist for 16 teams (5 rounds) and 28 teams (9 rounds). Seeds must be exactly 1..N,
+  each once. Seats come from the table. Other team counts, round indices past the table,
+  and invalid seeds are reported as errors. Unlike Tabbycat, the side limits stay hard: a
+  table seat that would break one is reported instead of drawn.
+- **Manual** is unchanged.
+
+Each two-team round-robin round drawn with the Berger schedule is marked
+(`Round.roundRobinAlgorithm: "berger_seed"`). If an earlier preliminary round-robin round
+was drawn without the marker (before this schedule existed, when teams rotated in stored
+order), the cycle keeps that legacy rotation for its later rounds, and those rounds are not
+marked. The schedule therefore never changes mid-cycle, which could repeat pairings. The
+legacy rotation also reports an index past N − 1 as an error. Changing seeds within a
+Berger cycle changes its schedule, so keep a cycle's seeds fixed.
+
+## Elimination sides
+
+*Sides in elimination rounds* (Configuration → Sides) chooses how knockout sides are set:
+
+- **By seed** (the default, and what existing tournaments keep): the higher seed takes the
+  first side (affirmative; BP: OG, OO, CG, CO by seed) and sides are confirmed.
+- **Random, confirmed later** (Tabbycat): pairings are the same, but each room's teams are
+  shuffled over its seats with the draw's seed and the debate is left with
+  `sidesConfirmed: false`, as Tabbycat's elimination generators shuffle sides and leave
+  them unconfirmed. In two-team formats the debate uses the manual-ballot side machinery
+  (see *Sides chosen on the ballot*): the ballot records which team took which side (for
+  example after a coin toss), and bracket positions travel with the teams. BP ballots
+  cannot record sides (neither can Tabbycat's), so a BP room keeps its drawn seats, which
+  the draw editor can swap.
+
+By seed stays the default because changing it would change the sides of knockouts in
+tournaments that already rely on it; choose Random for Tabbycat's behaviour.
 
 ## Byes
 
@@ -208,6 +271,48 @@ stands in for), so swing speeches never mix with the speaker's own record.
   Tabbycat has a swing team type but leaves this to the tab director (break eligibility,
   duplicate speeches, "speeches missable"); CrabbyTab does it automatically.
 
+## Draw release stages
+
+A round's draw moves through Tabbycat's stages (`src/lib/draw/drawStatus.ts`, controls in
+`DrawStageControls` on the Draw page):
+
+| Stage | Stored `drawStatus` | Who sees it |
+| --- | --- | --- |
+| No draw | `none` | — |
+| Draft | `draft` | Tab room only; freely edited. |
+| Confirmed (Tabbycat "confirmed") | `locked` | Tab room only. Regenerating it or changing its matchups is an overridable `draw_confirmed` violation; **Back to draft** unlocks it. |
+| Released to teams only (Tabbycat `draw-teams-release`) | `teams_released` | Each team's private URL shows its own room, side and opponents, **without the panel**; teams may be emailed their draw. Not on public pages or the projector, not on adjudicators' private URLs, and no remote or public ballots yet. |
+| Released | `confirmed` (or the legacy `released`) | Public pages (per the draw mode), projector, adjudicators' private URLs, remote ballots. |
+
+**Compatibility.** Before these stages existed, the stored `confirmed` already meant the public
+release (and `released` was its synonym), so both keep that meaning and no stored data changes:
+nothing public became hidden or the reverse. A public release still writes `confirmed`, so the v1
+API and older app versions read it as before; the new stages use new values (`locked`,
+`teams_released`) that older versions treat as unpublished. Unknown values count as a draft.
+
+A draft can still be released in one step (as before) or confirmed first. Releasing to teams or to
+everyone runs the draw check (`draw_invalid`, `draw_empty`, `concurrent_round_clash`); going on from
+a teams-only release to the full release does not re-check what teams already saw. **Unrelease**
+returns the draw to the confirmed stage, as in Tabbycat. Releases and unreleases go through
+`ReleaseActionDialog`, which uploads and republishes; confirming and unconfirming are saved locally.
+
+**Difference from Tabbycat:** Tabbycat's public draw page also lists teams-only-released rounds
+(without adjudicators); CrabbyTab keeps them off public pages and shows them only on team private
+URLs.
+
+## Position balance report (BP)
+
+With **Details** open on a BP preliminary round after the first, the Draw page shows Tabbycat's
+position balance report (`draw-position-balance`, `src/lib/draw/positionBalance.ts`): each team's
+position counts (OG / OO / CG / CO) before and after the round, the cost of its position this round
+under the configured position cost (`bpPositionCost`, `renyiOrder`, `bpPositionCostExponent`, the
+same function the draw minimises), and a status: went from balanced to imbalanced, was imbalanced
+and still is, best improvement possible, or went from imbalanced to balanced ("balanced" = the four
+counts differ by at most one). By default only teams with a status are listed, highest cost first.
+Debates whose sides are chosen on the ballot are left out until their sides are known. Unlike
+Tabbycat, the cost has no pull-up penalty term (CrabbyTab's BP draw has none) and the "annotated
+draw" table (permitted points per room) is not reproduced.
+
 ## Draw editor
 
 The Draw page shows, for each debate, its bracket, room rank, whether sides are chosen on the
@@ -247,8 +352,13 @@ details; a team moved to another room loses its pull-up mark.
   whole side list when too few teams satisfy it.
 - `fold_top_adjacent_rest` and `adjacent` with preallocated sides pair the side lists in
   order (Tabbycat has no allocated-sides variant).
-- Seeded draws are two-team only, and preallocated sides and sides chosen on the ballot are
-  two-team only.
+- Preallocated sides and sides chosen on the ballot are two-team only.
+- Random side pre-allocation balances each team's affirmatives across rounds (Tabbycat
+  shuffles every round independently).
+- Elimination sides default to *by seed*; Tabbycat's random, unconfirmed sides are an option.
+- Debates with a team count other than 2 or 4 (Tabbycat's `teams_in_debate` is any number,
+  e.g. its public-speaking preset uses 6 with random, manual and elimination draws) are not
+  supported: CrabbyTab's ballots, results and standings are built for two-team and BP.
 - Swing teams are excluded from standings and breaks automatically (Tabbycat leaves it to
   the tab director).
 - `min_cost_with_pullups` breaks Tabbycat's arbitrary ties deterministically (see above) and,

@@ -50,6 +50,8 @@ function queryParameters(route: ApiRoute): JsonSchema[] {
 function security(route: ApiRoute): JsonSchema[] {
   if (route.auth.kind === "none") return [];
   if (route.auth.kind === "participant") return [{ participantKey: [], participantPasscode: [] }];
+  // Public reads also work without credentials (the public view, rate-limited per address).
+  if (route.auth.public && route.auth.access === "read") return [{ bearerAuth: [] }, {}];
   return [{ bearerAuth: [] }];
 }
 
@@ -57,7 +59,7 @@ function scopeNote(route: ApiRoute): string {
   if (route.auth.kind !== "token") return "";
   const scope = `${route.auth.access}:${route.auth.resource}`;
   const scopes = route.auth.access === "read" ? `\`${scope}\` or \`write:${route.auth.resource}\`` : `\`${scope}\``;
-  return `\n\n**Scope:** ${scopes}${route.auth.public ? ", or `read:public` (public view only)" : ""}.`;
+  return `\n\n**Scope:** ${scopes}${route.auth.public ? ", or `read:public` or no token at all (public view only)" : ""}.`;
 }
 
 function operation(route: ApiRoute): JsonSchema {

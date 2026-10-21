@@ -8,9 +8,7 @@ import {
   Shuffle,
   Printer,
   Download,
-  CheckCircle2,
   AlertTriangle,
-  Lock,
   MapPin,
   Search,
   Plus,
@@ -24,13 +22,16 @@ import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team } from "@/types";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
 import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
-import { isVenueAvailableForRound, safeVenueUrl, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
-import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
+import { isVenueAvailableForRound, safeVenueUrl, venueCategoryNames, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
+import { DrawStageControls } from "@/features/tournament/components/DrawStageControls";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
 import { DrawSetupPanel } from "@/features/tournament/components/DrawSetupPanel";
+import { SidePreallocationGrid } from "@/features/tournament/components/SidePreallocationGrid";
 import { DrawCheckPanel } from "@/features/tournament/components/DrawCheckPanel";
 import { DrawTeamSlot } from "@/features/tournament/components/DrawTeamSlot";
+import { TabroomTeamName } from "@/features/tournament/components/TabroomTeamName";
 import { DrawDetailsPanel } from "@/features/tournament/components/DrawDetailsPanel";
+import { PositionBalancePanel } from "@/features/tournament/components/PositionBalancePanel";
 import { SwingTeamPanel } from "@/features/tournament/components/SwingTeamPanel";
 import { roundResults } from "@/features/tournament/application/draws";
 import { buildDrawDetails, computeDrawFlags, type DebateFlags } from "@/lib/draw/drawFlags";
@@ -51,6 +52,8 @@ import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
+import { debateLiveness, roundBreakLiveness } from "@/lib/breakqual/liveness";
+import { BreakLivenessBadges } from "@/features/tournament/components/BreakLivenessBadges";
 
 type T = ReturnType<typeof useI18n>["t"];
 
@@ -104,18 +107,19 @@ export default function DrawPage() {
     institutions,
     generateDraw,
     updateRound,
+    updateRounds,
     updateTeam,
     updateDebate,
     updateDebates,
     addTeam,
     teamStandings,
+    breakCategories,
   } = useTournament();
   const { t, plural, rich } = useI18n();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
-  const [pendingDrawRelease, setPendingDrawRelease] = useState<boolean | null>(null);
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
   const [generateError, setGenerateError] = useState("");
   const [pendingGenerate, setPendingGenerate] = useState<PendingGenerate | null>(null);
@@ -194,6 +198,14 @@ export default function DrawPage() {
   );
   const drawDetails = useMemo(() => (drawInput && showDetails ? buildDrawDetails(drawInput) : []), [drawInput, showDetails]);
   const pointsByTeam = useMemo(() => new Map(teamStandings.map((row) => [row.teamId, row.points])), [teamStandings]);
+  // Break liveness before this round, per break category (Tabbycat shows it for preliminary rounds).
+  const liveness = useMemo(
+    () =>
+      tournament && activeRound?.stage === "preliminary"
+        ? roundBreakLiveness({ tournament, rounds, teams, debates, ballots, breakCategories }, activeRound)
+        : null,
+    [tournament, activeRound, rounds, teams, debates, ballots, breakCategories]
+  );
   const sidesOnBallot = !isBP && tournament?.preferences?.sideAllocationRule === "manual_ballot";
 
   const cancelPick = () => {
@@ -480,7 +492,6 @@ export default function DrawPage() {
     );
   };
 
-  const drawReleased = activeRound?.drawStatus === "confirmed";
   const sideOrder: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
   const pendingDeleteDebate = pendingDeleteId ? roundDebates.find((debate) => debate.id === pendingDeleteId) : undefined;
   const divisions = [...new Map(teams
@@ -529,24 +540,6 @@ export default function DrawPage() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setPendingDrawRelease(!drawReleased)}
-              disabled={roundDebates.length === 0}
-            >
-              {drawReleased ? (
-                <>
-                  <CheckCircle2 className="text-success" aria-hidden="true" />
-                  {t("tabroom.draw.action.released")}
-                </>
-              ) : (
-                <>
-                  <Lock aria-hidden="true" />
-                  {t("tabroom.draw.action.release")}
-                </>
-              )}
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
               onClick={() => setShowDetails((value) => !value)}
               disabled={roundDebates.length === 0}
               aria-pressed={showDetails}
@@ -576,6 +569,8 @@ export default function DrawPage() {
         }
       />
 
+      {activeRound && <DrawStageControls round={activeRound} hasDebates={roundDebates.length > 0} />}
+
       {generateError && (
         <Alert tone="danger" role="alert">
           {generateError}
@@ -589,6 +584,17 @@ export default function DrawPage() {
           teams={teams}
           updateRound={updateRound}
           updateTeam={(team) => updateTeam(team)}
+        />
+      )}
+
+      {tournament && activeRound?.stage === "preliminary" && tournament.format !== "bp" &&
+        tournament.preferences?.sideAllocationRule === "preallocated" && (
+        <SidePreallocationGrid
+          rounds={rounds}
+          teams={teams}
+          debates={debates}
+          ballots={ballots}
+          updateRounds={updateRounds}
         />
       )}
 
@@ -617,6 +623,7 @@ export default function DrawPage() {
       )}
 
       {showDetails && drawDetails.length > 0 && <DrawDetailsPanel rows={drawDetails} sides={sideOrder} />}
+      {showDetails && isBP && activeRound && roundDebates.length > 0 && <PositionBalancePanel round={activeRound} />}
 
       {venueAssignmentError && (
         <Alert tone="danger" role="alert">
@@ -767,7 +774,7 @@ export default function DrawPage() {
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="info">{t("tabroom.draw.bye.label")}</Badge>
-                    <span className="text-[13px] font-semibold text-fg">{byeTeam?.teamName || t("tabroom.draw.bye.teamFallback")}</span>
+                    <span className="text-[13px] font-semibold text-fg"><TabroomTeamName team={byeTeam?.teamId ? teamsMap.get(byeTeam.teamId) : undefined} name={byeTeam?.teamName} fallback={t("tabroom.draw.bye.teamFallback")} /></span>
                   </div>
                   <span className="text-xs font-medium text-fg-muted">
                     {debate.byeResult === "win" ? t("tabroom.draw.bye.win") : t("tabroom.draw.bye.absent")}
@@ -797,7 +804,7 @@ export default function DrawPage() {
                           const available = isVenueAvailableForRound(v, debate.roundId);
                           const parts = [
                             venueDisplayName(v, tournament?.preferences?.venueCategories),
-                            ...(v.category ? [v.category] : []),
+                            ...venueCategoryNames(v),
                             ...(v.capacity !== undefined ? [plural("tabroom.draw.room.venueSeats", v.capacity)] : []),
                             ...(!available ? [t("tabroom.draw.room.venueUnavailable")] : []),
                           ];
@@ -833,6 +840,16 @@ export default function DrawPage() {
                     {activeRound?.stage !== "elimination" && (
                       <Badge title={t("tabroom.draw.room.bracketTitle")}>
                         {t("tabroom.draw.room.bracket", { bracket: debate.bracket ?? 0 })}
+                      </Badge>
+                    )}
+                    {liveness && (
+                      <Badge title={t("tabroom.draw.room.livenessTitle")}>
+                        {t("tabroom.draw.room.liveness", {
+                          count: debateLiveness(
+                            Object.values(debate.teams ?? {}).flatMap((slot) => (slot?.teamId ? [slot.teamId] : [])),
+                            liveness
+                          ),
+                        })}
                       </Badge>
                     )}
                     <Badge title={t("tabroom.draw.room.rankTitle")}>
@@ -904,7 +921,7 @@ export default function DrawPage() {
                     >
                       <option value="">{t("tabroom.draw.room.anyCategory")}</option>
                       {[...new Set([
-                        ...venues.map((venue) => venue.category?.trim()).filter((category): category is string => Boolean(category)),
+                        ...venues.flatMap((venue) => venueCategoryNames(venue)),
                         ...(debate.requiredVenueCategory ? [debate.requiredVenueCategory] : []),
                       ])].sort((a, b) => a.localeCompare(b)).map((category) => (
                         <option key={category} value={category}>{category}</option>
@@ -992,6 +1009,11 @@ export default function DrawPage() {
                         slot={slot}
                         team={slot?.teamId ? teamsMap.get(slot.teamId) : undefined}
                         points={slot?.teamId ? pointsByTeam.get(slot.teamId) : undefined}
+                        liveness={
+                          liveness && slot?.teamId ? (
+                            <BreakLivenessBadges entries={liveness.byTeam.get(slot.teamId)} categories={breakCategories} />
+                          ) : undefined
+                        }
                         flags={(slot?.teamId && flags?.teams[slot.teamId]) || []}
                         compact={isBP}
                         isDragTarget={dragOverTarget === dropKey}
@@ -1047,17 +1069,6 @@ export default function DrawPage() {
           cancelLabel={t("tabroom.common.noCancel")}
           busyLabel={t("tabroom.common.saving")}
           closeLabel={t("tabroom.common.closeDialog")}
-        />
-      )}
-      {pendingDrawRelease !== null && activeRound && (
-        <ReleaseActionDialog
-          title={pendingDrawRelease ? t("tabroom.draw.release.publishTitle") : t("tabroom.draw.release.unpublishTitle")}
-          description={pendingDrawRelease
-            ? t("tabroom.draw.release.publishDescription", { round: activeRound.name })
-            : t("tabroom.draw.release.unpublishDescription", { round: activeRound.name })}
-          confirmLabel={pendingDrawRelease ? t("tabroom.draw.release.publishConfirm") : t("tabroom.draw.release.unpublishConfirm")}
-          apply={() => updateRound({ ...activeRound, drawStatus: pendingDrawRelease ? "confirmed" : "draft" })}
-          onClose={() => setPendingDrawRelease(null)}
         />
       )}
     </div>

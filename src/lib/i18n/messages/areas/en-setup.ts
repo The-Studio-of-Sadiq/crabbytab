@@ -16,6 +16,7 @@ import { importsExtraEn } from "@/lib/i18n/messages/areas/setup/importsExtra.en"
 import { staffEn } from "@/lib/i18n/messages/areas/setup/staff.en";
 import { emailEn } from "@/lib/i18n/messages/areas/setup/email.en";
 import { registrationEn } from "@/lib/i18n/messages/areas/setup/registration.en";
+import { dataEn } from "@/lib/i18n/messages/areas/setup/data.en";
 
 export const enSetup = {
   ...commonEn,
@@ -28,4 +29,5 @@ export const enSetup = {
   ...staffEn,
   ...emailEn,
   ...registrationEn,
+  ...dataEn,
 } as const;

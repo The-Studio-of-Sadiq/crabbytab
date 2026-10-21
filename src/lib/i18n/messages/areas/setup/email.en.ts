@@ -127,6 +127,9 @@ export const emailEn = {
   "setup.email.eventPrivateUrlWhen": "Sent from the compose form to teams or adjudicators.",
   "setup.email.eventFeedbackUrl": "Feedback URL",
   "setup.email.eventFeedbackUrlWhen": "Sent from the compose form to teams or adjudicators.",
+  "setup.email.eventTeamRegistration": "Team registration details",
+  "setup.email.eventTeamRegistrationWhen":
+    "Sent from the compose form to teams: tells each speaker who is registered on their team.",
   "setup.email.eventRegistrationReceived": "Registration received",
   "setup.email.eventRegistrationReceivedWhen": "The registrant's contact address, when a registration is submitted.",
   "setup.email.eventRegistrationApproved": "Registration approved",
@@ -226,4 +229,20 @@ export const emailEn = {
   "setup.email.privateUrls.slipTeam": "{tournament} · Team private URL",
   "setup.email.privateUrls.slipPasscode": "Passcode: <code>{passcode}</code>",
   "setup.email.privateUrls.slipKeepPrivate": "Keep this slip private.",
+  // access-comms
+  "setup.email.privateUrls.speakerUrlsTitle": "Speaker private URLs (optional)",
+  "setup.email.privateUrls.speakerUrlsDescription": "Give each speaker a link and passcode of their own, as Tabbycat does. A speaker's link opens their team's portal and can only act for that team. Team links and passcodes do not change, so printed links and QR codes keep working.",
+  "setup.email.privateUrls.speakerUrlsCreate": "Create speaker links ({count} missing)",
+  "setup.email.privateUrls.speakerUrlsCreated": "Speaker links created. Upload the tournament so they work.",
+  "setup.email.privateUrls.speakerUrlsRemove": "Remove speaker links",
+  "setup.email.privateUrls.speakerUrlsRemoveTitle": "Remove every speaker link?",
+  "setup.email.privateUrls.speakerUrlsRemoveDescription": "Speakers' own links stop working once the tournament is uploaded. Team links and passcodes are not affected.",
+  "setup.email.privateUrls.speakerUrlsRemoved": "Speaker links removed.",
+  "setup.email.privateUrls.speakerUrlsSaveError": "Could not save the speaker links.",
+  "setup.email.privateUrls.speakerUrlsSpeaker": "Speaker",
+  "setup.email.privateUrls.speakerUrlsTeam": "Team",
+  "setup.email.privateUrls.speakerUrlsLink": "Speaker private URL",
+  "setup.email.privateUrls.speakerUrlsCopy": "Copy {name}'s private URL",
+  // access-comms
+  "setup.email.groupInstitutionCoaches": "Institution coaches and representatives",
 } as const;

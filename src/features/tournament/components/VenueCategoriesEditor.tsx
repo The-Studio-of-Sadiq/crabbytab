@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import type { Venue, VenueCategoryInfo } from "@/types";
-import { normaliseCategory, venueCategoryInfo, venueDisplayName } from "@/lib/venues/venues";
+import { normaliseCategory, venueCategoryInfo, venueCategoryNames, venueDisplayName } from "@/lib/venues/venues";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -29,8 +29,9 @@ export function VenueCategoriesEditor({
   const names = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const venue of venues) {
-      const name = venue.category?.trim();
-      if (name && !byKey.has(normaliseCategory(name))) byKey.set(normaliseCategory(name), name);
+      for (const name of venueCategoryNames(venue)) {
+        if (!byKey.has(normaliseCategory(name))) byKey.set(normaliseCategory(name), name);
+      }
     }
     for (const category of categories ?? []) {
       if (!byKey.has(normaliseCategory(category.name))) byKey.set(normaliseCategory(category.name), category.name);
@@ -73,7 +74,7 @@ export function VenueCategoriesEditor({
     }
   };
 
-  const example = venues.find((venue) => venue.category?.trim());
+  const example = venues.find((venue) => venueCategoryNames(venue).length > 0);
   return (
     <Card>
       <CardHeader

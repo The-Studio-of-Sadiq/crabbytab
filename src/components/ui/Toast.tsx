@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { cn } from "@/components/ui/cn";
 import { IconButton } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 type ToastTone = "info" | "success" | "warning" | "danger";
 
@@ -37,6 +38,7 @@ const toneIcon: Record<ToastTone, React.ReactNode> = {
 };
 
 function ToastItem({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: number) => void }) {
+  const { t } = useI18n();
   useEffect(() => {
     if (toast.duration <= 0) return;
     const timer = window.setTimeout(() => onDismiss(toast.id), toast.duration);
@@ -53,12 +55,13 @@ function ToastItem({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: n
         <p className="font-medium">{toast.title}</p>
         {toast.description && <p className="mt-0.5 text-xs text-fg-muted">{toast.description}</p>}
       </div>
-      <IconButton label="Dismiss notification" icon={<X />} size="sm" onClick={() => onDismiss(toast.id)} className="-my-1 -mr-1" />
+      <IconButton label={t("common.dismissNotification")} icon={<X />} size="sm" onClick={() => onDismiss(toast.id)} className="-my-1 -mr-1" />
     </li>
   );
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const nextId = useRef(1);
 
@@ -84,7 +87,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <ol
-        aria-label="Notifications"
+        aria-label={t("common.notifications")}
         className={cn(
           "pointer-events-none fixed bottom-0 right-0 z-[80] flex w-full flex-col gap-2 p-4 sm:max-w-sm",
           toasts.length === 0 && "hidden"

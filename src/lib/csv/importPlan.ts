@@ -1,4 +1,4 @@
-import type { Adjudicator, BreakCategory, Institution, Speaker, SpeakerCategory, Team } from "@/types";
+import type { Adjudicator, BreakCategory, Institution, Speaker, SpeakerCategory, Team, TeamSeedMode } from "@/types";
 import { changeAdjudicatorInstitution } from "@/lib/adjudicators/conflicts";
 import {
   resolveSpeakerCategoryNamesForImport,
@@ -8,6 +8,7 @@ import {
   toStoredSpeakerCategories,
   type SpeakerCategoryView,
 } from "@/lib/speakerCategories";
+import { seedTitle } from "@/lib/teamSeeds";
 import { normalizeEmail, normalizeName, readCsvTable, unknownColumns, type CsvRecord } from "./csvTable";
 import {
   deriveInstitutionCode,
@@ -100,6 +101,8 @@ export interface ImportContext {
   speakerCategories?: SpeakerCategoryView[];
   /** Speakers per team in the format; teams with no speakers get this many placeholders. */
   substantiveSpeakers?: number;
+  /** Whether team rows carry a `seed` column (Tabbycat show_seed_in_importer). Absent = "off": the column is ignored. */
+  teamSeedMode?: TeamSeedMode;
 }
 
 const COMMON_VENUE_COLUMNS = [
@@ -232,7 +235,8 @@ export function planImport(kind: ImportKind, text: string, context: ImportContex
     newSpeakerCategories: [],
   };
   if (fileErrors.length > 0) return empty;
-  const ignoredColumns = unknownColumns(table.headers, KNOWN_COLUMNS[kind]);
+  const known = kind === "teams" && (context.teamSeedMode ?? "off") !== "off" ? [...KNOWN_COLUMNS.teams, "seed"] : KNOWN_COLUMNS[kind];
+  const ignoredColumns = unknownColumns(table.headers, known);
   if (kind === "institutions") return { ...empty, ignoredColumns, rows: planInstitutionRows(table.records, context) };
   if (kind === "teams") return { ...planTeamRows(table.records, context), kind, fileErrors, ignoredColumns };
   return { ...planAdjudicatorRows(table.records, context), kind, fileErrors, ignoredColumns };
@@ -290,6 +294,12 @@ function collectNewSpeakerCategories(
   }
 }
 
+/** " · Half seed" / " · seed 4" for the preview, or "" without a seed. */
+function seedDetail(seed: number | undefined, mode: TeamSeedMode | undefined): string {
+  if (seed === undefined) return "";
+  return mode === "title" ? ` · ${seedTitle(seed) ?? `seed ${seed}`}` : ` · seed ${seed}`;
+}
+
 function planTeamRows(
   records: CsvRecord[],
   context: ImportContext
@@ -309,7 +319,7 @@ function planTeamRows(
 
   const rows = records.map((record) => {
     const issues = rowIssues(record, "teams");
-    const parsed = parseTeamRow(record.values, record.rowNumber, context.breakCategories ?? []);
+    const parsed = parseTeamRow(record.values, record.rowNumber, context.breakCategories ?? [], { seedMode: context.teamSeedMode });
     issues.push(...parsed.issues);
     const team = parsed.team;
     if (!team.name) issues.push({ severity: "error", message: "The team name is missing." });
@@ -355,7 +365,7 @@ function planTeamRows(
     return finishRow<PlannedTeam>({
       rowNumber: record.rowNumber,
       label: team.name || "(no name)",
-      details: `${resolver.label(institution)} · ${speakerSummary}`,
+      details: `${resolver.label(institution)} · ${speakerSummary}${seedDetail(team.seed, context.teamSeedMode)}`,
       issues,
       draft: team.name
         ? { team, speakerCategoryNames: parsed.speakerCategoryNames, placeholderSpeakers }
@@ -647,6 +657,8 @@ export function buildImportCommit(
           speakers: mergeSpeakers(existing.speakers, speakers, context.createId),
           breakCategories: team.breakCategories.length > 0 ? team.breakCategories : existing.breakCategories,
           speakerCategories: team.speakerCategories.length > 0 ? team.speakerCategories : existing.speakerCategories,
+          // A blank seed cell keeps the team's seed.
+          seed: team.seed ?? existing.seed,
         });
         continue;
       }

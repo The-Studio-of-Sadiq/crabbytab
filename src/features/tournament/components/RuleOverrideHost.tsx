@@ -5,6 +5,7 @@ import { ShieldAlert } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Field";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { registerRuleOverrideRequester } from "@/features/tournament/application/ruleOverridePrompt";
 import type { RuleOverride, TournamentRuleError } from "@/features/tournament/application/stateGuards";
 
@@ -19,6 +20,7 @@ interface PendingRequest {
  * so the page shows the original error. Mount once, for administrators only.
  */
 export function RuleOverrideHost() {
+  const { t } = useI18n();
   const [pending, setPending] = useState<PendingRequest | null>(null);
   const [reason, setReason] = useState("");
   const [showError, setShowError] = useState(false);
@@ -52,31 +54,31 @@ export function RuleOverrideHost() {
       role="alertdialog"
       onClose={() => finish(null)}
       initialFocusRef={cancelRef}
-      title="This action breaks a tournament rule"
-      description="Proceed only if the tab room has agreed to. Your reason is recorded in the audit log."
+      title={t("tabroom.common.override.title")}
+      description={t("tabroom.common.override.description")}
       icon={<ShieldAlert className="text-warning" aria-hidden="true" />}
       footer={
         <>
           <Button ref={cancelRef} variant="secondary" onClick={() => finish(null)}>
-            No, cancel
+            {t("common.noCancel")}
           </Button>
           <Button variant="danger" onClick={confirm}>
-            Override and continue
+            {t("tabroom.common.override.confirm")}
           </Button>
         </>
       }
     >
-      <ul className="mb-3 list-disc space-y-1 pl-5" aria-label="Rules that would be overridden">
+      <ul className="mb-3 list-disc space-y-1 pl-5" aria-label={t("tabroom.common.override.rulesLabel")}>
         {pending.error.violations.map((violation, index) => (
           <li key={`${violation.rule}-${index}`}>{violation.message}</li>
         ))}
       </ul>
       <Textarea
-        label="Reason for overriding"
+        label={t("tabroom.common.override.reasonLabel")}
         required
         value={reason}
         onChange={(event) => setReason(event.target.value)}
-        error={showError ? "Enter a reason to continue." : undefined}
+        error={showError ? t("tabroom.common.override.reasonRequired") : undefined}
         maxLength={500}
       />
     </Dialog>

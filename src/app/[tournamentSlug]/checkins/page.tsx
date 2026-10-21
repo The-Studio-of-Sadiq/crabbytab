@@ -36,7 +36,7 @@ import {
   setVenueCheckIn,
 } from "@/lib/checkins/history";
 import type { CheckInEvent, CheckInSource } from "@/types";
-import { isVenueCheckedIn } from "@/lib/venues/venues";
+import { isVenueCheckedIn, venueCategoryNames } from "@/lib/venues/venues";
 import type { Venue } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -167,7 +167,7 @@ export default function CheckinsPage() {
       .toLowerCase().includes(searchQuery.toLowerCase())
   );
   const filteredVenues = venues.filter((venue) =>
-    `${venue.name} ${venue.category ?? ""} ${venue.id}`.toLowerCase().includes(searchQuery.toLowerCase())
+    `${venue.name} ${venueCategoryNames(venue).join(" ")} ${venue.id}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   useEffect(() => {
@@ -626,7 +626,7 @@ export default function CheckinsPage() {
                         <TR key={venue.id}>
                           <TD align="center" className="font-mono text-xs text-fg-muted">{idx + 1}</TD>
                           <TD className="font-medium">{venue.name}</TD>
-                          <TD className="text-xs text-fg-muted">{venue.category || "—"}</TD>
+                          <TD className="text-xs text-fg-muted">{venueCategoryNames(venue).join(", ") || "—"}</TD>
                           <TD align="center">
                             <AvailabilityToggle
                               name={venue.name}

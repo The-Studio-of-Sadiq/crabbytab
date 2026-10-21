@@ -27,6 +27,8 @@ import {
 } from "@/lib/csv/importPlan";
 import { effectiveSpeakerCategories } from "@/lib/speakerCategories";
 import type { MessageKey } from "@/lib/i18n";
+import { normalizeTeamSeedMode } from "@/lib/teamSeeds";
+import type { TeamSeedMode } from "@/types";
 
 /** English collection names for the audit summary, which is saved and so stays untranslated. */
 const AUDIT_NOUNS: Record<ImportKind, string> = {
@@ -107,6 +109,23 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
     breakCategories,
     speakerCategories,
     substantiveSpeakers: tournament?.preferences.substantiveSpeakers,
+    teamSeedMode: tournament?.preferences.teamSeedMode,
+  };
+  const [seedModeSaving, setSeedModeSaving] = useState(false);
+  const [seedModeError, setSeedModeError] = useState("");
+
+  // Tabbycat's "Enable team seed in importer" (show_seed_in_importer), a tournament setting.
+  const changeSeedMode = async (mode: TeamSeedMode) => {
+    if (!tournament || seedModeSaving) return;
+    setSeedModeSaving(true);
+    setSeedModeError("");
+    try {
+      await saveTournament({ ...tournament, preferences: { ...tournament.preferences, teamSeedMode: mode } });
+    } catch (error) {
+      setSeedModeError(error instanceof Error ? error.message : t("setup.imports.csvSaveError"));
+    } finally {
+      setSeedModeSaving(false);
+    }
   };
 
   const reset = () => {
@@ -242,6 +261,21 @@ export function CsvImportDialog({ kind, open, onClose }: { kind: ImportKind; ope
     >
       {!plan ? (
         <div className="space-y-3">
+          {kind === "teams" && (
+            <Select
+              label={t("setup.imports.seedModeLabel")}
+              help={t("setup.imports.seedModeHelp")}
+              value={normalizeTeamSeedMode(tournament?.preferences.teamSeedMode)}
+              disabled={seedModeSaving || !tournament}
+              onChange={(event) => void changeSeedMode(event.target.value as TeamSeedMode)}
+              wrapperClassName="max-w-md"
+            >
+              <option value="off">{t("setup.imports.seedModeOff")}</option>
+              <option value="numeric">{t("setup.imports.seedModeNumeric")}</option>
+              <option value="title">{t("setup.imports.seedModeTitle")}</option>
+            </Select>
+          )}
+          {seedModeError && <Alert tone="danger" role="alert">{seedModeError}</Alert>}
           <div className="flex flex-wrap items-center gap-2">
             {/* The file input is visually hidden; the label shows the focus ring while it has focus. */}
             <label className={cn(buttonClasses({ variant: "secondary" }), "cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent")}>

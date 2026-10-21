@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Checkbox, Input } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
-import { useI18n, type RichTags } from "@/components/i18n/I18nProvider";
+import { useI18n, useLoadedLocale, type RichTags } from "@/components/i18n/I18nProvider";
 import {
   createTranslator,
   getLocaleDefinition,
@@ -32,7 +32,7 @@ export interface PrintTranslator extends Translator {
  */
 export function usePrintTranslator(tournament: Pick<Tournament, "preferences"> | null | undefined): PrintTranslator {
   const { locale: viewerLocale } = useI18n();
-  const locale: Locale = matchLocale(tournament?.preferences?.publicLanguage) ?? viewerLocale;
+  const locale: Locale = useLoadedLocale(matchLocale(tournament?.preferences?.publicLanguage) ?? viewerLocale);
   return useMemo(() => {
     const translator = createTranslator(locale);
     return {

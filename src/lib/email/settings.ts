@@ -18,6 +18,7 @@ export const TEMPLATE_EVENTS = [
   "motions_released",
   "private_url",
   "feedback_url",
+  "team_registration",
   "registration_received",
   "registration_approved",
   "slots_allocated",
@@ -80,6 +81,11 @@ export const TEMPLATE_EVENT_INFO: Record<TemplateEvent, { label: string; when: s
     when: "Sent from the compose form to teams or adjudicators.",
     variables: ["team", "private_url", "passcode"],
   },
+  team_registration: {
+    label: "Team registration details",
+    when: "Sent from the compose form to teams: tells each speaker who is registered on their team.",
+    variables: ["team", "speakers", "code_name", "emoji", "break_categories"],
+  },
   registration_received: {
     label: "Registration received",
     when: "The registrant's contact address, when a registration is submitted.",
@@ -136,6 +142,12 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<TemplateEvent, EmailTemplate> = {
     subject: "{{tournament}} — submit your feedback",
     body:
       "Hi {{name}},\n\nPlease submit your adjudicator feedback for {{tournament}} from your private page.\n\nPrivate link: {{private_url}}\nPasscode: {{passcode}}\n\nThank you,\nTournament Staff",
+  },
+  // Tabbycat's team_email_subject / team_email_message, with CrabbyTab's variable names.
+  team_registration: {
+    subject: "Registration for {{tournament}}",
+    body:
+      "Hi {{name}},\n\nYou are registered as {{team}} in {{tournament}} with {{speakers}}.\n\nIf any of these details are wrong, reply to this email.\n\nTournament Staff",
   },
   registration_received: {
     subject: "{{tournament}} — registration received",
@@ -205,6 +217,10 @@ const SAMPLE_RECIPIENT: EmailRecipient = {
   url: "https://example.com/r",
   teamsAllocated: "2",
   adjudicatorsAllocated: "1",
+  speakers: "A, B",
+  codeName: "Code",
+  emoji: "🦊",
+  breakCategories: "Open",
 };
 
 /** Validates settings an administrator saves. Throws EmailCampaignInputError. */

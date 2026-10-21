@@ -1,3 +1,4 @@
+import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -21,6 +22,7 @@ import type {
 import type { PublicSiteSettings } from "@/lib/publicFeatures";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { resolveSpeakerExtra, resolveTeamExtra, resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { rankTeamSubset } from "@/lib/standings/subset";
 import { resolveSpeakerCategoryIds, speakerRowsInCategory } from "@/lib/speakerCategories";
 import { participantGender, participantRegion } from "@/lib/adjudicators/diversity";
 import {
@@ -30,11 +32,12 @@ import {
   isFeedbackCountedForScore,
   preFeedbackScore,
 } from "@/lib/feedback/scores";
-import { expectedFeedbackForDebate } from "@/lib/feedback/progress";
+import { expectedFeedbackForDebate, unexpectedFeedback } from "@/lib/feedback/progress";
 import { isFeedbackEnabledForRound } from "@/lib/feedback/questions";
 import { feedbackPathsForRound } from "@/lib/feedback/paths";
 import { isReplyEntry } from "@/lib/ballots/result";
 import type { PublicNamer } from "@/lib/publicView/names";
+import { buildPublicFormsDirectory, type PublicFormsDirectory } from "@/lib/publicForms";
 
 /**
  * Public data computed at publish time from the raw records: tabs (so top-N limits are enforced on
@@ -79,10 +82,13 @@ export interface PublicTabs {
   repliesTab?: PublicSpeakerTabRow[];
   /** Per public speaker category (released with the speaker tab), the category's own limit applied. */
   speakerCategoryTabs?: Record<string, PublicSpeakerTabRow[]>;
-  /** Per break category: eligible teams re-ranked within the category. */
+  /**
+   * Per break category: the category's teams ranked within the category (every team for a general
+   * category), cut at the category's own public tab limit.
+   */
   breakCategoryTabs?: Record<string, PublicTeamTabRow[]>;
   /** The limits applied (0 = none), so pages can say "top N". */
-  limits: { team: number; speaker: number; replies: number };
+  limits: { team: number; speaker: number; replies: number; breakCategories?: Record<string, number> };
 }
 
 export interface PublicAdjudicatorTabRow {
@@ -146,6 +152,11 @@ export interface PublicFeedbackProgressRow {
   name: string;
   expected: number;
   submitted: number;
+  /**
+   * Submissions no path expected (Tabbycat `show_unexpected_feedback`, shown with a question mark);
+   * present only when the setting is on and there are some.
+   */
+  unexpected?: number;
 }
 
 export interface PublicDerived {
@@ -156,6 +167,8 @@ export interface PublicDerived {
   vetoes?: Record<string, Partial<Record<DebateSide, number>>>;
   diversity?: PublicDiversity;
   feedbackProgress?: { roundIds: string[]; rows: PublicFeedbackProgressRow[] };
+  /** Pickers of the public ballot / feedback forms (src/lib/publicForms.ts); absent when both are off. */
+  publicForms?: PublicFormsDirectory;
 }
 
 export interface DerivedInput {
@@ -200,16 +213,20 @@ function withinLimit<T extends { rank: number; ineligible?: boolean }>(rows: T[]
   return limit > 0 ? rows.filter((row) => !row.ineligible && row.rank > 0 && row.rank <= limit) : rows;
 }
 
-/** Re-ranks a filtered team list, keeping shared ranks for teams that shared one overall. */
-function rerank(rows: TeamStandingRow[]): TeamStandingRow[] {
-  let previous: TeamStandingRow | undefined;
-  let previousRank = 0;
-  return rows.map((row, index) => {
-    const rank = previous && previous.rank === row.rank ? previousRank : index + 1;
-    previous = row;
-    previousRank = rank;
-    return { ...row, rank };
-  });
+/** A break category's public tab limit; absent, invalid or 0 = none. */
+function categoryLimit(category: BreakCategory): number {
+  return Number.isInteger(category.limit) && (category.limit ?? 0) > 0 ? category.limit! : 0;
+}
+
+/**
+ * Teams in a break category's team tab (Tabbycat: the category's team_set). A general category
+ * holds every team unless the tab director marked it ineligible; any other category holds the
+ * teams marked eligible for it.
+ */
+function inBreakCategory(category: BreakCategory, team: Team | undefined): boolean {
+  if (!team) return false;
+  if (category.isGeneral) return category.teamOverrides?.[team.id] !== "ineligible";
+  return Boolean(team.breakCategories?.includes(category.id));
 }
 
 function computeStandings(input: DerivedInput) {
@@ -280,15 +297,19 @@ export function buildPublicTabs(input: DerivedInput, computed = computeStandings
   }
   if (release.repliesTab) tabs.repliesTab = withinLimit(standings.replies, settings.repliesTabLimit).map(speakerRow);
   if (wantsCategoryTabs) {
-    const eligibility = new Map(input.teams.map((team) => [team.id, new Set(team.breakCategories ?? [])]));
+    const teamById = new Map(input.teams.map((team) => [team.id, team]));
+    const precedence = resolveTeamPrecedence(input.tournament.format ?? "two_team", preferences);
+    const categories = [...input.breakCategories].sort((left, right) => left.seq - right.seq);
     tabs.breakCategoryTabs = Object.fromEntries(
-      [...input.breakCategories]
-        .sort((left, right) => left.seq - right.seq)
-        .map((category) => [
-          category.id,
-          rerank(standings.teams.filter((row) => eligibility.get(row.teamId)?.has(category.id))).map(teamRow),
-        ])
+      categories.map((category) => [
+        category.id,
+        withinLimit(
+          rankTeamSubset(standings.teams.filter((row) => inBreakCategory(category, teamById.get(row.teamId))), precedence),
+          categoryLimit(category)
+        ).map(teamRow),
+      ])
     );
+    tabs.limits.breakCategories = Object.fromEntries(categories.map((category) => [category.id, categoryLimit(category)]));
   }
   return tabs;
 }
@@ -323,7 +344,7 @@ export function buildAdjudicatorTab(input: DerivedInput): PublicAdjudicatorTab |
   const rounds = input.rounds.filter((round) => round.cancelled !== true).sort((left, right) => left.seq - right.seq);
   // The final score blends feedback with the weight of the latest round with a published draw,
   // as the tab room's feedback page does with its active round.
-  const weightRound = [...rounds].reverse().find((round) => round.drawStatus === "confirmed" || round.drawStatus === "released") ?? rounds[rounds.length - 1];
+  const weightRound = [...rounds].reverse().find((round) => isDrawPubliclyReleased(round)) ?? rounds[rounds.length - 1];
   const summaries = shows === "test" ? new Map() : calculateFeedbackSummaries(input.feedback, input.debates, preferences);
   const rows = input.adjudicators.map((adjudicator): PublicAdjudicatorTabRow => {
     const anonymous = namer.isAdjudicatorAnonymous(adjudicator.id);
@@ -520,7 +541,24 @@ export function buildFeedbackProgress(input: DerivedInput): PublicDerived["feedb
     .filter((round) => isFeedbackEnabledForRound({ postponed: false }, round, inElims))
     .sort((left, right) => left.seq - right.seq);
   const teamName = new Map(input.teams.map((team) => [team.id, team.name]));
+  const showUnexpected = preferences?.showUnexpectedFeedback !== false;
   const totals = new Map<string, PublicFeedbackProgressRow>();
+  const isPublicSource = (sourceType: "team" | "adjudicator", sourceId: string) =>
+    sourceType === "team" ? input.publicTeamIds.has(sourceId) : input.publicAdjudicatorIds.has(sourceId);
+  const rowFor = (sourceType: "team" | "adjudicator", sourceId: string) => {
+    const key = `${sourceType}|${sourceId}`;
+    const row = totals.get(key) ?? {
+      sourceType,
+      sourceId,
+      name: sourceType === "team"
+        ? input.namer.team(sourceId, teamName.get(sourceId))
+        : input.namer.adjudicator(sourceId),
+      expected: 0,
+      submitted: 0,
+    };
+    totals.set(key, row);
+    return row;
+  };
   for (const round of rounds) {
     // Same matching as the tab room's feedback progress: any submission from the source about
     // the target in the round counts, confirmed or not.
@@ -533,21 +571,18 @@ export function buildFeedbackProgress(input: DerivedInput): PublicDerived["feedb
     for (const debate of input.debates) {
       if (debate.roundId !== round.id) continue;
       for (const item of expectedFeedbackForDebate(debate, path)) {
-        const isPublic = item.sourceType === "team" ? input.publicTeamIds.has(item.sourceId) : input.publicAdjudicatorIds.has(item.sourceId);
-        if (!isPublic) continue;
-        const key = `${item.sourceType}|${item.sourceId}`;
-        const row = totals.get(key) ?? {
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          name: item.sourceType === "team"
-            ? input.namer.team(item.sourceId, teamName.get(item.sourceId))
-            : input.namer.adjudicator(item.sourceId),
-          expected: 0,
-          submitted: 0,
-        };
+        if (!isPublicSource(item.sourceType, item.sourceId)) continue;
+        const row = rowFor(item.sourceType, item.sourceId);
         row.expected += 1;
         if (received.has(`${item.sourceType}|${item.sourceId}|${item.targetAdjudicatorId}`)) row.submitted += 1;
-        totals.set(key, row);
+      }
+    }
+    // Tabbycat's participants pages count feedback nobody expected, unless switched off.
+    if (showUnexpected) {
+      for (const submission of unexpectedFeedback(round, input.debates, input.feedback, path)) {
+        if (!isPublicSource(submission.sourceType, submission.sourceId)) continue;
+        const row = rowFor(submission.sourceType, submission.sourceId);
+        row.unexpected = (row.unexpected ?? 0) + 1;
       }
     }
   }
@@ -580,6 +615,17 @@ export function buildPublicDerived(input: DerivedInput, breakingTeamIds: Set<str
   if (diversity) derived.diversity = diversity;
   const feedbackProgress = buildFeedbackProgress(input);
   if (feedbackProgress) derived.feedbackProgress = feedbackProgress;
+  const publicForms = buildPublicFormsDirectory({
+    preferences: input.tournament.preferences,
+    rounds: input.rounds,
+    debates: input.debates,
+    teams: input.teams,
+    adjudicators: input.adjudicators,
+    motions: input.motions,
+    namer: input.namer,
+    revealedRoundIds: input.revealedRoundIds,
+  });
+  if (publicForms) derived.publicForms = publicForms;
   return { ...(tabs ? { tabs } : {}), derived };
 }
 

@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { cn } from "@/components/ui/cn";
 import { IconButton } from "@/components/ui/Button";
 import { useFocusTrap } from "@/components/ui/useFocusTrap";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export interface DialogProps {
   open: boolean;
@@ -25,7 +26,7 @@ export interface DialogProps {
   /** Leading icon shown next to the title. */
   icon?: React.ReactNode;
   className?: string;
-  /** Accessible name of the close button (translated by the caller); defaults to English. */
+  /** Accessible name of the close button; defaults to the translated "Close dialog". */
   closeLabel?: string;
 }
 
@@ -50,8 +51,9 @@ export function Dialog({
   dismissible = true,
   icon,
   className,
-  closeLabel = "Close dialog",
+  closeLabel,
 }: DialogProps) {
+  const { t } = useI18n();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -101,7 +103,7 @@ export function Dialog({
             )}
           </div>
           {dismissible && (
-            <IconButton label={closeLabel} icon={<X />} size="sm" onClick={close} className="-mr-2 -mt-1" />
+            <IconButton label={closeLabel ?? t("common.closeDialog")} icon={<X />} size="sm" onClick={close} className="-mr-2 -mt-1" />
           )}
         </div>
         {children && <div className="min-h-0 overflow-y-auto px-5 pb-4 text-[13px]">{children}</div>}

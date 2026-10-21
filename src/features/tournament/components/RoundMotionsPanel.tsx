@@ -19,6 +19,7 @@ import {
   removeMotionFromRound,
 } from "@/lib/motions/roundMotions";
 import { formatScheduleTime } from "@/lib/schedule/time";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * One round's motions: release state, order within the round (Tabbycat RoundMotion.seq) and
@@ -26,6 +27,7 @@ import { formatScheduleTime } from "@/lib/schedule/time";
  * motion to this round rather than duplicating it.
  */
 export function RoundMotionsPanel({ round }: { round: Round }) {
+  const { t, locale, formatList } = useI18n();
   const { motions, rounds, isOwnerOrAdmin, updateMotions } = useTournament();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,7 +43,7 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
     try {
       await action();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not update this round's motions.");
+      setError(caught instanceof Error ? caught.message : t("tabroom.schedule.motions.updateFailed"));
     } finally {
       setBusy(false);
     }
@@ -51,18 +53,18 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
     <Card>
       <CardHeader
         icon={<ListOrdered aria-hidden="true" />}
-        title={`${round.name} motions`}
+        title={t("tabroom.schedule.motions.title", { round: round.name })}
         description={
           round.startsAt
-            ? `Round starts ${formatScheduleTime(round.startsAt)}.`
-            : "Order, reuse and release the motions debated in this round."
+            ? t("tabroom.schedule.motions.startsAt", { time: formatScheduleTime(round.startsAt, undefined, locale) })
+            : t("tabroom.schedule.motions.description")
         }
         actions={<MotionReleaseControl round={round} />}
       />
       <CardBody className="space-y-3">
         {error && <Alert tone="danger" role="alert">{error}</Alert>}
         {roundMotions.length === 0 ? (
-          <p className="text-xs text-fg-muted">No motions are assigned to {round.name} yet.</p>
+          <p className="text-xs text-fg-muted">{t("tabroom.schedule.motions.empty", { round: round.name })}</p>
         ) : (
           <ol className="space-y-1.5">
             {roundMotions.map((motion, index) => {
@@ -74,29 +76,29 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
                     <p className="text-[13px] font-medium text-fg">{motion.text}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {motion.reference && <Badge>{motion.reference}</Badge>}
-                      {motion.infoSlide?.trim() && <Badge tone="info">Info slide</Badge>}
-                      <Badge tone={motion.released ? "success" : "neutral"}>{motion.released ? "Public" : "Hidden"}</Badge>
-                      {elsewhere.length > 0 && <span className="text-[11px] text-fg-muted">Also in {elsewhere.join(", ")}</span>}
+                      {motion.infoSlide?.trim() && <Badge tone="info">{t("tabroom.schedule.motions.infoSlide")}</Badge>}
+                      <Badge tone={motion.released ? "success" : "neutral"}>{motion.released ? t("tabroom.schedule.motions.public") : t("tabroom.schedule.motions.hidden")}</Badge>
+                      {elsewhere.length > 0 && <span className="text-[11px] text-fg-muted">{t("tabroom.schedule.motions.alsoIn", { rounds: formatList(elsewhere as string[]) })}</span>}
                     </div>
                   </div>
                   {isOwnerOrAdmin && (
                     <div className="flex shrink-0 items-center">
                       <IconButton
-                        label={`Move ${motion.reference || "motion"} up`}
+                        label={t("tabroom.schedule.motions.moveUp", { motion: motion.reference || t("tabroom.schedule.motions.motion") })}
                         size="sm"
                         disabled={busy || index === 0}
                         onClick={() => run(() => updateMotions(moveRoundMotion(motions, round.id, motion.id, -1), `${round.name} motion order changed`))}
                         icon={<ArrowUp aria-hidden="true" />}
                       />
                       <IconButton
-                        label={`Move ${motion.reference || "motion"} down`}
+                        label={t("tabroom.schedule.motions.moveDown", { motion: motion.reference || t("tabroom.schedule.motions.motion") })}
                         size="sm"
                         disabled={busy || index === roundMotions.length - 1}
                         onClick={() => run(() => updateMotions(moveRoundMotion(motions, round.id, motion.id, 1), `${round.name} motion order changed`))}
                         icon={<ArrowDown aria-hidden="true" />}
                       />
                       <IconButton
-                        label={`Remove ${motion.reference || "motion"} from ${round.name}`}
+                        label={t("tabroom.schedule.motions.remove", { motion: motion.reference || t("tabroom.schedule.motions.motion"), round: round.name })}
                         size="sm"
                         disabled={busy}
                         onClick={() => run(() => updateMotions([removeMotionFromRound(motion, round.id)], `Motion removed from ${round.name}`))}
@@ -112,13 +114,13 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
         {isOwnerOrAdmin && (
           <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
             <Select
-              label="Reuse a motion from another round"
+              label={t("tabroom.schedule.motions.reuseLabel")}
               value={motionToAdd}
               onChange={(event) => setMotionToAdd(event.target.value)}
               className="min-w-0 sm:w-80"
               disabled={busy || otherMotions.length === 0}
             >
-              <option value="">{otherMotions.length === 0 ? "No other motions" : "Choose a motion…"}</option>
+              <option value="">{otherMotions.length === 0 ? t("tabroom.schedule.motions.noOther") : t("tabroom.schedule.motions.choose")}</option>
               {otherMotions.map((motion) => (
                 <option key={motion.id} value={motion.id}>
                   {(motion.reference ? `${motion.reference}: ` : "") + motion.text.slice(0, 80)}
@@ -133,20 +135,20 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
                 setMotionToAdd("");
               })}
             >
-              Add to {round.name}
+              {t("tabroom.schedule.motions.addTo", { round: round.name })}
             </Button>
             <Button
               size="md"
               variant="ghost"
               disabled={busy || !previous}
-              title={previous ? `Assign ${previous.name}'s motions to ${round.name}` : "There is no earlier round"}
+              title={previous ? t("tabroom.schedule.motions.copyTitle", { previous: previous.name, round: round.name }) : t("tabroom.schedule.motions.noEarlier")}
               onClick={() => run(() => updateMotions(
                 copyPreviousRoundMotions(motions, round, rounds),
                 `Motions copied to ${round.name} from ${previous?.name}`
               ))}
             >
               <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-              Copy from {previous ? previous.name : "previous round"}
+              {previous ? t("tabroom.schedule.motions.copyFrom", { round: previous.name }) : t("tabroom.schedule.motions.copyFromPrevious")}
             </Button>
           </div>
         )}

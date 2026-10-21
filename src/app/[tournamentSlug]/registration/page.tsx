@@ -9,6 +9,8 @@ import { ApprovalIncompleteError, approveRegistration } from "@/features/tournam
 import { RegistrationQueue, type QueueActions } from "@/features/tournament/components/registration/RegistrationQueue";
 import { RegistrationSettingsForm } from "@/features/tournament/components/registration/RegistrationSettingsForm";
 import { RepresentativesPanel } from "@/features/tournament/components/registration/RepresentativesPanel";
+import { TeamInvitationsPanel } from "@/features/tournament/components/registration/TeamInvitationsPanel";
+import { RepresentativeCoachesSync } from "@/features/tournament/components/registration/RepresentativeCoachesSync";
 import { SlotTransfersPanel } from "@/features/tournament/components/registration/SlotTransfersPanel";
 import {
   createRegistrationClient,
@@ -35,10 +37,12 @@ export default function RegistrationAdminPage() {
     teams,
     adjudicators,
     institutions,
+    breakCategories,
     addInstitutions,
     addTeams,
     addAdjudicators,
     liveSync,
+    saveEntityBatch,
   } = useTournament();
   const [view, setView] = useState<View>("queue");
   const [overview, setOverview] = useState<RegistrationOverview | null>(null);
@@ -99,6 +103,7 @@ export default function RegistrationAdminPage() {
               },
               institutions,
               teams,
+              breakCategoryIds: breakCategories.map((category) => category.id),
               addInstitutions,
               addTeams,
               addAdjudicators,
@@ -222,6 +227,18 @@ export default function RegistrationAdminPage() {
                     counters={overview.counters}
                     onChange={(representatives) => setOverview((current) => (current ? { ...current, representatives } : current))}
                   />
+                )}
+                {view === "representatives" && (
+                  <RepresentativeCoachesSync
+                    representatives={overview.representatives}
+                    institutions={institutions}
+                    onSave={async (institutionsUpdated) => {
+                      await saveEntityBatch({ institutionsUpdated }, "Representatives as coaches");
+                    }}
+                  />
+                )}
+                {view === "representatives" && (
+                  <TeamInvitationsPanel user={user} tournamentId={tournament.id} teams={teams} />
                 )}
                 {view === "representatives" && overview.settings.slotTransfers && (
                   <div className="mt-4">

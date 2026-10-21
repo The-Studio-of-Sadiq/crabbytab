@@ -99,6 +99,7 @@ export function entryFromBallot(ballot: BallotSubmission, blank: BallotEntry, ru
     vetoes: { ...(ballot.vetoes || {}) },
     ...(ballot.motionPreferences ? { motionPreferences: { ...ballot.motionPreferences } } : {}),
     ...(ballot.forfeitSide ? { forfeitSide: ballot.forfeitSide } : {}),
+    ...(ballot.selfSplit === true && usesVotingBallots(rules) ? { selfSplit: true } : {}),
     ...(usesVotingBallots(rules)
       ? {
           sheets: (blank.sheets || []).map(

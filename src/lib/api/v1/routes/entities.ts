@@ -1,5 +1,7 @@
 import { buildPublicBreak, getPublicRelease } from "@/lib/publicRelease";
 import type { Adjudicator, BreakCategory, Institution, Motion, Round, Team, Venue } from "@/types";
+import { normaliseCategory } from "@/lib/venues/venues";
+import { categoryNames, categoryView, venueCategoryResponse } from "./write/settingsItems";
 import { notFound } from "../errors";
 import { defineRoute, listOf, pageOf, pageQueryShape, pageRequest, slugParam } from "../router";
 import { s } from "../schema";
@@ -220,16 +222,30 @@ const participantRoutes = [
     tag: "adjudicators",
     auth: { kind: "token", resource: "participants", access: "read", public: true },
     params: slugOnly,
-    query: s.object({ ...pageQueryShape, institutionId: s.optional(idSchema("Only adjudicators from this institution.")) }),
+    query: s.object({
+      ...pageQueryShape,
+      institutionId: s.optional(idSchema("Only adjudicators from this institution.")),
+      break: s.optional(s.boolean("Only breaking adjudicators (Tabbycat's ?break). Public tokens: once breaking adjudicators are released.")),
+    }),
     paginated: true,
     response: pageOf(s.ref("Adjudicator")),
     async handler(context) {
-      requirePublicRelease(context, "participants", "The participants list");
-      const filters: QueryFilter[] = context.query.institutionId
-        ? [{ field: "institutionId", op: "==", value: context.query.institutionId }]
-        : [];
-      const page = await context.data.page("adjudicators", pageRequest(context.query), filters);
-      return { ...page, data: page.data.map((record) => serializeAdjudicator(asType<Adjudicator>(record))) };
+      const breaking = context.query.break === true;
+      if (breaking) requirePublicRelease(context, "breakingAdjudicators", "The breaking adjudicators");
+      else requirePublicRelease(context, "participants", "The participants list");
+      const filters: QueryFilter[] = [
+        ...(breaking ? [{ field: "breaking", op: "==" as const, value: true }] : []),
+        ...(context.query.institutionId ? [{ field: "institutionId", op: "==" as const, value: context.query.institutionId }] : []),
+      ];
+      // One equality filter goes to the query (Firestore composite indexes); the other filters its page.
+      const [primary, ...rest] = filters;
+      const page = await context.data.page("adjudicators", pageRequest(context.query), primary ? [primary] : []);
+      return {
+        ...page,
+        data: page.data
+          .filter((record) => rest.every((filter) => record[filter.field] === filter.value))
+          .map((record) => serializeAdjudicator(asType<Adjudicator>(record))),
+      };
     },
   }),
   defineRoute({
@@ -254,10 +270,6 @@ const participantRoutes = [
 /* Venues                                                                    */
 /* ------------------------------------------------------------------------ */
 
-const venueCategorySchema = s.object({
-  name: s.string(),
-  venueIds: s.array(s.string()),
-});
 
 const venueRoutes = [
   defineRoute({
@@ -299,23 +311,38 @@ const venueRoutes = [
     path: "/tournaments/{slug}/venue-categories",
     operationId: "listVenueCategories",
     summary: "List venue categories",
-    description: "Categories are the distinct `category` values of the venues, with the venues in each.",
+    description:
+      "Every category used by a venue or described in the settings, with its venues and display " +
+      "settings (public tokens see a description only when it is shown in public tooltips).",
     tag: "venues",
     auth: { kind: "token", resource: "venues", access: "read", public: true },
     params: slugOnly,
-    response: listOf(venueCategorySchema),
+    response: listOf(venueCategoryResponse),
     async handler(context) {
       const venues = (await context.data.all("venues")).map((record) => asType<Venue>(record));
-      const categories = new Map<string, string[]>();
-      for (const venue of venues) {
-        const name = venue.category?.trim();
-        if (!name) continue;
-        categories.set(name, [...(categories.get(name) ?? []), venue.id]);
-      }
+      const infos = context.tournament.preferences?.venueCategories;
       return {
-        data: [...categories].sort(([left], [right]) => left.localeCompare(right))
-          .map(([name, venueIds]) => ({ name, venueIds })),
+        data: [...categoryNames(venues, infos).values()]
+          .sort((left, right) => left.localeCompare(right))
+          .map((name) => categoryView(venues, infos, name)),
       };
+    },
+  }),
+  defineRoute({
+    method: "GET",
+    path: "/tournaments/{slug}/venue-categories/{name}",
+    operationId: "getVenueCategory",
+    summary: "Get a venue category",
+    tag: "venues",
+    auth: { kind: "token", resource: "venues", access: "read", public: true },
+    params: s.object({ slug: slugParam, name: s.string({ min: 1, max: 80, pattern: /^[^/]+$/, description: "Category name (URL-encoded)." }) }),
+    response: venueCategoryResponse,
+    async handler(context) {
+      const venues = (await context.data.all("venues")).map((record) => asType<Venue>(record));
+      const infos = context.tournament.preferences?.venueCategories;
+      const name = categoryNames(venues, infos).get(normaliseCategory(context.params.name));
+      if (!name) throw notFound("Venue category");
+      return categoryView(venues, infos, name);
     },
   }),
 ];

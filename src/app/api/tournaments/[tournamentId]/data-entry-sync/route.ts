@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
-import type { Debate, Round } from "@/types";
+import type { Adjudicator, Debate, Round } from "@/types";
+import { withScoreHistory } from "@/lib/feedback/scoreHistory";
+import {
+  changedPanels,
+  planAssistantAllocation,
+  type AllocationDebateState,
+  type AllocationRoundState,
+} from "@/lib/assistantAllocation";
+import { debateParticipantIds, PARTICIPANT_IDS_FIELD } from "@/lib/privateSync";
 import { checkBallotIntake, remoteBallotSubmissionBlocker } from "@/features/tournament/application/stateGuards";
 import { authorizeDataEntryStaff, currentDataEntryPermissions } from "@/lib/staffAccessServer";
 import { hasStaffPermission } from "@/lib/staffPermissions";
 import {
   DATA_ENTRY_FIELDS,
-  requiredDataEntryPermission,
+  requiredDataEntryPermissions,
+  isGuardedDataEntryField,
   type DataEntryCollection,
   canAssistantOverwriteBallot,
   isRecord,
@@ -52,6 +61,7 @@ type SyncRecord = {
   collectionName: DataEntryCollection;
   record: Record<string, unknown>;
   createOnly: Record<string, unknown>;
+  baseSyncVersion: number;
 };
 
 export async function POST(
@@ -87,7 +97,7 @@ export async function POST(
       if (!Array.isArray(values) || values.length > 5000) throw new Error(`Invalid ${collectionName} collection.`);
       return values.map((value) => ({
         collectionName,
-        ...sanitizeDataEntryRecord(collectionName, value, tournamentId),
+        ...sanitizeDataEntryRecord(collectionName, value, tournamentId, authorization.permissions),
       }));
     });
     if (body.debates.length > 5000) throw new Error("Too many debate results in one sync.");
@@ -101,7 +111,7 @@ export async function POST(
   try {
     let archivedConflictCount = 0;
     // Records archived for the tab room instead of written, so the device keeps them as local edits.
-    const rejected: Array<{ collectionName: DataEntryCollection; recordId: string }> = [];
+    const rejected: Array<{ collectionName: DataEntryCollection | "debates"; recordId: string }> = [];
     const { tournament, user } = authorization;
     const actor = { uid: user.uid, name: authorization.actorName };
     const referencedDebateIds = [...new Set(records
@@ -131,22 +141,41 @@ export async function POST(
         .map((snapshot) => [snapshot.id, { ...snapshot.data(), id: snapshot.id } as Round])
     );
 
-    for (const { collectionName, record, createOnly } of records) {
+    for (const { collectionName, record: incoming, createOnly, baseSyncVersion } of records) {
+      // A working copy: the stale-field reset below starts again from `incoming` on each retry.
+      const record = { ...incoming };
       const recordRef = authorization.tournamentRef.collection(collectionName).doc(record.id as string);
       const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
+      let staleGuarded = false;
       const outcome = await authorization.firestore.runTransaction(async (transaction): Promise<"unchanged" | "written" | "superseded" | "rejected"> => {
+        Object.assign(record, incoming);
         const permissions = await currentDataEntryPermissions(transaction, authorization);
         const snapshot = await transaction.get(recordRef);
         const current: Record<string, unknown> | null = snapshot.exists
           ? { ...snapshot.data(), id: snapshot.id }
           : null;
         // Records the assistant did not change (including ones pulled from the cloud) are left alone.
-        const changedKeys = Object.keys(record).filter((key) => !current || !recordsEqual(current[key], record[key]));
+        let changedKeys = Object.keys(record).filter((key) => !current || !recordsEqual(current[key], record[key]));
+        // Conflicts and scores from a copy older than the cloud record are not written: the
+        // device sends every record, so a stale copy would otherwise undo newer changes.
+        staleGuarded = false;
+        if (
+          current &&
+          changedKeys.some((key) => isGuardedDataEntryField(collectionName, key)) &&
+          baseSyncVersion !== (Number(current.syncVersion) || 0)
+        ) {
+          staleGuarded = true;
+          changedKeys = changedKeys.filter((key) => !isGuardedDataEntryField(collectionName, key));
+          for (const key of Object.keys(record)) {
+            if (isGuardedDataEntryField(collectionName, key)) record[key] = current[key];
+          }
+        }
         if (current && changedKeys.length === 0) {
           return "unchanged";
         }
         // Outside the assistant's permissions: nothing is written, and the device keeps the edit.
-        if (!hasStaffPermission(permissions, requiredDataEntryPermission(collectionName, current === null, changedKeys))) {
+        if (!requiredDataEntryPermissions(collectionName, current === null, changedKeys)
+          .every((permission) => hasStaffPermission(permissions, permission))) {
           return "rejected";
         }
         const archiveIncoming = (resolution: "deleted" | "rejected") => {
@@ -215,6 +244,14 @@ export async function POST(
           next.privateUrlKey = typeof next.privateUrlKey === "string" ? next.privateUrlKey : generatePrivateKey("team");
           next.privatePasscode = typeof next.privatePasscode === "string" ? next.privatePasscode : generatePrivateKey();
         }
+        if (collectionName === "adjudicators" && current && (changedKeys.includes("baseScore") || changedKeys.includes("testScore"))) {
+          // Score changes by the adjudication core are recorded like the tab room's.
+          next = withScoreHistory(current as unknown as Adjudicator, next as unknown as Adjudicator, {
+            timestamp: new Date().toISOString(),
+            actorId: user.uid,
+            actorName: authorization.actorName,
+          }) as unknown as Record<string, unknown>;
+        }
         if (collectionName === "adjudicators") {
           next.privateUrlKey = typeof next.privateUrlKey === "string" ? next.privateUrlKey : generatePrivateKey("adj");
           next.privatePasscode = typeof next.privatePasscode === "string" ? next.privatePasscode : generatePrivateKey();
@@ -236,9 +273,80 @@ export async function POST(
         transaction.set(recordRef, next);
         return current ? "superseded" : "written";
       });
-      if (outcome === "rejected") rejected.push({ collectionName, recordId: record.id as string });
+      if (outcome === "rejected" || staleGuarded) rejected.push({ collectionName, recordId: record.id as string });
       archivedConflictCount += Number(outcome === "rejected" || outcome === "superseded");
     }
+
+    // Adjudicator allocations (adjudication core, `allocation.edit`): one transaction per round,
+    // checked on the round's final state (docs/staff-access.md).
+    const refusedAllocations: Array<{ debateId: string; reason: string }> = [];
+    if (hasStaffPermission(authorization.permissions, "allocation.edit")) {
+      const incomingDebates = (body.debates as Record<string, unknown>[])
+        .filter((debate) => validId(debate.roundId) && isRecord(debate.adjudicators))
+        .map((debate) => debate as unknown as AllocationDebateState);
+      const byRound = new Map<string, AllocationDebateState[]>();
+      for (const debate of incomingDebates) byRound.set(debate.roundId, [...(byRound.get(debate.roundId) ?? []), debate]);
+      let adjudicatorNames: Map<string, string> | null = null;
+      for (const [roundId, roundIncoming] of byRound) {
+        const roundRef = authorization.tournamentRef.collection("rounds").doc(roundId);
+        const roundDebatesQuery = authorization.tournamentRef.collection("debates").where("roundId", "==", roundId);
+        // Cheap pre-check outside the transaction: most syncs change no panel at all.
+        const preview = await roundDebatesQuery.get();
+        const previewById = new Map(preview.docs.map((document) => [document.id, { ...document.data(), id: document.id } as AllocationDebateState]));
+        if (changedPanels(roundIncoming, previewById).length === 0) continue;
+        if (!adjudicatorNames) {
+          const adjudicatorSnapshot = await authorization.tournamentRef.collection("adjudicators").get();
+          adjudicatorNames = new Map(adjudicatorSnapshot.docs
+            .filter((document) => typeof document.data().deletedAt !== "string")
+            .map((document) => [document.id, String(document.data().name ?? "")]));
+        }
+        const names = adjudicatorNames;
+        const refused = await authorization.firestore.runTransaction(async (transaction) => {
+          const permissions = await currentDataEntryPermissions(transaction, authorization);
+          const [roundSnapshot, debatesSnapshot] = await Promise.all([
+            transaction.get(roundRef),
+            transaction.get(roundDebatesQuery),
+          ]);
+          const roundDebates = debatesSnapshot.docs.map((document) => ({ ...document.data(), id: document.id }) as AllocationDebateState & Record<string, unknown>);
+          const changed = changedPanels(roundIncoming, new Map(roundDebates.map((debate) => [debate.id, debate])));
+          if (changed.length === 0) return [];
+          if (!hasStaffPermission(permissions, "allocation.edit")) {
+            return changed.map((debate) => ({ debateId: debate.id, reason: "Allocation access was revoked." }));
+          }
+          const plan = planAssistantAllocation({
+            round: roundSnapshot.exists ? { ...roundSnapshot.data(), id: roundSnapshot.id } as AllocationRoundState : undefined,
+            roundDebates,
+            incoming: changed,
+            adjudicatorNames: names,
+          });
+          const now = new Date().toISOString();
+          for (const update of plan.updates) {
+            const current = roundDebates.find((debate) => debate.id === update.debateId)!;
+            const debateRef = authorization.tournamentRef.collection("debates").doc(update.debateId);
+            const conflictRef = authorization.tournamentRef.collection("syncConflicts").doc();
+            transaction.create(conflictRef, {
+              id: conflictRef.id,
+              collectionName: "debates",
+              recordId: update.debateId,
+              record: current,
+              archivedAt: now,
+              archivedBy: user.uid,
+            });
+            transaction.update(debateRef, {
+              adjudicators: update.adjudicators,
+              [PARTICIPANT_IDS_FIELD]: debateParticipantIds({
+                teams: (current as unknown as Debate).teams,
+                adjudicators: update.adjudicators,
+              }),
+              syncVersion: update.syncVersion,
+            });
+          }
+          return plan.refused;
+        });
+        refusedAllocations.push(...refused);
+      }
+    }
+    for (const refusal of refusedAllocations) rejected.push({ collectionName: "debates", recordId: refusal.debateId });
 
     for (const debate of body.debates as Record<string, unknown>[]) {
       const debateRef = authorization.tournamentRef.collection("debates").doc(debate.id as string);
@@ -268,7 +376,7 @@ export async function POST(
       archivedConflictCount += Number(archived);
     }
 
-    return NextResponse.json({ archivedConflictCount, rejected });
+    return NextResponse.json({ archivedConflictCount, rejected, refusedAllocations });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not sync assistant data." },

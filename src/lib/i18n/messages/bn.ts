@@ -3,6 +3,8 @@ import { bnPublic } from "@/lib/i18n/messages/areas/bn-public";
 import { bnResults } from "@/lib/i18n/messages/areas/bn-results";
 import { bnSetup } from "@/lib/i18n/messages/areas/bn-setup";
 import { bnTabroom } from "@/lib/i18n/messages/areas/bn-tabroom";
+// Strings added after the per-area Bengali files (machine-drafted in one pass, kept as JSON).
+import bnExtra from "@/lib/i18n/messages/areas/bn-extra.json";
 
 /**
  * Bengali (বাংলা). MACHINE-DRAFTED: produced by machine translation and not yet reviewed by a
@@ -15,6 +17,7 @@ export const bn: Catalogue = {
   ...bnTabroom,
   ...bnResults,
   ...bnPublic,
+  ...(bnExtra as Catalogue),
   "common.tournament": "টুর্নামেন্ট",
   "common.cancel": "বাতিল",
   "common.close": "বন্ধ করুন",

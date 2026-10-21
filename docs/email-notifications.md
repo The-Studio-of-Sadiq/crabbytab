@@ -28,10 +28,22 @@ email at once; no upload is needed.
 | **Ballot confirmed** | every adjudicator of the debate | the tab room confirms a result (`notifyBallotConfirmed`) | `ballot` (with voting ballots, also their own sheet) |
 | **Motions released** | speakers and revealed adjudicators of the round | motions released and draw visible (`notifyMotionsReleased`) | `motions` (released motions with info slides) |
 | **Private URL** / **Feedback URL** | chosen in the compose form | sent by hand ("Use in the compose form") | `private_url`, `passcode` |
+| **Team registration details** | chosen in the compose form ("Use in the compose form" also picks *All teams*) | sent by hand, as Tabbycat's `team_email_subject` / `team_email_message` | `speakers` (everyone on the team), `code_name`, `emoji`, `break_categories` (general categories and the team's own) |
 | **Registration received / approved** | registrant's contact address | public submission / approval (with *Email registrants*) | `entry`, `institution` |
 | **Places allocated** | institution representative | their link is issued or re-sent | `institution`, `teams_allocated`, `adjudicators_allocated`, `url` |
 
-Common variables: `name`, `email`, `tournament`, `round`, `institution`, `team`.
+Custom emails and the bulk email can go to **Institution coaches and representatives**
+(`institution_coaches`, Tabbycat's INSTITUTION_CUSTOM / `reg-email-coaches`): the coaches stored on
+the institutions ([participants.md](participants.md#institution-coaches)); registration
+representatives join the group once saved as coaches. Coaches have no private URL, so
+`{{private_url}}` is empty for them. Speakers with their own private URL receive it instead of the
+team's in `{{private_url}}` / `{{passcode}}` (retries too).
+
+Common variables: `name`, `email`, `tournament`, `round`, `institution`, `team`. The team
+registration variables (`speakers`, `code_name`, `emoji`, `break_categories`) can be used in any
+email to team speakers; they are empty for adjudicators. Break category names are read from the
+cloud copy only when a template uses `{{break_categories}}`. Tabbycat's `{{ SHORT }}` / `{{ LONG }}`
+are both `{{team}}` (CrabbyTab stores one team name).
 
 ### When the new automatic emails go out
 

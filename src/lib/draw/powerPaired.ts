@@ -1,8 +1,9 @@
-import { Team, TeamStandingRow, DebateSide, BPPullupDistribution, BPPositionCost, BPAssignmentMethod } from "@/types";
+import { Team, TeamStandingRow, DebateSide, BPPullupDistribution, BPPositionCost, BPAssignmentMethod, TeamMetricId } from "@/types";
 import { solveHungarian } from "./hungarian";
 import { MatchupHistory } from "./history";
 import { Rng, shuffle } from "./rng";
 import { BP_SIDES, computeBPSideCost, describeSideLimits, violatesSideLimits } from "./sideAllocator";
+import { bracketValue } from "./brackets";
 
 export type { MatchupHistory };
 
@@ -26,6 +27,16 @@ export interface BPDrawOptions {
   sideRule?: "balanced" | "random";
   maxTimesPerSide?: number;
   maxAllowedSideImbalance?: number;
+  /**
+   * The standings metric brackets are formed on (Tabbycat: the first team-standings precedence
+   * metric). Absent = the standings row's total points.
+   */
+  bracketMetric?: TeamMetricId;
+  /**
+   * Keep the teams in the order given rather than standings order when the assignment is not
+   * pre-shuffled (seeded draws pass seed order, as Tabbycat's SeededDrawManager).
+   */
+  keepInputOrder?: boolean;
 }
 
 /** One BP room: the bracket it belongs to and the point values allowed in it. */
@@ -139,11 +150,13 @@ export function generatePowerPairedDraw(
   const standingMap = new Map(standings.map((s) => [s.teamId, s]));
   // Without the pre-shuffle, rows follow standings order as in Tabbycat (unranked teams last, by name).
   const standingIndex = new Map(standings.map((s, index) => [s.teamId, index]));
-  const teams = options.bpAssignmentMethod === "hungarian_unshuffled"
+  const teams = options.bpAssignmentMethod === "hungarian_unshuffled" && !options.keepInputOrder
     ? [...inputTeams].sort((a, b) =>
         (standingIndex.get(a.id) ?? Infinity) - (standingIndex.get(b.id) ?? Infinity) || a.name.localeCompare(b.name))
     : inputTeams;
-  const pointsOf = (team: Team) => standingMap.get(team.id)?.points ?? 0;
+  const pointsOf = (team: Team) => options.bracketMetric
+    ? bracketValue(standingMap.get(team.id), options.bracketMetric)
+    : standingMap.get(team.id)?.points ?? 0;
   const priorPullups = (team: Team) =>
     history.pullups?.get(team.id) ?? standingMap.get(team.id)?.metrics?.pullups ?? 0;
 

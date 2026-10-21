@@ -16,13 +16,17 @@ export const API_RESOURCES = [
   "feedback",
   "checkins",
   "standings",
+  "staff",
 ] as const;
 export type ApiResource = (typeof API_RESOURCES)[number];
 export type ApiAccess = "read" | "write";
 
-/** Resources that have write endpoints (standings are always computed). */
+/**
+ * Resources that have write endpoints. Standings are always computed; staff access is granted only
+ * by a signed-in administrator (a token must never be able to give a person access).
+ */
 export const WRITABLE_API_RESOURCES: readonly ApiResource[] = API_RESOURCES.filter(
-  (resource) => resource !== "standings"
+  (resource) => resource !== "standings" && resource !== "staff"
 );
 
 export type ApiTokenScope = "read:public" | `read:${ApiResource}` | `write:${ApiResource}`;
@@ -44,6 +48,7 @@ export const API_RESOURCE_LABELS: Record<ApiResource, string> = {
   feedback: "Adjudicator feedback",
   checkins: "Availability and check-ins",
   standings: "Team, speaker, reply and adjudicator standings",
+  staff: "Staff permission groups (read only)",
 };
 
 export function isApiTokenScope(value: unknown): value is ApiTokenScope {

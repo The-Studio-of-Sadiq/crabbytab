@@ -7,7 +7,7 @@ import {
   clientAddressFromHeaders,
   recordPrivateFailure,
 } from "@/lib/privateTeamRateLimit";
-import { passcodesMatch } from "@/lib/passcode";
+import { findTeamsByPrivateKey, matchPrivateTeamCredential } from "@/lib/privateSpeakerAccess";
 import { getPublicRelease, redactUnreleasedBreak } from "@/lib/publicRelease";
 import { filterTeamVisibleDebates, sanitizeTeamPrivateDebate } from "@/lib/privatePortalBallots";
 import { loadParticipantDebates, loadPortalVenues } from "@/lib/privateParticipantData";
@@ -57,13 +57,12 @@ export async function POST(request: NextRequest) {
       console.error("Could not record failed private team attempt:", error);
     });
     const tournamentRef = firestore.collection("tournaments").doc(tournamentId);
-    const [tournamentSnapshot, teamSnapshot] = await Promise.all([
+    // The team's own key, or one of its speakers' keys (docs/privacy-and-private-urls).
+    const [tournamentSnapshot, teamCandidates] = await Promise.all([
       tournamentRef.get(),
-      tournamentRef.collection("teams").where("privateUrlKey", "==", privateUrlKey).get(),
+      findTeamsByPrivateKey(tournamentRef.collection("teams"), privateUrlKey),
     ]);
-    const teamDocument = teamSnapshot.docs.find(
-      (document) => typeof document.data().deletedAt !== "string"
-    );
+    const teamDocument = teamCandidates.length === 1 ? teamCandidates[0] : undefined;
     if (!tournamentSnapshot.exists) {
       return NextResponse.json({ error: "This private team link is invalid." }, { status: 404 });
     }
@@ -91,12 +90,13 @@ export async function POST(request: NextRequest) {
         { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
       );
     }
-    if (!passcodesMatch(teamDocument.data().privatePasscode, passcode)) {
+    const credential = matchPrivateTeamCredential(teamDocument.data(), privateUrlKey, passcode);
+    if (!credential) {
       await noteFailedAttempt();
       return NextResponse.json({ error: "Invalid team link or passcode." }, { status: 403 });
     }
 
-    const teamData = teamDocument.data();
+    const teamData = teamDocument.data()!;
     const [{ debates: participantDebates }, roundsSnapshot, feedbackSnapshot] = await Promise.all([
       loadParticipantDebates(tournamentRef, teamDocument.id),
       tournamentRef.collection("rounds").get(),
@@ -160,6 +160,8 @@ export async function POST(request: NextRequest) {
         breakCategories: teamData.breakCategories || [],
         speakerCategories: teamData.speakerCategories || [],
         privateUrlKey,
+        // A speaker's own URL: which speaker opened the portal (it still acts as the team).
+        ...(credential.speakerId ? { speakerId: credential.speakerId } : {}),
         checkedIn: teamData.checkedIn,
       },
       tournament: {

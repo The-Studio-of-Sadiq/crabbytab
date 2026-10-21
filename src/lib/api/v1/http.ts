@@ -148,6 +148,9 @@ async function authenticateToken(
   now: Date
 ): Promise<Authenticated> {
   const bearer = readBearerToken(request.headers.get("authorization"));
+  if (!bearer && request.headers.get("authorization") === null && route.auth.public && route.auth.access === "read") {
+    return authenticateAnonymous(request, slug, services, now);
+  }
   if (!bearer) throw new ApiError(401, "unauthenticated", "A valid API bearer token is required.", {}, { "WWW-Authenticate": "Bearer" });
   const tournamentRecord = await services.store.findTournamentBySlug(slug);
   if (!tournamentRecord) throw new ApiError(404, "not_found", "Tournament not found.");
@@ -202,6 +205,25 @@ async function authenticateToken(
 }
 
 /**
+ * No credentials at all, on an endpoint public tokens may use: Tabbycat's anonymous access to
+ * public data. The request sees exactly what a read:public token sees (the published, release-gated
+ * public view, never unreleased data) and is limited per client address.
+ */
+async function authenticateAnonymous(request: ApiRequest, slug: string, services: ApiServices, now: Date): Promise<Authenticated> {
+  const limit = services.limiter.consume(
+    `anonymous:${hashed(request.clientAddress)}`,
+    RATE_LIMITS.anonymousPerAddressPerMinute,
+    60_000,
+    now.getTime()
+  );
+  if (!limit.allowed) throw rateLimited(limit.retryAfterSeconds, "Too many anonymous API requests. Use an API token or try again later.");
+  const reader = await services.publicView(slug);
+  const publicTournament = await reader.readBase("tournament");
+  if (!publicTournament || typeof publicTournament !== "object") throw new ApiError(404, "not_found", "Tournament not found.");
+  return { tournament: publicTournament as Tournament, data: createPublicData(reader), store: null, token: null, participant: null };
+}
+
+/**
  * `/me`: a participant identifies with their private URL key (`Authorization: Key <key>`) and
  * passcode (`X-Passcode`), exactly the two secrets the private portal asks for. Lookups are
  * throttled per client address so keys cannot be guessed.
@@ -242,7 +264,8 @@ async function authenticateParticipant(
   return {
     tournament: tournamentRecord as unknown as Tournament,
     data: createAdminData(store),
-    store: null,
+    // Participant writes (their own ballots and feedback) run in a transaction on the live store.
+    store,
     token: null,
     participant: {
       type: match.type,
@@ -338,7 +361,7 @@ export async function handleApiRequest(request: ApiRequest, services: ApiService
       participant: authenticated?.participant ?? null,
       now,
       requestId,
-      publishPublicView: authenticated?.store && services.publishPublicView
+      publishPublicView: authenticated?.token && authenticated.store && services.publishPublicView
         ? () => services.publishPublicView!(authenticated!.store!.tournamentId)
         : null,
     };

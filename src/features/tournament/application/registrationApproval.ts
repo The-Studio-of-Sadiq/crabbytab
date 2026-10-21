@@ -33,7 +33,9 @@ export interface RegistrationReviewApi {
 export interface ApprovalDependencies {
   api: RegistrationReviewApi;
   institutions: Institution[];
-  teams: Pick<Team, "id" | "name" | "codeName" | "institutionId" | "institutionName">[];
+  teams: Pick<Team, "id" | "name" | "codeName" | "emoji" | "institutionId" | "institutionName">[];
+  /** Current break category ids; registered categories not among them are dropped. Absent: kept. */
+  breakCategoryIds?: string[];
   addInstitutions(institutions: Omit<Institution, "id" | "tournamentId">[]): Promise<Institution[]>;
   addTeams(teams: Omit<Team, "id" | "tournamentId">[]): Promise<Team[]>;
   addAdjudicators(adjudicators: Omit<Adjudicator, "id" | "tournamentId">[]): Promise<Adjudicator[]>;
@@ -100,7 +102,10 @@ export async function approveRegistration(
     const { institution, created } = await resolveInstitution(claimed, dependencies);
     createdInstitution = created;
     if (claimed.kind === "team") {
-      const built = applyNameGenerators(buildTeamFromSubmission(claimed, institution, dependencies.createId), {
+      const built = applyNameGenerators(buildTeamFromSubmission(claimed, institution, dependencies.createId, {
+        teams: dependencies.teams,
+        breakCategoryIds: dependencies.breakCategoryIds,
+      }), {
         settings: dependencies.settings ?? {},
         institutionName: institution?.name,
         teams: dependencies.teams,

@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { Building2, Gavel, Plus, Trash2, Users } from "lucide-react";
 import type { FeedbackAnswer } from "@/types";
 import type { PublicRegistrationForm } from "@/lib/registration/types";
+import { TEAM_EMOJI } from "@/lib/codeNames";
+import type { MessageKey } from "@/lib/i18n";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
 import { PublicFormShell } from "@/components/public/PublicFormShell";
@@ -13,12 +15,18 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import { InstitutionResponseCard } from "@/components/public/InstitutionResponseCard";
+import type { InstitutionResponseItem } from "@/lib/registration/institutionResponse";
+
+const SEED_TITLE_KEYS: MessageKey[] = ["common.seedTitle0", "common.seedTitle1", "common.seedTitle2", "common.seedTitle3"];
 
 interface RepresentativeView {
   institutionName: string;
   name: string;
   remaining: { team: number | null; adjudicator: number | null };
   transferTargets?: Array<{ id: string; institutionName: string }>;
+  /** The institution's registration response (coach view). */
+  response?: InstitutionResponseItem[];
 }
 
 interface SpeakerDraft {
@@ -115,6 +123,11 @@ export default function RegistrationPage() {
   const [contactEmail, setContactEmail] = useState("");
   const [teamName, setTeamName] = useState("");
   const [speakers, setSpeakers] = useState<SpeakerDraft[]>([]);
+  // Optional team fields (Tabbycat reg_team_fields); the prefix starts ticked, as in Tabbycat.
+  const [usePrefix, setUsePrefix] = useState(true);
+  const [teamBreakCategories, setTeamBreakCategories] = useState<string[]>([]);
+  const [teamSeed, setTeamSeed] = useState("");
+  const [teamEmoji, setTeamEmoji] = useState("");
   const [adjudicatorName, setAdjudicatorName] = useState("");
   const [adjudicatorEmail, setAdjudicatorEmail] = useState("");
   const [institutionConflicts, setInstitutionConflicts] = useState("");
@@ -174,6 +187,10 @@ export default function RegistrationPage() {
   const resetEntry = () => {
     setTeamName("");
     setSpeakers(Array.from({ length: form?.minSpeakers ?? 2 }, emptySpeaker));
+    setUsePrefix(true);
+    setTeamBreakCategories([]);
+    setTeamSeed("");
+    setTeamEmoji("");
     setAdjudicatorName("");
     setAdjudicatorEmail("");
     setInstitutionConflicts("");
@@ -193,6 +210,10 @@ export default function RegistrationPage() {
   const updateSpeaker = (index: number, change: Partial<SpeakerDraft>) =>
     setSpeakers((current) => current.map((speaker, position) => (position === index ? { ...speaker, ...change } : speaker)));
 
+  // Forms cached before the team-field options existed have no teamFields.
+  const teamFields = form?.teamFields ?? [];
+  const hasInstitution = Boolean(representative || institution.trim());
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!form || busy) return;
@@ -209,6 +230,10 @@ export default function RegistrationPage() {
         ? {
             team: {
               name: teamName,
+              ...(teamFields.includes("use_institution_prefix") && hasInstitution ? { useInstitutionPrefix: usePrefix } : {}),
+              ...(teamFields.includes("break_categories") ? { breakCategories: teamBreakCategories } : {}),
+              ...(teamFields.includes("seed") && teamSeed.trim() ? { seed: teamSeed.trim() } : {}),
+              ...(teamFields.includes("emoji") && teamEmoji ? { emoji: teamEmoji } : {}),
               speakers: speakers.map((speaker) => ({
                 name: speaker.name,
                 categories: speaker.categories,
@@ -325,6 +350,8 @@ export default function RegistrationPage() {
           <TransferForm slug={slug} token={representativeToken} targets={representative.transferTargets} />
         )}
 
+        {representative?.response && <InstitutionResponseCard items={representative.response} />}
+
         {kinds.length > 1 && (
           <fieldset className="flex flex-wrap gap-2">
             <legend className="mb-2 text-xs font-medium text-fg">{t("register.kindLegend")}</legend>
@@ -378,6 +405,68 @@ export default function RegistrationPage() {
             } />
             <CardBody className="space-y-4">
               <Input label={t("register.teamName")} required maxLength={120} value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+              {teamFields.includes("use_institution_prefix") && hasInstitution && (
+                <Checkbox
+                  label={t("register.useInstitutionPrefix")}
+                  description={t("register.useInstitutionPrefixHelp", {
+                    name: `${representative?.institutionName ?? institution.trim()} ${teamName.trim() || "…"}`,
+                  })}
+                  checked={usePrefix}
+                  onChange={(event) => setUsePrefix(event.target.checked)}
+                />
+              )}
+              {teamFields.includes("break_categories") && (form.teamBreakCategories ?? []).length > 0 && (
+                <fieldset className="space-y-2">
+                  <legend className="text-xs font-medium text-fg">{t("register.breakCategories")}</legend>
+                  <div className="flex flex-wrap gap-4">
+                    {(form.teamBreakCategories ?? []).map((category) => (
+                      <Checkbox
+                        key={category.id}
+                        label={category.name}
+                        checked={teamBreakCategories.includes(category.id)}
+                        onChange={(event) =>
+                          setTeamBreakCategories((current) =>
+                            event.target.checked ? [...current, category.id] : current.filter((id) => id !== category.id)
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </fieldset>
+              )}
+              {(teamFields.includes("seed") || teamFields.includes("emoji")) && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {teamFields.includes("seed") &&
+                    (form.teamSeedMode === "title" ? (
+                      <Select label={t("register.seed")} value={teamSeed} onChange={(event) => setTeamSeed(event.target.value)}>
+                        <option value="">{t("register.seedNone")}</option>
+                        {SEED_TITLE_KEYS.map((key, value) => (
+                          <option key={key} value={String(value)}>{t(key)}</option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <Input
+                        label={t("register.seed")}
+                        help={t("register.seedHelp")}
+                        type="number"
+                        min={0}
+                        max={99999}
+                        step={1}
+                        inputMode="numeric"
+                        value={teamSeed}
+                        onChange={(event) => setTeamSeed(event.target.value)}
+                      />
+                    ))}
+                  {teamFields.includes("emoji") && (
+                    <Select label={t("register.emoji")} help={t("register.emojiHelp")} value={teamEmoji} onChange={(event) => setTeamEmoji(event.target.value)}>
+                      <option value="">{t("register.emojiNone")}</option>
+                      {TEAM_EMOJI.map(([emoji, name]) => (
+                        <option key={emoji} value={emoji}>{`${emoji} ${name}`}</option>
+                      ))}
+                    </Select>
+                  )}
+                </div>
+              )}
               {speakers.map((speaker, index) => (
                 <fieldset key={index} className="space-y-2 rounded-md border border-border p-3">
                   <legend className="px-1 text-xs font-medium text-fg">{t("register.speaker", { number: String(index + 1) })}</legend>

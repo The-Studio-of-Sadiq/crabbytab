@@ -4,6 +4,7 @@ import React, { useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
  * Confirmation for consequential actions. Focus starts on "No, cancel" so an
@@ -18,8 +19,8 @@ export function ConfirmActionDialog({
   variant = "primary",
   isBusy = false,
   error,
-  cancelLabel = "No, cancel",
-  busyLabel = "Saving...",
+  cancelLabel,
+  busyLabel,
   closeLabel,
 }: {
   title: string;
@@ -30,11 +31,12 @@ export function ConfirmActionDialog({
   variant?: "primary" | "danger";
   isBusy?: boolean;
   error?: string;
-  /** Translated button labels; English defaults. */
+  /** Button labels; default to the translated "No, cancel" / "Saving…". */
   cancelLabel?: string;
   busyLabel?: string;
   closeLabel?: string;
 }) {
+  const { t } = useI18n();
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog
@@ -50,13 +52,13 @@ export function ConfirmActionDialog({
       footer={
         <>
           <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={isBusy}>
-            {cancelLabel}
+            {cancelLabel ?? t("common.noCancel")}
           </Button>
           <Button
             variant={variant === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
             loading={isBusy}
-            loadingText={busyLabel}
+            loadingText={busyLabel ?? t("common.saving")}
           >
             {confirmLabel}
           </Button>

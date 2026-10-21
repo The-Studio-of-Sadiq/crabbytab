@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { LOCALES, type Locale } from "@/lib/i18n/config";
 import { pluralCategories } from "@/lib/i18n/format";
-import { catalogues } from "@/lib/i18n/messages";
+import { loadCatalogue } from "@/lib/i18n/messages";
 import { en } from "@/lib/i18n/messages/en";
 import { parseRichText } from "@/lib/i18n/translate";
 
@@ -47,7 +47,10 @@ describe("English source catalogue", () => {
 describe.each(LOCALES.filter((locale) => locale.code !== "en").map((locale) => locale.code as Locale))(
   "%s catalogue",
   (code) => {
-    const catalogue = catalogues[code] as Record<string, string>;
+    let catalogue: Record<string, string>;
+    beforeAll(async () => {
+      catalogue = (await loadCatalogue(code)) as Record<string, string>;
+    });
 
     it("translates every English key", () => {
       const missing = sourceKeys.filter((key) => catalogue[key] === undefined);

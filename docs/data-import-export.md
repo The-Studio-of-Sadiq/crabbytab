@@ -67,7 +67,7 @@ Unknown columns are listed as ignored. Row numbers are spreadsheet rows (the hea
 | Kind | Columns |
 | --- | --- |
 | Institutions | `name` (required), `code`, `region`, venue requirement columns |
-| Teams | `name` (required), `institution`, `code`, `speaker1`…`speaker5`, `speakerN_email`, `speakerN_categories`, `break_categories`, `division`, `division_id`, `category` (legacy team-wide label), venue requirement columns |
+| Teams | `name` (required), `institution`, `code`, `speaker1`…`speaker5`, `speakerN_email`, `speakerN_categories`, `break_categories`, `division`, `division_id`, `category` (legacy team-wide label), `seed` (see below), venue requirement columns |
 | Adjudicators | `name` (required), `email`, `institution`, `score` (default 5), `trainee`, `independent`, `gender`, `region`, `preformed_panel_id`, venue requirement columns |
 
 Each row is shown with what will happen and why:
@@ -92,6 +92,14 @@ Each row is shown with what will happen and why:
   and `-` mean no institution. An adjudicator marked independent is not linked to an institution.
 - **Speaker categories** in `speakerN_categories` are matched to the tournament's speaker
   categories by name or slug; unknown names are created (not public) and listed in the preview.
+
+**Team seeds** (Tabbycat `show_seed_in_importer`): the **Team seed column** setting at the top of
+the team import (saved for the tournament as `preferences.teamSeedMode`) is *Do not ask* (default:
+a `seed` column is listed as ignored), *numeric* (a whole number 0–99,999; higher is stronger, as
+seeded draws read it) or *seed title* (`Unseeded`, `Free seed`, `Half seed`, `Full seed`, or 0–3,
+stored as 0–3 like Tabbycat). An invalid seed is a row error; a blank cell means no seed (not 0)
+and, on update, keeps the team's seed. In title mode the seeded-draw setup panel and the
+registration form offer the titles instead of a number box.
 
 Each import is one `entities.batch_saved` audit event listing the created and updated ids.
 Venue and motion CSVs still import directly, without this preview.
@@ -126,7 +134,9 @@ Setup → Room preferences (`src/lib/venues/constraintEdits.ts`). One row per pr
 one of `team` (name or code), `adjudicator` (name or email) or `institution` (name or code), plus
 `category` and a whole-number `priority`. A row for a category the subject already has updates
 its priority; ambiguous or unknown names and duplicate rows are errors. The venues CSV also
-accepts a `url` column (http or https links only).
+accepts a `url` column (http or https links only). Its `category` (or `categories`) cell may name several room
+categories separated by `;` or `,` (quote the cell when using commas); the first is also kept in
+the older single-category field.
 
 ## Speaker categories
 
@@ -199,6 +209,26 @@ tournaments, for practising before an event.
   - Nothing runs automatically. On a tournament that is not a demo tournament each run needs the
     tournament's short name typed as confirmation, and every run is recorded in the audit log
     (`rehearsal.results_simulated`, `rehearsal.feedback_simulated`, with the seed).
+
+## Tournament configuration file and rules presets
+
+*Settings -> Format & teams -> Configuration file and rules presets* (Tabbycat `exportconfig` /
+`importconfig` and options-presets-confirm; `src/lib/setup/configTransfer.ts`):
+
+- **Export settings** downloads the tournament's format and preferences as JSON
+  (`kind: "crabbytab.tournament-config"`, `version: 1`). Tournament-specific state is never
+  included: the current round, released tabs, ballots and break categories, and the schedule.
+- **Load settings from a file** validates the file (kind, version, a known format, every value of
+  the right type, teams per debate matching the format; unknown and tournament-specific settings
+  are skipped and listed) and previews every setting that would change, before and after.
+- **Rules preset** previews applying one of the creation wizard's presets (format, speakers, score
+  scale and its settings bundle) to this tournament.
+
+Nothing is saved until **Apply these changes** is confirmed. Settings fixed once ballots exist
+(`lockedSettingsFields`) are kept and listed; a different number of teams per debate, or a format
+fixed by ballots, refuses the whole file or preset rather than applying half of another format.
+Saving goes through `saveTournament`, which enforces the settings guards again. Participants,
+rounds and results are never touched.
 
 ## JSON backups
 

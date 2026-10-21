@@ -25,20 +25,40 @@ mapped onto CrabbyTab. Code: `src/lib/staffPermissions.ts`, `src/lib/staffAccess
 | `participants.edit` | add and edit teams, adjudicators, institutions | data-entry-sync |
 | `draw.display` | see draft draws (draw display before release) | assistant-data |
 | `motions.display` | see a round's motions before they are released | assistant-data |
+| `conflicts.view` | see adjudicator conflicts and team–institution conflicts | assistant-data (`conflicts`, `institutionConflictIds` are sent only with it) |
+| `conflicts.edit` | change those conflicts (only together with `conflicts.view`) | data-entry-sync |
+| `feedback.view` | see feedback scores, comments and answers, and adjudicators' base/test scores, score history, breaking and adjudication-core flags | assistant-data |
+| `adjudicators.scores_edit` | change base and test scores and breaking status (recorded in the score history with the staff member's name) | data-entry-sync |
+| `allocation.edit` | change adjudicator panels of draws they can see | data-entry-sync (one transaction per round), assistant-data (unrevealed panels) |
 
 Groups (set per staff member on **Tournament access**; more than one may be ticked):
 
 | Group | Permissions | Tabbycat |
 |---|---|---|
-| Tabulation assistant (default) | all of the above | Tabulation Assistant |
+| Tabulation assistant (default) | the first eight permissions above (pinned: new permissions never widen it) | Tabulation Assistant |
 | Ballot desk | `results.enter`, `results.confirm_others`, `ballots.intake` | — |
 | Check-in desk | `checkins.edit` | — |
 | Feedback desk | `feedback.enter` | — |
+| Equity | `conflicts.view`, `conflicts.edit` | Equity |
+| Adjudication core | `feedback.view`, `adjudicators.scores_edit`, `allocation.edit`, `conflicts.view`, `draw.display`, `motions.display` | Adjudication Core |
 
-Staff documents written before groups existed have no groups and keep the full assistant set.
-Tabbycat's *Equity* and *Adjudication Core* groups are not offered: they need conflicts, feedback
-scores and allocation, which are administrator-only data in CrabbyTab (make those people
-administrators).
+Staff documents written before groups existed have no groups and keep the tabulation assistant
+set. Equity leaves out Tabbycat's room-constraint and participant-contact permissions (room
+preferences, phone numbers and emails stay administrator-only). Adjudication Core leaves out
+editing feedback questions, motions and releases, and the standings pages' admin-only views; make
+people administrators for those.
+
+### Custom groups
+
+Organisers define their own groups (Tabbycat `users.Group`) under **Custom permission groups** on
+the Tournament access page: a name and any set of the permissions above. They are stored
+server-only (`tournaments/{id}/serverOnly/staffPermissionGroups`) and only
+`GET/PUT /api/tournaments/{id}/staff/groups` (administrators) reads or writes them; the PUT
+validates them (known permissions only, unique names, `conflicts.edit` only with
+`conflicts.view`) and, in the same transaction, recomputes the stored `permissions` of every
+data-entry staff member, so firestore.rules and the assistant routes agree at once. A staff member
+in a removed group keeps the group id and gets nothing from it (never the default group). The
+assistant routes read the custom groups only for staff who use one.
 
 ## Access level (`assistantAccess`)
 
@@ -46,7 +66,7 @@ administrators).
 |---|---|
 | All areas (default) | no cap |
 | Results entry and draw display | removes `motions.display` |
-| Results entry only | removes `motions.display` and `draw.display` |
+| Results entry only | removes `motions.display`, `draw.display` and `allocation.edit` |
 | No access | every data-entry account is refused by every assistant route and by firestore.rules |
 
 The level is a tournament preference, so it reaches the server with the next upload of the
@@ -63,6 +83,18 @@ rejected, so the device keeps it as a local edit. firestore.rules check `assista
 two direct live writes assistants make: the staff document's `permissions` list (derived from the
 groups by the staff route) and the tournament's `assistantAccess`. The app hides links staff
 cannot use, but hiding is never the barrier.
+
+### Conflicts, scores and allocations from staff devices
+
+Every assistant device sends its whole copy of teams, adjudicators and debates on sync. Fields a
+staff member cannot read reach their device as placeholders (no conflicts, no scores), so the
+server ignores them unless the staff member can read them (`DATA_ENTRY_GUARDED_FIELDS` in
+`src/lib/dataEntrySync.ts`), validates them, and accepts a change only from a copy based on the
+current cloud version (`syncVersion`); a change made on an older copy is refused and kept on the
+device. Allocations (`src/lib/assistantAllocation.ts`) are checked per round on the final state:
+known, live adjudicators only, nobody twice in a panel or in two rooms of the round, no change to
+closed rounds or to debates with a confirmed result; if one change of a round is refused, none is
+written. Panel names and the debates' participant index are rebuilt by the server.
 
 ## Confirming others' ballots
 
@@ -87,6 +119,17 @@ Staff confirmations are recorded on the ballot (`confirmedBy`, `confirmedById`,
 hash-chained audit log, which is appended by administrator devices.
 
 ## Private-URL ballots
+
+`privateUrlBallots` (Tabbycat `participant_ballots`): **Ballot submissions from adjudicators
+through private URLs**. On by default, CrabbyTab's behaviour before this setting. Turned off
+(Tabbycat "Disabled (tab staff only)"), the private portal no longer offers the ballot form and
+tells adjudicators to give their ballot to the tab room. The private sync route
+(`/api/private/sync`) refuses ballot submissions with 403, so an older or offline client cannot
+send one either. Feedback and check-ins are not affected. Tabbycat's "public" mode (a form
+without a private URL) is a separate setting.
+
+When `ballotIntroExplanation` is set, the private-URL ballot form shows it above the scores, as the
+tab-room ballot page and printed ballots do.
 
 `privateBallotConfirmation`:
 
@@ -121,5 +164,6 @@ Ballot receipts go to the adjudicator for their own sheet only.
 
 - Data-entry staff cannot merge individual ballots themselves; they confirm the merged or
   tab-entered ballot.
-- Equity and Adjudication Core groups are not available (see above).
+- Equity and Adjudication Core cover conflicts, feedback, adjudicator scores and allocation only
+  (see above); room preferences, motions, feedback questions and releases stay administrator work.
 - Staff confirmations are not in the audit log (see above).

@@ -1,4 +1,5 @@
 import type { DocumentReference, Firestore, QuerySnapshot } from "firebase-admin/firestore";
+import { isDrawReleasedToTeams } from "@/lib/draw/drawStatus";
 import type { Adjudicator, BallotSubmission, Debate, Motion, Round, Team, Tournament } from "@/types";
 import { createEmailCampaign } from "@/lib/email/history";
 import { sendEmailCampaign, type EmailRecipient, type EmailRecipientGroup } from "@/lib/email/messaging";
@@ -358,7 +359,7 @@ export async function sendBallotReceipts(input: {
 function ballotConfirmationRounds(rounds: Round[]): Round[] {
   return rounds.filter((round) =>
     round.cancelled !== true && round.completed !== true &&
-    (round.drawStatus === "confirmed" || round.drawStatus === "released")
+    isDrawReleasedToTeams(round)
   );
 }
 

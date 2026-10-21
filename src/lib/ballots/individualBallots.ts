@@ -3,6 +3,7 @@ import {
   aggregateVotingSheets,
   ballotSides,
   markGhostSpeeches,
+  selfSplitAllowed,
   sheetOutcome,
   type BallotRules,
 } from "@/lib/ballots/result";
@@ -62,7 +63,7 @@ export interface IndividualMerge {
   /** The individual ballots merged (one per voting adjudicator who submitted). */
   merged: BallotSubmission[];
   /** Scores of the merged voting ballot; absent when there are errors or no sheets. */
-  result?: Pick<BallotSubmission, "speakerScores" | "teamScores" | "sheets" | "motionId" | "motionText" | "vetoes" | "noSpeakerScores">;
+  result?: Pick<BallotSubmission, "speakerScores" | "teamScores" | "sheets" | "motionId" | "motionText" | "vetoes" | "noSpeakerScores" | "selfSplit">;
 }
 
 function speakerKey(entry: SpeakerScoreEntry | undefined): string {
@@ -132,8 +133,10 @@ export function mergeIndividualBallots(
   if (errors.length > 0) return { missingAdjudicatorIds, errors: [...new Set(errors)], merged };
 
   const teamIds = Object.fromEntries(sides.map((side) => [side, first.teamScores?.[side]?.teamId || debate.teams?.[side]?.teamId || ""]));
+  // A solo adjudicator's own sheet may declare a 2:1 split (allowSelfSplitBallots).
+  const selfSplit = merged.length === 1 && merged[0].selfSplit === true && selfSplitAllowed(rules, voters.length);
   try {
-    const aggregated = aggregateVotingSheets(sheets, debate.adjudicators?.chairId, teamIds, rules);
+    const aggregated = aggregateVotingSheets(sheets, debate.adjudicators?.chairId, teamIds, rules, { selfSplit });
     return {
       missingAdjudicatorIds,
       errors,
@@ -146,6 +149,7 @@ export function mergeIndividualBallots(
         ...(first.motionText !== undefined ? { motionText: first.motionText } : {}),
         ...(first.vetoes !== undefined ? { vetoes: first.vetoes } : {}),
         ...(merged.every((ballot) => ballot.noSpeakerScores) ? { noSpeakerScores: true } : {}),
+        ...(aggregated.selfSplit ? { selfSplit: true } : {}),
       },
     };
   } catch (error) {

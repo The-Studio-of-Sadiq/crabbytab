@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/Field";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Alert, EmptyState, Skeleton } from "@/components/ui/Feedback";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { CrossTournamentMotionTable } from "@/features/tournament/components/CrossTournamentMotionTable";
 import { cn } from "@/components/ui/cn";
 import { focusRing } from "@/components/ui/focus";
 import { getLocalStore, readLocalTournamentMetas, tournamentKeyPrefix } from "@/lib/offline/localStore";
@@ -55,7 +55,7 @@ async function readWorkingCopy(meta: Meta): Promise<TournamentMotionData> {
  */
 export default function CrossTournamentMotionsPage() {
   const { user, loading: authLoading } = useAuth();
-  const { t, formatDecimal, formatList, formatNumber } = useI18n();
+  const { t, formatList } = useI18n();
   const [data, setData] = useState<TournamentMotionData[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -119,7 +119,15 @@ export default function CrossTournamentMotionsPage() {
   return (
     <SetupShell maxWidth="max-w-5xl">
       <div className="space-y-6">
-        <PageHeader title={t("setup.entry.motions.title")} description={t("setup.entry.motions.intro")} />
+        <PageHeader
+          title={t("setup.entry.motions.title")}
+          description={t("setup.entry.motions.intro")}
+          actions={
+            <Link href="/tournaments/motions/public" className={cn("rounded-sm text-sm font-medium text-accent-text hover:underline", focusRing)}>
+              {t("setup.entry.motions.publicLink")}
+            </Link>
+          }
+        />
 
         {errorText && <Alert tone="danger" role="alert">{errorText}</Alert>}
         {loading && (
@@ -170,52 +178,7 @@ export default function CrossTournamentMotionsPage() {
           </Card>
         )}
 
-        {statistics.length > 0 && (
-          <TableContainer>
-            <Table>
-              <caption className="sr-only">{t("setup.entry.motions.tableCaption")}</caption>
-              <THead>
-                <TR>
-                  <TH>{t("setup.entry.motions.colMotion")}</TH>
-                  <TH>{t("setup.entry.motions.colTournaments")}</TH>
-                  <TH align="right">{t("setup.entry.motions.colDebates")}</TH>
-                  <TH>{t("setup.entry.motions.colWins")}</TH>
-                  <TH align="right">{t("setup.entry.motions.colVetoes")}</TH>
-                  <TH align="right">{t("setup.entry.motions.colBalance")}</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {statistics.map((statistic) => (
-                  <TR key={statistic.key}>
-                    <TH
-                      scope="row"
-                      className="max-w-md whitespace-normal bg-transparent text-[13px] font-medium normal-case tracking-normal text-fg"
-                    >
-                      {statistic.text}
-                    </TH>
-                    <TD className="text-fg-muted">
-                      {formatList(statistic.tournaments.map((item) =>
-                        t("setup.entry.motions.tournamentDebates", { name: item.name, count: item.debates })
-                      ))}
-                    </TD>
-                    <TD numeric>{formatNumber(statistic.debatesCounted)}</TD>
-                    <TD className="whitespace-nowrap font-mono text-xs text-fg-muted">
-                      {/* Side codes (OG, OO, AFF…) stay as they are in every language. */}
-                      {statistic.positionWins.map((item) => `${item.side} ${formatNumber(item.wins)}`).join(" · ")}
-                    </TD>
-                    <TD numeric>{formatNumber(statistic.vetoes)}</TD>
-                    <TD numeric>
-                      {statistic.balance.pValue === null ? "—" : formatDecimal(statistic.balance.pValue, 3)}
-                      {statistic.balance.lowExpectedCount && statistic.balance.pValue !== null && (
-                        <span className="sr-only"> {t("setup.entry.motions.fewDebates")}</span>
-                      )}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </TableContainer>
-        )}
+        {statistics.length > 0 && <CrossTournamentMotionTable statistics={statistics} />}
 
         <Link
           href="/tournaments"

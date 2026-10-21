@@ -59,6 +59,8 @@ export interface SyncConflict {
 
 export function buildDataEntrySyncPayload(input: {
   localCollections: Record<CloudCollectionName, CloudRecord[]>;
+  /** The staff member's permissions: conflicts are sent only by staff who can see them. */
+  permissions?: readonly string[];
 }): {
   collections: Record<(typeof DATA_ENTRY_COLLECTIONS)[number], CloudRecord[]>;
   debates: CloudRecord[];
@@ -67,10 +69,10 @@ export function buildDataEntrySyncPayload(input: {
     DATA_ENTRY_COLLECTIONS.map((name) => [name, input.localCollections[name]])
   ) as Record<(typeof DATA_ENTRY_COLLECTIONS)[number], CloudRecord[]>;
   collections.teams = input.localCollections.teams.map(
-    (record) => sanitizeAssistantTeam(record as unknown as Team) as unknown as CloudRecord
+    (record) => sanitizeAssistantTeam(record as unknown as Team, input.permissions) as unknown as CloudRecord
   );
   collections.adjudicators = input.localCollections.adjudicators.map(
-    (record) => sanitizeAssistantAdjudicator(record as unknown as Adjudicator) as unknown as CloudRecord
+    (record) => sanitizeAssistantAdjudicator(record as unknown as Adjudicator, input.permissions) as unknown as CloudRecord
   );
   return {
     collections,

@@ -11,6 +11,7 @@ import {
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
 import {
   buildBallotResult,
+  selfSplitAllowed,
   substantiveSpeakerCount,
   usesSpeakerScores,
   validateBallotEntry,
@@ -18,6 +19,8 @@ import {
 } from "@/lib/ballots/result";
 import { scoreCriteriaFor } from "@/lib/ballots/ballotRules";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
+import { votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
+import { usesIndividualBallots } from "@/lib/privateIndividualBallots";
 
 const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
@@ -36,6 +39,34 @@ export function privateBallotRules(
     preferences: { ...tournament.preferences, ballotMode: "consensus", eliminationBallotMode: "consensus" },
     ...(round?.stage ? { stage: round.stage } : {}),
   };
+}
+
+/**
+ * Tabbycat `participant_ballots`: private-URL ballot submission is on unless the tournament turned
+ * it off (`privateUrlBallots: false`, Tabbycat "off"). Checked by the private sync route.
+ */
+export function privateUrlBallotsEnabled(tournament: Pick<Tournament, "preferences">): boolean {
+  return tournament.preferences?.privateUrlBallots !== false;
+}
+
+/**
+ * Whether a solo adjudicator may declare a 2:1 split on their private-URL ballot. The private
+ * ballot becomes a voting ballot only through individual ballots (merged into one voting ballot);
+ * otherwise it is stored as a consensus-shaped ballot without votes, where a split would mean
+ * nothing, so the option is offered only with individual ballots on. The tab room can still record
+ * a split when it enters or re-enters the voting ballot.
+ */
+export function privateSelfSplitAllowed(
+  tournament: Pick<Tournament, "format" | "preferences">,
+  round: Pick<Round, "stage"> | undefined,
+  debate: Pick<Debate, "adjudicators">
+): boolean {
+  const rules: BallotRules = {
+    format: tournament.format,
+    preferences: tournament.preferences,
+    ...(round?.stage ? { stage: round.stage } : {}),
+  };
+  return usesIndividualBallots(tournament, round) && selfSplitAllowed(rules, votingAdjudicatorIds(debate).length);
 }
 
 export function buildPrivateBallot(
@@ -186,6 +217,14 @@ export function buildPrivateBallot(
     });
   }
 
+  if (input.selfSplit !== undefined && typeof input.selfSplit !== "boolean") {
+    throw new Error("The split-decision flag is invalid.");
+  }
+  const selfSplit = input.selfSplit === true;
+  if (selfSplit && !privateSelfSplitAllowed(tournament, round, debate)) {
+    throw new Error("A split decision can only be declared by a solo adjudicator, when self-split ballots are allowed.");
+  }
+
   const entry = { speakerScores, ranks: Object.fromEntries(ranks) };
   const errors = validateBallotEntry(entry, { ...rules, rosters });
   if (errors.length > 0) {
@@ -218,6 +257,7 @@ export function buildPrivateBallot(
     speakerScores: result.speakerScores,
     teamScores,
     ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
+    ...(selfSplit ? { selfSplit: true } : {}),
     ...(debate.adjudicators?.chairId !== undefined
       ? { chairId: debate.adjudicators.chairId }
       : {}),

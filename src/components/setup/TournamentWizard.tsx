@@ -374,6 +374,8 @@ export function TournamentWizard() {
       ownerId,
       admins: { [ownerId]: true },
       preferences: {
+        // Tabbycat's default for every format (scoring__teamscore_includes_ghosts); a preset may override it.
+        teamScoreIncludesGhosts: true,
         // The rules preset's bundle first, so anything edited in the wizard wins.
         ...(rulesPreset?.preferences ?? {}),
         teamsInDebate,

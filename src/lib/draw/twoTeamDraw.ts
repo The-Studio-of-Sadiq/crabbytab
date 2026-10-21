@@ -5,6 +5,7 @@ import type {
   PairingMethod,
   PullupRestriction,
   Team,
+  TeamMetricId,
   TeamStandingRow,
   TwoTeamSide,
 } from "@/types";
@@ -24,8 +25,14 @@ import { PairedDebateDraft } from "./powerPaired";
 import { singleGraphPair } from "./singleGraphPairing";
 import { minCostPerfectMatching } from "./weightedMatching";
 import { Rng, shuffle } from "./rng";
+import { bracketValue } from "./brackets";
 
 export interface TwoTeamDrawConfig {
+  /**
+   * The standings metric power-paired brackets are formed on: Tabbycat uses the first
+   * team-standings precedence metric (normally points). Absent = wins.
+   */
+  bracketMetric?: TeamMetricId;
   pairingMethod: PairingMethod;
   oddBracketMethod: OddBracketMethod;
   conflictAvoidance: ConflictAvoidance;
@@ -59,6 +66,7 @@ function resolveConfig(config: Partial<TwoTeamDrawConfig>): TwoTeamDrawConfig {
   // Spreading `config` directly would let an explicit `undefined` field (e.g.
   // passed straight from optional tournament preferences) clobber its default.
   return {
+    bracketMetric: config.bracketMetric,
     pairingMethod: config.pairingMethod ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.pairingMethod,
     oddBracketMethod: config.oddBracketMethod ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.oddBracketMethod,
     conflictAvoidance: config.conflictAvoidance ?? DEFAULT_TWO_TEAM_DRAW_CONFIG.conflictAvoidance,
@@ -290,7 +298,8 @@ export function generateTwoTeamDraw(
   const cfg = resolveConfig(config);
   const standingMap = new Map(standings.map((s) => [s.teamId, s]));
   const ordered = seedOrder ?? rankForDraw(teams, standings, rng);
-  const wins = new Map(ordered.map((team) => [team.id, seedOrder ? 0 : (standingMap.get(team.id)?.metrics?.wins ?? 0)]));
+  const bracketMetric = cfg.bracketMetric ?? "wins";
+  const wins = new Map(ordered.map((team) => [team.id, seedOrder ? 0 : bracketValue(standingMap.get(team.id), bracketMetric)]));
 
   const statsFor = (team: Team): RankedTeamStats => {
     const m = standingMap.get(team.id)?.metrics;

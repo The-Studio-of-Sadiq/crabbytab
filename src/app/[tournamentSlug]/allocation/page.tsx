@@ -4,6 +4,8 @@ import React, { useState, useMemo } from "react";
 import type { DragEvent } from "react";
 import Link from "next/link";
 import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
+import { tabroomTeamName } from "@/lib/codeNames";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -58,6 +60,12 @@ import { Alert } from "@/components/ui/Feedback";
 import { Badge, type Tone } from "@/components/ui/Badge";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { cn } from "@/components/ui/cn";
+import { roundBreakLiveness } from "@/lib/breakqual/liveness";
+import {
+  DebatePriorityUnavailableError,
+  prioritiseDebates,
+  type DebatePrioritiseMethod,
+} from "@/features/tournament/application/debatePriority";
 
 function describeError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -249,8 +257,10 @@ export default function AllocationPage() {
     institutions,
     venues,
     recordAuditEvent,
+    ballots,
   } = useTournament();
   const { t, plural, rich, formatDecimal, formatNumber } = useI18n();
+  const teamCodeNameMode = getPublicSiteSettings(tournament?.preferences).teamCodeNames;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [panelSize, setPanelSize] = useState<number>(1);
@@ -267,6 +277,9 @@ export default function AllocationPage() {
   const [shardState, setShardState] = useState<ShardState>(DEFAULT_SHARD_STATE);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [pendingPrioritise, setPendingPrioritise] = useState<DebatePrioritiseMethod | null>(null);
+  const [isPrioritising, setIsPrioritising] = useState(false);
+  const [prioritiseMessage, setPrioritiseMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
   // Drag & drop state
   const [draggingJudge, setDraggingJudge] = useState<JudgeDragPayload | null>(null);
@@ -693,6 +706,41 @@ export default function AllocationPage() {
     }
   };
 
+  // Tabbycat's "auto-prioritise debates": sets every room's importance (the manual 20% of the blend).
+  const handleConfirmPrioritise = async () => {
+    if (!activeRound || !tournament || !pendingPrioritise) return;
+    const method = pendingPrioritise;
+    setIsPrioritising(true);
+    setPrioritiseMessage(null);
+    try {
+      const liveness = method === "liveness"
+        ? roundBreakLiveness({ tournament, rounds, teams, debates, ballots, breakCategories }, activeRound)
+        : null;
+      const updated = new Map(
+        prioritiseDebates(roundDebates, method, breakCategories, liveness).map((debate) => [debate.id, debate])
+      );
+      await updateDebates(debates.map((debate) => updated.get(debate.id) ?? debate));
+      await recordAuditEvent({
+        action: "draw.debate_importance_auto",
+        category: "draw",
+        summary: `${activeRound.name} room importances set by ${method}`,
+        roundId: activeRound.id,
+        details: { method },
+      });
+      setPrioritiseMessage({ tone: "success", text: t("tabroom.allocation.prioritised") });
+    } catch (error) {
+      setPrioritiseMessage({
+        tone: "danger",
+        text: error instanceof DebatePriorityUnavailableError
+          ? t("tabroom.allocation.prioritiseLivenessUnavailable")
+          : describeError(error, t("tabroom.allocation.prioritiseFailed")),
+      });
+    } finally {
+      setIsPrioritising(false);
+      setPendingPrioritise(null);
+    }
+  };
+
   const handleAutoAllocate = async () => {
     if (!activeRound) return;
     setIsAllocating(true);
@@ -1000,6 +1048,33 @@ export default function AllocationPage() {
             ? ` ${plural("tabroom.allocation.preformedPlacedFirst", preformedCount)}`
             : ""}
         </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => setPendingPrioritise("bracket")}
+            disabled={roundDebates.length === 0}
+          >
+            <Gauge aria-hidden="true" />
+            {t("tabroom.allocation.prioritiseByBracket")}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setPendingPrioritise("liveness")}
+            disabled={roundDebates.length === 0 || activeRound?.stage !== "preliminary"}
+          >
+            <Flame aria-hidden="true" />
+            {t("tabroom.allocation.prioritiseByLiveness")}
+          </Button>
+          <span className="text-xs text-fg-muted">{t("tabroom.allocation.prioritiseHelp")}</span>
+        </div>
+        {prioritiseMessage && (
+          <p
+            role={prioritiseMessage.tone === "danger" ? "alert" : "status"}
+            className={cn("text-xs", prioritiseMessage.tone === "danger" ? "text-danger" : "text-fg-muted")}
+          >
+            {prioritiseMessage.text}
+          </p>
+        )}
         <Link
           href={`/${tournament?.slug}/allocation/panels`}
           className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -1223,11 +1298,26 @@ export default function AllocationPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-fg-muted">
+                      <span
+                        className="text-xs text-fg-muted"
+                        title={
+                          debateTeams
+                            .map((team) => tabroomTeamName(team, undefined, teamCodeNameMode).tooltip)
+                            .map((tooltip) =>
+                              !tooltip
+                                ? ""
+                                : tooltip.kind === "code"
+                                  ? t("public.codeNameTooltip", { code: tooltip.name })
+                                  : t("tabroom.common.realNameTooltip", { name: tooltip.name })
+                            )
+                            .filter(Boolean)
+                            .join("; ") || undefined
+                        }
+                      >
                         {debateTeams
                           .map((team) =>
                             t("tabroom.allocation.teamWithInstitution", {
-                              team: team.name,
+                              team: tabroomTeamName(team, undefined, teamCodeNameMode).name,
                               institution: team.institutionName || t("tabroom.allocation.independentShort"),
                             })
                           )
@@ -1476,6 +1566,29 @@ export default function AllocationPage() {
         </section>
       </div>
 
+      {pendingPrioritise && (
+        <ConfirmActionDialog
+          title={t(
+            pendingPrioritise === "bracket"
+              ? "tabroom.allocation.prioritiseByBracket"
+              : "tabroom.allocation.prioritiseByLiveness"
+          )}
+          description={t(
+            pendingPrioritise === "bracket"
+              ? "tabroom.allocation.prioritiseBracketDescription"
+              : "tabroom.allocation.prioritiseLivenessDescription",
+            { round: activeRound?.name ?? "" }
+          )}
+          confirmLabel={t("tabroom.allocation.prioritiseConfirm")}
+          variant="primary"
+          isBusy={isPrioritising}
+          onConfirm={() => void handleConfirmPrioritise()}
+          onCancel={() => setPendingPrioritise(null)}
+          cancelLabel={t("tabroom.common.noCancel")}
+          busyLabel={t("tabroom.common.saving")}
+          closeLabel={t("tabroom.common.closeDialog")}
+        />
+      )}
       {confirmingClear && (
         <ConfirmActionDialog
           title={t("tabroom.allocation.clearConfirmTitle")}

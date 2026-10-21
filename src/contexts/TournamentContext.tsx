@@ -23,8 +23,9 @@ import {
 } from "@/types";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
-import { calculateStandings } from "@/lib/standings/calculator";
+import { calculateStandingsAsOf } from "@/lib/standings/asOfRound";
 import { calculateBreaks, BreakCategoryResult } from "@/lib/breakqual/calculator";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
 import {
   buildDataEntrySyncPayload,
   DATA_ENTRY_COLLECTIONS,
@@ -47,6 +48,7 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
+import { portalCurrentRound, sharedViewCurrentRound } from "@/lib/publicFeatures";
 import { createRoundCommand, updateRoundCommand, updateRoundsCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
@@ -57,7 +59,7 @@ import {
   roundsNeedingMotionReleaseSync,
   setMotionsStatusCommand,
 } from "@/features/tournament/application/motionRelease";
-import { migrateSchedulePreferences, roundsInSameSlot } from "@/features/tournament/application/schedule";
+import { currentRounds, migrateSchedulePreferences, roundsInSameSlot } from "@/features/tournament/application/schedule";
 import {
   addFeedbackInSequence,
   planSimulatedBallots,
@@ -713,8 +715,9 @@ export function TournamentProvider({
   const applyPublicProjection = useCallback(
     (result: PublicProjectionResponse, preserveActiveRound: boolean) => {
       const publicRounds = (result.collections.rounds || []) as Round[];
-      const latestRound =
-        [...publicRounds].filter((round) => !round.cancelled).sort((a, b) => b.seq - a.seq)[0] || null;
+      // The explicit current round when the projection carries it (only when that round is public),
+      // else the latest public round.
+      const latestRound = portalCurrentRound(publicRounds, result.tournament?.preferences?.currentRoundId) || null;
       publicVersionRef.current = result.version ?? null;
       const hashes = result.roundSections;
       // Rounds loaded earlier whose content is unchanged stay as they are; the rest reload.
@@ -924,8 +927,12 @@ export function TournamentProvider({
             error?: string;
             tournament: Tournament;
             collections: Record<string, CloudRecord[]>;
+            permissions?: unknown;
           };
           if (!response.ok) throw new Error(result.error || "Could not load assistant tournament data.");
+          const projectionPermissions = Array.isArray(result.permissions)
+            ? result.permissions.filter((item): item is string => typeof item === "string")
+            : [];
 
           const localKeys: Record<(typeof CLOUD_COLLECTIONS)[number], string> = {
             rounds: "rounds",
@@ -946,10 +953,10 @@ export function TournamentProvider({
             CLOUD_COLLECTIONS.map((name) => [name, result.collections[name] || []])
           ) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>;
           cloudCollections.teams = cloudCollections.teams.map((record) => {
-            return sanitizeAssistantTeam(record as unknown as Team) as unknown as CloudRecord;
+            return sanitizeAssistantTeam(record as unknown as Team, projectionPermissions) as unknown as CloudRecord;
           });
           cloudCollections.adjudicators = cloudCollections.adjudicators.map((record) => {
-            return sanitizeAssistantAdjudicator(record as unknown as Adjudicator) as unknown as CloudRecord;
+            return sanitizeAssistantAdjudicator(record as unknown as Adjudicator, projectionPermissions) as unknown as CloudRecord;
           });
           cloudCollections.auditEvents = [];
           // The same baseline merge as an administrator's device. The projection leaves deleted
@@ -1070,16 +1077,7 @@ export function TournamentProvider({
               persistLocal("meta", localTournament);
               const loadedRounds = cloudCollections.rounds as Round[];
               const publicRound = isSharedView
-                ? [...loadedRounds]
-                    .filter(
-                      (round) =>
-                        !round.cancelled &&
-                        (round.drawStatus === "confirmed" ||
-                          round.drawStatus === "released" ||
-                          round.resultsReleased ||
-                          round.adjudicatorsRevealed)
-                    )
-                    .sort((a, b) => b.seq - a.seq)[0]
+                ? sharedViewCurrentRound(loadedRounds, localTournament?.preferences?.currentRoundId)
                 : undefined;
               setRounds(loadedRounds);
               persistLocal("rounds", loadedRounds);
@@ -1218,16 +1216,7 @@ export function TournamentProvider({
         const localRounds = readLocal<Round[]>("rounds", []);
         setRounds(localRounds);
         const publicRound = isSharedView
-          ? [...localRounds]
-              .filter(
-                (round) =>
-                  !round.cancelled &&
-                  (round.drawStatus === "confirmed" ||
-                    round.drawStatus === "released" ||
-                    round.resultsReleased ||
-                    round.adjudicatorsRevealed)
-              )
-              .sort((a, b) => b.seq - a.seq)[0]
+          ? sharedViewCurrentRound(localRounds, localTournament?.preferences?.currentRoundId)
           : undefined;
         setActiveRound(publicRound || localRounds.find((round) => !round.cancelled) || null);
         setTeams(readLocal<Team[]>("teams", []));
@@ -1303,7 +1292,7 @@ export function TournamentProvider({
         rounds?: Round[];
         debates?: Debate[];
         /** Rooms of running debates (name, category, link) for the portal's room links. */
-        venues?: Array<Pick<Venue, "id" | "name" | "category" | "url">>;
+        venues?: Array<Pick<Venue, "id" | "name" | "category" | "categories" | "url">>;
         selfCheckIn?: SelfCheckInStatus | null;
       };
 
@@ -1367,11 +1356,7 @@ export function TournamentProvider({
           ...current.filter((item) => !result.rounds!.some((remote) => remote.id === item.id)),
           ...privateRounds,
         ]);
-        setActiveRound(
-          [...privateRounds]
-            .filter((round) => !round.cancelled)
-            .sort((left, right) => right.seq - left.seq)[0] || null
-        );
+        setActiveRound(portalCurrentRound(privateRounds, result.tournament?.preferences?.currentRoundId) || null);
       }
       if (result.debates) {
         setDebates((current) => [
@@ -1432,11 +1417,7 @@ export function TournamentProvider({
       ...current.filter((item) => !result.rounds.some((remote: Round) => remote.id === item.id)),
       ...privateRounds,
     ]);
-    setActiveRound(
-      [...privateRounds]
-        .filter((round) => !round.cancelled)
-        .sort((left, right) => right.seq - left.seq)[0] || null
-    );
+    setActiveRound(portalCurrentRound(privateRounds, result.tournament?.preferences?.currentRoundId) || null);
     setDebates((current) => [
       ...current.filter((item) => !result.debates.some((remote: Debate) => remote.id === item.id)),
       ...(result.debates as Debate[]),
@@ -1445,7 +1426,7 @@ export function TournamentProvider({
       ...current.filter((item) => !result.feedback.some((remote: FeedbackSubmission) => remote.id === item.id)),
       ...(result.feedback as FeedbackSubmission[]),
     ]);    if (Array.isArray(result.venues)) {
-      const portalVenues = (result.venues as Array<Pick<Venue, "id" | "name" | "category" | "url">>).map((venue) => ({
+      const portalVenues = (result.venues as Array<Pick<Venue, "id" | "name" | "category" | "categories" | "url">>).map((venue) => ({
         ...venue,
         tournamentId: result.tournament.id as string,
         priority: 0,
@@ -1528,10 +1509,13 @@ export function TournamentProvider({
           throw new Error(result.error || `Access verification failed (${response.status}).`);
         }
         if (active && result.role === "dataEntry" && typeof window !== "undefined") {
+          const grantedPermissions = Array.isArray(result.permissions)
+            ? result.permissions.filter((item): item is string => typeof item === "string")
+            : [];
           const safeTeams = safeJsonParse<Team[]>(getLocalStore().getItem(`${storagePrefix}_teams`), [])
-            .map(sanitizeAssistantTeam);
+            .map((team) => sanitizeAssistantTeam(team, grantedPermissions));
           const safeAdjudicators = safeJsonParse<Adjudicator[]>(getLocalStore().getItem(`${storagePrefix}_adjudicators`), [])
-            .map(sanitizeAssistantAdjudicator);
+            .map((adjudicator) => sanitizeAssistantAdjudicator(adjudicator, grantedPermissions));
           setTeams(safeTeams);
           persistLocal("teams", safeTeams);
           setAdjudicators(safeAdjudicators);
@@ -1733,7 +1717,11 @@ export function TournamentProvider({
       },
       teams: {
         save: (items) => {
-          saveLiveRecords("teams", teams, isDataEntryAssistant ? items.map(sanitizeAssistantTeam) : items);
+          saveLiveRecords(
+            "teams",
+            teams,
+            isDataEntryAssistant ? items.map((team) => sanitizeAssistantTeam(team, staffPermissions)) : items
+          );
         },
       },
       adjudicators: {
@@ -1741,7 +1729,9 @@ export function TournamentProvider({
           saveLiveRecords(
             "adjudicators",
             adjudicators,
-            isDataEntryAssistant ? items.map(sanitizeAssistantAdjudicator) : items
+            isDataEntryAssistant
+              ? items.map((adjudicator) => sanitizeAssistantAdjudicator(adjudicator, staffPermissions))
+              : items
           );
         },
       },
@@ -1762,6 +1752,7 @@ export function TournamentProvider({
     createId: createEntityId,
     generatePrivateKey,
     currentActor: () => ({ id: user?.uid, name: user?.displayName || user?.email || undefined }),
+    currentRoundId: () => currentRounds(rounds, debates, breakCategories)[0]?.id,
     cloudRepository:
       AUTOMATIC_CLOUD_WRITES && db && tournament?.id
         ? createFirestoreEntityRepository(tournament.id)
@@ -1873,15 +1864,8 @@ export function TournamentProvider({
   // Dynamic Standings Recalculation (Instantaneous in-browser compute)
   const standingsResult = useMemo(() => {
     if (!tournament) return { teams: [], speakers: [], replies: [] };
-    const activeRounds = rounds.filter((round) => !round.cancelled);
-    const activeRoundIds = new Set(activeRounds.map((round) => round.id));
-    return calculateStandings(
-      tournament,
-      activeRounds,
-      teams,
-      debates.filter((debate) => activeRoundIds.has(debate.roundId)),
-      ballots.filter((ballot) => activeRoundIds.has(ballot.roundId))
-    );
+    // Every non-cancelled round; the standings page can also compute them as of an earlier round.
+    return calculateStandingsAsOf(tournament, rounds, teams, debates, ballots);
   }, [tournament, rounds, teams, debates, ballots]);
 
   const teamStandings = standingsResult.teams;
@@ -1914,8 +1898,14 @@ export function TournamentProvider({
 
   const breakResults = useMemo(() => {
     if (breakCategories.length === 0 || teamStandings.length === 0) return [];
-    return calculateBreaks(breakCategories, teams, teamStandings, tournament?.format);
-  }, [breakCategories, teams, teamStandings]);
+    return calculateBreaks(
+      breakCategories,
+      teams,
+      teamStandings,
+      tournament?.format,
+      resolveTeamPrecedence(tournament?.format ?? "two_team", tournament?.preferences)
+    );
+  }, [breakCategories, teams, teamStandings, tournament?.format, tournament?.preferences]);
 
   // Mutations
   // Overridable tournament rules ask an administrator for a reason (RuleOverrideHost); assistants
@@ -2625,7 +2615,7 @@ export function TournamentProvider({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(buildDataEntrySyncPayload({ localCollections })),
+          body: JSON.stringify(buildDataEntrySyncPayload({ localCollections, permissions: staffPermissions })),
         }
       );
       const result = await response.json() as {

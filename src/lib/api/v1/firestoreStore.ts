@@ -1,3 +1,4 @@
+import { customPermissionGroupsRef } from "@/lib/staffAccessServer";
 import { FieldPath, type DocumentReference, type Firestore, type Query, type Transaction } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { checkPrivateApiRateLimit } from "@/lib/privateTeamRateLimit";
@@ -56,6 +57,10 @@ function tournamentStore(firestore: Firestore, tournamentId: string): Tournament
   return {
     tournamentId,
     ...reader(firestore, tournamentRef),
+    async getCustomPermissionGroups() {
+      // Server-only document (lib/staffAccessServer.ts customPermissionGroupsRef).
+      return (await customPermissionGroupsRef(tournamentRef).get()).data()?.groups ?? [];
+    },
     transaction(fn) {
       return firestore.runTransaction(async (transaction) => {
         const scoped: TournamentTransaction = {

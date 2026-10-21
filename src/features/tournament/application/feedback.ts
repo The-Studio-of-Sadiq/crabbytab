@@ -104,6 +104,31 @@ export async function reviewFeedbackCommand(
 }
 
 /**
+ * Removes one submission (Tabbycat's feedback DELETE). The record leaves the working copy; cloud
+ * repositories keep it recoverable (the API soft-deletes it and archives the version).
+ */
+export async function deleteFeedbackCommand(
+  feedbackId: string,
+  input: {
+    feedback: FeedbackSubmission[];
+    repository: { saveFeedback(feedback: FeedbackSubmission[]): void };
+    recordAuditEvent(event: FeedbackAuditEvent): Promise<void>;
+  }
+): Promise<void> {
+  const previous = input.feedback.find((item) => item.id === feedbackId);
+  if (!previous) throw new Error("That feedback submission no longer exists.");
+  input.repository.saveFeedback(input.feedback.filter((item) => item.id !== feedbackId));
+  await input.recordAuditEvent({
+    action: "feedback.deleted",
+    category: "feedback",
+    summary: `Feedback on ${previous.targetAdjudicatorName || previous.targetTeamName || "participant"} from ${previous.sourceName || previous.sourceId} deleted`,
+    roundId: previous.roundId,
+    debateId: previous.debateId,
+    details: { feedbackId, sourceType: previous.sourceType, sourceId: previous.sourceId, score: previous.score },
+  });
+}
+
+/**
  * Checks that tab-room feedback names a real debate in the round, an adjudicator who sat
  * on it, and a source who took part in it. Returns an error message or null.
  */

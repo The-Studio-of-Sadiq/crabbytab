@@ -87,7 +87,11 @@ export async function createRegisteredEntity(input: {
     : undefined;
   const tournamentId = tournamentRef.id;
   if (submission.kind === "team") {
-    const built = applyNameGenerators(buildTeamFromSubmission(submission, institution, randomId), {
+    // Break categories are checked against the current ones only when the registrant chose some.
+    const breakCategoryIds = submission.team?.breakCategories?.length
+      ? active<{ id: string }>((await tournamentRef.collection("breakCategories").get()).docs).map((category) => category.id)
+      : undefined;
+    const built = applyNameGenerators(buildTeamFromSubmission(submission, institution, randomId, { teams, breakCategoryIds }), {
       settings,
       institutionName: institution?.name ?? submission.institution?.name,
       teams,

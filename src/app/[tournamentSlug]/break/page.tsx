@@ -77,6 +77,7 @@ const EMPTY_DRAFT: BreakCategoryDraft = {
   isGeneral: false,
   maxPerInstitution: 0,
   qualificationRule: "standard",
+  limit: 0,
 };
 
 function draftFromCategory(category: BreakCategory): BreakCategoryDraft {
@@ -88,11 +89,12 @@ function draftFromCategory(category: BreakCategory): BreakCategoryDraft {
     isGeneral: category.isGeneral,
     maxPerInstitution: category.maxPerInstitution ?? 0,
     qualificationRule: category.qualificationRule ?? "standard",
+    limit: category.limit ?? 0,
   };
 }
 
 type BreakRowStatus =
-  | { kind: "breaking"; seed: number; generated: boolean; manual: boolean }
+  | { kind: "breaking"; seed: number; breakRank: number; tied: boolean; generated: boolean; manual: boolean }
   | { kind: "reserve"; index: number | undefined }
   | { kind: "tied"; cutoff: "break" | "reserve"; places: number; teams: number }
   | { kind: "excluded"; reason: BreakExclusionReason };
@@ -120,6 +122,10 @@ function buildRows(result: BreakCategoryResult): BreakRow[] {
       status: {
         kind: "breaking" as const,
         seed: entry.seed,
+        breakRank: entry.breakRank ?? entry.seed,
+        tied: result.breakingTeams.some(
+          (other) => other !== entry && (other.breakRank ?? other.seed) === (entry.breakRank ?? entry.seed)
+        ),
         generated: generatedIds.has(entry.team.id),
         manual: Boolean(entry.manuallyIncluded),
       },
@@ -204,6 +210,8 @@ export default function BreakPage() {
   );
   const breakIsStale = selectedResult ? isGeneratedBreakStale(selectedResult) : false;
   const cutoffTies = selectedResult?.cutoffTies ?? [];
+  const tooFewEligible = selectedResult?.tooFewEligible;
+  const generationBlocked = cutoffTies.length > 0 || Boolean(tooFewEligible);
   const eliminatedTeamsCount = teams.filter((team) => team.breakStatus === "eliminated").length;
   const categoryFirstRound = selectedResult && rounds
     .filter((round) => round.stage === "elimination" && round.breakCategoryIds?.includes(selectedResult.category.id))
@@ -321,7 +329,8 @@ export default function BreakPage() {
 
   const seedLabel = (status: BreakRowStatus) =>
     status.kind === "breaking"
-      ? formatNumber(status.seed)
+      ? // Tied teams share a break rank, shown "=2" as on a printed tab.
+        `${status.tied ? "=" : ""}${formatNumber(status.breakRank)}`
       : status.kind === "reserve"
         ? t("results.break.reserveSeed", { index: status.index ?? "?" })
         : status.kind === "tied"
@@ -376,6 +385,12 @@ export default function BreakPage() {
         description={t("results.break.description")}
         actions={
           <>
+            <Link href={`/${tournament?.slug}/break/eligibility`} className={buttonClasses({ variant: "ghost" })}>
+              {t("results.break.eligibilityGrid.link")}
+            </Link>
+            <Link href={`/${tournament?.slug}/break/adjudicators`} className={buttonClasses({ variant: "ghost" })}>
+              {t("results.break.breakingAdjudicators.link")}
+            </Link>
             <Button variant="ghost" onClick={triggerCelebration}>
               <Sparkles aria-hidden="true" />
               {t("results.break.celebrate")}
@@ -419,10 +434,16 @@ export default function BreakPage() {
                       size="sm"
                       variant="primary"
                       onClick={handleGenerateBreak}
-                      disabled={breakResults.length === 0 || cutoffTies.length > 0}
+                      disabled={breakResults.length === 0 || generationBlocked}
                       loading={isGeneratingBreak}
                       loadingText={t("results.break.generating")}
-                      title={cutoffTies.length > 0 ? t("results.break.resolveTieFirst") : undefined}
+                      title={
+                        tooFewEligible
+                          ? t("results.break.tooFewEligibleTitle")
+                          : cutoffTies.length > 0
+                            ? t("results.break.resolveTieFirst")
+                            : undefined
+                      }
                     >
                       <CheckCircle2 aria-hidden="true" />
                       {t(categoryHasBeenGenerated ? "results.break.regenerate" : "results.break.generate")}
@@ -458,8 +479,16 @@ export default function BreakPage() {
 
               <SpeakerCategoryEligibilityPanel category={selectedCategory} />
 
-              {(cutoffTies.length > 0 || breakIsStale) && (
+              {(generationBlocked || breakIsStale) && (
                 <div className="space-y-2 border-b border-border p-4">
+                  {tooFewEligible && (
+                    <Alert role="alert" tone="danger" title={t("results.break.tooFewEligibleTitle")}>
+                      {t("results.break.tooFewEligibleBody", {
+                        eligible: tooFewEligible.eligible,
+                        breakSize: tooFewEligible.breakSize,
+                      })}
+                    </Alert>
+                  )}
                   {cutoffTies.map((tie) => (
                     <Alert
                       key={tie.cutoff}
@@ -491,7 +520,9 @@ export default function BreakPage() {
                   <THead>
                     <TR>
                       <TH align="right" className="w-16">{t("results.break.colSeed")}</TH>
-                      <TH align="right" className="w-20">{t("results.break.colTabRank")}</TH>
+                      <TH align="right" className="w-20">
+                        {t(selectedCategory.isGeneral ? "results.break.colTabRank" : "results.break.colCategoryRank")}
+                      </TH>
                       <TH>{t("results.break.colTeam")}</TH>
                       <TH>{t("results.break.colInstitution")}</TH>
                       <TH align="right">{t("results.break.colPoints")}</TH>
@@ -724,6 +755,16 @@ export default function BreakPage() {
               max={editor.draft.breakSize}
               value={editor.draft.maxPerInstitution}
               onChange={(event) => updateDraft({ maxPerInstitution: Math.max(0, parseInt(event.target.value, 10) || 0) })}
+            />
+
+            <Input
+              id="break-tab-limit"
+              type="number"
+              label={t("results.break.fieldTabLimit")}
+              help={t("results.break.fieldTabLimitHelp")}
+              min="0"
+              value={editor.draft.limit ?? 0}
+              onChange={(event) => updateDraft({ limit: Math.max(0, parseInt(event.target.value, 10) || 0) })}
             />
 
             {editorError && <p role="alert" className="text-xs text-danger">{editorError}</p>}

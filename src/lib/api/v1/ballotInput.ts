@@ -7,6 +7,7 @@ import {
   type BallotRules,
 } from "@/lib/ballots/result";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
+import { votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
 import type { BallotSubmission, Debate, DebateSide, Motion, Round, Team, Tournament } from "@/types";
 import { ApiError } from "./errors";
 
@@ -59,7 +60,12 @@ export function buildApiBallot(input: BallotInput, context: BallotBuildContext):
   const rosters = Object.fromEntries(sides.map((side) => [side, teamsById.get(debate.teams?.[side]?.teamId ?? "")?.speakers ?? []]));
   const teamIds = Object.fromEntries(sides.map((side) => [side, debate.teams?.[side]?.teamId ?? ""]));
   const available = roundMotions(motions, round.id);
-  const errors = validateBallotEntry(input.entry, { ...rules, rosters, roundMotionIds: available.map((motion) => motion.id) });
+  const errors = validateBallotEntry(input.entry, {
+    ...rules,
+    rosters,
+    roundMotionIds: available.map((motion) => motion.id),
+    votingAdjudicatorCount: votingAdjudicatorIds(debate).length,
+  });
   if (errors.length > 0) {
     throw new ApiError(422, "validation_failed", "The ballot is not valid.", {
       issues: errors.map((message) => ({ path: "entry", message })),
@@ -88,6 +94,7 @@ export function buildApiBallot(input: BallotInput, context: BallotBuildContext):
     ...(result.sheets ? { sheets: result.sheets } : {}),
     ...(Object.keys(vetoes).length > 0 ? { vetoes } : {}),
     ...(input.entry.forfeitSide ? { forfeitSide: input.entry.forfeitSide } : {}),
+    ...(result.selfSplit ? { selfSplit: true } : {}),
     ...(chairId ? { chairId } : {}),
     ...(input.checksVersion !== undefined ? { checksVersion: input.checksVersion } : {}),
     timestamp,

@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import type { BreakCategoryResult } from "@/lib/breakqual/calculator";
 import { ballotModeFor } from "@/lib/ballots/result";
+import { isDrawLocked, isDrawPubliclyReleased, isDrawReleasedToTeams } from "@/lib/draw/drawStatus";
 import {
   concurrentRoundClashes,
   describeConcurrentClashes,
@@ -38,6 +39,8 @@ export type GuardRule =
   | "round_completed"
   | "elimination_advanced"
   | "draw_released"
+  /** The draw is confirmed (locked) but not released; changing it needs a reason. */
+  | "draw_confirmed"
   | "later_round_drawn"
   | "draw_empty"
   | "draw_invalid"
@@ -54,6 +57,8 @@ export type GuardRule =
   | "elimination_started"
   | "break_cutoff_tie"
   | "reserve_cutoff_tie"
+  /** Fewer teams are eligible for a break category than its break size (Tabbycat refuses too). */
+  | "break_too_few_eligible"
   | "break_category_in_use"
   | "same_person_check"
   /** A team, adjudicator or venue is in two rounds of the same schedule slot. */
@@ -176,9 +181,12 @@ function soft(rule: GuardRule, message: string, extra: Partial<GuardViolation> =
   return { rule, message, overridable: true, ...extra };
 }
 
-/** Released means participants can see it (the draw page calls this "published"). */
+/**
+ * Fully released: the public (per the draw mode) and adjudicators can see it; the draw page calls
+ * this "published". A teams-only release is not this; see src/lib/draw/drawStatus.ts.
+ */
 export function isDrawReleased(round: Pick<Round, "drawStatus"> | undefined): boolean {
-  return round?.drawStatus === "confirmed" || round?.drawStatus === "released";
+  return isDrawPubliclyReleased(round);
 }
 
 function liveBallots(ballots: BallotSubmission[]): BallotSubmission[] {
@@ -373,10 +381,18 @@ export function checkDrawGeneration(round: Round, state: RoundGuardState): Guard
   }
 
   const existingDraw = debates.some((debate) => debate.roundId === roundId);
-  if (existingDraw && isDrawReleased(round)) {
+  if (existingDraw && isDrawReleasedToTeams(round)) {
     violations.push(soft(
       "draw_released",
-      `The ${round.name} draw is already published; participants may have seen it.`,
+      isDrawReleased(round)
+        ? `The ${round.name} draw is already published; participants may have seen it.`
+        : `The ${round.name} draw is released to teams; teams may have seen it.`,
+      { roundId }
+    ));
+  } else if (existingDraw && isDrawLocked(round)) {
+    violations.push(soft(
+      "draw_confirmed",
+      `The ${round.name} draw is confirmed. Regenerating replaces the confirmed draw.`,
       { roundId }
     ));
   }
@@ -421,6 +437,16 @@ export function checkDrawRelease(
       (errors.length > 3 ? ` (and ${errors.length - 3} more)` : ""),
     { roundId }
   )];
+}
+
+/** Rules for confirming (locking) a draw before release: there must be a draw to confirm. */
+export function checkDrawConfirmation(round: Round, state: RoundGuardState): GuardViolation[] {
+  const roundId = round.id;
+  if (round.cancelled) return [hard("round_cancelled", `${round.name} is cancelled.`, { roundId })];
+  if (!state.debates.some((debate) => debate.roundId === roundId)) {
+    return [hard("draw_empty", `${round.name} has no debates to confirm.`, { roundId })];
+  }
+  return [];
 }
 
 /**
@@ -502,9 +528,13 @@ export function checkRoundUpdate(
   drawIssues: () => DrawCheckIssue[]
 ): GuardViolation[] {
   const violations: GuardViolation[] = [];
-  if (!isDrawReleased(previous) && isDrawReleased(next)) {
+  // Showing the draw to anyone (teams only or everyone) checks it; a later step from a teams-only
+  // release to the full release does not re-check what teams have already seen.
+  if (!isDrawReleasedToTeams(previous) && isDrawReleasedToTeams(next)) {
     violations.push(...checkDrawRelease(next, state, drawIssues()));
     violations.push(...checkConcurrentRoundClashes(next, state));
+  } else if (!isDrawLocked(previous) && isDrawLocked(next)) {
+    violations.push(...checkDrawConfirmation(next, state));
   }
   if (
     (!previous.resultsReleased && next.resultsReleased) ||
@@ -549,7 +579,7 @@ export function checkRoundCancellation(round: Round, state: RoundGuardState): Gu
   if (state.debates.some((debate) => debate.roundId === roundId)) {
     return [soft(
       "round_has_draw",
-      `${round.name} already has a draw${isDrawReleased(round) ? " that has been published" : ""}.`,
+      `${round.name} already has a draw${isDrawReleasedToTeams(round) ? " that has been released" : ""}.`,
       { roundId }
     )];
   }
@@ -687,10 +717,17 @@ export function checkDebateEdits(
     if (round.completed) {
       violations.push(soft("round_completed", `${round.name} is marked complete.`, { roundId }));
     }
-    if (isDrawReleased(round)) {
+    if (isDrawReleasedToTeams(round)) {
       violations.push(soft(
         "draw_released",
-        `The ${round.name} draw is published; participants may already have seen these matchups.`,
+        `The ${round.name} draw is ${isDrawReleased(round) ? "published" : "released to teams"}; ` +
+          "participants may already have seen these matchups.",
+        { roundId }
+      ));
+    } else if (isDrawLocked(round)) {
+      violations.push(soft(
+        "draw_confirmed",
+        `The ${round.name} draw is confirmed; unconfirm it or record why its matchups change.`,
         { roundId }
       ));
     }
@@ -1051,6 +1088,39 @@ export function checkTeamDeletion(team: Pick<Team, "id" | "name">, state: Refere
   );
 }
 
+/** Ballots (not discarded) that record a speech by this speaker, on the top-level scores or any scoresheet. */
+export function ballotsWithSpeaker(speakerId: string, ballots: BallotSubmission[]): BallotSubmission[] {
+  const inScores = (scores: BallotSubmission["speakerScores"] | undefined) =>
+    Object.values(scores ?? {}).some((entries) => (entries ?? []).some((entry) => entry?.speakerId === speakerId));
+  return ballots.filter(
+    (ballot) => !ballot.discarded && (inScores(ballot.speakerScores) || (ballot.sheets ?? []).some((sheet) => inScores(sheet.speakerScores)))
+  );
+}
+
+/**
+ * Speakers removed from a team (Tabbycat participants-team-speaker-delete) must not have results:
+ * their speeches would lose their speaker. Adding speakers is always allowed.
+ */
+export function checkSpeakerRemoval(
+  previous: Pick<Team, "speakers"> | undefined,
+  next: Pick<Team, "speakers">,
+  state: Pick<ReferenceState, "ballots">
+): GuardViolation[] {
+  if (!previous) return [];
+  const kept = new Set((next.speakers ?? []).map((speaker) => speaker.id));
+  return (previous.speakers ?? [])
+    .filter((speaker) => !kept.has(speaker.id))
+    .flatMap((speaker) => {
+      const count = ballotsWithSpeaker(speaker.id, state.ballots).length;
+      return count > 0
+        ? [hard(
+            "entity_in_use",
+            `${speaker.name || speaker.id} has speaker scores on ${plural(count, "ballot")}, so they cannot be removed from the team. Rename them instead, or discard those ballots first.`
+          )]
+        : [];
+    });
+}
+
 export function checkAdjudicatorDeletion(
   adjudicator: Pick<Adjudicator, "id" | "name">,
   state: ReferenceState
@@ -1127,6 +1197,23 @@ export function checkBreakCategoryDeletion(
   return [];
 }
 
+/**
+ * Rules for clearing a category's generated break (Tabbycat's break DELETE): only while none of
+ * the elimination rounds it feeds has a draw or has advanced teams.
+ */
+export function checkBreakClear(category: BreakCategory, rounds: Round[], debates: Pick<Debate, "roundId">[]): GuardViolation[] {
+  const started = rounds.filter((round) =>
+    !round.cancelled &&
+    round.breakCategoryIds?.includes(category.id) &&
+    (round.drawStatus !== "none" || round.eliminationAdvanced === true || debates.some((debate) => debate.roundId === round.id))
+  );
+  if (started.length === 0) return [];
+  return [hard(
+    "break_category_in_use",
+    `${names(started)} already ${started.length === 1 ? "has" : "have"} a draw from the ${category.name} break; delete ${started.length === 1 ? "it" : "them"} first.`
+  )];
+}
+
 /* -------------------------------------------------------------------------- */
 /* Breaks                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -1140,9 +1227,17 @@ export function checkBreakGeneration(
   category: BreakCategory,
   state: RoundGuardState,
   updatedRounds: Round[],
-  result?: Pick<BreakCategoryResult, "cutoffTies">
+  result?: Pick<BreakCategoryResult, "cutoffTies" | "tooFewEligible">
 ): GuardViolation[] {
   const violations: GuardViolation[] = [];
+  if (result?.tooFewEligible) {
+    const { eligible, breakSize } = result.tooFewEligible;
+    violations.push(hard(
+      "break_too_few_eligible",
+      `There are too few teams eligible for ${category.name}: ${eligible} eligible for a break of ${breakSize}. ` +
+        "Mark more teams eligible, remove exclusions, or reduce the break size."
+    ));
+  }
   // A tie at the cutoff is never settled by an arbitrary order; the tab director decides it.
   for (const tie of result?.cutoffTies ?? []) {
     const teamNames = tie.teams.map((entry) => entry.team.name).join(", ");

@@ -383,6 +383,76 @@ export const RULES_PRESETS: RulesPreset[] = [
       "Seeds shown in the importer",
     ],
   },
+  {
+    id: "karl_popper",
+    label: "Karl Popper (Czechia)",
+    tabbycatName: "Karl Popper (Czechia)",
+    blurb: "3 vs 3 with no reply speeches, median scoring, self-split ballots, and a penalty-weighted draw.",
+    format: "custom_2team",
+    substantiveSpeakers: 3,
+    replyScoresEnabled: false,
+    // Reply scores are unused; the range only keeps the settings valid.
+    scores: { minSpeakerScore: 50, maxSpeakerScore: 100, stepSpeakerScore: 1, minReplyScore: 25, maxReplyScore: 50 },
+    preferences: {
+      marginIncludesDissenters: true,
+      scoreAggregation: "median",
+      sideNames: "aff-neg",
+      ballotMode: "voting",
+      eliminationBallotMode: "voting",
+      requireSubstantiveForReply: false,
+      winnersInBallots: "high-points",
+      preparationTime: 60,
+      enableForfeits: true,
+      enableMotions: false,
+      enableMotionVetoes: false,
+      // Draw rules: penalty-weighted, as with APDA (Tabbycat "graph" is CrabbyTab's min_cost).
+      oddBracketMethod: "pullup_top",
+      pairingMethod: "adjacent",
+      conflictAvoidance: "min_cost",
+      pullupRestriction: "lowest_draw_strength_wins",
+      pullupPenalty: 100,
+      byeTeamResults: "win",
+      byeTeamSelectionMethod: "lowest_ranked",
+      minAdjScoreToVote: 1,
+      adjConflictPenalty: 10000,
+      adjHistoryPenalty: 1,
+      importanceMismatchPenalty: 10,
+      teamInstitutionPenalty: 100,
+      teamHistoryPenalty: 10000,
+      previouslySawPullupPenalty: 100,
+      sideBalancePenalty: 10000,
+      standingsMissedDebates: 2,
+      teamStandingsPrecedence: ["wins", "num_adjs", "wbw", "speaks_sum", "draw_strength"],
+      teamStandingsExtra: ["speaks_ind_avg"],
+      feedbackMaxScore: 6,
+      // Tabbycat feedback_paths "no-adjs" and feedback_from_teams "all-adjs".
+      feedbackPaths: {
+        teams: "all_adjudicators",
+        chairOnPanellists: false,
+        chairOnTrainees: false,
+        panellistsOnChair: false,
+        traineesOnChair: false,
+        adjudicatorsOnEachOther: false,
+        onTeams: false,
+      },
+      privateUrlBallots: true,
+      allowSelfCheckIn: true,
+      individualBallots: true,
+      allowSelfSplitBallots: true,
+      publicParticipants: true,
+      publicInstitutionsList: true,
+      publicDrawMode: "current",
+      publicMotions: true,
+      publicRecordPages: false,
+      showTeamInstitutions: false,
+      showAdjudicatorInstitutions: true,
+    },
+    unsupported: [
+      "Motion reuse across rounds",
+      "Public (non-private-URL) feedback form",
+      "Showing which adjudicators are unaccredited",
+    ],
+  },
 ];
 
 /**
@@ -391,7 +461,6 @@ export const RULES_PRESETS: RulesPreset[] = [
  */
 export const UNSUPPORTED_TABBYCAT_PRESETS: Record<string, string> = {
   "Public Speaking": "needs six teams per room with one speaker each",
-  "Karl Popper (Czechia)": "needs median score aggregation and self-split ballots",
 };
 
 export function getRulesPreset(id: string | undefined): RulesPreset | undefined {
@@ -626,5 +695,8 @@ export function defaultPreferences(
     feedbackEnabled: true,
     feedbackMinScore: 1,
     feedbackMaxScore: 10,
+    // Tabbycat's default for every format (scoring__teamscore_includes_ghosts). Stored explicitly so
+    // tournaments created before this default keep the old `false` fallback in result.ts.
+    teamScoreIncludesGhosts: true,
   };
 }

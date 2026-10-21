@@ -31,7 +31,7 @@ import {
   type BallotEntry,
 } from "@/lib/ballots/result";
 import { speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
-import { privateBallotRules } from "@/lib/privateBallot";
+import { privateBallotRules, privateSelfSplitAllowed, privateUrlBallotsEnabled } from "@/lib/privateBallot";
 import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
 import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
 import { translatedSideName } from "@/lib/sideNames";
@@ -197,6 +197,8 @@ export default function AdjudicatorPrivatePortalPage() {
   const [ballotDrawnDebate, setBallotDrawnDebate] = useState<Debate | null>(null);
   const [ballotSidesChosen, setBallotSidesChosen] = useState(true);
   const [ballotEntry, setBallotEntry] = useState<BallotEntry | null>(null);
+  /** A solo adjudicator's 2:1 split declaration (allowSelfSplitBallots); kept apart from the sheet. */
+  const [ballotSelfSplit, setBallotSelfSplit] = useState(false);
   const [ballotMotionId, setBallotMotionId] = useState<string>("");
   const [ballotSubmitting, setBallotSubmitting] = useState(false);
   const [ballotError, setBallotError] = useState("");
@@ -409,6 +411,7 @@ export default function AdjudicatorPrivatePortalPage() {
       ranks: Object.fromEntries(sides.map((side, index) => [side, existing?.teamScores?.[side]?.rank || index + 1])),
       motionId: debate.motionId || "",
     });
+    setBallotSelfSplit(existing?.selfSplit === true);
     setShowBallotModal(true);
   };
 
@@ -442,6 +445,7 @@ export default function AdjudicatorPrivatePortalPage() {
         ballotDebate.adjudicators?.chairId,
         rules
       );
+      const selfSplit = ballotSelfSplit && privateSelfSplitAllowed(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate);
       const candidateBallot: BallotSubmission = {
         id: `ballot-${ballotDebate.id}-adj-${adjudicator.id}-${crypto.randomUUID()}`,
         tournamentId: tournament?.id || tournamentSlug,
@@ -458,6 +462,7 @@ export default function AdjudicatorPrivatePortalPage() {
         speakerScores: result.speakerScores,
         teamScores: result.teamScores,
         ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
+        ...(selfSplit ? { selfSplit: true } : {}),
         chairId: ballotDebate.adjudicators?.chairId,
         timestamp: new Date().toISOString(),
         confirmedBy: adjudicator.name,
@@ -679,8 +684,10 @@ export default function AdjudicatorPrivatePortalPage() {
             const isChair = debate.adjudicators?.chairId === adjudicator.id;
             const isPanellist = debate.adjudicators?.panellistIds?.includes(adjudicator.id);
             const isTrainee = debate.adjudicators?.traineeIds?.includes(adjudicator.id);
-            const canSubmitBallot =
-              !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
+            const canVote = !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
+            // Tabbycat participant_ballots "off": the tab room enters every ballot.
+            const ballotsByPrivateUrl = tournament ? privateUrlBallotsEnabled(tournament) : true;
+            const canSubmitBallot = canVote && ballotsByPrivateUrl;
 
             const roleLabel = t(isChair ? "role.chair" : isPanellist ? "role.panellist" : isTrainee ? "role.trainee" : "role.judge");
             const debateBallots = ballots.filter((b) => b.debateId === debate.id && !b.discarded);
@@ -815,7 +822,9 @@ export default function AdjudicatorPrivatePortalPage() {
                         {existingBallot?.confirmed ? t("adjPortal.editBallot") : t("adjPortal.enterBallot")}
                       </Button>
                     ) : (
-                      <p className="text-xs text-fg-muted">{t("adjPortal.traineeNoBallot")}</p>
+                      <p className="text-xs text-fg-muted">
+                        {canVote ? t("adjPortal.ballotsOff") : t("adjPortal.traineeNoBallot")}
+                      </p>
                     )}
                   </section>
 
@@ -1075,6 +1084,11 @@ export default function AdjudicatorPrivatePortalPage() {
         {ballotDebate && (
           <form id="portal-ballot-form" onSubmit={handleSubmitBallotFromPortal} className="space-y-4">
             {ballotError && <Alert tone="danger" role="alert">{ballotError}</Alert>}
+            {tournament?.preferences?.ballotIntroExplanation?.trim() && (
+              <Alert tone="info" title={t("results.ballot.instructions")}>
+                <span className="whitespace-pre-line text-xs">{tournament.preferences.ballotIntroExplanation}</span>
+              </Alert>
+            )}
             {ballotDrawnDebate && sidesChosenOnBallot(ballotDrawnDebate) && (
               <fieldset className="space-y-2 rounded-md border border-info-border bg-info-subtle p-3">
                 <legend className="px-1 text-xs font-semibold text-fg">{t("adjPortal.ballot.sidesLegend")}</legend>
@@ -1174,6 +1188,15 @@ export default function AdjudicatorPrivatePortalPage() {
                 );
               });
             })()}
+            {ballotSidesChosen && tournament &&
+              privateSelfSplitAllowed(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate) && (
+              <Checkbox
+                label={t("results.ballot.selfSplit")}
+                description={t("results.ballot.selfSplitHelp")}
+                checked={ballotSelfSplit}
+                onChange={(event) => setBallotSelfSplit(event.target.checked)}
+              />
+            )}
           </form>
         )}
       </Dialog>

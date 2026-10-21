@@ -1,4 +1,5 @@
 import type { BallotSubmission, Debate, DebateAdjudicatorSlot, Round } from "@/types";
+import { isDrawPubliclyReleased, isDrawReleasedToTeams } from "@/lib/draw/drawStatus";
 
 const HIDDEN_PANEL: DebateAdjudicatorSlot = {
   panellistIds: [],
@@ -8,23 +9,34 @@ const HIDDEN_PANEL: DebateAdjudicatorSlot = {
 };
 
 /**
- * Whether a round's draw may be shown to teams. Mirrors the public page,
- * which treats `confirmed` and `released` draws as published (see 0.11).
+ * Whether a round's draw may be shown to teams on their private portal: a teams-only release
+ * (Tabbycat "release draw (teams only)") or the full release. See src/lib/draw/drawStatus.ts.
  */
 export function isDrawVisibleToTeams(round: Round | undefined): round is Round {
-  return (
-    round !== undefined &&
-    round.cancelled !== true &&
-    (round.drawStatus === "confirmed" || round.drawStatus === "released")
-  );
+  return round !== undefined && round.cancelled !== true && isDrawReleasedToTeams(round);
 }
 
-/** Drops debates whose round draw has not been published to teams. */
+/** Adjudicators see their allocation (and may submit ballots) only once the draw is fully released. */
+export function isDrawVisibleToAdjudicators(round: Round | undefined): round is Round {
+  return round !== undefined && round.cancelled !== true && isDrawPubliclyReleased(round);
+}
+
+/** Drops debates whose round draw has not been released to teams. */
 export function filterTeamVisibleDebates<T extends Pick<Debate, "roundId">>(
   debates: Iterable<T>,
   roundsById: ReadonlyMap<string, Round>
 ): T[] {
   return [...debates].filter((debate) => isDrawVisibleToTeams(roundsById.get(debate.roundId)));
+}
+
+/** Drops debates whose round draw this kind of participant may not see yet. */
+export function filterParticipantVisibleDebates<T extends Pick<Debate, "roundId">>(
+  debates: Iterable<T>,
+  roundsById: ReadonlyMap<string, Round>,
+  actorType: "adjudicator" | "team"
+): T[] {
+  const visible = actorType === "team" ? isDrawVisibleToTeams : isDrawVisibleToAdjudicators;
+  return [...debates].filter((debate) => visible(roundsById.get(debate.roundId)));
 }
 
 export function sanitizeTeamPrivateDebate(
@@ -35,7 +47,8 @@ export function sanitizeTeamPrivateDebate(
   const showResults =
     resultsEnabled && round?.resultsReleased === true && round.silent !== true;
   const showSpeakerScores = showResults && round?.teamSpeaksReleased === true;
-  const showAdjudicators = isDrawVisibleToTeams(round) && round.adjudicatorsRevealed === true;
+  // A teams-only release never shows the panel (Tabbycat hides adjudicators until the full release).
+  const showAdjudicators = isDrawVisibleToAdjudicators(round) && round.adjudicatorsRevealed === true;
   const showMotion = round?.motionsReleased === true;
   const { byeResult, motionId, motionText, adjudicators, ...safeDebate } = debate;
 

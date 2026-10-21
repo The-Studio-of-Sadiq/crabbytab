@@ -5,11 +5,20 @@ import {
   BreakQualificationRule,
   BreakTeamOverride,
   GeneratedBreak,
+  TeamMetricId,
   TournamentFormat,
 } from "@/types";
+import { resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { rankTeamSubset } from "@/lib/standings/subset";
 
 export interface BreakingTeamEntry {
+  /** Unique 1-based position in the break; elimination pairing uses it. */
   seed: number;
+  /**
+   * Break rank as Tabbycat shows it: teams tied on every standings metric share one rank (1, 2, 2,
+   * 4). Reserves have none. Elimination positions inside a tie still follow `seed`.
+   */
+  breakRank?: number;
   rank: number;
   team: Team;
   standing: TeamStandingRow;
@@ -53,6 +62,17 @@ export interface BreakCategoryResult {
   reserveTeams: BreakingTeamEntry[];
   /** Unresolved ties at the break or reserve cutoff; empty when the cutoffs are clear. */
   cutoffTies: BreakCutoffTie[];
+  /**
+   * Teams that can take a place in this category: forced ("include") teams plus eligible teams
+   * that have no exclusion and did not break in a higher-priority category (Tabbycat's
+   * `eligible_teams`).
+   */
+  eligibleCount: number;
+  /**
+   * Set when fewer teams are eligible than the break size. Tabbycat refuses to generate such a
+   * break ("There are too few teams eligible for this break category"); so does CrabbyTab.
+   */
+  tooFewEligible?: { eligible: number; breakSize: number };
   /**
    * Teams left out of this category: every manual exclusion, plus teams that
    * would otherwise have ranked inside the break but broke in a higher-priority
@@ -296,12 +316,19 @@ export function isGeneratedBreakStale(result: BreakCategoryResult): boolean {
  * but not the one-category rule). Forced teams take break places first; the
  * remaining places are filled by the qualification rule. Seeds follow
  * standings order.
+ *
+ * Like Tabbycat (`BaseBreakGenerator.set_team_queryset`), a general category ranks every team in
+ * the overall standings, while a non-general category ranks only its own teams (eligible teams
+ * plus manually included ones) among themselves: ranks restart within the category and
+ * who-beat-whom compares the teams tied within it. `teamPrecedence` is the tournament's team
+ * standings precedence (defaults to the format's).
  */
 export function calculateBreaks(
   categories: BreakCategory[],
   teams: Team[],
   standings: TeamStandingRow[],
-  format?: TournamentFormat
+  format?: TournamentFormat,
+  teamPrecedence: TeamMetricId[] = resolveTeamPrecedence(format ?? "two_team")
 ): BreakCategoryResult[] {
   if (
     format === "bp" &&
@@ -311,9 +338,6 @@ export function calculateBreaks(
   }
   const teamMap = new Map<string, Team>();
   teams.forEach((t) => teamMap.set(t.id, t));
-  const standingIndex = new Map(standings.map((standing, index) => [standing.teamId, index]));
-  const byStandingOrder = (left: TeamStandingRow, right: TeamStandingRow) =>
-    (standingIndex.get(left.teamId) ?? 0) - (standingIndex.get(right.teamId) ?? 0);
 
   // Sort categories by priority (highest priority number or rank first)
   const sortedCategories = [...categories].sort((a, b) => (b.priority || 0) - (a.priority || 0));
@@ -324,12 +348,26 @@ export function calculateBreaks(
   for (const cat of sortedCategories) {
     const overrides = cat.teamOverrides ?? {};
     const inCategory = (team: Team) => cat.isGeneral || Boolean(team.breakCategories?.includes(cat.id));
+    // The category's own standings: everyone for a general category, otherwise the category's
+    // teams ranked among themselves.
+    const categoryStandings = cat.isGeneral
+      ? standings
+      : rankTeamSubset(
+          standings.filter((standing) => {
+            const team = teamMap.get(standing.teamId);
+            return Boolean(team && (inCategory(team) || overrides[team.id] === "include"));
+          }),
+          teamPrecedence
+        );
+    const standingIndex = new Map(categoryStandings.map((standing, index) => [standing.teamId, index]));
+    const byStandingOrder = (left: TeamStandingRow, right: TeamStandingRow) =>
+      (standingIndex.get(left.teamId) ?? 0) - (standingIndex.get(right.teamId) ?? 0);
     const forced: TeamStandingRow[] = [];
     const natural: TeamStandingRow[] = [];
     const manualExclusions: BreakExclusionEntry[] = [];
     const brokeElsewhere: TeamStandingRow[] = [];
 
-    for (const standing of standings) {
+    for (const standing of categoryStandings) {
       const team = teamMap.get(standing.teamId);
       if (!team) continue;
       const override = overrides[team.id];
@@ -417,8 +455,10 @@ export function calculateBreaks(
     const breakingEntries: BreakingTeamEntry[] = breakingSlice.map((st, idx) => {
       const team = teamMap.get(st.teamId)!;
       brokenTeamIds.add(team.id); // Mark as broken
+      const firstTied = breakingSlice.findIndex((other) => other.rank === st.rank);
       return {
         seed: idx + 1,
+        breakRank: (st.rank && firstTied >= 0 ? firstTied : idx) + 1,
         rank: st.rank,
         team,
         standing: st,
@@ -468,11 +508,14 @@ export function calculateBreaks(
       byStandingOrder(left.standing, right.standing)
     );
 
+    const eligibleCount = forced.length + natural.length;
     results.push({
       category: cat,
       breakingTeams: breakingEntries,
       reserveTeams: reserveEntries,
       cutoffTies,
+      eligibleCount,
+      ...(eligibleCount < cat.breakSize ? { tooFewEligible: { eligible: eligibleCount, breakSize: cat.breakSize } } : {}),
       excludedTeams,
     });
   }

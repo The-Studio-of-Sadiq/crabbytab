@@ -2,6 +2,8 @@ import type { FeedbackAnswer, FeedbackQuestion, FeedbackQuestionType } from "@/t
 import { isFeedbackAnswerRecord, validateFeedbackAnswers, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { normalizeEmail } from "@/lib/emailAddress";
 import { normalizePhoneNumber } from "@/lib/phone";
+import { TEAM_EMOJI } from "@/lib/codeNames";
+import { normalizeTeamSeedMode, parseTeamSeed } from "@/lib/teamSeeds";
 import { CODE_NAME_GENERATORS, TEAM_NAME_GENERATORS, type CodeNameGenerator, type TeamNameGenerator } from "@/lib/registration/names";
 import type {
   AdjudicatorRegistrationData,
@@ -12,8 +14,10 @@ import type {
   RegisteredSpeaker,
   RegistrationEntry,
   RegistrationInstitution,
+  RegistrationBreakCategory,
   RegistrationSettings,
   TeamRegistrationData,
+  TeamRegistrationField,
 } from "@/lib/registration/types";
 
 /** Request bodies above this size are refused before parsing. */
@@ -143,6 +147,9 @@ export function defaultRegistrationSettings(tournamentName: string, substantiveS
     codeNameGenerator: "user",
     speakerFields: [],
     adjudicatorFields: [],
+    teamFields: [],
+    teamBreakCategories: [],
+    teamSeedMode: "off",
     institutionRegion: false,
     teamMessage: "",
     adjudicatorMessage: "",
@@ -157,6 +164,29 @@ const CONFIRMATIONS: readonly RegistrationConfirmation[] = ["always", "open", "n
 /** Most places one institution may ask for. */
 export const MAX_REQUESTED_PLACES = 100;
 
+export const TEAM_REGISTRATION_FIELDS: readonly TeamRegistrationField[] = ["use_institution_prefix", "break_categories", "seed", "emoji"];
+
+function parseTeamFields(value: unknown): TeamRegistrationField[] {
+  return Array.isArray(value)
+    ? TEAM_REGISTRATION_FIELDS.filter((field) => value.includes(field))
+    : [];
+}
+
+/** The team fields a form shows: the prefix option only while registrants name their own teams. */
+export function activeTeamFields(settings: Pick<RegistrationSettings, "teamFields" | "teamNameGenerator">): TeamRegistrationField[] {
+  return (settings.teamFields ?? []).filter(
+    (field) => field !== "use_institution_prefix" || (settings.teamNameGenerator ?? "user") === "user"
+  );
+}
+
+/** Registration asks for a seed title only in "title" mode; otherwise (Tabbycat) a number. */
+export function registrationSeedMode(settings: Pick<RegistrationSettings, "teamSeedMode">): "numeric" | "title" {
+  return settings.teamSeedMode === "title" ? "title" : "numeric";
+}
+
+/** The emoji a registrant may pick (CrabbyTab's team emoji set). */
+export const REGISTRATION_EMOJI: readonly string[] = TEAM_EMOJI.map(([emoji]) => emoji);
+
 function parsePersonFields(value: unknown): PersonField[] {
   return Array.isArray(value) ? [...new Set(value.filter((item): item is PersonField => PERSON_FIELDS.includes(item as PersonField)))] : [];
 }
@@ -167,8 +197,15 @@ function formMessage(value: unknown, label: string): string {
   return text;
 }
 
-/** Validates settings an administrator saves. Throws RegistrationValidationError. */
-export function parseRegistrationSettings(input: unknown, tournamentName: string): RegistrationSettings {
+/**
+ * Validates settings an administrator saves. Throws RegistrationValidationError. `context` carries
+ * what the server copies from the tournament: its non-general break categories and seed mode.
+ */
+export function parseRegistrationSettings(
+  input: unknown,
+  tournamentName: string,
+  context: { breakCategories?: RegistrationBreakCategory[]; teamSeedMode?: unknown } = {}
+): RegistrationSettings {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new RegistrationValidationError("Invalid settings.");
   const record = input as Record<string, unknown>;
   const minSpeakers = nonNegativeInteger(record.minSpeakers, "Minimum speakers", MAX_SPEAKERS_LIMIT);
@@ -217,6 +254,9 @@ export function parseRegistrationSettings(input: unknown, tournamentName: string
       : "user",
     speakerFields: parsePersonFields(record.speakerFields),
     adjudicatorFields: parsePersonFields(record.adjudicatorFields),
+    teamFields: parseTeamFields(record.teamFields),
+    teamBreakCategories: (context.breakCategories ?? []).map((category) => ({ id: category.id, name: category.name })),
+    teamSeedMode: normalizeTeamSeedMode(context.teamSeedMode),
     institutionRegion: record.institutionRegion === true,
     teamMessage: formMessage(record.teamMessage, "The team form message"),
     adjudicatorMessage: formMessage(record.adjudicatorMessage, "The adjudicator form message"),
@@ -259,6 +299,9 @@ export function toPublicForm(settings: RegistrationSettings, now: number): Publi
     slotTransfers: settings.slotTransfers === true,
     speakerFields: settings.speakerFields ?? [],
     adjudicatorFields: settings.adjudicatorFields ?? [],
+    teamFields: activeTeamFields(settings),
+    teamBreakCategories: settings.teamBreakCategories ?? [],
+    teamSeedMode: normalizeTeamSeedMode(settings.teamSeedMode),
     institutionRegion: settings.institutionRegion === true,
     teamMessage: settings.teamMessage ?? "",
     adjudicatorMessage: settings.adjudicatorMessage ?? "",
@@ -345,26 +388,29 @@ function parsePersonDetails(
   return details;
 }
 
+/** One speaker as the team form (or a team invitation, docs/registration.md) submits them. */
+export function parseRegisteredSpeaker(item: unknown, index: number, settings: RegistrationSettings): RegisteredSpeaker {
+  const record = (item ?? {}) as Record<string, unknown>;
+  const name = requiredText(record.name, MAX_NAME_LENGTH, `Speaker ${index + 1}'s name`);
+  const categories = Array.isArray(record.categories) ? record.categories : [];
+  if (categories.some((category) => typeof category !== "string" || !settings.speakerCategories.includes(category))) {
+    throw new RegistrationValidationError(`Choose valid categories for ${name}.`);
+  }
+  const speaker: RegisteredSpeaker = {
+    name,
+    categories: [...new Set(categories as string[])],
+    ...parsePersonDetails(record, settings.speakerFields, name),
+  };
+  const email = parseEmail(record.email, name, false);
+  if (email) speaker.email = email;
+  const speakerQuestions = settings.speakerQuestions ?? [];
+  if (speakerQuestions.length > 0) speaker.answers = parseAnswers(record.answers, speakerQuestions);
+  return speaker;
+}
+
 function parseSpeakers(value: unknown, settings: RegistrationSettings): RegisteredSpeaker[] {
   if (!Array.isArray(value)) throw new RegistrationValidationError("Add the team's speakers.");
-  const speakers = value.map((item, index): RegisteredSpeaker => {
-    const record = (item ?? {}) as Record<string, unknown>;
-    const name = requiredText(record.name, MAX_NAME_LENGTH, `Speaker ${index + 1}'s name`);
-    const categories = Array.isArray(record.categories) ? record.categories : [];
-    if (categories.some((category) => typeof category !== "string" || !settings.speakerCategories.includes(category))) {
-      throw new RegistrationValidationError(`Choose valid categories for ${name}.`);
-    }
-    const speaker: RegisteredSpeaker = {
-      name,
-      categories: [...new Set(categories as string[])],
-      ...parsePersonDetails(record, settings.speakerFields, name),
-    };
-    const email = parseEmail(record.email, name, false);
-    if (email) speaker.email = email;
-    const speakerQuestions = settings.speakerQuestions ?? [];
-    if (speakerQuestions.length > 0) speaker.answers = parseAnswers(record.answers, speakerQuestions);
-    return speaker;
-  });
+  const speakers = value.map((item, index): RegisteredSpeaker => parseRegisteredSpeaker(item, index, settings));
   if (speakers.length < settings.minSpeakers || speakers.length > settings.maxSpeakers) {
     throw new RegistrationValidationError(
       settings.minSpeakers === settings.maxSpeakers
@@ -375,6 +421,45 @@ function parseSpeakers(value: unknown, settings: RegistrationSettings): Register
   const names = speakers.map((speaker) => speaker.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new RegistrationValidationError("Each speaker in a team must have a different name.");
   return speakers;
+}
+
+/**
+ * The optional team fields the settings ask for (Tabbycat `reg_team_fields`). Values for fields
+ * the form does not show are ignored (a form opened before the settings changed); values that are
+ * shown must be valid.
+ */
+function parseOptionalTeamFields(
+  team: Record<string, unknown>,
+  settings: RegistrationSettings,
+  hasInstitution: boolean
+): Pick<TeamRegistrationData, "useInstitutionPrefix" | "breakCategories" | "seed" | "emoji"> {
+  const fields = activeTeamFields(settings);
+  const result: Pick<TeamRegistrationData, "useInstitutionPrefix" | "breakCategories" | "seed" | "emoji"> = {};
+  if (fields.includes("use_institution_prefix") && hasInstitution && team.useInstitutionPrefix !== undefined) {
+    if (typeof team.useInstitutionPrefix !== "boolean") throw new RegistrationValidationError("Invalid institution prefix choice.");
+    if (team.useInstitutionPrefix) result.useInstitutionPrefix = true;
+  }
+  if (fields.includes("break_categories") && team.breakCategories !== undefined) {
+    const allowed = new Set((settings.teamBreakCategories ?? []).map((category) => category.id));
+    const chosen = team.breakCategories;
+    if (!Array.isArray(chosen) || chosen.length > 20 || chosen.some((id) => typeof id !== "string" || !allowed.has(id))) {
+      throw new RegistrationValidationError("Choose valid break categories for the team.");
+    }
+    const unique = [...new Set(chosen as string[])];
+    if (unique.length > 0) result.breakCategories = unique;
+  }
+  if (fields.includes("seed") && team.seed !== undefined) {
+    const parsed = parseTeamSeed(team.seed, registrationSeedMode(settings));
+    if (!parsed.ok) throw new RegistrationValidationError(`Team seed: ${parsed.error}`);
+    if (parsed.seed !== undefined) result.seed = parsed.seed;
+  }
+  if (fields.includes("emoji") && team.emoji !== undefined && team.emoji !== "") {
+    if (typeof team.emoji !== "string" || !REGISTRATION_EMOJI.includes(team.emoji)) {
+      throw new RegistrationValidationError("Choose the team's emoji from the list.");
+    }
+    result.emoji = team.emoji;
+  }
+  return result;
 }
 
 /**
@@ -421,6 +506,7 @@ export function parseRegistrationEntry(
     const data: TeamRegistrationData = {
       name: requiredText(team.name, MAX_NAME_LENGTH, "Team name"),
       speakers: parseSpeakers(team.speakers, settings),
+      ...parseOptionalTeamFields(team, settings, institution !== null),
     };
     entry.team = data;
   } else if (kind === "institution") {

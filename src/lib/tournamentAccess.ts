@@ -33,31 +33,48 @@ export function isDataEntryRole(role: unknown): role is "dataEntry" {
   return role === "dataEntry";
 }
 
-export type AssistantTeam = Omit<Team, "privateUrlKey" | "privatePasscode" | "speakers"> & {
-  speakers: Array<Omit<Speaker, "email" | "phone">>;
+export type AssistantTeam = Omit<Team, "privateUrlKey" | "privatePasscode" | "speakerUrlKeys" | "speakers"> & {
+  speakers: Array<Omit<Speaker, "email" | "phone" | "privateUrlKey" | "privatePasscode">>;
 };
 
-export function sanitizeAssistantTeam(team: Team): AssistantTeam {
-  const { privateUrlKey: _privateUrlKey, privatePasscode: _privatePasscode, speakers, ...safe } = team;
-  return {
-    ...safe,
-    speakers: speakers.map(({ email: _email, phone: _phone, ...speaker }) => speaker),
-  };
-}
-
-export type AssistantAdjudicator = Omit<Adjudicator, "privateUrlKey" | "privatePasscode" | "conflicts" | "phone"> & {
-  conflicts: [];
-};
-
-export function sanitizeAssistantAdjudicator(adjudicator: Adjudicator): AssistantAdjudicator {
+/**
+ * A data-entry assistant's copy of a team: no private URL credentials (the team's or its
+ * speakers'), no speaker contact details, and team–institution conflicts only for staff who may
+ * see conflicts (`conflicts.view`, docs/staff-access.md).
+ */
+export function sanitizeAssistantTeam(team: Team, permissions: readonly string[] = []): AssistantTeam {
   const {
     privateUrlKey: _privateUrlKey,
     privatePasscode: _privatePasscode,
-    conflicts: _conflicts,
+    speakerUrlKeys: _speakerUrlKeys,
+    institutionConflictIds,
+    speakers,
+    ...safe
+  } = team;
+  return {
+    ...safe,
+    ...(permissions.includes("conflicts.view") && institutionConflictIds !== undefined ? { institutionConflictIds } : {}),
+    speakers: (speakers ?? []).map(
+      ({ email: _email, phone: _phone, privateUrlKey: _speakerKey, privatePasscode: _speakerPasscode, ...speaker }) => speaker
+    ),
+  };
+}
+
+export type AssistantAdjudicator = Omit<Adjudicator, "privateUrlKey" | "privatePasscode" | "phone">;
+
+/** An assistant's copy of an adjudicator: conflicts are kept only with `conflicts.view`. */
+export function sanitizeAssistantAdjudicator(
+  adjudicator: Adjudicator,
+  permissions: readonly string[] = []
+): AssistantAdjudicator {
+  const {
+    privateUrlKey: _privateUrlKey,
+    privatePasscode: _privatePasscode,
+    conflicts,
     phone: _phone,
     ...safe
   } = adjudicator;
-  return { ...safe, conflicts: [] };
+  return { ...safe, conflicts: permissions.includes("conflicts.view") && Array.isArray(conflicts) ? conflicts : [] };
 }
 /**
  * Whether the current viewer gets administrator views of a tournament.

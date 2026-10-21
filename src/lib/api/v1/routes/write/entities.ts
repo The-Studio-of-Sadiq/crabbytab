@@ -14,6 +14,14 @@ import {
 import type { SessionTabRoom } from "../../tabRoom";
 import { idSchema } from "../shared";
 import { expectedVersionSchema, requireFound, runWrite } from "./shared";
+import { withVenueCategories } from "@/lib/venues/venues";
+
+/** A venue body with `category` and `categories` kept consistent: a given list wins, else the single category. */
+function syncVenueCategories<T extends Partial<Pick<Venue, "category" | "categories">>>(venue: T, changes: Partial<Pick<Venue, "category" | "categories">>): T {
+  if (changes.categories !== undefined) return withVenueCategories(venue, changes.categories);
+  if ("category" in changes) return withVenueCategories(venue, changes.category ? [changes.category] : []);
+  return venue;
+}
 
 /* ------------------------------------------------------------------------ */
 /* Schemas                                                                   */
@@ -34,6 +42,8 @@ const venueRequirementsSchema = s.optional(s.object({
 const speakerShape = {
   id: s.optional(idSchema("Existing speaker id, to keep the speaker (and their results) when replacing the list.")),
   name: text(120),
+  lastName: optionalText(120),
+  pronoun: optionalText(20),
   email: s.optional(s.string({ max: 254, pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, format: "email", description: "Stored, never returned by the API." })),
   gender: optionalText(40),
   region: optionalText(80),
@@ -70,6 +80,9 @@ const adjudicatorShape = {
   independent: s.optional(s.boolean()),
   adjCore: s.optional(s.boolean()),
   breaking: s.optional(s.boolean()),
+  isTester: s.optional(s.boolean()),
+  lastName: optionalText(120),
+  pronoun: optionalText(20),
   email: s.optional(s.string({ max: 254, pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, format: "email", description: "Stored, never returned by the API." })),
   gender: optionalText(40),
   region: optionalText(80),
@@ -83,6 +96,7 @@ const venueShape = {
   name: text(120),
   priority: s.number({ min: -1_000_000, max: 1_000_000, description: "Higher is a better room." }),
   category: optionalText(80),
+  categories: s.optional(s.array(s.string({ min: 1, max: 80 }), { max: 20, description: "Every room category; `category` is kept as the first." })),
   capacity: s.optional(s.integer({ min: 0, max: 100_000 })),
   accessible: s.optional(s.boolean()),
   online: s.optional(s.boolean()),
@@ -507,6 +521,8 @@ const adjudicatorRoutes = [
         const { expectedVersion, scoreChangeReason, ...changes } = context.body;
         ApiCommandSession.assertVersion(previous as { syncVersion?: number }, expectedVersion);
         await session.all("adjudicators");
+        // Score history entries record the current round (one small read of the rounds).
+        if (changes.baseScore !== undefined || changes.testScore !== undefined) await session.all("rounds");
         const next = await prepareAdjudicator(tabRoom, changes, previous);
         await tabRoom.entities().updateAdjudicator(next, { scoreChangeReason });
         return () => serializeAdjudicator(requireFound(session.latest<Adjudicator>("adjudicators", id), "Adjudicator"));
@@ -555,7 +571,9 @@ const venueRoutes = [
       return runWrite(context, async (tabRoom, session) => {
         await assertUniqueName(tabRoom, "venues", context.body.name);
         const before = new Set(session.view<Venue>("venues").map((item) => item.id));
-        await tabRoom.entities().addVenues([{ ...context.body, available: context.body.available ?? true }]);
+        await tabRoom.entities().addVenues([
+          syncVenueCategories({ ...context.body, available: context.body.available ?? true }, context.body),
+        ]);
         const created = lastCreated<Venue>(session, "venues", before);
         return () => serializeVenue(requireFound(session.latest<Venue>("venues", created.id), "Venue"));
       });
@@ -578,7 +596,7 @@ const venueRoutes = [
         const { expectedVersion, ...changes } = context.body;
         ApiCommandSession.assertVersion(previous as { syncVersion?: number }, expectedVersion);
         if (changes.name) await assertUniqueName(tabRoom, "venues", changes.name, id);
-        const next = { ...previous, ...changes } as Venue;
+        const next = syncVenueCategories({ ...previous, ...changes } as Venue, changes);
         await tabRoom.entities().updateVenue(next);
         return () => serializeVenue(requireFound(session.latest<Venue>("venues", id), "Venue"));
       });

@@ -47,14 +47,20 @@ export async function GET(
       String(round.id),
       round as { adjudicatorsRevealed?: boolean; motionsReleased?: boolean; drawStatus?: unknown },
     ]));
-    // Staff access (docs/staff-access.md): without "draw.display" only confirmed or released draws
+    // Staff access (docs/staff-access.md): without "draw.display" only publicly released draws
     // are sent; with "motions.display" a round's motions are sent before they are released.
     const drawVisible = (roundId: unknown) => {
       const status = roundsById.get(String(roundId))?.drawStatus;
       return status === "confirmed" || status === "released" ||
-        (hasStaffPermission(permissions, "draw.display") && status === "draft");
+        (hasStaffPermission(permissions, "draw.display") &&
+          (status === "draft" || status === "locked" || status === "teams_released"));
     };
     const showUnreleasedMotions = hasStaffPermission(permissions, "motions.display");
+    // Equity and adjudication core (docs/staff-access.md): conflicts, feedback and scores only
+    // reach staff whose groups grant them.
+    const canSeeConflicts = hasStaffPermission(permissions, "conflicts.view");
+    const canSeeFeedback = hasStaffPermission(permissions, "feedback.view");
+    const canAllocate = hasStaffPermission(permissions, "allocation.edit");
     const motionVisible = (motion: Record<string, unknown>) =>
       motion.released === true ||
       (showUnreleasedMotions && Array.isArray(motion.rounds) &&
@@ -71,6 +77,7 @@ export async function GET(
           "id", "tournamentId", "name", "breakStatus", "breakCategoryIds", "eliminatedInRoundId",
           "codeName", "institutionId", "institutionName", "breakCategories", "speakerCategories",
           "seed", "emoji", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory",
+          "syncVersion", ...(canSeeConflicts ? ["institutionConflictIds"] : []),
         ]),
         speakers: Array.isArray(team.speakers)
           ? team.speakers.map((speaker: Record<string, unknown>) =>
@@ -80,9 +87,12 @@ export async function GET(
       adjudicators: records.adjudicators.map((adjudicator) => pickFields(adjudicator, [
         "id", "tournamentId", "name", "institutionId", "institutionName",
         "trainee", "independent", "checkedIn", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "gender",
+        "syncVersion",
+        ...(canSeeConflicts ? ["conflicts"] : []),
+        ...(canSeeFeedback ? ["baseScore", "testScore", "scoreHistory", "breaking", "adjCore", "isTester"] : []),
       ])),
       venues: records.venues.map((venue) => pickFields(venue, [
-        "id", "tournamentId", "name", "priority", "category", "capacity", "accessible", "online", "available",
+        "id", "tournamentId", "name", "priority", "category", "categories", "capacity", "accessible", "online", "available",
         "checkedIn", "checkedInAt", "checkInHistory",
       ])),
       motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
@@ -96,20 +106,23 @@ export async function GET(
           "id", "tournamentId", "roundId", "roundSeq", "byeTeamId", "byeResult", "breakCategoryId",
           "venueId", "venueName", "bracket", "roomRank", "importance", "resultStatus", "sidesConfirmed",
           "flags", "teams", "adjudicators", "motionId", "motionText",
+          ...(canAllocate ? ["syncVersion"] : []),
         ]),
         roundsById.get(String(debate.roundId)),
-        { showUnreleasedMotions }
+        // Adjudication core members allocate, so they see panels before they are revealed.
+        { showUnreleasedMotions, showUnrevealedPanels: canAllocate }
       )),
       ballots: records.ballots.map((ballot) => pickFields(ballot, [
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
         "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "checksVersion",
-        "singleAdjudicator", "mergedFromIds", "noSpeakerScores",
+        "singleAdjudicator", "mergedFromIds", "noSpeakerScores", "selfSplit",
       ])),
       feedback: records.feedback.map((submission) => pickFields(submission, [
         "id", "tournamentId", "roundId", "debateId", "targetType", "targetAdjudicatorId",
         "targetAdjudicatorName", "targetTeamId", "targetTeamName", "sourceType", "sourceId", "sourceName",
         "confirmed", "timestamp",
+        ...(canSeeFeedback ? ["score", "agreeWithDecision", "comments", "answers", "ignored"] : []),
       ])),
       institutions: records.institutions.map((institution) => pickFields(institution, [
         "id", "tournamentId", "name", "code", "region",

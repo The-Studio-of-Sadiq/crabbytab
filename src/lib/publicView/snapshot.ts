@@ -12,6 +12,7 @@ import {
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import type { PublicDerived, PublicTabs } from "@/lib/publicView/derived";
 import type { Tournament } from "@/types";
+import { buildPublicMotionSummary, type PublicMotionSummary } from "@/lib/motions/publicSummary";
 
 /**
  * Sections are stored as separate chunked documents so no single Firestore document approaches the
@@ -86,6 +87,11 @@ export interface PublicViewRoot {
   /** The cloud source state this view was built from (see `publicSourceToken`). */
   sourceToken?: string;
   publishedAt: string;
+  /**
+   * This tournament's public motion statistics, pooled by the public cross-tournament motions page
+   * (one root read per tournament instead of every round section). Absent unless released.
+   */
+  motionSummary?: PublicMotionSummary;
 }
 
 export type PublicViewSections = Record<PublicBaseSection, unknown> & {
@@ -212,6 +218,13 @@ export function buildPublicViewRoot(input: {
   const chunks: Record<string, string[]> = {};
   const sectionMeta: Record<string, PublicViewSectionMeta> = {};
   const names = sectionNames(input.sections);
+  const motionSummary = buildPublicMotionSummary({
+    tournamentId: input.tournamentId,
+    slug: input.slug,
+    tournament: input.sections.tournament,
+    motions: input.sections.motions,
+    rounds: sectionRoundIds(input.sections).map((roundId) => input.sections[roundSectionName(roundId)] ?? {}),
+  });
   for (const section of names) {
     const sectionChunks = chunkSectionJson(input.sections[section]);
     chunks[section] = sectionChunks;
@@ -228,6 +241,7 @@ export function buildPublicViewRoot(input: {
       ...(input.clientFingerprint ? { clientFingerprint: input.clientFingerprint } : {}),
       ...(input.sourceToken ? { sourceToken: input.sourceToken } : {}),
       publishedAt: input.publishedAt,
+      ...(motionSummary ? { motionSummary } : {}),
     },
     chunks,
   };
@@ -255,6 +269,24 @@ export function chunkDocumentId(section: string, hash: string, index: number): s
 }
 
 /** Per-round availability counts; computed per request because check-ins can expire over time. */
+/**
+ * Each listed team and adjudicator with whether they count as checked in for each round (same rule
+ * as the counts). Empty when the source has no per-person list. A team without a public name (code
+ * names on, none set) keeps an empty name; the page shows a placeholder.
+ */
+export function listCheckins(source: PublicCheckinsSource, now: number) {
+  const status = (person: { name: string } & Parameters<typeof isAvailableForRound>[0]) => ({
+    name: person.name,
+    present: Object.fromEntries(
+      source.rounds.map((round) => [round.id, isAvailableForRound(person, round.id, source.expiresAfterHours, now)])
+    ) as Record<string, boolean>,
+  });
+  return {
+    teams: (source.people?.teams ?? []).map(status),
+    adjudicators: (source.people?.adjudicators ?? []).map(status),
+  };
+}
+
 export function countCheckins(source: PublicCheckinsSource, now: number) {
   const present = (records: PublicCheckinsSource["teams"], roundId: string) =>
     records.filter((record) => isAvailableForRound(record, roundId, source.expiresAfterHours, now)).length;

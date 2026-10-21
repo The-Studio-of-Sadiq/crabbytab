@@ -18,7 +18,8 @@ import {
   Lock,
   Printer,
 } from "lucide-react";
-import { BallotSubmission, DebateSide, TeamScoreEntry } from "@/types";
+import { BallotSubmission, DebateSide, Team, TeamScoreEntry } from "@/types";
+import { TabroomTeamName } from "@/features/tournament/components/TabroomTeamName";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -44,7 +45,7 @@ const BP_SIDES: readonly DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
 
 /** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
-function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
+function TeamResultCell({ team, teamName, score, isBP }: { team?: Team; teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
   const { t, plural } = useI18n();
   const formatScore = useFormatScore();
   const won = score ? (isBP ? score.rank === 1 : Boolean(score.win)) : false;
@@ -63,7 +64,7 @@ function TeamResultCell({ teamName, score, isBP }: { teamName?: string; score?: 
               <span className="sr-only">{t("results.overview.losingTeam")}</span>
             </>
           ))}
-        <span>{teamName || "—"}</span>
+        <span><TabroomTeamName team={team} name={teamName} /></span>
       </div>
       {score && (
         <div className="font-mono text-[11px] text-fg-muted">
@@ -116,6 +117,7 @@ export default function ResultsOverviewPage() {
     debates,
     ballots,
     adjudicators,
+    teams,
     updateRound,
     proceedToNextEliminationRound,
     isOwnerOrAdmin,
@@ -123,6 +125,7 @@ export default function ResultsOverviewPage() {
   const { t, plural, formatList } = useI18n();
 
   const isBP = tournament?.format === "bp";
+  const teamsById = new Map(teams.map((team) => [team.id, team]));
   // [side, full name] in the tournament's side names (sideNames).
   const sides = (isBP ? BP_SIDES : TWO_TEAM_SIDES).map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
   const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
@@ -314,7 +317,11 @@ export default function ResultsOverviewPage() {
                     <TR key={debate.id}>
                       <TD className="font-medium text-fg-muted">{t("results.overview.bye")}</TD>
                       <TD colSpan={sides.length} className="font-medium">
-                        {byeTeam?.teamName || t("results.overview.byeTeamFallback")}
+                        <TabroomTeamName
+                          team={byeTeam?.teamId ? teamsById.get(byeTeam.teamId) : undefined}
+                          name={byeTeam?.teamName}
+                          fallback={t("results.overview.byeTeamFallback")}
+                        />
                       </TD>
                       <TD className="text-fg-muted">{t("results.overview.noAdjudicator")}</TD>
                       <TD>
@@ -333,6 +340,7 @@ export default function ResultsOverviewPage() {
                     {sides.map(([side]) => (
                       <TeamResultCell
                         key={side}
+                        team={debate.teams?.[side]?.teamId ? teamsById.get(debate.teams[side]!.teamId) : undefined}
                         teamName={debate.teams?.[side]?.teamName}
                         score={ballot?.teamScores?.[side]}
                         isBP={isBP}

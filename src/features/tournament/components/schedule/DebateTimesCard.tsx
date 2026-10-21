@@ -10,14 +10,17 @@ import { Input, Select } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
 import { Table, TableContainer, TBody, TD, TH, THead, TR, TableEmpty } from "@/components/ui/Table";
 import { fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/schedule/time";
+import { useI18n } from "@/components/i18n/I18nProvider";
 
-function teamsLabel(debate: Debate): string {
-  return Object.values(debate.teams || {}).map((slot) => slot?.teamName).filter(Boolean).join(" vs ") || debate.id;
+function teamsLabel(debate: Debate, separator: string): string {
+  return Object.values(debate.teams || {}).map((slot) => slot?.teamName).filter(Boolean).join(separator) || debate.id;
 }
 
 /** Per-debate start times, for debates that do not start with their round (staggered rooms). */
 export function DebateTimesCard() {
+  const { t, plural } = useI18n();
   const { rounds, debates, activeRound, isOwnerOrAdmin, updateDebates } = useTournament();
+  const versus = t("tabroom.schedule.debates.versus");
   const live = rounds.filter((round) => !round.cancelled).sort((left, right) => left.seq - right.seq);
   const [roundId, setRoundId] = useState(activeRound?.id ?? "");
   const selectedRoundId = roundId || activeRound?.id || live[0]?.id || "";
@@ -49,11 +52,11 @@ export function DebateTimesCard() {
     <Card>
       <CardHeader
         icon={<Clock aria-hidden="true" />}
-        title="Debate times"
-        description="Debates start with their round unless you give one its own time."
+        title={t("tabroom.schedule.debates.title")}
+        description={t("tabroom.schedule.debates.description")}
         actions={
           <Select
-            aria-label="Round"
+            aria-label={t("tabroom.schedule.debates.roundLabel")}
             value={selectedRoundId}
             onChange={(event) => {
               setRoundId(event.target.value);
@@ -72,20 +75,20 @@ export function DebateTimesCard() {
           <Table>
             <THead>
               <TR>
-                <TH>Venue</TH>
-                <TH>Debate</TH>
-                <TH>Starts at</TH>
+                <TH>{t("tabroom.schedule.debates.colVenue")}</TH>
+                <TH>{t("tabroom.schedule.debates.colDebate")}</TH>
+                <TH>{t("tabroom.schedule.debates.colStartsAt")}</TH>
               </TR>
             </THead>
             <TBody>
-              {roundDebates.length === 0 && <TableEmpty colSpan={3}>{round ? `${round.name} has no draw yet.` : "No rounds yet."}</TableEmpty>}
+              {roundDebates.length === 0 && <TableEmpty colSpan={3}>{round ? t("tabroom.schedule.debates.noDraw", { round: round.name }) : t("tabroom.schedule.debates.noRounds")}</TableEmpty>}
               {roundDebates.map((debate) => (
                 <TR key={debate.id}>
                   <TD>{debate.venueName || "—"}</TD>
-                  <TD className="max-w-xs truncate">{teamsLabel(debate)}</TD>
+                  <TD className="max-w-xs truncate">{teamsLabel(debate, versus)}</TD>
                   <TD>
                     <Input
-                      aria-label={`Start time for ${teamsLabel(debate)}`}
+                      aria-label={t("tabroom.schedule.debates.startLabel", { debate: teamsLabel(debate, versus) })}
                       type="datetime-local"
                       value={drafts[debate.id] ?? toDateTimeLocalValue(debate.scheduledTime)}
                       placeholder={toDateTimeLocalValue(round?.startsAt)}
@@ -112,15 +115,15 @@ export function DebateTimesCard() {
                 const byId = new Map(changed.map((debate) => [debate.id, debate]));
                 await updateDebates(debates.map((debate) => byId.get(debate.id) ?? debate));
                 setDrafts({});
-                setSaved(`${changed.length} debate time${changed.length === 1 ? "" : "s"} saved.`);
+                setSaved(plural("tabroom.schedule.debates.saved", changed.length));
               } catch (caught) {
-                setError(caught instanceof Error ? caught.message : "Could not save the debate times.");
+                setError(caught instanceof Error ? caught.message : t("tabroom.schedule.debates.saveFailed"));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            Save debate times
+            {t("tabroom.schedule.debates.save")}
           </Button>
         )}
       </CardBody>

@@ -11,6 +11,7 @@ import { SideBadge } from "@/components/ui/SideBadge";
 import type { DebateSide, DebateTeamSlot, Team } from "@/types";
 import type { TeamFlag } from "@/lib/draw/drawFlags";
 import type { TeamDragPayload } from "./UnassignedTeamsPool";
+import { TabroomTeamName } from "./TabroomTeamName";
 
 /**
  * One team slot of a debate in the draw editor: the team with its inline flags, and controls to
@@ -105,6 +106,8 @@ interface DrawTeamSlotProps {
   slot: DebateTeamSlot | undefined;
   team: Team | undefined;
   points?: number;
+  /** The team's break liveness per category (preliminary rounds only). */
+  liveness?: React.ReactNode;
   flags: TeamFlag[];
   compact: boolean;
   isDragTarget: boolean;
@@ -227,7 +230,7 @@ export function DrawTeamSlot(props: DrawTeamSlotProps) {
         >
           <div className="min-w-0">
             <div className={cn("font-semibold text-fg", compact ? "text-[13px]" : "text-sm")}>
-              {teamName}
+              <TabroomTeamName team={team} name={teamName} />
               {props.points !== undefined && (
                 <span className="ml-1.5 text-[11px] font-medium text-fg-muted">
                   {t("tabroom.draw.slot.points", { points: formatNumber(props.points) })}
@@ -235,6 +238,7 @@ export function DrawTeamSlot(props: DrawTeamSlotProps) {
               )}
             </div>
             <div className="text-[11px] text-fg-muted">{team?.institutionName || t("common.independent")}</div>
+            {props.liveness && <div className="mt-1 text-[11px]">{props.liveness}</div>}
             {flags.length > 0 && (
               <ul className="mt-1 flex flex-wrap gap-1" aria-label={t("tabroom.draw.slot.flagsAria", { team: teamName })}>
                 {flags.map((flag, index) => (
