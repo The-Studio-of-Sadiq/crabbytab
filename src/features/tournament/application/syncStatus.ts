@@ -167,6 +167,15 @@ export function publishBlockerAfterUpload(conflicts: number): string | null {
     : null;
 }
 
+/**
+ * The message for a publish that failed after a successful upload. The error's own text usually
+ * ends with a full stop ("Could not publish the public view."), so it is not added twice.
+ */
+export function describePublishFailure(error: unknown): string {
+  const reason = (error instanceof Error && error.message.trim() ? error.message.trim() : "publish failed").replace(/[.\s]+$/, "");
+  return `Public pages were not updated: ${reason}. Use Republish public pages to retry.`;
+}
+
 export type RepublishPlan =
   | { kind: "publish" }
   /** Publishing would serve the cloud copy, which lacks this device's pending changes. */

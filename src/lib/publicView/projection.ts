@@ -1,5 +1,6 @@
 import { MANUAL_SIDES_FLAG } from "@/lib/draw/manualSides";
 import { safeVenueUrl } from "@/lib/venues/venues";
+import { isPolySide } from "@/lib/debateSides";
 import type {
   Adjudicator,
   BallotSubmission,
@@ -117,7 +118,9 @@ function active(records: SourceRecord[] | undefined): SourceRecord[] {
   return (records || []).filter((record) => typeof record.deletedAt !== "string");
 }
 
-const SIDES = new Set(["OG", "OO", "CG", "CO", "AFF", "NEG"]);
+const SIDE_CODES = new Set(["OG", "OO", "CG", "CO", "AFF", "NEG"]);
+/** Side codes, poly positions (P1 … PN) included. */
+const SIDES = { has: (value: string) => SIDE_CODES.has(value) || isPolySide(value) };
 
 /** Numbers, booleans and nested arrays / records of them: score data, never free text. */
 function isScoreShaped(value: unknown, depth = 0): boolean {
@@ -263,14 +266,22 @@ export function buildPublicProjection(
   // draw. Only fully released draws are ever public; a locked or teams-only draw never is.
   const currentRoundIds = currentDrawRoundIds(allRounds, preferences.currentRoundId);
   const isDrawPublished = (round: Round) => isRoundDrawPublic(round, settings.drawMode, currentRoundIds);
+  const release = getPublicRelease(preferences);
+  // Tabbycat `all_results_released`: every completed round's results, silent and elimination
+  // rounds included (meant for after the tournament). Speaker scores of rounds whose team speaks
+  // were never released follow only with an unlimited released speaker tab, as on Tabbycat's
+  // team record pages.
+  const allResultsReleased = (round: Round) =>
+    release.allResults && preferences.publicResults !== false && round.cancelled !== true && round.completed === true;
+  const allResultsSpeaks = (round: Round) => allResultsReleased(round) && release.speakerTab && settings.speakerTabLimit === 0;
   const areResultsPublished = (round: Round) =>
-    preferences.publicResults !== false && round.resultsReleased === true && round.silent !== true;
+    preferences.publicResults !== false &&
+    ((round.resultsReleased === true && round.silent !== true) || allResultsReleased(round));
 
   // Tournament-level releases: a released tab exposes every completed preliminary round's
   // confirmed results (silent rounds included); an unreleased break category exposes nothing about
   // who broke. With a top-N limit the tabs are computed here instead (see derived.ts) and rounds
   // seen only through the tab publish no results, so ranks below the cutoff cannot be rebuilt.
-  const release = getPublicRelease(preferences);
   const tabReleased = isAnyTabReleased(release);
   const tabLimited = settings.teamTabLimit > 0 || settings.speakerTabLimit > 0 || settings.repliesTabLimit > 0;
   const inReleasedTab = (round: Round) => tabReleased && !tabLimited && isTabRound(round);
@@ -312,7 +323,7 @@ export function buildPublicProjection(
   // Which motion a debate had: for the motion statistics, or with the round's public results.
   const debateMotionsPublic = (round: Round) => settings.motionTab || (settings.motionsInResults && resultsVisible(round));
   const speakerScoresVisible = (round: Round) =>
-    resultsVisible(round) && (round.teamSpeaksReleased === true || inReleasedTab(round));
+    resultsVisible(round) && (round.teamSpeaksReleased === true || inReleasedTab(round) || allResultsSpeaks(round));
 
   const debates = (active(source.debates) as unknown as Debate[])
     .filter((debate) => visibleRoundById.has(debate.roundId))
@@ -488,6 +499,8 @@ export function buildPublicProjection(
       name: namer.adjudicator(adjudicator.id, adjudicator.name),
       ...(adjudicator.anonymous === true ? { anonymous: true } : {}),
       ...institutionFields(adjudicator, settings.showAdjudicatorInstitutions),
+      // Tabbycat `show_unaccredited`: whether the adjudicator is always a trainee.
+      ...(settings.showUnaccredited && adjudicator.trainee === true ? { trainee: true } : {}),
       ...(release.adjudicatorCore && adjudicator.adjCore === true ? { adjCore: true } : {}),
       ...(release.breakingAdjudicators && adjudicator.breaking === true ? { breaking: true } : {}),
       id: adjudicator.id,
@@ -526,7 +539,9 @@ export function buildPublicProjection(
       motionsReleased: preferences.publicMotions !== false && round.motionsReleased === true,
       motionsStatus: preferences.publicMotions !== false ? motionsStatusOf(round) : "not_released",
       resultsReleased: publishedResults,
-      teamSpeaksReleased: publishedResults && round.teamSpeaksReleased === true,
+      teamSpeaksReleased: publishedResults && (round.teamSpeaksReleased === true || allResultsSpeaks(round)),
+      // Released results of a silent round are no longer silent to the public pages.
+      ...(round.silent === true && allResultsReleased(round) ? { silent: false } : {}),
     };
   });
 
@@ -564,10 +579,16 @@ export function buildPublicProjection(
     id: category.id,
   }));
   const institutionRecords = active(source.institutions) as unknown as Institution[];
-  const institutions = institutionRecords.map((institution) => ({
-    ...pick(institution, ["tournamentId", "name", "code", "region"]),
-    id: institution.id,
-  }));
+  // The institution list is public only through its released page (Tabbycat
+  // `public_institutions_list`); teams and adjudicators carry their own institution only when the
+  // display switches allow (see institutionFields). Regions for the diversity tab are computed
+  // from the raw records in derived.ts, so nothing else needs the list.
+  const institutions = release.institutions
+    ? institutionRecords.map((institution) => ({
+        ...pick(institution, ["tournamentId", "name", "code", "region"]),
+        id: institution.id,
+      }))
+    : [];
   const venues = (active(source.venues) as unknown as Venue[]).map((venue) => ({
     ...pick(venue, ["tournamentId", "name", "category", "categories", "capacity", "accessible", "online", "available"]),
     // Room links appear with the public draw, as in Tabbycat; only http(s) links are published.

@@ -11,6 +11,7 @@ import { createSeededRng, randomSeed } from "@/lib/draw/rng";
 import { generateTeamCodeNames, hasCodeName, assignTeamEmoji, type CodeNameMethod } from "@/lib/codeNames";
 import { getPublicSiteSettings, PUBLIC_TEXT_MAX_LENGTH, publicUsesTeamCodeNames } from "@/lib/publicFeatures";
 import type { TournamentPreferences } from "@/types";
+import { PublicHomepageEditor } from "./PublicHomepageEditor";
 
 type SetPrefs = React.Dispatch<React.SetStateAction<TournamentPreferences>>;
 
@@ -161,6 +162,11 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             onChange={(event) => set("showAdjudicatorInstitutions", event.target.checked ? undefined : false)}
           />
           <Checkbox
+            label={t("setup.config.showUnaccredited")}
+            checked={site.showUnaccredited}
+            onChange={(event) => set("showUnaccredited", event.target.checked ? true : undefined)}
+          />
+          <Checkbox
             label={t("setup.config.showEmoji")}
             checked={site.showEmoji}
             onChange={(event) => set("showEmoji", event.target.checked ? undefined : false)}
@@ -212,6 +218,7 @@ export function PublicSiteSettingsFields({ prefs, setPrefs }: { prefs: Tournamen
             help={t("setup.config.staffCreditsHelp")}
           />
         </div>
+        <PublicHomepageEditor value={prefs.publicHomepage ?? ""} onChange={(value) => set("publicHomepage", value)} />
       </section>
     </div>
   );

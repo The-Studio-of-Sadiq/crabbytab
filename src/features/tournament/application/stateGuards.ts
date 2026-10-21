@@ -1,3 +1,4 @@
+import { changedTotalPreferences } from "@/lib/ballots/resave";
 import type {
   Adjudicator,
   AuditCategory,
@@ -298,7 +299,14 @@ export function pendingBallots(
   debates: Debate[],
   ballots: BallotSubmission[]
 ): BallotSubmission[] {
-  return liveRoundBallots(roundId, debates, ballots).filter((ballot) => !ballot.confirmed);
+  const live = liveRoundBallots(roundId, debates, ballots);
+  // Confirming a version keeps the debate's older drafts (as Tabbycat), so only versions newer than
+  // the confirmed result are still waiting for the tab room.
+  const confirmedVersion = new Map<string, number>();
+  for (const ballot of live) {
+    if (ballot.confirmed) confirmedVersion.set(ballot.debateId, Math.max(confirmedVersion.get(ballot.debateId) ?? 0, ballot.version || 0));
+  }
+  return live.filter((ballot) => !ballot.confirmed && (ballot.version || 0) > (confirmedVersion.get(ballot.debateId) ?? 0));
 }
 
 export interface RoundGuardState {
@@ -753,6 +761,17 @@ export function checkAutoAllocation(round: Round, state: RoundGuardState): Guard
       { roundId }
     ));
   }
+  // Tabbycat refuses to auto-allocate a released draw ("unrelease draw to redo auto-allocations");
+  // here a reason may be recorded instead. (Tabbycat also refuses an unconfirmed draw; CrabbyTab
+  // allows allocating a draft, since its draw can be released in one step from draft.)
+  if (isDrawPubliclyReleased(round)) {
+    violations.push(soft(
+      "draw_released",
+      `The ${round.name} draw is already released; unrelease it to redo auto-allocations, or record why ` +
+        "the published panels change.",
+      { roundId }
+    ));
+  }
   const results = liveRoundBallots(roundId, state.debates, state.ballots);
   if (results.length > 0) {
     violations.push(soft(
@@ -1029,7 +1048,10 @@ export function checkSettingsChange(
     violations.push(soft(
       "scoring_changed_after_ballots",
       `Changing ${scoring.map((key) => PREFERENCE_LABELS[key] ?? key).join(", ")} after ballots were entered ` +
-        "changes how existing results are checked or totalled.",
+        "changes how existing results are checked or totalled." +
+        (changedTotalPreferences(previous.preferences, next.preferences).length > 0
+          ? " The stored team totals of every entered ballot will be recalculated (Tabbycat resaveballots)."
+          : ""),
     ));
   }
   return violations;

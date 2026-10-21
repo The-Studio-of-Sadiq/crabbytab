@@ -13,6 +13,7 @@ import { planIndividualBallotWrites } from "@/lib/privateIndividualBallots";
 import { isDrawVisibleToAdjudicators } from "@/lib/privatePortalBallots";
 import { planPrivateBallotWrites, type ExistingBallotRecord, type PrivateBallotWritePlan } from "@/lib/privateSync";
 import { validateFeedbackScore } from "@/lib/scoring/validator";
+import { feedbackVersionOptions, supersededFeedbackIds } from "@/lib/feedback/versions";
 
 /**
  * What a participant (private URL key + passcode) may submit, shared by the private portal's sync
@@ -25,6 +26,15 @@ export interface ParticipantIdentity {
   type: ParticipantType;
   id: string;
   name: string;
+}
+
+/**
+ * Tabbycat `participant_feedback`: feedback through private URLs is on unless the tournament turned
+ * it off (`privateUrlFeedback: false`), for example to take feedback only on the public form or in
+ * the tab room.
+ */
+export function privateUrlFeedbackEnabled(preferences: Tournament["preferences"] | undefined): boolean {
+  return preferences?.privateUrlFeedback !== false;
 }
 
 export type FeedbackCheck =
@@ -50,6 +60,9 @@ export function checkParticipantFeedback(
   }
 ): FeedbackCheck {
   const { tournament, participant, debate, round, teams } = input;
+  if (!privateUrlFeedbackEnabled(tournament.preferences)) {
+    return { ok: false, status: 403, error: "Feedback through private URLs is turned off for this tournament." };
+  }
   const actorType = participant.type;
   const panel = debate.adjudicators;
   const targetType = record.targetType === undefined
@@ -142,6 +155,34 @@ export function checkParticipantFeedback(
     timestamp: input.timestamp,
   };
   return { ok: true, feedback };
+}
+
+/**
+ * Earlier feedback a participant's new submissions replace (Tabbycat versions feedback per target,
+ * source and debate; see lib/feedback/versions.ts): the ids of `existing` records (the source's
+ * feedback in the debates submitted for) to unconfirm, including earlier ones in the same upload.
+ */
+export function supersededParticipantFeedbackIds(
+  submissions: readonly FeedbackSubmission[],
+  existing: readonly FeedbackSubmission[],
+  tournament: Pick<Tournament, "preferences">,
+  roundById: ReadonlyMap<string, Round>
+): string[] {
+  const roundIds = [...new Set(submissions.map((feedback) => feedback.roundId))];
+  return roundIds.flatMap((roundId) =>
+    supersededFeedbackIds(
+      submissions.filter((feedback) => feedback.roundId === roundId),
+      existing.filter((feedback) => feedback.roundId === roundId),
+      feedbackVersionOptions(tournament.preferences, roundById.get(roundId))
+    )
+  );
+}
+
+/** The fields a newer submission changes on feedback it replaces; the sync version moves on. */
+export function supersededFeedbackUpdate(
+  existing: Partial<FeedbackSubmission> & { syncVersion?: number }
+): { confirmed: false; syncVersion: number } {
+  return { confirmed: false, syncVersion: (Number(existing.syncVersion) || 0) + 1 };
 }
 
 /**

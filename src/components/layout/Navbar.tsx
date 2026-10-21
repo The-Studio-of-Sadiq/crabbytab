@@ -13,6 +13,8 @@ import { focusRing } from "@/components/ui/focus";
 import { Button, iconButtonClasses, IconButton } from "@/components/ui/Button";
 import { Badge, StatusPill } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { useToast } from "@/components/ui/Toast";
 import { Input, Select } from "@/components/ui/Field";
 import {
   DropdownMenu,
@@ -23,7 +25,7 @@ import {
 } from "@/components/ui/DropdownMenu";
 import { ThemeMenuItems, ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
 import { LanguageMenuItems } from "@/components/ui/LanguageSwitcher";
-import { describeRoundStatus } from "@/components/layout/roundStatus";
+import { describeRoundStatus, tournamentFormatLabel } from "@/components/layout/roundStatus";
 import { useBeforeUnloadWarning } from "@/components/layout/useBeforeUnloadWarning";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { db } from "@/lib/firebase";
@@ -319,6 +321,7 @@ export function Navbar({
   } = useTournament();
   const { user, logout } = useAuth();
   const { t, plural } = useI18n();
+  const { toast } = useToast();
   const { preference, setPreference } = useThemePreference();
   const [isOnline, setIsOnline] = useState(true);
   const [showRoundModal, setShowRoundModal] = useState(false);
@@ -352,10 +355,11 @@ export function Navbar({
     })
   );
 
-  const handleUpload = async () => {
-    if (!window.confirm(t("setup.shell.confirmUpload"))) {
-      return;
-    }
+  // Upload, download and staff sync are confirmed in an in-page dialog rather than window.confirm,
+  // which blocks the page's script (and browser automation) and cannot be translated or styled.
+  const [pendingSync, setPendingSync] = useState<"upload" | "download" | "staffSync" | null>(null);
+
+  const runUpload = async () => {
     try {
       await uploadToCloud();
     } catch {
@@ -363,10 +367,7 @@ export function Navbar({
     }
   };
 
-  const handleDownload = async () => {
-    if (!window.confirm(t("setup.shell.confirmDownload"))) {
-      return;
-    }
+  const runDownload = async () => {
     try {
       await downloadFromCloud();
     } catch {
@@ -409,15 +410,23 @@ export function Navbar({
     }
   };
 
-  const handleStaffSync = async () => {
-    if (!window.confirm(t("setup.shell.confirmStaffSync"))) {
-      return;
-    }
+  const runStaffSync = async () => {
     try {
       await syncDataEntry();
     } catch {
       // The sync state displays the specific failure.
     }
+  };
+
+  const handleUpload = () => setPendingSync("upload");
+  const handleDownload = () => setPendingSync("download");
+  const handleStaffSync = () => setPendingSync("staffSync");
+  const confirmPendingSync = () => {
+    const action = pendingSync;
+    setPendingSync(null);
+    if (action === "upload") void runUpload();
+    else if (action === "download") void runDownload();
+    else if (action === "staffSync") void runStaffSync();
   };
 
   const handleCreateRound = async (e: React.FormEvent) => {
@@ -439,7 +448,7 @@ export function Navbar({
   };
 
   const tournamentName = tournament?.shortName || tournament?.name || tournamentSlug;
-  const formatLabel = tournament?.format === "bp" ? t("setup.shell.formatBp") : t("setup.shell.formatUadc");
+  const formatLabel = tournament ? tournamentFormatLabel(tournament.format, t) : "";
   const activeStatus = activeRound ? describeRoundStatus(activeRound, t) : null;
   const userInitial = user?.displayName ? user.displayName.charAt(0).toUpperCase() : "T";
 
@@ -646,7 +655,11 @@ export function Navbar({
                     try {
                       exportTournamentBackup();
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : t("setup.shell.exportBackupFailed"));
+                      toast({
+                        tone: "danger",
+                        title: t("setup.shell.exportBackupFailed"),
+                        description: error instanceof Error ? error.message : undefined,
+                      });
                     }
                   }}
                 >
@@ -658,7 +671,11 @@ export function Navbar({
                     try {
                       exportTournamentArchive();
                     } catch (error) {
-                      window.alert(error instanceof Error ? error.message : t("setup.shell.exportArchiveFailed"));
+                      toast({
+                        tone: "danger",
+                        title: t("setup.shell.exportArchiveFailed"),
+                        description: error instanceof Error ? error.message : undefined,
+                      });
                     }
                   }}
                 >
@@ -688,6 +705,7 @@ export function Navbar({
             <DropdownMenuSeparator />
             <LanguageMenuItems />
             <DropdownMenuSeparator />
+            <DropdownMenuItem href="/account/password" icon={<KeyRound />}>{t("setup.entry.account.changePassword")}</DropdownMenuItem>
             <DropdownMenuItem
               tone="danger"
               icon={<LogOut />}
@@ -724,7 +742,7 @@ export function Navbar({
                   variant="primary"
                   onClick={() => {
                     setRepublishPlan(null);
-                    void handleDownload();
+                    handleDownload();
                   }}
                 >
                   {t("setup.shell.downloadAndCompare")}
@@ -740,6 +758,23 @@ export function Navbar({
           )
         }
       />
+
+      {pendingSync && (
+        <ConfirmActionDialog
+          title={pendingSync === "download"
+            ? t("setup.shell.downloadAndCompare")
+            : pendingSync === "upload" ? t("setup.shell.uploadNow") : t("setup.shell.upload")}
+          description={pendingSync === "download"
+            ? t("setup.shell.confirmDownload")
+            : pendingSync === "upload" ? t("setup.shell.confirmUpload") : t("setup.shell.confirmStaffSync")}
+          confirmLabel={pendingSync === "download"
+            ? t("setup.shell.downloadAndCompare")
+            : pendingSync === "upload" ? t("setup.shell.uploadNow") : t("setup.shell.upload")}
+          cancelLabel={t("setup.common.cancel")}
+          onConfirm={confirmPendingSync}
+          onCancel={() => setPendingSync(null)}
+        />
+      )}
 
       <Dialog
         open={showRoundModal}

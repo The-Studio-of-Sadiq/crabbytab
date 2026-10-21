@@ -92,7 +92,8 @@ describe("assistants confirming others' ballots", () => {
     expect(confirmed.confirmed).toBe(true);
     expect(confirmed.confirmedBy).toBe("Bob");
     expect(confirmed.confirmedById).toBe("bob");
-    expect(result.ballots.find((item) => item.id === "b0")?.discarded).toBe(true);
+    // As Tabbycat, confirming a version leaves the debate's other drafts as they are.
+    expect(result.ballots.some((item) => item.id === "b0")).toBe(false);
     expect(result.debate.resultStatus).toBe("confirmed");
     expect(result.debate.teams.AFF?.points).toBe(1);
   });

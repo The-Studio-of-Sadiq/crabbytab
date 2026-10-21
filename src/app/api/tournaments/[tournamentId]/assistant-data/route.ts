@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redactAssistantDebate } from "@/lib/dataEntrySync";
+import { assistantMaySeeRoundResults, redactAssistantDebate, withoutDebateResults } from "@/lib/dataEntrySync";
 import { authorizeDataEntryStaff } from "@/lib/staffAccessServer";
 import { hasStaffPermission } from "@/lib/staffPermissions";
 
@@ -45,8 +45,18 @@ export async function GET(
     };
     const roundsById = new Map(records.rounds.map((round) => [
       String(round.id),
-      round as { adjudicatorsRevealed?: boolean; motionsReleased?: boolean; drawStatus?: unknown },
+      round as {
+        adjudicatorsRevealed?: boolean;
+        motionsReleased?: boolean;
+        drawStatus?: unknown;
+        silent?: boolean;
+        completed?: boolean;
+        resultsReleased?: boolean;
+      },
     ]));
+    // Standings permissions (Tabbycat VIEW_TEAMSTANDINGS…): silent and unreleased results reach
+    // only the staff allowed to see them (lib/dataEntrySync.ts assistantMaySeeRoundResults).
+    const resultsVisible = (roundId: unknown) => assistantMaySeeRoundResults(roundsById.get(String(roundId)), permissions);
     // Staff access (docs/staff-access.md): without "draw.display" only publicly released draws
     // are sent; with "motions.display" a round's motions are sent before they are released.
     const drawVisible = (roundId: unknown) => {
@@ -101,18 +111,21 @@ export async function GET(
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",
       ])),
-      debates: records.debates.filter((debate) => drawVisible(debate.roundId)).map((debate) => redactAssistantDebate(
-        pickFields(debate, [
+      debates: records.debates.filter((debate) => drawVisible(debate.roundId)).map((debate) => {
+        const fields = pickFields(debate, [
           "id", "tournamentId", "roundId", "roundSeq", "byeTeamId", "byeResult", "breakCategoryId",
           "venueId", "venueName", "bracket", "roomRank", "importance", "resultStatus", "sidesConfirmed",
           "flags", "teams", "adjudicators", "motionId", "motionText",
           ...(canAllocate ? ["syncVersion"] : []),
-        ]),
-        roundsById.get(String(debate.roundId)),
-        // Adjudication core members allocate, so they see panels before they are revealed.
-        { showUnreleasedMotions, showUnrevealedPanels: canAllocate }
-      )),
-      ballots: records.ballots.map((ballot) => pickFields(ballot, [
+        ]);
+        return redactAssistantDebate(
+          resultsVisible(debate.roundId) ? fields : withoutDebateResults(fields),
+          roundsById.get(String(debate.roundId)),
+          // Adjudication core members allocate, so they see panels before they are revealed.
+          { showUnreleasedMotions, showUnrevealedPanels: canAllocate }
+        );
+      }),
+      ballots: records.ballots.filter((ballot) => resultsVisible(ballot.roundId)).map((ballot) => pickFields(ballot, [
         "id", "tournamentId", "roundId", "debateId", "version", "confirmed", "discarded", "submitterType", "submitterId",
         "submitterName", "motionId", "motionText", "speakerScores", "teamScores", "chairId", "timestamp",
         "confirmedBy", "confirmedTimestamp", "sheets", "vetoes", "forfeitSide", "checksVersion",

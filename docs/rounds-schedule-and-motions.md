@@ -5,6 +5,20 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
 `starts_at`, `preparation_time`, `ScheduleEvent`, `Round.motions_status`, `RoundMotion`,
 `DebateTeamMotionPreference`).
 
+## Round records
+
+- **Ids.** A round added after setup gets a fresh id (`round-<tournament>-<seq>-<random>`,
+  `newRoundId` in `features/tournament/application/rounds.ts`). Ids are never derived from the
+  sequence number alone: deleting a round renumbers the later rounds but keeps their ids, so a
+  sequence-based id could name a round that still exists and overwrite its stored document.
+  Existing rounds keep their ids.
+- **Stage and draw type** (Tabbycat `Round.clean()`): the elimination draw type is only for
+  elimination rounds, where it is mandatory. A new elimination round always takes it; creating
+  or changing a round so that the two do not fit is refused (`RoundValidationError`). Rounds
+  stored inconsistently by older versions can still be edited as long as the stage and draw type
+  are not changed. Tabbycat's other check, that elimination rounds have a break category, is not
+  enforced (CrabbyTab assigns break categories when the break is generated).
+
 ## Concurrent rounds (schedule slots)
 
 - Every round has a schedule slot: `Round.scheduleGroup`, or its `seq` when unset. Tournaments
@@ -48,6 +62,11 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
   new key whenever settings are saved (`migrateSchedulePreferences`). Existing rounds are **not**
   regrouped automatically: the old preference never had an effect, so regrouping rounds that
   already ran would change what counts as history.
+  Rounds **created** afterwards follow the value, as in Tabbycat's round creation
+  (`slotNewPreliminaryRounds`): raising the preliminary round count, or adding a preliminary round
+  from the menu, fills the last preliminary slot up to `preliminaryPanels` rounds and then opens
+  the next slot. Default names of rounds added by the count follow the slot ("Round 3 (B)"); a
+  name typed when adding a round is kept. With one panel per slot (the default) nothing changes.
 
 ## Start times
 
@@ -88,10 +107,21 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
 ## Motions
 
 - A motion can be assigned to several rounds; `Motion.roundSeq[roundId]` is its order in each round
-  (Tabbycat `RoundMotion.seq`, falling back to `seq`). The draw attaches the round's first motion.
+  (Tabbycat `RoundMotion.seq`, falling back to `seq`). The draw records a debate's motion only when
+  the round has exactly one motion. With several, the ballot records which one was debated: the tab
+  room picks it, and private-URL and public-form ballots ask for it (required when motions are on,
+  checked on the server against the round's motions, never defaulted to the first; Tabbycat
+  `enable_motions`). The adjudicator's portal receives the round's motions for this question only
+  in rounds with several motions. With motions off, a ballot records the round's only motion, or
+  none. Debates drawn before this kept the round's first motion, which participant ballots ignore.
+- Motion vetoes (`enableMotionVetoes`, Tabbycat `motion_vetoes_enabled`; new tournaments start with
+  it on, as Tabbycat) can also be entered on private-URL and public-form ballots: one optional veto
+  per team, from the round's other motions.
 - Reusing a motion (Motions page → pick a round) assigns the same record, so statistics count one
   motion; "Copy from previous round" uses Tabbycat's `Round.prev` (latest earlier preliminary round,
-  or same break category).
+  or same break category). `enableMotionReuse` (Tabbycat `enable_motion_reuse`, Settings → "Allow
+  motion reuse") hides both controls when off; absent = on, as CrabbyTab always offered reuse
+  (Tabbycat's default is off; the Karl Popper preset turns it on).
 - A reused motion that is already public makes the new round's motions count as released too:
   the motion is not secret any more.
 - The public motions order is the public-site setting `publicMotionsOrder` (`lib/publicFeatures.ts`).
@@ -99,6 +129,10 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
   (`BallotSubmission.motionPreferences`, most preferred first) alongside vetoes. A ranking may not
   repeat a motion or put the vetoed motion first. `computeMotionPreferenceStatistics` counts them.
   Like vetoes, they are not part of data-entry assistants' ballot fields.
+- **Motion statistics by round** (Analytics page, Tabbycat motions-statistics): one row per round a
+  motion was used in, so a motion reused in several rounds shows each round's side results and
+  vetoes separately (`computeMotionRoundStatistics` and `countMotionVetoes`,
+  `src/lib/motionStatistics.ts`, the same counting rules as the public motion statistics).
 - **Cross-tournament statistics** (`/tournaments/motions`): side results, vetoes and balance of
   motions across the tournaments you administer, from the working copies on this device (no cloud
   reads). Motions are matched by normalised text; BP and two-team results are never pooled.

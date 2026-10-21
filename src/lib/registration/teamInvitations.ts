@@ -3,6 +3,7 @@ import type { DocumentReference, Firestore } from "firebase-admin/firestore";
 import type { Speaker } from "@/types";
 import { createLinkToken, linkSecretMatches, parseLinkToken } from "@/lib/linkTokens";
 import { readSettings, registrationRefs, RegistrationError } from "@/lib/registration/service";
+import { askedPersonFields } from "@/lib/registration/access";
 import type { PersonField, RegistrationSettings } from "@/lib/registration/types";
 import { parseRegisteredSpeaker, registrationWindowState } from "@/lib/registration/validation";
 
@@ -95,6 +96,8 @@ export interface TeamInvitationView {
   maxSpeakers: number;
   speakerCategories: string[];
   speakerFields: PersonField[];
+  /** Tabbycat reg_speaker_fields: whether email and categories are asked (absent in older views = asked). */
+  askEmail: boolean;
 }
 
 /** What the join page shows: the team, how many places are left, and the speaker fields. */
@@ -112,8 +115,9 @@ export async function describeTeamInvitation(
     ...(typeof team.institutionName === "string" && team.institutionName ? { institutionName: team.institutionName } : {}),
     speakers: Array.isArray(team.speakers) ? team.speakers.length : 0,
     maxSpeakers: settings.maxSpeakers,
-    speakerCategories: settings.speakerCategories,
+    speakerCategories: askedPersonFields(settings).speakerCategories ? settings.speakerCategories : [],
     speakerFields: settings.speakerFields ?? [],
+    askEmail: askedPersonFields(settings).speakerEmail,
   };
 }
 

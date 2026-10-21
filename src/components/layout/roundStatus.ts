@@ -1,4 +1,4 @@
-import type { Round } from "@/types";
+import type { Round, TournamentFormat } from "@/types";
 import { drawStageOf } from "@/lib/draw/drawStatus";
 import type { Tone } from "@/components/ui/Badge";
 import { DEFAULT_LOCALE, translate, type MessageKey, type MessageValues } from "@/lib/i18n";
@@ -34,4 +34,14 @@ export function describeRoundStatus(
   if (round.completed) return { ...draw, label: t("setup.shell.roundStatusCompleted", { status: draw.label }) };
   if (round.resultsReleased) return { ...draw, label: t("setup.shell.roundStatusResultsPublished", { status: draw.label }) };
   return draw;
+}
+
+/**
+ * The tournament's format as the shell badge names it. Every format has its own name; two-team
+ * formats other than UADC (WSDC, Australs, custom) once all read "UADC (2-Team)".
+ */
+export function tournamentFormatLabel(format: TournamentFormat, t: Translate = english): string {
+  if (format === "bp") return t("setup.shell.formatBp");
+  if (format === "uadc") return t("setup.shell.formatUadc");
+  return t(`format.${format}`);
 }

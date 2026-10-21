@@ -23,10 +23,18 @@ export interface ResolvedGroup {
   teams: Team[];
   /** Ids of teams moved here from a lower bracket. */
   pulledUp: string[];
+  /**
+   * Tabbycat's per-team draw flags set while resolving odd brackets (bub_up_hist, bub_up_inst,
+   * bub_up_accom, bub_dn_*, no_bub_updn), by team id.
+   */
+  teamFlags?: Record<string, string[]>;
 }
 
-/** Returns true when two teams should not meet (institution or history clash). */
-export type ConflictCheck = (a: Team, b: Team) => boolean;
+/**
+ * Whether two teams should not meet. A truthy result is a clash: "hist" for a history clash,
+ * "inst" (or true) for an institution clash; Tabbycat checks the institution first.
+ */
+export type ConflictCheck = (a: Team, b: Team) => boolean | "inst" | "hist";
 
 /**
  * Narrows a lower bracket's candidates before the pull-up position is chosen,
@@ -66,6 +74,22 @@ function pullupIndex(method: OddBracketMethod, x: number, rng: Rng): number {
 }
 
 /**
+ * Tabbycat refuses intermediate brackets unless the first standings metric is a whole number for
+ * every team (powerpair.py: "Intermediate brackets require the first team standings metric to be
+ * an integer"). Throws with Tabbycat's message when it is not.
+ */
+export function assertIntegerBracketsForIntermediate(method: OddBracketMethod, values: number[]): void {
+  if (!method.startsWith("intermediate")) return;
+  const nonInteger = values.filter((value) => !Number.isInteger(value)).length;
+  if (nonInteger > 0) {
+    throw new Error(
+      `${nonInteger} out of ${values.length} teams have a noninteger first metric in the team standings. ` +
+        "Intermediate brackets require the first team standings metric to be an integer (typically points or wins)."
+    );
+  }
+}
+
+/**
  * Turns win-brackets (highest first, each ranked best-first) into evenly-sized
  * groups, following Tabbycat's BasePowerPairedDrawGenerator:
  *
@@ -73,12 +97,17 @@ function pullupIndex(method: OddBracketMethod, x: number, rng: Rng): number {
  *   next bracket down (after `restriction` narrows the candidates). Taking a
  *   team can make that bracket odd in turn; it is resolved when reached.
  * - intermediate: the bottom team of an odd bracket and the top team of the
- *   next bracket down form an intermediate bracket between them.
+ *   next bracket down form an intermediate bracket labelled the lower bracket
+ *   + 0.5 (Tabbycat `points+0.5`, also when a points level in between is empty).
  * - intermediate_bubble: intermediate, then each intermediate debate with a
  *   conflict tries swapping its higher team with the bottom team of the
- *   bracket above ("bubble up"), else its lower team with the top team of the
- *   bracket below ("bubble down"), accepting a swap only if the new pairing is
- *   conflict-free. Never both, and nothing else is checked, as in Tabbycat.
+ *   bracket labelled half a point above ("bubble up"), else its lower team with
+ *   the top team of the bracket half a point below ("bubble down"), accepting a
+ *   swap only if the new pairing is conflict-free. Never both, and nothing else
+ *   is checked, as in Tabbycat. When the brackets are not consecutive, there is
+ *   no bracket half a point above, so only bubbling down is possible (as
+ *   Tabbycat). The swaps are flagged on the teams as Tabbycat does
+ *   (bub_up_hist/inst, bub_up_accom, bub_dn_*, no_bub_updn).
  *
  * Pull-up restrictions apply only to the pullup_* methods, as in Tabbycat.
  * Throws when the bottom bracket is still odd (only possible with an odd
@@ -130,18 +159,13 @@ function resolveIntermediate(
   work: { key: number; teams: RankedTeamStats[] }[],
   conflict: ConflictCheck | null
 ): ResolvedGroup[] {
-  // Intermediate groups remember the two brackets they draw from, for bubbling.
-  const groups: { key: number; teams: Team[]; upper?: number; lower?: number }[] = [];
+  const groups: { key: number; teams: Team[]; intermediate?: boolean }[] = [];
   let oddTeam: { key: number; team: Team } | null = null;
   for (const bracket of work) {
     const teams = bracket.teams.map((t) => t.team);
     if (oddTeam) {
-      groups.push({
-        key: (oddTeam.key + bracket.key) / 2,
-        teams: [oddTeam.team, teams.shift()!],
-        upper: oddTeam.key,
-        lower: bracket.key,
-      });
+      // Tabbycat labels the intermediate bracket the lower bracket + 0.5.
+      groups.push({ key: bracket.key + 0.5, teams: [oddTeam.team, teams.shift()!], intermediate: true });
       oddTeam = null;
     }
     if (teams.length % 2 !== 0) oddTeam = { key: bracket.key, team: teams.pop()! };
@@ -153,35 +177,54 @@ function resolveIntermediate(
     );
   }
 
+  const teamFlags: Record<string, string[]> = {};
+  const flag = (team: Team, value: string) => {
+    (teamFlags[team.id] ??= []).push(value);
+  };
   if (conflict) {
-    const regular = (key: number | undefined) =>
-      groups.find((group) => group.upper === undefined && group.key === key);
+    // Tabbycat looks up the brackets labelled half a point above and below the intermediate one.
+    const regular = (key: number) => groups.find((group) => !group.intermediate && group.key === key);
     groups.forEach((group) => {
-      if (group.upper === undefined) return;
+      if (!group.intermediate) return;
       const [higher, lower] = group.teams;
-      if (!conflict(higher, lower)) return;
+      const clash = conflict(higher, lower);
+      if (!clash) return;
+      const kind = clash === "hist" ? "hist" : "inst";
 
-      const above = regular(group.upper);
+      const above = regular(group.key + 0.5);
       if (above) {
         const swap = above.teams[above.teams.length - 1];
         if (!conflict(swap, lower)) {
+          flag(higher, `bub_up_${kind}`);
+          flag(swap, "bub_up_accom");
           group.teams[0] = swap;
           above.teams[above.teams.length - 1] = higher;
           return;
         }
       }
-      const below = regular(group.lower);
+      const below = regular(group.key - 0.5);
       if (below) {
         const swap = below.teams[0];
         if (!conflict(swap, higher)) {
+          flag(lower, `bub_dn_${kind}`);
+          flag(swap, "bub_dn_accom");
           group.teams[1] = swap;
           below.teams[0] = lower;
+          return;
         }
       }
+      flag(higher, "no_bub_updn");
     });
   }
 
-  return groups.map((group) => ({ bracket: group.key, teams: group.teams, pulledUp: [] }));
+  return groups.map((group) => ({
+    bracket: group.key,
+    teams: group.teams,
+    pulledUp: [],
+    ...(group.teams.some((team) => teamFlags[team.id])
+      ? { teamFlags: Object.fromEntries(group.teams.filter((team) => teamFlags[team.id]).map((team) => [team.id, teamFlags[team.id]])) }
+      : {}),
+  }));
 }
 
 /** A bracket with preallocated sides: both lists ranked best-first. */

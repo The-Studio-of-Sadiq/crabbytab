@@ -1,11 +1,14 @@
 import {
+  aggregatePolyVotingSheets,
   aggregateVotingSheets,
   ballotSides,
   consensusTeamScores,
+  effectiveRanks,
   type BallotRules,
   type SideRecord,
 } from "@/lib/ballots/result";
 import { defaultPreferences, getRulesPreset, rulesPresetPreferences, slugify } from "@/lib/setup/presets";
+import { isPolyFormat, polySides } from "@/lib/debateSides";
 import { integerScaleChoices } from "@/lib/feedback/questions";
 import type {
   Adjudicator,
@@ -874,10 +877,19 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
     log.warning("tournament", `Unknown style "${styleAttribute.slice(0, 20)}"; the format is inferred from the debates.`);
   }
   if (format !== "bp" && sideCounts.has(4) && !sideCounts.has(2)) format = "bp";
-  const sides = ballotSides(format);
+  // Debates with more or fewer than two teams (and not BP): N teams per room, N being the
+  // largest room (a random poly draw's last room may be smaller).
+  const largestRoom = Math.max(0, ...sideCounts);
+  const polyCount = !STYLES[styleAttribute ?? ""] && !stylePreset && largestRoom !== 2 && largestRoom !== 4 && largestRoom > 0
+    ? largestRoom
+    : 0;
+  if (polyCount > 0) format = "poly";
+  const sides = isPolyFormat(format) ? polySides(polyCount) : ballotSides(format);
+  /** The sides of one archived debate: a poly room's own positions, else the format's. */
+  const debateSidesOf = (raw: RawDebate): DebateSide[] => (isPolyFormat(format) ? polySides(raw.sides.length) : sides);
   for (const round of rawRounds) {
     for (const debate of round.debates) {
-      if (debate.sides.length !== sides.length) {
+      if (isPolyFormat(format) ? debate.sides.length < 1 : debate.sides.length !== sides.length) {
         log.error(debate.path, `A ${format === "bp" ? "BP" : "two-team"} debate needs ${sides.length} teams; this one has ${debate.sides.length}.`);
       }
     }
@@ -886,6 +898,10 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
   const allSides = rawRounds.flatMap((round) => round.debates.flatMap((debate) => debate.sides));
   const allSpeeches = allSides.flatMap((side) => side.speeches);
   const preferences = defaultPreferences(format);
+  if (polyCount > 0) {
+    preferences.teamsInDebate = polyCount;
+    notes.push(`The debates have up to ${polyCount} teams each, so the tournament uses ${polyCount} teams per room (random or manual draws only).`);
+  }
   // Like Tabbycat's importer, apply the style's rules preset (BP when four-team debates name no
   // style) before totalling ballots, so e.g. BP team scores include iron-person (ghost) speeches
   // (WUDC 35.9.3.2). The archive's own evidence below still overrides speaker counts, score
@@ -949,14 +965,18 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       const stageDebates = rawRounds
         .filter((rawRound) => (stage === "elimination") === Boolean(rawRound.elimination))
         .flatMap((rawRound) => rawRound.debates)
-        .filter((raw) => raw.sides.length === sides.length);
+        .filter((raw) => (isPolyFormat(format) ? raw.sides.length >= 1 : raw.sides.length === sides.length));
       const perAdjudicator = stageDebates.some((raw) => ballotKeys(raw).length > 1);
       const panelSigned = stageDebates.some((raw) => {
         const keys = ballotKeys(raw);
         return keys.length === 1 && keyIds(keys[0]).length > 1;
       });
-      votingStages[stage] = perAdjudicator || !panelSigned;
+      // Poly: a sole adjudicator's sheet stays a ranked consensus ballot, since a poly voting
+      // ballot (Tabbycat's PolyNoWinScoresheet) would drop the ranks the archive records.
+      votingStages[stage] = perAdjudicator || (!panelSigned && !isPolyFormat(format));
     }
+    // Tabbycat records poly voting ballots only with "margins include dissenters" (scores only).
+    if (isPolyFormat(format) && (votingStages.preliminary || votingStages.elimination)) preferences.marginIncludesDissenters = true;
   }
 
   rawRounds.forEach((rawRound, roundIndex) => {
@@ -965,12 +985,13 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
     const roundDebates: Debate[] = [];
     let allResulted = true;
     rawRound.debates.forEach((raw, debateIndex) => {
-      if (raw.sides.length !== sides.length) return;
-      const teamIds: SideRecord<string> = Object.fromEntries(sides.map((side, index) => [side, raw.sides[index].teamId]));
+      if (isPolyFormat(format) ? raw.sides.length < 1 : raw.sides.length !== sides.length) return;
+      const roomSides = debateSidesOf(raw);
+      const teamIds: SideRecord<string> = Object.fromEntries(roomSides.map((side, index) => [side, raw.sides[index].teamId]));
       const motion = raw.motionId ? motionById.get(raw.motionId) : undefined;
       if (motion) motionRounds.set(motion.id, (motionRounds.get(motion.id) ?? new Set()).add(roundId));
       const stage = rawRound.elimination ? "elimination" : "preliminary";
-      const result = buildBallot(raw, sides, teamIds, rules, speakerNames, log, votingStages[stage]);
+      const result = buildBallot(raw, roomSides, teamIds, isPolyFormat(format) ? { ...rules, sides: roomSides } : rules, speakerNames, log, votingStages[stage]);
       const stageBallots = ballotsByStage[rawRound.elimination ? "elimination" : "preliminary"];
       if (result) stageBallots.any = true;
       if (result?.sheets) stageBallots.voting = true;
@@ -1001,7 +1022,7 @@ export function importDebateXmlArchive(text: string, options: DebateXmlImportOpt
       const panellistIds = panel.filter((id) => !adjudicatorById.get(id)?.trainee);
       const traineeIds = panel.filter((id) => adjudicatorById.get(id)?.trainee);
       const venue = raw.venueId ? venueById.get(raw.venueId) : undefined;
-      const slots = Object.fromEntries(sides.map((side, index): [DebateSide, DebateTeamSlot] => {
+      const slots = Object.fromEntries(roomSides.map((side, index): [DebateSide, DebateTeamSlot] => {
         const teamId = raw.sides[index].teamId;
         const teamScore = ballot?.teamScores[side];
         return [side, {
@@ -1298,6 +1319,7 @@ function buildBallot(
       log.error(raw.path, "BP debates must have a single consensus ballot.");
       return undefined;
     }
+    const poly = isPolyFormat(rules.format);
     const sheets: AdjudicatorSheet[] = [];
     for (const key of keys) {
       const adjudicatorId = resolveBallotAdjudicator(key, raw);
@@ -1310,6 +1332,11 @@ function buildBallot(
       sheets.push({ adjudicatorId, speakerScores });
     }
     try {
+      if (poly) {
+        // Poly voting ballots record scores only (Tabbycat's PolyNoWinScoresheet).
+        const voting = aggregatePolyVotingSheets(sheets, teamIds, rules);
+        return { speakerScores: voting.speakerScores, teamScores: voting.teamScores, chairId: raw.chairId, sheets };
+      }
       const voting = aggregateVotingSheets(sheets, raw.chairId, teamIds, rules);
       return { speakerScores: voting.speakerScores, teamScores: voting.teamScores, chairId: raw.chairId, sheets };
     } catch (error) {
@@ -1329,7 +1356,16 @@ function buildBallot(
       ranks[side] = 4 - ballot.points;
     }
   });
-  if (Object.keys(ranks).length !== sides.length) {
+  if (isPolyFormat(rules.format)) {
+    // Poly ranks always follow the totals (Tabbycat's PolyScoresheet); tied totals have no result.
+    const fromTotals = effectiveRanks(speakerScores, undefined, rules);
+    const totals = sides.map((side) => consensusTeamScores(speakerScores, fromTotals, teamIds, rules)[side].totalSpeakerScore);
+    if (new Set(totals).size !== totals.length) {
+      log.error(raw.path, "Two teams have the same total, so the ranks are unknown.");
+      return undefined;
+    }
+    Object.assign(ranks, fromTotals);
+  } else if (Object.keys(ranks).length !== sides.length) {
     if (rules.format === "bp") {
       log.error(raw.path, "Every team in a BP result needs a rank.");
       return undefined;

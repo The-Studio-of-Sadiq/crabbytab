@@ -388,7 +388,7 @@ export const configBn: Catalogue = {
   "setup.config.searchEnginesHomepage": "শুধু পাবলিক ট্যাবের হোমপেজ",
   "setup.config.searchEnginesNone": "কোনো পৃষ্ঠা নয়",
   "setup.config.welcomeMessageLabel": "স্বাগত বার্তা",
-  "setup.config.welcomeMessageHelp": "সাধারণ লেখা, পাবলিক ট্যাবের উপরে দেখানো হয়।",
+  "setup.config.welcomeMessageHelp": "সাধারণ লেখা, নিচের হোমপেজ খালি থাকা পর্যন্ত পাবলিক হোম ট্যাবে দেখানো হয়।",
   "setup.config.staffCreditsLabel": "টুর্নামেন্টের কর্মী",
   "setup.config.staffCreditsHelp": "আহ্বায়ক, অ্যাডজুডিকেশন কোর ও ট্যাব টিমের কৃতিত্ব।",
   "setup.config.codeNameSummary":

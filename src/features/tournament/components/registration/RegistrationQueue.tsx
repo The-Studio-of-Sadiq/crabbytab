@@ -56,7 +56,11 @@ function formatAnswer(value: unknown, t: Translate): string {
 function entryName(submission: RegistrationSubmission, t: Translate): string {
   const unnamed = t("setup.registration.unnamed");
   if (submission.kind === "institution") return submission.institution?.name ?? unnamed;
-  return (submission.kind === "team" ? submission.team?.name : submission.adjudicator?.name) ?? unnamed;
+  if (submission.kind === "team") {
+    // Left for the team-name generator: shown by its speakers until approval names it.
+    return submission.team?.name || (submission.team?.speakers ?? []).map((speaker) => speaker.name).join(" & ") || unnamed;
+  }
+  return submission.adjudicator?.name ?? unnamed;
 }
 
 const KIND_LABEL: Record<RegistrationSubmission["kind"], { label: MessageKey; tone: Tone }> = {
@@ -316,7 +320,7 @@ function SubmissionCard({
   settings,
 }: {
   submission: RegistrationSubmission;
-  settings: Pick<RegistrationSettings, "teamBreakCategories" | "teamSeedMode">;
+  settings: Pick<RegistrationSettings, "teamBreakCategories" | "teamSeedMode" | "coachQuestions">;
   questions: FeedbackQuestion[];
   duplicates: DuplicateFlag[];
   likelyEntities: Array<{ id: string; name: string }>;
@@ -342,6 +346,9 @@ function SubmissionCard({
   };
   const status = STATUS[submission.status];
   const answered = questions.filter((question) => formatAnswer(submission.answers[question.id], t) !== "");
+  // The contact person's answers on an institution registration (Tabbycat's coach questions).
+  const coachAnswers = submission.institutionRequest?.coachAnswers ?? {};
+  const coachAnswered = (settings.coachQuestions ?? []).filter((question) => formatAnswer(coachAnswers[question.id], t) !== "");
   const name = entryName(submission, t);
   const institutionDetails = submission.institutionRequest
     ? [
@@ -460,9 +467,7 @@ function SubmissionCard({
         {submission.kind === "adjudicator" && submission.adjudicator && (
           <div className="space-y-0.5 text-xs text-fg">
             <p>
-              {submission.adjudicator.email}
-              {submission.adjudicator.phone ? ` · ${submission.adjudicator.phone}` : ""}
-              {submission.adjudicator.gender ? ` · ${submission.adjudicator.gender}` : ""}
+              {[submission.adjudicator.email, submission.adjudicator.phone, submission.adjudicator.gender].filter(Boolean).join(" · ")}
             </p>
             {submission.adjudicator.institutionConflicts.length > 0 && (
               <p><span className="text-fg-muted">{t("setup.registration.institutionConflicts")}</span> {formatList(submission.adjudicator.institutionConflicts)}</p>
@@ -478,6 +483,19 @@ function SubmissionCard({
               <React.Fragment key={question.id}>
                 <dt className="text-fg-muted">{question.label}</dt>
                 <dd className="text-fg">{formatAnswer(submission.answers[question.id], t)}</dd>
+              </React.Fragment>
+            ))}
+          </dl>
+        )}
+        {coachAnswered.length > 0 && (
+          <dl
+            aria-label={t("setup.registration.coachAnswers", { name: submission.contactName })}
+            className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]"
+          >
+            {coachAnswered.map((question) => (
+              <React.Fragment key={question.id}>
+                <dt className="text-fg-muted">{question.label}</dt>
+                <dd className="text-fg">{formatAnswer(coachAnswers[question.id], t)}</dd>
               </React.Fragment>
             ))}
           </dl>

@@ -14,31 +14,51 @@
  *
  * Cost of seating an adjudicator (Tabbycat `calc_cost`): conflict and history costs with the
  * debate's teams (and, for trainees, the chair), plus `1000 * exp(diff - 0.25)` when
- * `diff = 5 + importance - score > 0.25`, plus `5 - score`. Scores are normalised to 0-5 (CrabbyTab
- * scores are 0-10) and importance to 1-5 (from the debate's 0-10 priority). Differences from
- * Tabbycat: no random shuffle before sorting voters (ties break by score, then id, so the result is
- * reproducible — Tabbycat's "deterministic Hungarian" wish), and conflict/history costs use
- * CrabbyTab's configured penalties.
+ * `diff = 5 + importance + adjustment - score > 0.25`, plus `max_score - score`. As Tabbycat:
+ * - scores are normalised to 0-5 from the adjudicator score range (Tabbycat `adj_min_score` /
+ *   `adj_max_score`; CrabbyTab's range is ADJ_SCORE_MIN..ADJ_SCORE_MAX, 1-10), with a warning
+ *   for every score outside the range;
+ * - importance is the debate's own importance only (Tabbycat `debate.importance + 3`), converted
+ *   from CrabbyTab's 0-10 scale with tabbycatImportanceLevel (10, 7, 3, 0 are Tabbycat's 1, 0, -1, -2);
+ * - debates are taken by importance, then room rank;
+ * - no voting adjudicators is an error (AdjudicatorAllocationError), never an empty allocation.
+ * Differences from Tabbycat: no random shuffle before sorting voters (ties break by score, then
+ * id, so the result is reproducible), and the Munkres solver may break exact cost ties differently.
  */
 import { solveHungarian } from "./hungarian";
+import { ADJ_SCORE_MAX, ADJ_SCORE_MIN } from "@/lib/feedback/scores";
+import { tabbycatImportanceLevel } from "./importance";
 
 export type TabbycatHungarianMode = "voting" | "consensus";
 
+/** Tabbycat's AdjudicatorAllocationError: the allocation is refused and nothing is changed. */
+export class AdjudicatorAllocationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdjudicatorAllocationError";
+  }
+}
+
+export const NO_AVAILABLE_ADJUDICATORS_MESSAGE =
+  "There are no available adjudicators. Ensure there are adjudicators who have been marked as available for this round before auto-allocating.";
+export const NO_VOTING_ADJUDICATORS_MESSAGE =
+  "There are no adjudicators eligible to be a chair or panellist. Lower the minimum score to vote (or check trainee flags) and try again.";
+
 export interface HungarianCandidate {
   id: string;
-  /** Effective score on CrabbyTab's 0-10 scale. */
+  /** Effective score on CrabbyTab's adjudicator scale (ADJ_SCORE_MIN..ADJ_SCORE_MAX). */
   score: number;
 }
 
 export interface HungarianDebateInput {
   id: string;
-  /** CrabbyTab debate priority, 0-10. */
+  /** The debate's (or panel's) importance on CrabbyTab's 0-10 scale. */
   priority: number;
 }
 
 export interface TabbycatHungarianInput {
   mode: TabbycatHungarianMode;
-  /** Debates in allocation order: most important first. */
+  /** Debates in allocation order: most important first (then by room rank). */
   debates: HungarianDebateInput[];
   /** Voters (non-trainees at or above the minimum voting score). */
   voters: HungarianCandidate[];
@@ -60,25 +80,48 @@ export interface TabbycatHungarianPanel {
 
 export interface TabbycatHungarianResult {
   panels: TabbycatHungarianPanel[];
-  /** Tabbycat's user warnings (too few voters or panellists). */
+  /** Tabbycat's user warnings (scores out of range, too few voters or panellists). */
   warnings: string[];
 }
 
+/** Tabbycat `_normalized_score`: (score - min) / (max - min) * 5. */
 export function normalisedAdjudicatorScore(score: number): number {
-  return score / 2;
+  return ((score - ADJ_SCORE_MIN) / (ADJ_SCORE_MAX - ADJ_SCORE_MIN)) * 5;
 }
 
-export function normalisedImportance(priority: number): number {
-  return 1 + Math.max(0, Math.min(10, priority)) * 0.4;
+export { tabbycatImportanceLevel };
+
+/** Tabbycat's `debate.importance + 3` (1-5 range expected by calc_cost). */
+export function normalisedImportance(importance: number): number {
+  return tabbycatImportanceLevel(importance) + 3;
 }
 
 /** Tabbycat's strength part of calc_cost (without conflicts). */
-export function hungarianStrengthCost(priority: number, score: number, adjustment = 0): number {
+export function hungarianStrengthCost(importance: number, score: number, adjustment = 0): number {
   const normalised = normalisedAdjudicatorScore(score);
-  const diff = 5 + normalisedImportance(priority) + adjustment - normalised;
+  const diff = 5 + normalisedImportance(importance) + adjustment - normalised;
   let cost = 0;
   if (diff > 0.25) cost += 1000 * Math.exp(diff - 0.25);
-  return cost + (5 - normalised);
+  // Tabbycat adds `adj_max_score - _normalized_score` (the raw maximum against the 0-5 score).
+  return cost + (ADJ_SCORE_MAX - normalised);
+}
+
+/** Tabbycat's populate_adj_scores warnings for scores outside the permitted range. */
+export function scoreRangeWarnings(candidates: HungarianCandidate[]): string[] {
+  const warnings: string[] = [];
+  const tooLarge = candidates.filter((candidate) => normalisedAdjudicatorScore(candidate.score) > 5).length;
+  const tooSmall = candidates.filter((candidate) => normalisedAdjudicatorScore(candidate.score) < 0).length;
+  if (tooLarge > 0) {
+    warnings.push(
+      `${tooLarge} score${tooLarge === 1 ? " is" : "s are"} larger than the maximum permitted adjudicator score (${ADJ_SCORE_MAX.toFixed(1)}).`
+    );
+  }
+  if (tooSmall > 0) {
+    warnings.push(
+      `${tooSmall} score${tooSmall === 1 ? " is" : "s are"} smaller than the minimum permitted adjudicator score (${ADJ_SCORE_MIN.toFixed(1)}).`
+    );
+  }
+  return warnings;
 }
 
 function byScore(a: HungarianCandidate, b: HungarianCandidate): number {
@@ -96,7 +139,7 @@ function seatTrainees(
     trainees.map(
       (trainee) =>
         input.conflictCost(trainee.id, panel.debateId, panel.chairId) +
-        hungarianStrengthCost(priorityOf.get(panel.debateId) ?? 5, trainee.score, -2)
+        hungarianStrengthCost(priorityOf.get(panel.debateId) ?? 0, trainee.score, -2)
     )
   );
   solveHungarian(costs).forEach((traineeIndex, panelIndex) => {
@@ -141,18 +184,14 @@ function seatPanels(
   });
 }
 
+/** Throws AdjudicatorAllocationError when there are no voters (Tabbycat check_matrix_exists). */
 export function allocateTabbycatHungarian(input: TabbycatHungarianInput): TabbycatHungarianResult {
-  const warnings: string[] = [];
   const debates = input.debates;
   const voting = [...input.voters].sort(byScore);
   const trainees = [...input.trainees].sort(byScore);
+  const warnings = scoreRangeWarnings([...input.voters, ...input.trainees]);
   if (debates.length === 0) return { panels: [], warnings };
-  if (voting.length === 0) {
-    warnings.push(
-      "There are no adjudicators eligible to be a chair or panellist. Lower the minimum score to vote and try again."
-    );
-    return { panels: debates.map((debate) => ({ debateId: debate.id, panellistIds: [], traineeIds: [] })), warnings };
-  }
+  if (voting.length === 0) throw new AdjudicatorAllocationError(NO_VOTING_ADJUDICATORS_MESSAGE);
   if (voting.length < debates.length) {
     warnings.push(`There are ${debates.length} debates but only ${voting.length} voting adjudicators.`);
   }

@@ -6,6 +6,7 @@ import { useTournament } from "@/contexts/TournamentContext";
 import confetti from "canvas-confetti";
 import { Award, Sparkles, Plus, ArrowRight, CheckCircle2, Pencil, Trash2, X } from "lucide-react";
 import { BreakCategory, BreakQualificationRule, BreakTeamOverride } from "@/types";
+import { isPolyFormat, teamsInDebateFor } from "@/lib/debateSides";
 import { isGeneratedBreakStale, type BreakCategoryResult, type BreakExclusionReason } from "@/lib/breakqual/calculator";
 import {
   getBreakCategoryDeletionBlocker,
@@ -182,10 +183,13 @@ export default function BreakPage() {
     breakResults,
     saveBreakCategories,
     generateBreak,
+    isOwnerOrAdmin,
   } = useTournament();
   const { t, plural, formatNumber, formatDecimal, formatList } = useI18n();
 
-  const teamsInDebate: 4 | 2 = tournament?.format === "bp" ? 4 : 2;
+  const teamsInDebate = teamsInDebateFor(tournament);
+  // N teams per room: any break size of at least 1 (elimination rounds are drawn by hand).
+  const minimumBreakSize = isPolyFormat(tournament?.format) ? 1 : teamsInDebate;
   const [activeCategorySlug, setActiveCategorySlug] = useState<string>("open");
   const [editor, setEditor] = useState<{ editingId?: string; draft: BreakCategoryDraft } | null>(null);
   const [editorError, setEditorError] = useState("");
@@ -395,10 +399,13 @@ export default function BreakPage() {
               <Sparkles aria-hidden="true" />
               {t("results.break.celebrate")}
             </Button>
-            <Button variant="secondary" onClick={() => openEditor()}>
-              <Plus aria-hidden="true" />
-              {t("results.break.addCategory")}
-            </Button>
+            {/* Staff with standings.view see the break; changing it stays with administrators. */}
+            {isOwnerOrAdmin && (
+              <Button variant="secondary" onClick={() => openEditor()}>
+                <Plus aria-hidden="true" />
+                {t("results.break.addCategory")}
+              </Button>
+            )}
           </>
         }
       />
@@ -420,7 +427,7 @@ export default function BreakPage() {
                   name: selectedCategory.name,
                 })}
                 description={categoryMeta}
-                actions={
+                actions={isOwnerOrAdmin &&
                   <>
                     <Button size="sm" variant="ghost" onClick={() => openEditor(selectedCategory)}>
                       <Pencil aria-hidden="true" />
@@ -528,11 +535,11 @@ export default function BreakPage() {
                       <TH align="right">{t("results.break.colPoints")}</TH>
                       <TH align="right">{t("results.break.colTotalSpeaks")}</TH>
                       <TH>{t("results.break.colStatus")}</TH>
-                      <TH className="w-48">{t("results.break.colOverride")}</TH>
+                      {isOwnerOrAdmin && <TH className="w-48">{t("results.break.colOverride")}</TH>}
                     </TR>
                   </THead>
                   <TBody>
-                    {rows.length === 0 && <TableEmpty colSpan={8}>{t("results.break.noQualifiers")}</TableEmpty>}
+                    {rows.length === 0 && <TableEmpty colSpan={isOwnerOrAdmin ? 8 : 7}>{t("results.break.noQualifiers")}</TableEmpty>}
                     {rows.map((row) => {
                       const excluded = row.status.kind === "excluded";
                       return (
@@ -546,7 +553,7 @@ export default function BreakPage() {
                           <TD>
                             <StatusPill tone={STATUS_TONES[row.status.kind]}>{statusLabel(row.status)}</StatusPill>
                           </TD>
-                          <TD>
+                          {isOwnerOrAdmin && <TD>
                             <Select
                               aria-label={t("results.break.overrideFor", { team: row.teamName })}
                               value={overrides[row.teamId] ?? ""}
@@ -561,7 +568,7 @@ export default function BreakPage() {
                                 <option key={option} value={option}>{t(OVERRIDE_KEYS[option])}</option>
                               ))}
                             </Select>
-                          </TD>
+                          </TD>}
                         </TR>
                       );
                     })}
@@ -571,7 +578,7 @@ export default function BreakPage() {
             </Card>
 
             {/* Manual overrides */}
-            <Card>
+            {isOwnerOrAdmin && <Card>
               <CardHeader
                 title={t("results.break.overridesTitle")}
                 description={t("results.break.overridesDescription", {
@@ -637,7 +644,7 @@ export default function BreakPage() {
                   <p className="text-xs text-fg-muted">{t("results.break.noOverrides")}</p>
                 )}
               </CardBody>
-            </Card>
+            </Card>}
           </TabPanel>
         </>
       ) : (
@@ -645,12 +652,12 @@ export default function BreakPage() {
           icon={<Award aria-hidden="true" />}
           title={t("results.break.emptyTitle")}
           description={t("results.break.emptyDescription")}
-          action={
+          action={isOwnerOrAdmin ? (
             <Button variant="primary" onClick={() => openEditor()}>
               <Plus aria-hidden="true" />
               {t("results.break.addBreakCategory")}
             </Button>
-          }
+          ) : undefined}
         />
       )}
 
@@ -696,7 +703,7 @@ export default function BreakPage() {
                   id="break-size"
                   type="number"
                   label={t("results.break.fieldBreakSize")}
-                  min={teamsInDebate}
+                  min={minimumBreakSize}
                   step={teamsInDebate === 4 ? 2 : 1}
                   value={editor.draft.breakSize}
                   onChange={(e) => updateDraft({ breakSize: parseInt(e.target.value, 10) || 0 })}

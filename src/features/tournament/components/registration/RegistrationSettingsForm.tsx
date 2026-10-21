@@ -7,6 +7,7 @@ import type { MessageKey } from "@/lib/i18n";
 import type { FeedbackQuestion, FeedbackQuestionType } from "@/types";
 import type { PersonField, RegistrationConfirmation, RegistrationSettings, TeamRegistrationField } from "@/lib/registration/types";
 import type { CodeNameGenerator, TeamNameGenerator } from "@/lib/registration/names";
+import { askedPersonFields, openRegistration, representativeRegistration } from "@/lib/registration/access";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Feedback";
@@ -88,14 +89,23 @@ function TeamFieldsEditor({
   );
 }
 
+/** Tabbycat's reg_speaker_fields / reg_adjudicator_fields: email (and categories) can be switched off. */
 function PersonFieldsEditor({
   legend,
   fields,
   onChange,
+  email,
+  onEmailChange,
+  categories,
+  onCategoriesChange,
 }: {
   legend: string;
   fields: PersonField[];
   onChange: (fields: PersonField[]) => void;
+  email: boolean;
+  onEmailChange: (asked: boolean) => void;
+  categories?: boolean;
+  onCategoriesChange?: (asked: boolean) => void;
 }) {
   const { t } = useI18n();
   const toggle = (field: PersonField, checked: boolean) =>
@@ -104,6 +114,14 @@ function PersonFieldsEditor({
     <fieldset className="space-y-2">
       <legend className="text-xs font-semibold text-fg">{legend}</legend>
       <div className="flex flex-wrap gap-6">
+        <Checkbox label={t("setup.registration.emailField")} checked={email} onChange={(event) => onEmailChange(event.target.checked)} />
+        {categories !== undefined && onCategoriesChange && (
+          <Checkbox
+            label={t("setup.registration.categoriesField")}
+            checked={categories}
+            onChange={(event) => onCategoriesChange(event.target.checked)}
+          />
+        )}
         <Checkbox label={t("setup.registration.phoneNumber")} checked={fields.includes("phone")} onChange={(event) => toggle("phone", event.target.checked)} />
         <Checkbox label={t("setup.registration.genderSelfDescribed")} checked={fields.includes("gender")} onChange={(event) => toggle("gender", event.target.checked)} />
       </div>
@@ -232,6 +250,7 @@ export function RegistrationSettingsForm({
         teamQuestions: clean(settings.teamQuestions),
         adjudicatorQuestions: clean(settings.adjudicatorQuestions),
         institutionQuestions: clean(settings.institutionQuestions ?? []),
+        coachQuestions: clean(settings.coachQuestions ?? []),
         speakerQuestions: clean(settings.speakerQuestions ?? []),
       });
       setMessage(t("setup.registration.settingsSaved"));
@@ -291,13 +310,31 @@ export function RegistrationSettingsForm({
               checked={settings.institutionRegistration === true}
               onChange={(event) => set({ institutionRegistration: event.target.checked })}
             />
-            <Checkbox
-              label={t("setup.registration.representativesOnly")}
-              description={t("setup.registration.representativesOnlyHelp")}
-              checked={settings.representativesOnly}
-              onChange={(event) => set({ representativesOnly: event.target.checked })}
-            />
           </div>
+          {/* Tabbycat open_team_registration / open_adj_registration / institution_participant_registration. */}
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-semibold text-fg">{t("setup.registration.channelsLegend")}</legend>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Checkbox
+                label={t("setup.registration.openTeamRegistration")}
+                description={t("setup.registration.openTeamRegistrationHelp")}
+                checked={openRegistration(settings, "team")}
+                onChange={(event) => set({ openTeamRegistration: event.target.checked })}
+              />
+              <Checkbox
+                label={t("setup.registration.openAdjudicatorRegistration")}
+                description={t("setup.registration.openAdjudicatorRegistrationHelp")}
+                checked={openRegistration(settings, "adjudicator")}
+                onChange={(event) => set({ openAdjudicatorRegistration: event.target.checked })}
+              />
+              <Checkbox
+                label={t("setup.registration.institutionParticipantRegistration")}
+                description={t("setup.registration.institutionParticipantRegistrationHelp")}
+                checked={representativeRegistration(settings)}
+                onChange={(event) => set({ institutionParticipantRegistration: event.target.checked })}
+              />
+            </div>
+          </fieldset>
           <Textarea
             label={t("setup.registration.instructions")}
             rows={3}
@@ -377,8 +414,22 @@ export function RegistrationSettingsForm({
         <CardHeader title={t("setup.registration.fieldsTitle")} description={t("setup.registration.fieldsDescription")} />
         <CardBody className="space-y-4">
           <TeamFieldsEditor settings={settings} onChange={(teamFields) => set({ teamFields })} />
-          <PersonFieldsEditor legend={t("setup.registration.speakers")} fields={settings.speakerFields ?? []} onChange={(speakerFields) => set({ speakerFields })} />
-          <PersonFieldsEditor legend={t("setup.registration.adjudicators")} fields={settings.adjudicatorFields ?? []} onChange={(adjudicatorFields) => set({ adjudicatorFields })} />
+          <PersonFieldsEditor
+            legend={t("setup.registration.speakers")}
+            fields={settings.speakerFields ?? []}
+            onChange={(speakerFields) => set({ speakerFields })}
+            email={askedPersonFields(settings).speakerEmail}
+            onEmailChange={(askSpeakerEmail) => set({ askSpeakerEmail })}
+            categories={askedPersonFields(settings).speakerCategories}
+            onCategoriesChange={(askSpeakerCategories) => set({ askSpeakerCategories })}
+          />
+          <PersonFieldsEditor
+            legend={t("setup.registration.adjudicators")}
+            fields={settings.adjudicatorFields ?? []}
+            onChange={(adjudicatorFields) => set({ adjudicatorFields })}
+            email={askedPersonFields(settings).adjudicatorEmail}
+            onEmailChange={(askAdjudicatorEmail) => set({ askAdjudicatorEmail })}
+          />
           <Checkbox
             label={t("setup.registration.institutionRegion")}
             checked={settings.institutionRegion === true}
@@ -420,6 +471,11 @@ export function RegistrationSettingsForm({
             title={t("setup.registration.questionsInstitution")}
             questions={settings.institutionQuestions ?? []}
             onChange={(institutionQuestions) => set({ institutionQuestions })}
+          />
+          <QuestionsEditor
+            title={t("setup.registration.questionsCoach")}
+            questions={settings.coachQuestions ?? []}
+            onChange={(coachQuestions) => set({ coachQuestions })}
           />
         </CardBody>
       </Card>

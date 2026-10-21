@@ -3,7 +3,14 @@ import type { Firestore } from "firebase-admin/firestore";
 
 import type { BallotSubmission, Debate, Round, Tournament } from "@/types";
 import type { EmailMessage, EmailProvider } from "./provider";
-import { baselineRoundNotifications, sendBallotReceipts, sendNextRoundNotification } from "./notificationService";
+import {
+  ballotConfirmationEmailMode,
+  ballotReceiptsApply,
+  baselineRoundNotifications,
+  receiptModeSendsConfirmation,
+  sendBallotReceipts,
+  sendNextRoundNotification,
+} from "./notificationService";
 
 /** A minimal in-memory stand-in for the parts of the Admin SDK the service uses. */
 function createFakeFirestore(initial: Record<string, Record<string, unknown>>) {
@@ -191,5 +198,38 @@ describe("sendBallotReceipts", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(sendBallotReceipts(input({ notifyBallotReceipt: true }, firestore, failing))).resolves.toBeUndefined();
     consoleError.mockRestore();
+  });
+});
+
+describe("ballot receipts beyond private-URL submissions (Tabbycat enable_ballot_receipts)", () => {
+  it("emails tab-room confirmations as receipts when receipts are on and confirmed emails are off", () => {
+    expect(ballotConfirmationEmailMode({ notifyBallotReceipt: true } as Tournament["preferences"])).toBe("receipt");
+    expect(ballotConfirmationEmailMode({ notifyBallotReceipt: true, notifyBallotConfirmed: true } as Tournament["preferences"])).toBe("confirmed");
+    expect(ballotConfirmationEmailMode({} as Tournament["preferences"])).toBeNull();
+  });
+
+  it("skips adjudicators' own ballots (receipted on submission) and BP elimination rounds", () => {
+    const two = { format: "wsdc" } as Pick<Tournament, "format">;
+    const bp = { format: "bp" } as Pick<Tournament, "format">;
+    expect(receiptModeSendsConfirmation({ submitterType: "tabroom" }, two, { stage: "preliminary" })).toBe(true);
+    expect(receiptModeSendsConfirmation({ submitterType: "judge" }, two, { stage: "preliminary" })).toBe(false);
+    expect(receiptModeSendsConfirmation({ submitterType: "tabroom" }, bp, { stage: "elimination" })).toBe(false);
+    expect(ballotReceiptsApply(bp, { stage: "preliminary" })).toBe(true);
+    expect(ballotReceiptsApply(two, { stage: "elimination" })).toBe(true);
+  });
+
+  it("sends no private-URL receipt for a BP elimination ballot", async () => {
+    const { firestore } = createFakeFirestore({});
+    const { provider, sent } = fakeProvider();
+    await sendBallotReceipts({
+      firestore,
+      tournament: { id: "t1", ...tournament({ notifyBallotReceipt: true }), format: "bp" } as unknown as Tournament,
+      adjudicator: { id: "j1", name: "Judge", email: "judge@example.com" },
+      ballots: [{ id: "b1", roundId: "r1", debateId: "d1", teamScores: {}, speakerScores: {} } as unknown as BallotSubmission],
+      debates: new Map([["d1", { id: "d1", ...debate } as unknown as Debate]]),
+      rounds: new Map([["r1", { id: "r1", ...roundDoc({ stage: "elimination" }) } as unknown as Round]]),
+      createProvider: () => provider,
+    });
+    expect(sent).toEqual([]);
   });
 });

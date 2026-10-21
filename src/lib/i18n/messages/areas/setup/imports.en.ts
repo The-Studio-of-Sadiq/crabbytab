@@ -50,6 +50,7 @@ export const importsEn = {
   "setup.imports.accredited": "Accredited",
   "setup.imports.active": "Active",
   "setup.imports.openAdjudicatorPortal": "Open the private portal of {name}",
+  "setup.imports.openAdjudicatorRecord": "Open the record of {name} (rounds, scores, feedback and conflicts)",
   "setup.imports.editAdjudicatorNamed": "Edit judge {name}",
   "setup.imports.deleteAdjudicatorNamed": "Delete judge {name}",
   "setup.imports.adjudicatorsEmpty": "No adjudicators registered yet. Choose “Add adjudicator” or import via CSV.",

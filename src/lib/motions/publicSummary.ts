@@ -8,7 +8,14 @@ import { summariseTournamentMotions, type TournamentMotionSummary } from "@/lib/
  * the tournament's own public pages. Present only when the tournament has released its motion
  * statistics (Tabbycat `motion_tab_released`) and has at least one released motion with text.
  */
-export type PublicMotionSummary = TournamentMotionSummary & { tournament: { id: string; name: string; slug: string } };
+export type PublicMotionSummary = TournamentMotionSummary & {
+  tournament: { id: string; name: string; slug: string };
+  /**
+   * The tournament keeps search engines off pages other than (or including) its homepage
+   * (Tabbycat `search_engine_indexing` other than "all"), so the pooled page must not be indexed.
+   */
+  noindex?: true;
+};
 
 interface PublicRoundContentLike {
   debates?: unknown;
@@ -23,7 +30,8 @@ export function buildPublicMotionSummary(input: {
   rounds: PublicRoundContentLike[];
 }): PublicMotionSummary | undefined {
   const tournament = (input.tournament ?? {}) as Partial<Tournament>;
-  if (!getPublicSiteSettings(tournament.preferences).motionTab) return undefined;
+  const settings = getPublicSiteSettings(tournament.preferences);
+  if (!settings.motionTab) return undefined;
   const motions = (Array.isArray(input.motions) ? (input.motions as Motion[]) : []).filter(
     (motion) => motion?.released === true && typeof motion.text === "string" && motion.text.trim() !== ""
   );
@@ -37,7 +45,11 @@ export function buildPublicMotionSummary(input: {
     debates,
     ballots,
   });
-  return { ...summary, tournament: { id: input.tournamentId, name, slug: input.slug } };
+  return {
+    ...summary,
+    tournament: { id: input.tournamentId, name, slug: input.slug },
+    ...(settings.searchEngineIndexing !== "all" ? { noindex: true as const } : {}),
+  };
 }
 
 /** Narrows an unknown stored value (a public view root field) to a summary, or undefined. */
@@ -63,5 +75,10 @@ export function readPublicMotionSummary(value: unknown): PublicMotionSummary | u
       Number.isFinite(motion.vetoes) &&
       Array.isArray(motion.positionWins)
   );
-  return { tournament, isBP: record.isBP, motions };
+  return { tournament, isBP: record.isBP, motions, ...(record.noindex === true ? { noindex: true as const } : {}) };
+}
+
+/** The pooled motions page is indexable only when every tournament on it allows indexing. */
+export function pooledMotionsIndexable(summaries: readonly Pick<PublicMotionSummary, "noindex">[]): boolean {
+  return summaries.every((summary) => summary.noindex !== true);
 }

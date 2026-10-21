@@ -1,6 +1,7 @@
 import { ballotMatchesDebate, ballotVotesPossible } from "@/lib/ballots/result";
 import { roundWeight as configuredRoundWeight } from "@/lib/ballots/ballotRules";
 import { applyBallotSides } from "@/lib/draw/manualSides";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 import {
   Tournament,
   Team,
@@ -10,6 +11,7 @@ import {
   Debate,
   Round,
   DebateSide,
+  SpeakerMetricId,
   SpeakerScoreEntry,
   TeamMetricId,
 } from "@/types";
@@ -64,7 +66,11 @@ function roundWeightOf(round: Round | undefined): number {
   return configuredRoundWeight(round);
 }
 
-/** BP places a team's points onto a 1st-4th finish; two-team formats have no such notion. */
+/**
+ * BP places a team's points onto a 1st-4th finish; two-team formats have no such notion. Poly
+ * (N teams per room) uses the same mapping, as Tabbycat's firsts/seconds/thirds metrics count
+ * debates with 3, 2 and 1 points whatever the number of teams.
+ */
 function bpRankInRoom(points: number): number {
   return points === 3 ? 1 : points === 2 ? 2 : points === 1 ? 3 : 4;
 }
@@ -84,6 +90,7 @@ export function calculateStandings(
   ballots: BallotSubmission[]
 ): StandingsCalculationResult {
   const isBP = tournament.format === "bp";
+  const poly = isPolyFormat(tournament.format);
 
   // Standings are a preliminary-round tab: elimination and cancelled rounds never count.
   // Debates whose round is unknown are kept so partial data still produces a tab.
@@ -159,26 +166,24 @@ export function calculateStandings(
 
       // Like Tabbycat's bye results, a bye win records the team result only:
       // no speaker scores are invented, so speaks and speaker tabs are unaffected.
-      const byePoints = isBP ? 3 : 1;
+      // Tabbycat (bye_team_results "points", draw/manager.py) records a bye as 1 point and a win in
+      // every format: in BP that is a third-place finish that also counts as a win.
+      const byePoints = 1;
       const side = (Object.entries(debate.teams).find(([, slot]) => slot?.teamId === team.id)?.[0]
-        ?? (isBP ? "OG" : "AFF")) as DebateSide;
+        ?? tournamentSides(tournament)[0]) as DebateSide;
       teamRow.points += byePoints * roundWeightOf(roundById.get(debate.roundId));
-      if (isBP) {
-        teamRow.firstPlaces!++;
-      } else {
-        teamRow.wins!++;
-      }
+      if (isBP) teamRow.thirdPlaces!++;
+      teamRow.wins!++;
       teamRoundAccum.get(team.id)!.push({
         points: byePoints,
-        // BP records no wins in preliminary rounds, as in Tabbycat.
-        win: !isBP,
+        win: true,
         speaksSum: null,
         individualScores: [],
         margin: 0,
         opponentTeamIds: [],
         pulledUp: false,
         bye: true,
-        rankInRoom: isBP ? 1 : undefined,
+        rankInRoom: isBP || poly ? bpRankInRoom(byePoints) : undefined,
         roundWeight: roundWeightOf(roundById.get(debate.roundId)),
       });
       teamRow.roundResults.push({
@@ -187,7 +192,6 @@ export function calculateStandings(
         points: byePoints,
         speakerScore: 0,
         bye: true,
-        rank: isBP ? 1 : undefined,
         win: true,
         opponentTeamIds: [],
       });
@@ -195,11 +199,32 @@ export function calculateStandings(
     }
 
     const ballot = ballotMap.get(debate.id);
-    if (!ballot) continue;
-
     const slotsInDebate = Object.values(debate.teams).filter((slot) => slot?.teamId);
     const pullupDebate = slotsInDebate.some((slot) => slot?.pulledUp);
     const roundWeight = roundWeightOf(roundById.get(debate.roundId));
+
+    if (!ballot) {
+      // No confirmed result yet: the team scores nothing, but Tabbycat still counts the debate's
+      // opponents for draw strength (every preliminary debate, ballot or not) and its pull-ups
+      // (npullups / pullup_debates are not limited to confirmed ballots).
+      for (const teamSlot of slotsInDebate) {
+        const rows = teamRoundAccum.get(teamSlot!.teamId);
+        if (!rows) continue;
+        rows.push({
+          points: 0,
+          win: false,
+          speaksSum: null,
+          individualScores: [],
+          margin: 0,
+          opponentTeamIds: slotsInDebate.filter((slot) => slot!.teamId !== teamSlot!.teamId).map((slot) => slot!.teamId),
+          pulledUp: Boolean(teamSlot!.pulledUp),
+          pullupDebate,
+          noResult: true,
+          roundWeight,
+        });
+      }
+      continue;
+    }
 
     for (const [sideKey, teamSlot] of Object.entries(debate.teams)) {
       if (!teamSlot || !teamSlot.teamId) continue;
@@ -229,8 +254,9 @@ export function calculateStandings(
       const pts = teamScore ? teamScore.points || 0 : 0;
       // Tabbycat records no wins in BP preliminary rounds (TeamScore.win is unset), so BP "wins"
       // and the draw strength built on them stay 0; BP ranks on points and draw_strength.
-      const win = isBP ? false : Boolean(teamScore?.win) || pts === 1;
-      const margin = isBP ? 0 : teamScore?.margin || 0;
+      // Poly teams win only when a results-only ballot declares them advancing (Tabbycat).
+      const win = isBP ? false : poly ? Boolean(teamScore?.win) : Boolean(teamScore?.win) || pts === 1;
+      const margin = isBP || poly ? 0 : teamScore?.margin || 0;
 
       teamRow.points += pts * roundWeight;
       if (!isForfeit) teamRow.totalSpeakerScore += totalSpeakersScore;
@@ -240,6 +266,9 @@ export function calculateStandings(
         else if (pts === 2) teamRow.secondPlaces!++;
         else if (pts === 1) teamRow.thirdPlaces!++;
         else teamRow.fourthPlaces!++;
+      } else if (poly) {
+        // N-team rooms have no losses or margins; a team "wins" only by advancing.
+        if (win) teamRow.wins!++;
       } else {
         if (win) teamRow.wins!++;
         else teamRow.losses!++;
@@ -258,7 +287,7 @@ export function calculateStandings(
         margin,
         opponentTeamIds,
         pulledUp: Boolean(teamSlot.pulledUp),
-        rankInRoom: isBP ? bpRankInRoom(pts) : undefined,
+        rankInRoom: isBP || poly ? bpRankInRoom(pts) : undefined,
         ...(votesPossible ? { votesGiven: teamScore?.votes ?? 0, votesPossible } : {}),
         ironed: !isForfeit && substantiveEntries.length > countedSpeeches.length,
         pullupDebate,
@@ -336,7 +365,7 @@ export function calculateStandings(
       .flatMap((id) => (rankByTeam.has(id) ? [rankByTeam.get(id)!] : []));
     row.metrics.draw_strength_rank = opponentRanks.length
       ? opponentRanks.reduce((sum, rank) => sum + rank, 0) / opponentRanks.length
-      : Number.NaN;
+      : null;
   }
 
   /* ---------------------------------------------------------------------- */
@@ -453,21 +482,32 @@ export function calculateStandings(
   const speakerPrecedence = resolveSpeakerPrecedence(tournament.preferences);
 
   // Standings eligibility (Tabbycat's "speeches missable"): a speaker must have given at least
-  // (preliminary rounds with results so far − missable) speeches to be ranked. Only rounds that
-  // have results count, so a round in progress never makes anyone ineligible. Rounds whose
-  // ballots carry no speaker scores (speakersInBallots) are not counted either: Tabbycat counts
-  // every preliminary round, which makes every speaker ineligible once such a round exists.
+  // (preliminary rounds so far − missable) speeches to be ranked. As Tabbycat (every preliminary
+  // round up to the current one), every preliminary round that has been drawn counts, whether or
+  // not its results are in. One exception: a round whose confirmed ballots carry no speaker scores
+  // at all (speakersInBallots) is not counted, since in Tabbycat it would make every speaker
+  // ineligible.
   const hasSpeakerScores = (ballot: BallotSubmission | undefined) =>
     Boolean(ballot && !ballot.noSpeakerScores && !ballot.forfeitSide);
-  const roundsWithResults = new Set(
-    debates
-      .filter((debate) => !debate.postponed && (hasSpeakerScores(ballotMap.get(debate.id)) || (debate.byeTeamId && debate.byeResult === "win")))
-      .map((debate) => debate.roundId)
-  ).size;
+  const drawnRoundIds = new Set(debates.filter((debate) => !debate.postponed).map((debate) => debate.roundId));
+  const resultsOnlyRoundIds = new Set(
+    [...drawnRoundIds].filter((roundId) => {
+      const roundBallots = debates
+        .filter((debate) => debate.roundId === roundId)
+        .flatMap((debate) => (ballotMap.has(debate.id) ? [ballotMap.get(debate.id)] : []));
+      return roundBallots.length > 0 && !roundBallots.some(hasSpeakerScores);
+    })
+  );
+  const roundsCounted = drawnRoundIds.size - resultsOnlyRoundIds.size;
   const minimumSpeeches = (missable: number | undefined) =>
-    missable === undefined || !Number.isFinite(missable) || missable < 0 ? 0 : roundsWithResults - Math.floor(missable);
+    missable === undefined || !Number.isFinite(missable) || missable < 0 ? 0 : roundsCounted - Math.floor(missable);
+
+  // Tabbycat ranks reply speakers on their average reply score alone (BaseReplyStandingsView
+  // ('replies_avg',)), whatever the speaker standings precedence.
+  const replyPrecedence: SpeakerMetricId[] = ["reply_avg"];
 
   const finalizeSpeakerList = (rowsMap: Map<string, SpeakerStandingRow>, isReplyList: boolean) => {
+    const precedence = isReplyList ? replyPrecedence : speakerPrecedence;
     const list = Array.from(rowsMap.values());
     for (const row of list) {
       const scores = speakerScoresByRound.get(row.speakerId) ?? { substantive: [], reply: [] };
@@ -487,11 +527,11 @@ export function calculateStandings(
     // Eligible speakers are ranked first; ineligible ones follow in the same order, unranked.
     list.sort((a, b) => {
       if (Boolean(a.ineligible) !== Boolean(b.ineligible)) return a.ineligible ? 1 : -1;
-      const byMetric = compareByPrecedence(a.metrics, b.metrics, speakerPrecedence, SPEAKER_METRIC_DIRECTION);
+      const byMetric = compareByPrecedence(a.metrics, b.metrics, precedence, SPEAKER_METRIC_DIRECTION);
       return byMetric !== 0 ? byMetric : a.speakerName.localeCompare(b.speakerName);
     });
     const eligible = list.filter((row) => !row.ineligible);
-    assignSharedRanks(eligible, (row) => row.metrics, speakerPrecedence, (row, rank) => (row.rank = rank));
+    assignSharedRanks(eligible, (row) => row.metrics, precedence, (row, rank) => (row.rank = rank));
     return list;
   };
 

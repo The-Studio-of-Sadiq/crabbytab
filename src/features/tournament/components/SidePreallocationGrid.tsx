@@ -8,6 +8,8 @@ import { resolveRecordedSides, sidesPending } from "@/lib/draw/manualSides";
 import { randomSeed } from "@/lib/draw/rng";
 import { generateSidePreallocations, sideCountsOf, sidesFromRound, type SideMap } from "@/lib/draw/sidePreallocation";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useTournament } from "@/contexts/TournamentContext";
+import { sideLabel, sideNamesFor, translatedSideName } from "@/lib/sideNames";
 import { Alert } from "@/components/ui/Feedback";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -48,6 +50,8 @@ const sameSides = (a: SideMap, b: SideMap) =>
  */
 export function SidePreallocationGrid({ rounds, teams, debates, ballots, updateRounds }: SidePreallocationGridProps) {
   const { t, plural } = useI18n();
+  const { tournament } = useTournament();
+  const preferences = tournament?.preferences;
   const prelims = useMemo(
     () => rounds.filter((round) => round.stage === "preliminary" && !round.cancelled).sort(bySeq),
     [rounds]
@@ -235,7 +239,13 @@ export function SidePreallocationGrid({ rounds, teams, debates, ballots, updateR
                       <span className="block">{round.abbreviation || round.name}</span>
                       <span className={unequal ? "block font-normal text-danger" : "block font-normal text-fg-muted"}>
                         {counts
-                          ? t(unequal ? "tabroom.draw.sidesGrid.countsUnequal" : "tabroom.draw.sidesGrid.counts", counts)
+                          ? sideNamesFor(preferences) === "aff-neg"
+                            ? t(unequal ? "tabroom.draw.sidesGrid.countsUnequal" : "tabroom.draw.sidesGrid.counts", counts)
+                            : t(unequal ? "tabroom.draw.sidesGrid.countsNamedUnequal" : "tabroom.draw.sidesGrid.countsNamed", {
+                                ...counts,
+                                affSide: sideLabel("AFF", preferences),
+                                negSide: sideLabel("NEG", preferences),
+                              })
                           : t("tabroom.draw.sidesGrid.drawn")}
                       </span>
                     </th>
@@ -251,7 +261,7 @@ export function SidePreallocationGrid({ rounds, teams, debates, ballots, updateR
                     const inRound = eligible.get(round.id)?.has(team.id);
                     if (!isOpen(round, debates)) {
                       const side = takenSides.get(round.id)?.get(team.id);
-                      return <td key={round.id} className="px-2 py-1 text-fg-muted">{side === "AFF" ? t("side.AFF") : side === "NEG" ? t("side.NEG") : "—"}</td>;
+                      return <td key={round.id} className="px-2 py-1 text-fg-muted">{side === "AFF" || side === "NEG" ? translatedSideName(t, side, preferences) : "—"}</td>;
                     }
                     if (!inRound) return <td key={round.id} className="px-2 py-1 text-fg-muted">—</td>;
                     return (
@@ -267,8 +277,8 @@ export function SidePreallocationGrid({ rounds, teams, debates, ballots, updateR
                           }}
                         >
                           <option value="">{t("tabroom.draw.setup.sideNotSet")}</option>
-                          <option value="AFF">{t("side.AFF")}</option>
-                          <option value="NEG">{t("side.NEG")}</option>
+                          <option value="AFF">{translatedSideName(t, "AFF", preferences)}</option>
+                          <option value="NEG">{translatedSideName(t, "NEG", preferences)}</option>
                         </Select>
                       </td>
                     );

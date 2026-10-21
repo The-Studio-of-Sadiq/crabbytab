@@ -1,4 +1,8 @@
-export type TournamentFormat = "bp" | "uadc" | "australs" | "wsdc" | "custom_2team";
+/**
+ * "poly" is Tabbycat's `teams_in_debate` set to anything other than 2 or 4 (its Public Speaking
+ * preset uses 6): `preferences.teamsInDebate` teams per room, positions P1…PN (see lib/debateSides).
+ */
+export type TournamentFormat = "bp" | "uadc" | "australs" | "wsdc" | "custom_2team" | "poly";
 
 export type TeamMetricId =
   | "wins"
@@ -47,6 +51,12 @@ export type SpeakerMetricId =
   | "num_adjs"
   /** Sum of the speaker's speech ranks within debates (speakerRanks). Lower ranks higher. */
   | "srank";
+
+/**
+ * A standings metric value. null means "no value" (Tabbycat's null): the metric aggregates
+ * results the team or speaker does not have yet. It is distinct from 0 and ranks below every value.
+ */
+export type MetricValue = number | null;
 
 export type OddBracketMethod =
   | "pullup_top"
@@ -231,7 +241,11 @@ export interface TournamentPreferences {
    * "Victoria 1") or "short" ("VUW 1"). Teams without a reference keep their typed name.
    */
   teamNameDisplay?: "long" | "short";
-  teamsInDebate: 4 | 2;
+  /**
+   * Teams per debate: 4 for BP, 2 for two-team formats, and for the "poly" format any positive
+   * whole number other than 2 and 4 (Tabbycat `teams_in_debate`). Read through teamsInDebateFor().
+   */
+  teamsInDebate: number;
   substantiveSpeakers: number; // 2 for BP, 3 for UADC/Australs/WSDC
   replyScoresEnabled: boolean; // true for Australs/WSDC/UADC, false for BP
   minSpeakerScore: number; // typically 50 or 65 (default 70)
@@ -392,6 +406,11 @@ export interface TournamentPreferences {
    */
   privateUrlBallots?: boolean;
   /**
+   * Tabbycat `participant_feedback` "private-urls" (on) / other: participants may submit feedback
+   * through their private URLs. Absent = on. Enforced by `checkParticipantFeedback`.
+   */
+  privateUrlFeedback?: boolean;
+  /**
    * Tabbycat `allow_self_split_ballots`: a solo adjudicator on a voting ballot may declare their
    * decision a 2:1 split (Karl Popper rules). Absent = off. See lib/ballots/result selfSplitAllowed.
    */
@@ -423,6 +442,12 @@ export interface TournamentPreferences {
   enableMotions?: boolean;
   /** Record which motion each team vetoed. */
   enableMotionVetoes?: boolean;
+  /**
+   * Tabbycat `enable_motion_reuse`: motions can be reused from one round to another (the round's
+   * "reuse motion" and "copy from the previous round" controls). Absent = on (CrabbyTab always
+   * offered reuse); Tabbycat's default is off.
+   */
+  enableMotionReuse?: boolean;
   /** Allow two-team debates to be recorded as forfeits. */
   enableForfeits?: boolean;
 
@@ -489,6 +514,18 @@ export interface TournamentPreferences {
   repliesTabLimit?: number;
   /** Tabbycat `break_category_tabs_released`: a team tab per break category. */
   releaseBreakCategoryTabs?: boolean;
+  /**
+   * Tabbycat `speaker_category_tabs_released`: a speaker tab per public speaker category. Absent =
+   * follows `releaseSpeakerTab` (CrabbyTab's behaviour before this setting).
+   */
+  releaseSpeakerCategoryTabs?: boolean;
+  /**
+   * Tabbycat `all_results_released`: results of every completed round, silent and elimination
+   * rounds included, become public. Intended for after the tournament. Absent = off.
+   */
+  releaseAllResults?: boolean;
+  /** Tabbycat `show_unaccredited`: an "Always trainee" column on adjudicator tables. Absent = off. */
+  showUnaccredited?: boolean;
   /** Tabbycat `public_break_metrics_to_show`: -1 (absent) = all precedence metrics, 0 = none. */
   publicBreakMetrics?: number;
   /** Tabbycat `public_break_categories`: break eligibility on the participants page. */
@@ -518,6 +555,12 @@ export interface TournamentPreferences {
   /** Tabbycat `welcome_message` / `tournament_staff`, shown as plain text on the public page. */
   welcomeMessage?: string;
   tournamentStaff?: string;
+  /**
+   * The public homepage (the public page's Home tab): organiser-written Markdown with maths and
+   * YouTube embeds, rendered safely (src/components/markdown). Absent or empty = the welcome
+   * message is shown instead.
+   */
+  publicHomepage?: string;
   /** Tabbycat `public_motions_order`. Absent = "forward" (CrabbyTab's order before this setting). */
   publicMotionsOrder?: PublicMotionsOrder;
   /**
@@ -1002,7 +1045,9 @@ export interface Venue {
 // 2-team Sides: AFF (Affirmative/Gov), NEG (Negative/Opp)
 export type BPSide = "OG" | "OO" | "CG" | "CO";
 export type TwoTeamSide = "AFF" | "NEG";
-export type DebateSide = BPSide | TwoTeamSide;
+/** Positions in a "poly" debate (N teams per room): P1 … PN, Tabbycat sides 0 … N-1. */
+export type PolySide = `P${number}`;
+export type DebateSide = BPSide | TwoTeamSide | PolySide;
 
 export interface DebateTeamSlot {
   teamId: string;
@@ -1012,6 +1057,11 @@ export interface DebateTeamSlot {
   speakerScoreTotal?: number;
   /** Set by the draw generator when this team was moved up from a lower bracket to fill a room. */
   pulledUp?: boolean;
+  /**
+   * Tabbycat's team draw flags set by the draw generator (DebateTeam.flags): bub_up_hist,
+   * bub_up_inst, bub_up_accom, bub_dn_hist, bub_dn_inst, bub_dn_accom, no_bub_updn.
+   */
+  flags?: string[];
   /** Elimination rounds: bracket position (break seed, then inherited from the room the team advanced from). */
   bracketPosition?: number;
 }
@@ -1293,8 +1343,12 @@ export interface TeamStandingRow {
     opponentTeamIds?: string[];
     pulledUp?: boolean;
   }[];
-  /** Every team metric, keyed by id, computed regardless of which are used for ranking. */
-  metrics: Record<TeamMetricId, number>;
+  /**
+   * Every team metric, keyed by id, computed regardless of which are used for ranking. null = no
+   * value (Tabbycat's null): an aggregate over results the team does not have yet, such as
+   * speaks_sum or speaks_stddev before its first scored debate. It is not 0, and ranks last.
+   */
+  metrics: Record<TeamMetricId, MetricValue>;
   /**
    * Who-beat-whom value for each "wbw" in the precedence, in order: points earned against the
    * one other team tied on every earlier metric, or null ("n/a") when not exactly two are tied.
@@ -1321,7 +1375,8 @@ export interface SpeakerStandingRow {
     score: number;
     position: number;
   }[];
-  metrics: Record<SpeakerMetricId, number>;
+  /** Every speaker metric by id; null = no value (no speeches yet), as for team metrics. */
+  metrics: Record<SpeakerMetricId, MetricValue>;
 }
 
 export interface AdjudicatorStandingRow {

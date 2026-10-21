@@ -147,6 +147,44 @@ describe("planLiveWrites", () => {
     expect(plan.records[0]).toMatchObject({ name: "A (edited offline before live)", checkedIn: true, syncVersion: 2 });
   });
 
+  it("writes a second save of a record the same command created, so it never diverges from the cloud", () => {
+    // Submitting a ballot confirmed saves it, then confirmation saves it again, both times with the
+    // state the command started from (which lacks the new ballot).
+    const first = planLiveWrites({
+      collection: "ballots",
+      base: [],
+      next: [rec("b1", { confirmed: true, confirmedTimestamp: "A" })],
+      latest: [],
+      baseline: {},
+      now,
+    });
+    const created = first.records[0];
+    const second = planLiveWrites({
+      collection: "ballots",
+      base: [],
+      next: [rec("b1", { confirmed: true, confirmedTimestamp: "B" })],
+      latest: first.records,
+      baseline: first.baseline as Record<string, SyncBaselineEntry>,
+      now,
+    });
+    expect(second.writes).toEqual([
+      expect.objectContaining({ kind: "patch", id: "b1", syncVersion: 2, fields: [{ path: ["confirmedTimestamp"], value: "B" }] }),
+    ]);
+    expect(second.records[0]).toMatchObject({ confirmedTimestamp: "B", syncVersion: 2 });
+    expect(second.baseline.b1).toEqual(baselineEntryFor(second.records[0]));
+    // The same content a second time writes nothing and keeps the cloud version stamp.
+    const unchanged = planLiveWrites({
+      collection: "ballots",
+      base: [],
+      next: [rec("b1", { confirmed: true, confirmedTimestamp: "A" })],
+      latest: first.records,
+      baseline: first.baseline as Record<string, SyncBaselineEntry>,
+      now,
+    });
+    expect(unchanged.writes).toEqual([]);
+    expect(unchanged.records).toEqual([created]);
+  });
+
   it("writes nothing when the command changed nothing", () => {
     const team = rec("t1", { name: "A", syncVersion: 1 });
     const plan = planLiveWrites({ collection: "teams", base: [team], next: [{ ...team }], latest: [team], baseline: synced(team), now });

@@ -9,6 +9,7 @@ import type {
   Speaker,
   SpeakerScoreEntry,
   TeamScoreEntry,
+  Tournament,
   TournamentFormat,
   TournamentPreferences,
 } from "@/types";
@@ -30,15 +31,31 @@ import {
   winnerDeclarationFor,
 } from "@/lib/ballots/ballotRules";
 import { sideLabel } from "@/lib/sideNames";
+import {
+  BP_SIDES as BP_SIDE_CODES,
+  TWO_TEAM_SIDES as TWO_TEAM_SIDE_CODES,
+  compareSides,
+  debateSides,
+  isPolyFormat,
+  isTwoTeamFormat,
+  sidesForFormat,
+  teamsInDebateFor,
+} from "@/lib/debateSides";
 
 /**
  * Pure ballot logic shared by tab-room entry, the private portal and standings: how speeches are
  * totalled (ghosts, replies), how consensus and voting ballots turn into a result, forfeits,
  * validation and double-entry comparison.
+ *
+ * Poly debates (N teams per room, Tabbycat `teams_in_debate` other than 2 or 4) follow Tabbycat's
+ * poly scoresheets: a scored consensus ballot ranks the teams by total (`PolyScoresheet`: totals may
+ * not tie, points = teams in the room - rank, nobody "wins"); a consensus ballot without scores
+ * declares the advancing teams (`PolyEliminationScoresheet`: two, one in the last round); a voting
+ * ballot needs `marginIncludesDissenters` and records only scores (`PolyNoWinScoresheet`).
  */
 
-export const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
-export const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
+export const BP_SIDES: DebateSide[] = [...BP_SIDE_CODES];
+export const TWO_TEAM_SIDES: DebateSide[] = [...TWO_TEAM_SIDE_CODES];
 
 export type SideRecord<T> = Partial<Record<DebateSide, T>>;
 
@@ -47,10 +64,74 @@ export interface BallotRules {
   preferences?: Partial<TournamentPreferences>;
   /** Stage of the round the ballot is for; elimination rounds may use their own ballot mode. Absent = preliminary. */
   stage?: RoundStage;
+  /**
+   * Poly only: the sides of the debate the ballot is for, when the room holds fewer teams than the
+   * format's count (see lib/debateSides `debateSides`). Absent = a full room.
+   */
+  sides?: DebateSide[];
+  /** Poly only: the ballot is for the tournament's last round, where one team advances instead of two. */
+  lastRound?: boolean;
+  /**
+   * Poly only: one adjudicator's own scoresheet in a voting round (a private-URL ballot), which
+   * records scores only (Tabbycat's PolyNoWinScoresheet: no ranks, so totals may tie).
+   */
+  polyScoresOnly?: boolean;
 }
 
-export function ballotSides(format: TournamentFormat): DebateSide[] {
-  return format === "bp" ? BP_SIDES : TWO_TEAM_SIDES;
+/**
+ * Ballot rules for one debate: the tournament's format and settings, the round's stage and, for a
+ * poly room, its own sides and whether it is the tournament's last round (`rounds` = every round).
+ */
+export function debateBallotRules(
+  tournament: Pick<Tournament, "format"> & { preferences?: Partial<TournamentPreferences> },
+  round: (Pick<Round, "stage"> & Partial<Pick<Round, "seq">>) | null | undefined,
+  debate?: Pick<Debate, "teams"> | null,
+  rounds?: readonly Pick<Round, "seq">[]
+): BallotRules {
+  const rules: BallotRules = {
+    format: tournament.format,
+    preferences: tournament.preferences,
+    ...(round?.stage ? { stage: round.stage } : {}),
+  };
+  if (!isPolyFormat(tournament.format)) return rules;
+  const lastSeq = Math.max(0, ...(rounds ?? []).map((item) => item.seq));
+  return {
+    ...rules,
+    ...(debate ? { sides: debateSides(debate, tournament) } : {}),
+    ...(round?.seq !== undefined && rounds && rounds.length > 0 && round.seq >= lastSeq ? { lastRound: true } : {}),
+  };
+}
+
+/** Every side of a full room in `format`; poly needs the tournament's `teamsInDebate`. */
+export function ballotSides(format: TournamentFormat, teamsInDebate?: number): DebateSide[] {
+  return sidesForFormat(format, teamsInDebate);
+}
+
+/** The sides a ballot records: the debate's own sides for a poly room, else the format's. */
+export function rulesSides(rules: Pick<BallotRules, "format" | "preferences" | "sides">): DebateSide[] {
+  if (isPolyFormat(rules.format) && rules.sides && rules.sides.length > 0) return [...rules.sides].sort(compareSides);
+  return sidesForFormat(rules.format, teamsInDebateFor(rules));
+}
+
+/**
+ * Why ballots with these rules cannot be recorded for a poly debate, or "" when they can. As
+ * Tabbycat's `get_result_class`, voting ballots for more or fewer than two teams need "margins
+ * include dissenters" (no winner is decided), and Tabbycat has no such form without speaker scores.
+ */
+export function polyBallotProblem(rules: BallotRules): string {
+  if (!isPolyFormat(rules.format) || !usesVotingBallots(rules)) return "";
+  if (!rules.preferences?.marginIncludesDissenters) {
+    return "Voting ballots for debates without exactly two teams need \"margins include dissenters\" turned on; otherwise use consensus ballots.";
+  }
+  if (!usesSpeakerScores(rules)) {
+    return "Voting ballots for debates without exactly two teams must ask for speaker scores; use consensus ballots for results-only rounds.";
+  }
+  return "";
+}
+
+/** Poly consensus ballots without scores: how many teams advance (Tabbycat: two, one in the last round). */
+export function polyAdvancingCount(rules: Pick<BallotRules, "lastRound">): number {
+  return rules.lastRound ? 1 : 2;
 }
 
 export function substantiveSpeakerCount(rules: BallotRules): number {
@@ -123,7 +204,7 @@ export function usesSpeakerScores(rules: BallotRules): boolean {
  * debate with exactly one voting adjudicator, since only voting ballots record votes.
  */
 export function selfSplitAllowed(rules: BallotRules, votingAdjudicatorCount: number): boolean {
-  return rules.format !== "bp" &&
+  return isTwoTeamFormat(rules.format) &&
     rules.preferences?.allowSelfSplitBallots === true &&
     usesVotingBallots(rules) &&
     votingAdjudicatorCount === 1;
@@ -199,8 +280,11 @@ export function teamSpeakerTotal(entries: SpeakerScoreEntry[], rules: BallotRule
   );
 }
 
-function pointsForRank(rank: number, rules: BallotRules): number {
-  return rules.format === "bp" ? BP_SIDES.length - rank : rank === 1 ? 1 : 0;
+/** BP: 3/2/1/0; poly: teams in the room - rank (Tabbycat `len(sides) - rank`); two-team: 1 for the win. */
+function pointsForRank(rank: number, rules: BallotRules, sideCount: number): number {
+  if (rules.format === "bp") return BP_SIDES.length - rank;
+  if (isPolyFormat(rules.format)) return sideCount - rank;
+  return rank === 1 ? 1 : 0;
 }
 
 /**
@@ -213,15 +297,16 @@ export function consensusTeamScores(
   teamIds: SideRecord<string>,
   rules: BallotRules
 ): Record<DebateSide, TeamScoreEntry> {
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
   const scored = usesSpeakerScores(rules);
+  const poly = isPolyFormat(rules.format);
   const totals = Object.fromEntries(
     sides.map((side) => [side, scored ? teamSpeakerTotal(speakerScores[side] || [], rules) : 0])
   ) as Record<DebateSide, number>;
   const result = {} as Record<DebateSide, TeamScoreEntry>;
   for (const side of sides) {
     const rank = ranks[side] ?? sides.indexOf(side) + 1;
-    const points = pointsForRank(rank, rules);
+    const points = pointsForRank(rank, rules, sides.length);
     const opponent = sides.find((candidate) => candidate !== side);
     result[side] = {
       side,
@@ -229,12 +314,105 @@ export function consensusTeamScores(
       points,
       totalSpeakerScore: totals[side],
       rank,
-      win: rules.format === "bp" ? points >= 2 : rank === 1,
+      // Tabbycat's PolyScoresheet has no winners: poly teams are ranked, never "win".
+      win: poly ? false : rules.format === "bp" ? points >= 2 : rank === 1,
       // A results-only ballot has no margin (Tabbycat stores none), not a margin of 0.
-      ...(rules.format === "bp" || !opponent || !scored ? {} : { margin: cleanScore(totals[side] - totals[opponent]) }),
+      ...(!isTwoTeamFormat(rules.format) || !opponent || !scored ? {} : { margin: cleanScore(totals[side] - totals[opponent]) }),
     };
   }
   return result;
+}
+
+/** One adjudicator's poly scoresheet in a voting round (`polyScoresOnly`): totals only, no ranks or points. */
+function polyScoresOnlyTeamScores(
+  speakerScores: SideRecord<SpeakerScoreEntry[]>,
+  teamIds: SideRecord<string>,
+  rules: BallotRules
+): Record<DebateSide, TeamScoreEntry> {
+  const result = {} as Record<DebateSide, TeamScoreEntry>;
+  for (const side of rulesSides(rules)) {
+    result[side] = {
+      side,
+      teamId: teamIds[side] || "",
+      points: 0,
+      totalSpeakerScore: teamSpeakerTotal(speakerScores[side] || [], rules),
+    };
+  }
+  return result;
+}
+
+/**
+ * A poly consensus ballot without speaker scores (Tabbycat's PolyEliminationScoresheet): the declared
+ * advancing teams win; no team gets points or a rank (Tabbycat stores none; CrabbyTab stores 0 points).
+ */
+export function polyAdvancingTeamScores(
+  winners: DebateSide[],
+  teamIds: SideRecord<string>,
+  rules: BallotRules
+): Record<DebateSide, TeamScoreEntry> {
+  const chosen = new Set(winners);
+  const result = {} as Record<DebateSide, TeamScoreEntry>;
+  for (const side of rulesSides(rules)) {
+    result[side] = { side, teamId: teamIds[side] || "", points: 0, totalSpeakerScore: 0, win: chosen.has(side) };
+  }
+  return result;
+}
+
+/**
+ * A poly voting ballot (Tabbycat's DebateResultByAdjudicatorWithScores with PolyNoWinScoresheet,
+ * which needs `marginIncludesDissenters`): every sheet counts, each speech's score is the panel's
+ * mean or median (criteria aggregated separately), and each team's total is the mean of the sheets'
+ * own totals. No team wins, is ranked or gets points (Tabbycat stores none; CrabbyTab stores 0 points).
+ */
+export function aggregatePolyVotingSheets(
+  sheets: AdjudicatorSheet[],
+  teamIds: SideRecord<string>,
+  rules: BallotRules
+): Pick<VotingResult, "speakerScores" | "teamScores"> {
+  if (sheets.length === 0) throw new Error("A voting ballot needs at least one adjudicator's scoresheet.");
+  const sides = rulesSides(rules);
+  const speakerScores = aggregateSheetSpeeches(sheets, sides, rules);
+  const mean = (values: number[]) => cleanScore(values.reduce((sum, value) => sum + value, 0) / values.length);
+  const teamScores = {} as Record<DebateSide, TeamScoreEntry>;
+  for (const side of sides) {
+    teamScores[side] = {
+      side,
+      teamId: teamIds[side] || "",
+      points: 0,
+      totalSpeakerScore: mean(sheets.map((sheet) => teamSpeakerTotal(sheet.speakerScores?.[side] || [], rules))),
+    };
+  }
+  return { speakerScores, teamScores };
+}
+
+/** Each speech's score combined over `sheets` (mean or median; criteria aggregated one by one). */
+function aggregateSheetSpeeches(
+  sheets: AdjudicatorSheet[],
+  sides: DebateSide[],
+  rules: BallotRules
+): Record<DebateSide, SpeakerScoreEntry[]> {
+  const aggregation = scoreAggregationFor(rules.preferences);
+  const criteria = scoreCriteriaFor(rules.preferences);
+  const speakerScores = {} as Record<DebateSide, SpeakerScoreEntry[]>;
+  for (const side of sides) {
+    const template = sheets[0]?.speakerScores?.[side] || [];
+    speakerScores[side] = template.map((entry, index) => {
+      const pool = sheets.map((sheet) => sheet.speakerScores?.[side]?.[index]);
+      const { rank: _rank, criteria: _criteria, ...rest } = entry;
+      const applicable = criteriaForSpeech(criteria, isReplyEntry(entry, rules));
+      if (applicable.length > 0) {
+        const values = Object.fromEntries(
+          applicable.map((criterion) => [
+            criterion.id,
+            aggregateScoreValues(pool.map((speech) => speech?.criteria?.[criterion.id] ?? 0), aggregation),
+          ])
+        );
+        return { ...rest, criteria: values, score: weightedCriteriaScore(applicable, values) };
+      }
+      return { ...rest, score: aggregateScoreValues(pool.map((speech) => speech?.score ?? 0), aggregation) };
+    });
+  }
+  return speakerScores;
 }
 
 export interface SheetOutcome {
@@ -314,8 +492,11 @@ export function aggregateVotingSheets(
   if (votes[first] !== votes[second]) {
     winner = votes[first] > votes[second] ? first : second;
   } else {
+    // Tabbycat awards a split panel to the chair's vote, and has no result at all until the chair's
+    // sheet is in (DebateResultByAdjudicator.is_complete): never let another sheet decide.
     const chairIndex = sheets.findIndex((sheet) => sheet.adjudicatorId === chairId);
-    const tieBreaker = outcomes[chairIndex >= 0 ? chairIndex : 0].winner;
+    if (chairIndex < 0) throw new Error("The panel is tied and the chair's scoresheet is missing, so the chair cannot give the casting vote.");
+    const tieBreaker = outcomes[chairIndex].winner;
     if (!tieBreaker) throw new Error("The panel is tied and the chair's scoresheet has no winner.");
     winner = tieBreaker;
   }
@@ -326,28 +507,9 @@ export function aggregateVotingSheets(
   const relevant = relevantIndexes.map((index) => sheets[index]);
   const relevantOutcomes = relevantIndexes.map((index) => outcomes[index]);
   const scored = usesSpeakerScores(rules);
-  const aggregation = scoreAggregationFor(rules.preferences);
-  const criteria = scoreCriteriaFor(rules.preferences);
-
-  const speakerScores = {} as Record<DebateSide, SpeakerScoreEntry[]>;
-  for (const side of TWO_TEAM_SIDES) {
-    const template = scored ? relevant[0].speakerScores?.[side] || [] : [];
-    speakerScores[side] = template.map((entry, index) => {
-      const pool = relevant.map((sheet) => sheet.speakerScores?.[side]?.[index]);
-      const { rank: _rank, criteria: _criteria, ...rest } = entry;
-      const applicable = criteriaForSpeech(criteria, isReplyEntry(entry, rules));
-      if (applicable.length > 0) {
-        const values = Object.fromEntries(
-          applicable.map((criterion) => [
-            criterion.id,
-            aggregateScoreValues(pool.map((speech) => speech?.criteria?.[criterion.id] ?? 0), aggregation),
-          ])
-        );
-        return { ...rest, criteria: values, score: weightedCriteriaScore(applicable, values) };
-      }
-      return { ...rest, score: aggregateScoreValues(pool.map((speech) => speech?.score ?? 0), aggregation) };
-    });
-  }
+  const speakerScores = scored
+    ? aggregateSheetSpeeches(relevant, TWO_TEAM_SIDES, rules)
+    : (Object.fromEntries(TWO_TEAM_SIDES.map((side) => [side, []])) as unknown as Record<DebateSide, SpeakerScoreEntry[]>);
 
   const loser = winner === first ? second : first;
   if (selfSplit) {
@@ -387,7 +549,7 @@ export function forfeitTeamScores(
   teamIds: SideRecord<string>,
   rules: BallotRules
 ): Record<DebateSide, TeamScoreEntry> {
-  if (rules.format === "bp") throw new Error("Forfeits are only supported in two-team formats.");
+  if (!isTwoTeamFormat(rules.format)) throw new Error("Forfeits are only supported in two-team formats.");
   const result = {} as Record<DebateSide, TeamScoreEntry>;
   for (const side of TWO_TEAM_SIDES) {
     const forfeited = side === forfeitSide;
@@ -420,6 +582,8 @@ export interface BallotEntry {
   motionPreferences?: SideRecord<string[]>;
   /** A solo adjudicator's decision declared a 2:1 split (see `selfSplitAllowed`). */
   selfSplit?: boolean;
+  /** Poly consensus ballots without speaker scores: the advancing teams (see `polyAdvancingCount`). */
+  winners?: DebateSide[];
 }
 
 export interface BallotValidationContext extends BallotRules {
@@ -437,7 +601,7 @@ function formatTotal(value: number): string {
 /** Speeches with their criteria applied, so scores are the weighted sums the totals use. */
 function scoredSpeeches(speakerScores: SideRecord<SpeakerScoreEntry[]>, rules: BallotRules): SideRecord<SpeakerScoreEntry[]> {
   return Object.fromEntries(
-    ballotSides(rules.format).map((side) => [side, applyScoreCriteria(speakerScores[side] || [], rules)])
+    rulesSides(rules).map((side) => [side, applyScoreCriteria(speakerScores[side] || [], rules)])
   ) as SideRecord<SpeakerScoreEntry[]>;
 }
 
@@ -461,7 +625,7 @@ function validateSheetScores(
   const errors: string[] = [];
   const substantive = substantiveSpeakerCount(context);
   const replies = replySpeechesEnabled(context);
-  for (const side of ballotSides(context.format)) {
+  for (const side of rulesSides(context)) {
     const entries = speakerScores[side] || [];
     const roster = new Set((context.rosters[side] || []).map((speaker) => speaker.id));
     const prefix = `${label}${sideLabel(side, context.preferences)}`;
@@ -522,7 +686,7 @@ function validateSpeechRanks(speakerScores: SideRecord<SpeakerScoreEntry[]>, con
   const mode = speakerRanksFor(context.preferences);
   if (mode === "none") return [];
   const errors: string[] = [];
-  const speeches = ballotSides(context.format).flatMap((side) =>
+  const speeches = rulesSides(context).flatMap((side) =>
     (speakerScores[side] || [])
       .filter((entry) => !isReplyEntry(entry, context))
       .map((entry) => ({ side, entry }))
@@ -555,7 +719,7 @@ function validateSpeechRanks(speakerScores: SideRecord<SpeakerScoreEntry[]>, con
 
 function validateMargin(totals: Record<DebateSide, number>, context: BallotValidationContext, label: string): string[] {
   const maximum = maximumMarginFor(context.preferences);
-  if (!maximum || context.format === "bp") return [];
+  if (!maximum || !isTwoTeamFormat(context.format)) return [];
   const [first, second] = TWO_TEAM_SIDES;
   const margin = Math.abs(totals[first] - totals[second]);
   return margin > maximum
@@ -605,12 +769,14 @@ function validateBpRanks(
   totals: Record<DebateSide, number>,
   context: BallotValidationContext
 ): string[] {
-  const mode = winnerDeclarationFor(context.preferences);
+  // Poly ranks always follow the totals (Tabbycat's PolyScoresheet has no declared winners).
+  const mode = isPolyFormat(context.format) ? "none" : winnerDeclarationFor(context.preferences);
+  const sides = rulesSides(context);
   if (mode === "low-points") return [];
   const errors: string[] = [];
   const name = (side: DebateSide) => sideLabel(side, context.preferences);
-  for (const higher of BP_SIDES) {
-    for (const lower of BP_SIDES) {
+  for (const higher of sides) {
+    for (const lower of sides) {
       if ((ranks[higher] as number) < (ranks[lower] as number) && totals[higher] < totals[lower]) {
         errors.push(
           `${name(higher)} is ranked above ${name(lower)} with a lower total ` +
@@ -621,7 +787,7 @@ function validateBpRanks(
   }
   if (mode !== "tied-points") {
     const byTotal = new Map<number, DebateSide[]>();
-    for (const side of BP_SIDES) byTotal.set(totals[side], [...(byTotal.get(totals[side]) || []), side]);
+    for (const side of sides) byTotal.set(totals[side], [...(byTotal.get(totals[side]) || []), side]);
     for (const [total, tied] of byTotal) {
       if (tied.length > 1) errors.push(`${tied.map(name).join(" and ")} have the same total (${formatTotal(total)}); team totals cannot tie.`);
     }
@@ -640,15 +806,18 @@ export function effectiveRanks(
   ranks: SideRecord<number> | undefined,
   rules: BallotRules
 ): SideRecord<number> {
-  if (winnerDeclarationFor(rules.preferences) !== "none" || !usesSpeakerScores(rules)) return ranks || {};
-  const sides = ballotSides(rules.format);
+  if (!usesSpeakerScores(rules)) return ranks || {};
+  // Poly ranks are always read from the totals (Tabbycat's PolyScoresheet); BP and two-team
+  // ballots keep their entered ranks when winners are declared.
+  if (!isPolyFormat(rules.format) && winnerDeclarationFor(rules.preferences) !== "none") return ranks || {};
+  const sides = rulesSides(rules);
   const totals = new Map(sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], rules)]));
   const ordered = [...sides].sort((a, b) => (totals.get(b) as number) - (totals.get(a) as number));
   return Object.fromEntries(ordered.map((side, index) => [side, index + 1]));
 }
 
-function speakerOrder(scores: SideRecord<SpeakerScoreEntry[]>): string {
-  return TWO_TEAM_SIDES.map((side) =>
+function speakerOrder(scores: SideRecord<SpeakerScoreEntry[]>, sides: DebateSide[]): string {
+  return sides.map((side) =>
     (scores[side] || []).map((entry) => `${entry.position}:${entry.speakerId}`).join(",")
   ).join("|");
 }
@@ -660,7 +829,8 @@ export function validateBallotEntry(entry: BallotEntry, context: BallotValidatio
 
 function collectBallotErrors(entry: BallotEntry, context: BallotValidationContext): string[] {
   const errors: string[] = [];
-  const sides = ballotSides(context.format);
+  const sides = rulesSides(context);
+  const poly = isPolyFormat(context.format);
   const motionIds = context.roundMotionIds || [];
   const name = (side: DebateSide | string) => sideLabel(side, context.preferences);
 
@@ -681,7 +851,7 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
   }
 
   if (entry.forfeitSide) {
-    if (context.format === "bp" || !context.preferences?.enableForfeits) {
+    if (!isTwoTeamFormat(context.format) || !context.preferences?.enableForfeits) {
       errors.push("Forfeits are not enabled for this tournament.");
     } else if (!sides.includes(entry.forfeitSide)) {
       errors.push("Choose which team forfeited.");
@@ -690,6 +860,8 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
   }
 
   const scored = usesSpeakerScores(context);
+  const polyProblem = polyBallotProblem(context);
+  if (polyProblem) return [...errors, polyProblem];
 
   if (entry.selfSplit === true) {
     const panelSize = context.votingAdjudicatorCount ?? (entry.sheets || []).length;
@@ -710,6 +882,11 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
       const label = `${sheet.adjudicatorName || "Adjudicator"} — `;
       if (adjudicatorIds.has(sheet.adjudicatorId)) errors.push(`${label}has more than one scoresheet.`);
       adjudicatorIds.add(sheet.adjudicatorId);
+      if (poly) {
+        // Poly voting sheets record scores only (Tabbycat's PolyNoWinScoresheet).
+        errors.push(...validateSheetScores(sheet.speakerScores, context, label));
+        continue;
+      }
       if (!scored) {
         if (!sheet.declaredWinner || !sides.includes(sheet.declaredWinner)) errors.push(`${label}choose the winning team.`);
         continue;
@@ -725,25 +902,44 @@ function collectBallotErrors(entry: BallotEntry, context: BallotValidationContex
       errors.push(...validateMargin(outcome.totals, context, label));
     }
     if (scored) {
-      const orders = new Set(sheets.map((sheet) => speakerOrder(sheet.speakerScores)));
+      const orders = new Set(sheets.map((sheet) => speakerOrder(sheet.speakerScores, sides)));
       if (orders.size > 1) errors.push("Every scoresheet must list the same speakers in the same order.");
+    }
+    return errors;
+  }
+
+  if (poly && !scored) {
+    // Tabbycat's PolyEliminationScoresheet: exactly two advancing teams, one in the last round.
+    const needed = polyAdvancingCount(context);
+    const winners = [...new Set(entry.winners || [])];
+    if (winners.some((side) => !sides.includes(side))) errors.push("An advancing team is not in this debate.");
+    if (sides.length < needed) {
+      errors.push(`This debate has ${sides.length} team${sides.length === 1 ? "" : "s"}, but ${needed} must advance.`);
+    } else if (winners.length !== needed) {
+      errors.push(needed === 1 ? "Choose the team that advances." : `Choose the ${needed} teams that advance.`);
     }
     return errors;
   }
 
   const speakerScores = scored ? scoredSpeeches(entry.speakerScores, context) : {};
   if (scored) errors.push(...validateSheetScores(speakerScores, context, ""));
+  if (poly && context.polyScoresOnly && scored) {
+    errors.push(...validateSpeechRanks(speakerScores, context));
+    return errors;
+  }
   const ranks = effectiveRanks(speakerScores, entry.ranks, context);
   const rankValues = sides.map((side) => ranks[side]);
   if (rankValues.some((rank) => !Number.isInteger(rank)) || new Set(rankValues).size !== sides.length) {
     errors.push(context.format === "bp"
       ? "Give each team a different rank from 1st to 4th."
-      : "One team must win and the other must lose.");
+      : poly
+        ? `Give each team a different rank from 1 to ${sides.length}.`
+        : "One team must win and the other must lose.");
   } else if (scored) {
     const totals = Object.fromEntries(
       sides.map((side) => [side, teamSpeakerTotal(speakerScores[side] || [], context)])
     ) as Record<DebateSide, number>;
-    if (context.format === "bp") {
+    if (!isTwoTeamFormat(context.format)) {
       errors.push(...validateBpRanks(ranks, totals, context));
     } else {
       const winner = sides.find((side) => ranks[side] === 1);
@@ -789,7 +985,9 @@ export function buildBallotResult(
   chairId: string | undefined,
   rules: BallotRules
 ): BallotResult {
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
+  const polyProblem = polyBallotProblem(rules);
+  if (polyProblem) throw new Error(polyProblem);
   if (entry.forfeitSide) {
     return {
       speakerScores: emptySides(sides),
@@ -806,6 +1004,10 @@ export function buildBallotResult(
           ) as Record<DebateSide, SpeakerScoreEntry[]>)
         : emptySides(sides),
     }));
+    if (isPolyFormat(rules.format)) {
+      const result = aggregatePolyVotingSheets(sheets, teamIds, rules);
+      return { speakerScores: result.speakerScores, teamScores: result.teamScores, sheets };
+    }
     // Validation checks the panel size; here a single sheet is all that can be checked.
     const selfSplit = entry.selfSplit === true && selfSplitAllowed(rules, sheets.length);
     const result = aggregateVotingSheets(sheets, chairId, teamIds, rules, { selfSplit });
@@ -820,7 +1022,9 @@ export function buildBallotResult(
   if (!scored) {
     return {
       speakerScores: emptySides(sides),
-      teamScores: consensusTeamScores({}, entry.ranks || {}, teamIds, rules),
+      teamScores: isPolyFormat(rules.format)
+        ? polyAdvancingTeamScores(entry.winners || [], teamIds, rules)
+        : consensusTeamScores({}, entry.ranks || {}, teamIds, rules),
       noSpeakerScores: true,
     };
   }
@@ -828,6 +1032,9 @@ export function buildBallotResult(
   const speakerScores = Object.fromEntries(
     sides.map((side) => [side, storedSpeeches(entry.speakerScores[side] || [], rules, keepRanks)])
   ) as Record<DebateSide, SpeakerScoreEntry[]>;
+  if (isPolyFormat(rules.format) && rules.polyScoresOnly) {
+    return { speakerScores, teamScores: polyScoresOnlyTeamScores(speakerScores, teamIds, rules) };
+  }
   return { speakerScores, teamScores: consensusTeamScores(speakerScores, effectiveRanks(speakerScores, entry.ranks, rules), teamIds, rules) };
 }
 
@@ -876,7 +1083,16 @@ export function diffBallots(
   second: Pick<BallotSubmission, "motionId" | "motionText" | "speakerScores" | "teamScores" | "sheets" | "vetoes" | "forfeitSide" | "selfSplit">,
   format: TournamentFormat
 ): BallotDifference[] {
-  const sides = ballotSides(format);
+  // Poly rooms may hold fewer teams than the format's count, so compare the sides either ballot has.
+  const sides = isPolyFormat(format)
+    ? ([...new Set([...Object.keys(first.teamScores || {}), ...Object.keys(second.teamScores || {})])].sort(compareSides) as DebateSide[])
+    : ballotSides(format);
+  const describeResult = (score: TeamScoreEntry) =>
+    format === "bp" || (isPolyFormat(format) && score.rank !== undefined)
+      ? `rank ${score.rank}`
+      : isPolyFormat(format)
+        ? score.win ? "advances" : "eliminated"
+        : score.win ? "win" : "loss";
   const differences: BallotDifference[] = [];
   if ((first.motionId || "") !== (second.motionId || "")) {
     differences.push({
@@ -897,11 +1113,11 @@ export function diffBallots(
     }
     const a = first.teamScores?.[side];
     const b = second.teamScores?.[side];
-    if ((a?.rank ?? 0) !== (b?.rank ?? 0)) {
+    if ((a?.rank ?? 0) !== (b?.rank ?? 0) || (isPolyFormat(format) && Boolean(a?.win) !== Boolean(b?.win))) {
       differences.push({
         field: `${side} result`,
-        first: a ? `${format === "bp" ? `rank ${a.rank}` : a.win ? "win" : "loss"}` : "—",
-        second: b ? `${format === "bp" ? `rank ${b.rank}` : b.win ? "win" : "loss"}` : "—",
+        first: a ? describeResult(a) : "—",
+        second: b ? describeResult(b) : "—",
       });
     }
   }

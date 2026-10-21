@@ -173,6 +173,8 @@ export async function POST(
         if (current && changedKeys.length === 0) {
           return "unchanged";
         }
+        // Staff check rooms in; they never create them (rooms are administrator setup).
+        if (collectionName === "venues" && !current) return "rejected";
         // Outside the assistant's permissions: nothing is written, and the device keeps the edit.
         if (!requiredDataEntryPermissions(collectionName, current === null, changedKeys)
           .every((permission) => hasStaffPermission(permissions, permission))) {

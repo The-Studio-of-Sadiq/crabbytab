@@ -31,7 +31,7 @@ const EVENT_LABELS: Record<TemplateEvent, { label: MessageKey; when: MessageKey 
   draw_teams: { label: "setup.email.eventDrawTeams", when: "setup.email.eventDrawTeamsWhen" },
   draw_adjudicators: { label: "setup.email.eventDrawAdjudicators", when: "setup.email.eventDrawAdjudicatorsWhen" },
   team_points: { label: "setup.email.eventTeamPoints", when: "setup.email.eventTeamPointsWhen" },
-  ballot_receipt: { label: "setup.email.eventBallotReceipt", when: "setup.email.eventBallotReceiptWhen" },
+  ballot_receipt: { label: "setup.email.eventBallotReceipt", when: "setup.email.eventBallotReceiptWhenAll" },
   ballot_confirmed: { label: "setup.email.eventBallotConfirmed", when: "setup.email.eventBallotConfirmedWhen" },
   motions_released: { label: "setup.email.eventMotionsReleased", when: "setup.email.eventMotionsReleasedWhen" },
   private_url: { label: "setup.email.eventPrivateUrl", when: "setup.email.eventPrivateUrlWhen" },
@@ -46,6 +46,10 @@ const EVENT_LABELS: Record<TemplateEvent, { label: MessageKey; when: MessageKey 
     when: "setup.email.eventRegistrationApprovedWhen",
   },
   slots_allocated: { label: "setup.email.eventSlotsAllocated", when: "setup.email.eventSlotsAllocatedWhen" },
+  institution_registered: {
+    label: "setup.email.eventInstitutionRegistered",
+    when: "setup.email.eventInstitutionRegisteredWhen",
+  },
 };
 
 /**

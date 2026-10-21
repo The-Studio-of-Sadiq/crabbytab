@@ -1,5 +1,8 @@
 import {
-  ballotSides,
+  debateBallotRules,
+  polyBallotProblem,
+  rulesSides,
+  usesSpeakerScores,
   buildBallotResult,
   replySpeechesEnabled,
   substantiveSpeakerCount,
@@ -8,6 +11,15 @@ import {
   type BallotEntry,
   type BallotRules,
 } from "@/lib/ballots/result";
+import {
+  criteriaForSpeech,
+  replyScoreStep,
+  scoreCriteriaFor,
+  speakerRanksFor,
+  weightedCriteriaScore,
+  winnerDeclarationFor,
+} from "@/lib/ballots/ballotRules";
+import { isPolyFormat } from "@/lib/debateSides";
 import { sidesChosenOnBallot } from "@/lib/draw/manualSides";
 import { randomInt, shuffle, type Rng } from "@/lib/draw/rng";
 import { feedbackPathsForRound } from "@/lib/feedback/paths";
@@ -23,6 +35,7 @@ import type {
   FeedbackSubmission,
   Motion,
   Round,
+  ScoreCriterion,
   SpeakerScoreEntry,
   Team,
   Tournament,
@@ -81,17 +94,23 @@ function simulateSheet(
   const preferences = rules.preferences ?? {};
   const substantive = substantiveSpeakerCount(rules);
   const speaker: ScoreScale = {
-    min: preferences.minSpeakerScore ?? 60,
-    max: preferences.maxSpeakerScore ?? 80,
-    step: preferences.stepSpeakerScore || 1,
+    // The same defaults and steps the ballot validation applies (lib/scoring/validator.ts).
+    min: preferences.minSpeakerScore ?? 68,
+    max: preferences.maxSpeakerScore ?? 84,
+    step: preferences.stepSpeakerScore ?? 1,
   };
   const reply: ScoreScale = {
-    min: preferences.minReplyScore ?? 30,
-    max: preferences.maxReplyScore ?? 40,
-    step: (preferences.stepSpeakerScore || 1) / 2,
+    min: preferences.minReplyScore ?? 34,
+    max: preferences.maxReplyScore ?? 42,
+    // Tabbycat's reply_score_step (stepReplyScore), not half the speaker step.
+    step: replyScoreStep(preferences),
   };
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
   const spread = speaker.max - speaker.min;
+  // With score criteria (e.g. WSDC's style/content/strategy), each speech is scored per criterion
+  // and its score is their weighted sum, as the ballot form computes it.
+  const criteria = scoreCriteriaFor(preferences);
+  const fraction = (place: number) => 0.7 - (0.12 * place) / Math.max(1, sides.length - 1);
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const order = shuffle(sides, rng);
     const sheet = {} as Record<DebateSide, SpeakerScoreEntry[]>;
@@ -116,7 +135,9 @@ function simulateSheet(
           score: snap(replyLevel + (rng() - 0.5) * (reply.max - reply.min) * 0.1, reply),
         });
       }
-      sheet[side] = entries;
+      sheet[side] = criteria.length > 0
+        ? entries.map((entry) => scoreByCriteria(entry, entry.position > substantive, criteria, fraction(place), rng))
+        : entries;
     });
     const totals = sides.map((side) => teamTotal(sheet[side], substantive));
     if (new Set(totals).size === totals.length) return sheet;
@@ -124,10 +145,52 @@ function simulateSheet(
   return null;
 }
 
+/** A speech scored per criterion around `fraction` of each criterion's range. */
+function scoreByCriteria(
+  entry: SpeakerScoreEntry,
+  isReply: boolean,
+  criteria: ScoreCriterion[],
+  fraction: number,
+  rng: Rng
+): SpeakerScoreEntry {
+  const applicable = criteriaForSpeech(criteria, isReply);
+  const values = Object.fromEntries(applicable.map((criterion) => {
+    const scale = { min: criterion.minScore, max: criterion.maxScore, step: criterion.step || 1 };
+    const range = scale.max - scale.min;
+    return [criterion.id, snap(scale.min + range * fraction + (rng() - 0.5) * range * 0.2, scale)];
+  }));
+  return { ...entry, criteria: values, score: weightedCriteriaScore(applicable, values) };
+}
+
+function preferencesOf(rules: BallotRules) {
+  return rules.preferences ?? {};
+}
+
+/**
+ * Speech ranks (speakerRanks): every substantive speech in the room ranked by its score, highest
+ * first (ties in room order), which satisfies every ranking mode.
+ */
+function withSpeechRanks(sheet: Record<DebateSide, SpeakerScoreEntry[]>, rules: BallotRules): Record<DebateSide, SpeakerScoreEntry[]> {
+  if (speakerRanksFor(preferencesOf(rules)) === "none") return sheet;
+  const substantive = substantiveSpeakerCount(rules);
+  const speeches = rulesSides(rules).flatMap((side) =>
+    (sheet[side] ?? []).filter((entry) => entry.position <= substantive).map((entry) => ({ side, entry }))
+  );
+  const rankOf = new Map(
+    [...speeches].sort((left, right) => right.entry.score - left.entry.score).map((speech, index) => [speech.entry, index + 1])
+  );
+  return Object.fromEntries(
+    Object.entries(sheet).map(([side, entries]) => [
+      side,
+      entries.map((entry) => (rankOf.has(entry) ? { ...entry, rank: rankOf.get(entry) } : entry)),
+    ])
+  ) as Record<DebateSide, SpeakerScoreEntry[]>;
+}
+
 /** Ranks from team totals (best = 1), so a consensus result never awards a low-point win. */
 function ranksFromTotals(sheet: Record<DebateSide, SpeakerScoreEntry[]>, rules: BallotRules): Partial<Record<DebateSide, number>> {
   const substantive = substantiveSpeakerCount(rules);
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
   return Object.fromEntries(
     [...sides]
       .sort((left, right) => teamTotal(sheet[right], substantive) - teamTotal(sheet[left], substantive))
@@ -152,9 +215,8 @@ export interface SimulatedBallotInput {
 /** Builds one confirmed ballot per debate of the round that can be simulated. */
 export function planSimulatedBallots(input: SimulatedBallotInput): { ballots: BallotSubmission[]; skipped: SkippedDebate[] } {
   const { tournament, round, rng } = input;
-  const rules: BallotRules = { format: tournament.format, preferences: tournament.preferences, stage: round.stage };
-  const sides = ballotSides(rules.format);
-  const substantive = substantiveSpeakerCount(rules);
+  const roundRules: BallotRules = { format: tournament.format, preferences: tournament.preferences, stage: round.stage };
+  const substantive = substantiveSpeakerCount(roundRules);
   const teamsById = new Map(input.teams.map((team) => [team.id, team]));
   const motions = roundMotions(input.motions, round.id);
   const timestamp = (input.now ?? new Date()).toISOString();
@@ -173,6 +235,13 @@ export function planSimulatedBallots(input: SimulatedBallotInput): { ballots: Ba
       continue;
     }
     if (sidesChosenOnBallot(debate)) { skip("Sides are chosen on the ballot in this debate; enter it by hand."); continue; }
+    // Poly rooms have their own positions (the last room may be short).
+    const rules = debateBallotRules(tournament, round, debate);
+    const sides = rulesSides(rules);
+    if (isPolyFormat(tournament.format) && (!usesSpeakerScores(rules) || polyBallotProblem(rules))) {
+      skip("Results-only ballots for this format are entered by hand.");
+      continue;
+    }
     const rosters = new Map(sides.map((side) => [side, teamsById.get(debate.teams?.[side]?.teamId ?? "")?.speakers ?? []]));
     const short = sides.find((side) => (rosters.get(side) ?? []).length < substantive);
     if (short) { skip(`${debate.teams?.[short]?.teamName ?? short} has fewer than ${substantive} speakers.`); continue; }
@@ -190,10 +259,14 @@ export function planSimulatedBallots(input: SimulatedBallotInput): { ballots: Ba
       // Every sheet must list the same speakers in the same order: copy the first sheet's order.
       for (const sheet of sheets.slice(1)) {
         for (const side of sides) {
-          sheet.speakerScores[side] = sheets[0].speakerScores[side].map((entryOfFirst, index) => ({
-            ...entryOfFirst,
-            score: sheet.speakerScores[side][index]?.score ?? entryOfFirst.score,
-          }));
+          sheet.speakerScores[side] = sheets[0].speakerScores[side].map((entryOfFirst, index) => {
+            const own = sheet.speakerScores[side][index];
+            return {
+              ...entryOfFirst,
+              score: own?.score ?? entryOfFirst.score,
+              ...(own?.criteria ? { criteria: own.criteria } : {}),
+            };
+          });
         }
       }
       const untied = sheets.every((sheet) => {
@@ -201,11 +274,20 @@ export function planSimulatedBallots(input: SimulatedBallotInput): { ballots: Ba
         return new Set(totals).size === totals.length;
       });
       if (!untied) { skip("Could not produce untied scoresheets in this score range."); continue; }
+      // Declared winners (winnersInBallots): each adjudicator declares the team with the higher total,
+      // which every declaration mode accepts.
+      if (winnerDeclarationFor(preferencesOf(rules)) !== "none") {
+        for (const sheet of sheets) {
+          sheet.declaredWinner = [...sides].sort(
+            (left, right) => teamTotal(sheet.speakerScores[right], substantive) - teamTotal(sheet.speakerScores[left], substantive)
+          )[0];
+        }
+      }
       entry = { speakerScores: sheets[0].speakerScores, sheets };
     } else {
       const sheet = simulateSheet(rosters, rules, rng);
       if (!sheet) { skip("Could not produce untied team totals in this score range."); continue; }
-      entry = { speakerScores: sheet, ranks: ranksFromTotals(sheet, rules) };
+      entry = { speakerScores: withSpeechRanks(sheet, rules), ranks: ranksFromTotals(sheet, rules) };
     }
     const motion = motions.length > 0 ? motions[randomInt(rng, motions.length)] : undefined;
     if (motion) entry.motionId = motion.id;

@@ -20,8 +20,10 @@ import { safeJsonParse } from "@/lib/safeJson";
 import { csvFileStem, drawCsv } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 import { DebateSide, Debate, Team } from "@/types";
+import { tournamentSides } from "@/lib/debateSides";
 import { getEligibleTeamsForRound, getRequiredVenueCount } from "@/lib/draw/generator";
-import { allocateVenuesToDebates, getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
+import { getVenueIncompatibilities } from "@/lib/draw/venueAllocator";
+import { computeRoundVenueAllocation } from "@/features/tournament/application/allocation";
 import { isVenueAvailableForRound, safeVenueUrl, venueCategoryNames, venueDisplayName, venueTooltip } from "@/lib/venues/venues";
 import { DrawStageControls } from "@/features/tournament/components/DrawStageControls";
 import { UnassignedTeamsPool, type TeamDragPayload } from "@/features/tournament/components/UnassignedTeamsPool";
@@ -121,6 +123,7 @@ export default function DrawPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showUnassigned, setShowUnassigned] = useState(true);
   const [venueAssignmentError, setVenueAssignmentError] = useState("");
+  const [venueAllocationNotice, setVenueAllocationNotice] = useState("");
   const [generateError, setGenerateError] = useState("");
   const [pendingGenerate, setPendingGenerate] = useState<PendingGenerate | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -239,12 +242,13 @@ export default function DrawPage() {
       setGenerateError(t("tabroom.draw.error.tournamentUnavailable"));
       return;
     }
+    // A venue shortage no longer blocks the draw (Tabbycat draws and leaves rooms without a venue);
+    // it is announced here and the rooms without one are listed in the draw check.
     const requiredVenues = getRequiredVenueCount(tournament, activeRound, teams);
     const availableVenueCount = venues.filter((venue) => isVenueAvailableForRound(venue, activeRound.id)).length;
-    if (availableVenueCount < requiredVenues) {
-      setGenerateError(t("tabroom.draw.error.venueShortage", { required: requiredVenues, available: availableVenueCount }));
-      return;
-    }
+    setVenueAllocationNotice(availableVenueCount < requiredVenues
+      ? t("tabroom.draw.warning.venueShortage", { required: requiredVenues, available: availableVenueCount })
+      : "");
     const existingResults = roundResults(activeRound.id, debates, ballots);
     if (existingResults.length > 0) {
       const resultDebates = new Set(existingResults.map((ballot) => ballot.debateId)).size;
@@ -272,7 +276,7 @@ export default function DrawPage() {
     const nextRoomIdx = roundDebates.length + 1;
     const freeVenue = venues.find((v) => !roundDebates.some((d) => d.venueId === v.id));
 
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+    const sides: DebateSide[] = tournament ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
     const emptyTeams: Record<string, any> = {};
     sides.forEach((side) => {
       emptyTeams[side] = { teamId: "", teamName: "", side };
@@ -373,15 +377,25 @@ export default function DrawPage() {
 
   const handleAutoAllocateVenues = async () => {
     setVenueAssignmentError("");
+    setVenueAllocationNotice("");
+    if (!activeRound) return;
     try {
-      const assignedVenues = allocateVenuesToDebates(roundDebates, venues, { teams, adjudicators, institutions });
-      const assignmentsByDebateId = new Map(
-        [...assignedVenues].map(([debateId, venue]) => [debateId, venue])
-      );
-      await updateDebates(debates.map((debate) => {
-        const venue = assignmentsByDebateId.get(debate.id);
-        return venue ? { ...debate, venueId: venue.id, venueName: venue.name } : debate;
-      }));
+      // Rooms booked by a concurrent round are never offered; rooms that cannot be filled are reported.
+      const { roundDebates: allocated, unassigned } = computeRoundVenueAllocation(activeRound, {
+        rounds,
+        debates,
+        venues,
+        teams,
+        adjudicators,
+        institutions,
+      });
+      const byId = new Map(allocated.map((debate) => [debate.id, debate]));
+      await updateDebates(debates.map((debate) => byId.get(debate.id) ?? debate));
+      if (unassigned.length > 0) {
+        setVenueAllocationNotice(t("tabroom.draw.warning.roomsWithoutVenue", {
+          reasons: unassigned.map((item) => item.message).join(" "),
+        }));
+      }
     } catch (error) {
       setVenueAssignmentError(
         error instanceof Error ? error.message : t("tabroom.draw.error.venueAllocateFailed")
@@ -488,11 +502,12 @@ export default function DrawPage() {
     if (!tournament || !activeRound) return;
     downloadCsv(
       `${csvFileStem(tournament.name, activeRound.abbreviation || activeRound.name)}_Draw.csv`,
-      drawCsv(roundDebates, { format: tournament.format, includeAdjudicators: true, includeMotion: true })
+      drawCsv(roundDebates, { format: tournament.format, sideNames: tournament.preferences?.sideNames, teamsInDebate: tournament.preferences?.teamsInDebate, includeAdjudicators: true, includeMotion: true })
     );
   };
 
-  const sideOrder: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+  // Poly rooms show every position of a full room; a short room leaves its last ones empty.
+  const sideOrder: DebateSide[] = tournament ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
   const pendingDeleteDebate = pendingDeleteId ? roundDebates.find((debate) => debate.id === pendingDeleteId) : undefined;
   const divisions = [...new Map(teams
     .filter((team) => team.divisionId || team.divisionName)
@@ -628,6 +643,11 @@ export default function DrawPage() {
       {venueAssignmentError && (
         <Alert tone="danger" role="alert">
           {venueAssignmentError}
+        </Alert>
+      )}
+      {venueAllocationNotice && (
+        <Alert tone="warning" role="status">
+          {venueAllocationNotice}
         </Alert>
       )}
       {drawEditError && (
@@ -1015,7 +1035,7 @@ export default function DrawPage() {
                           ) : undefined
                         }
                         flags={(slot?.teamId && flags?.teams[slot.teamId]) || []}
-                        compact={isBP}
+                        compact={isBP || sideOrder.length > 2}
                         isDragTarget={dragOverTarget === dropKey}
                         isPicked={Boolean(picked && picked.from.kind === "slot" && picked.from.debateId === debate.id && picked.from.side === side)}
                         pickActive={Boolean(picked)}

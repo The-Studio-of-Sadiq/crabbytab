@@ -11,6 +11,7 @@ import {
 import {
   computePendingChanges,
   describePendingCollection,
+  describePublishFailure,
   parseUploadIssue,
   planReleaseSync,
   planRepublish,
@@ -154,6 +155,18 @@ describe("publish gating", () => {
     expect(parseUploadIssue({ kind: "conflicts", count: 0, at: "now" })).toBeNull();
     expect(parseUploadIssue({ kind: "other", at: "now" })).toBeNull();
     expect(parseUploadIssue("nonsense")).toBeNull();
+  });
+});
+
+describe("describePublishFailure", () => {
+  it("never doubles the full stop of the error it reports", () => {
+    expect(describePublishFailure(new Error("Could not publish the public view."))).toBe(
+      "Public pages were not updated: Could not publish the public view. Use Republish public pages to retry."
+    );
+    expect(describePublishFailure(new Error("quota exceeded"))).toBe(
+      "Public pages were not updated: quota exceeded. Use Republish public pages to retry."
+    );
+    expect(describePublishFailure("weird")).toContain("publish failed. Use Republish");
   });
 });
 

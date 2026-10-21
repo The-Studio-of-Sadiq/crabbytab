@@ -1,6 +1,7 @@
 "use client";
 
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
+import { debateSides } from "@/lib/debateSides";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -151,7 +152,8 @@ export default function TeamPrivatePortalPage() {
     return teams.find((t) => t.privateUrlKey === privateKey);
   }, [teams, privateKey]);
 
-  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
+  // Feedback is on and taken through private URLs (Tabbycat participant_feedback).
+  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false && tournament?.preferences?.privateUrlFeedback !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
   const feedbackQuestions = questionsForFeedbackSource("team", tournament?.preferences);
@@ -582,7 +584,7 @@ export default function TeamPrivatePortalPage() {
               tournament?.preferences?.feedbackInEliminationRounds !== false
             );
             const ratedPanel = panel.filter((adj) => isFeedbackPathAllowed(feedbackPaths, "team", adj.role));
-            const matchupSides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+            const matchupSides: DebateSide[] = tournament ? debateSides(debate, tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
 
             return (
               <Card key={debate.id} className="overflow-hidden">
@@ -623,7 +625,7 @@ export default function TeamPrivatePortalPage() {
                     <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
                       {t("teamPortal.matchup")}
                     </h3>
-                    <ul className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", isBP && "lg:grid-cols-4")}>
+                    <ul className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", (isBP || matchupSides.length > 2) && "lg:grid-cols-4")}>
                       {matchupSides.map((side) => {
                         const mine = mySide === side;
                         return (
@@ -771,7 +773,7 @@ export default function TeamPrivatePortalPage() {
                 <ScoresheetsPanel
                   debate={debate}
                   ballot={ballot}
-                  sides={sides}
+                  sides={tournament && tournament.format === "poly" ? debateSides(debate, tournament) : sides}
                   teamName={(side) => debate.teams?.[side]?.teamName || "—"}
                   replyPosition={tournament?.preferences?.replyScoresEnabled && tournament.format !== "bp" ? 4 : undefined}
                 />

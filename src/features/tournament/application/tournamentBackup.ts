@@ -44,7 +44,7 @@ export interface BackupValidation {
 }
 
 const MAX_ISSUES = 200;
-const FORMATS: TournamentFormat[] = ["bp", "uadc", "australs", "wsdc", "custom_2team"];
+const FORMATS: TournamentFormat[] = ["bp", "uadc", "australs", "wsdc", "custom_2team", "poly"];
 
 type FieldKind = "string" | "number" | "boolean" | "object" | "array";
 

@@ -4,6 +4,7 @@ import { normalizeEmail } from "@/lib/emailAddress";
 import { normalizePhoneNumber } from "@/lib/phone";
 import { TEAM_EMOJI } from "@/lib/codeNames";
 import { normalizeTeamSeedMode, parseTeamSeed } from "@/lib/teamSeeds";
+import { askedPersonFields, openRegistration, representativeRegistration, teamNameGenerated } from "@/lib/registration/access";
 import { CODE_NAME_GENERATORS, TEAM_NAME_GENERATORS, type CodeNameGenerator, type TeamNameGenerator } from "@/lib/registration/names";
 import type {
   AdjudicatorRegistrationData,
@@ -46,6 +47,13 @@ export function cleanText(value: unknown, maxLength: number): string | null {
   // eslint-disable-next-line no-control-regex
   const cleaned = value.normalize("NFC").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
   return cleaned.length <= maxLength ? cleaned : null;
+}
+
+function optionalText(value: unknown, maxLength: number, label: string): string {
+  if (value === undefined || value === null) return "";
+  const text = cleanText(value, maxLength);
+  if (text === null) throw new RegistrationValidationError(`${label} must be at most ${maxLength} characters.`);
+  return text;
 }
 
 function requiredText(value: unknown, maxLength: number, label: string): string {
@@ -155,6 +163,7 @@ export function defaultRegistrationSettings(tournamentName: string, substantiveS
     adjudicatorMessage: "",
     institutionMessage: "",
     institutionQuestions: [],
+    coachQuestions: [],
     speakerQuestions: [],
   };
 }
@@ -189,6 +198,11 @@ export const REGISTRATION_EMOJI: readonly string[] = TEAM_EMOJI.map(([emoji]) =>
 
 function parsePersonFields(value: unknown): PersonField[] {
   return Array.isArray(value) ? [...new Set(value.filter((item): item is PersonField => PERSON_FIELDS.includes(item as PersonField)))] : [];
+}
+
+/** A boolean the admin form sent, or undefined (left absent: the old behaviour). */
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function formMessage(value: unknown, label: string): string {
@@ -262,10 +276,27 @@ export function parseRegistrationSettings(
     adjudicatorMessage: formMessage(record.adjudicatorMessage, "The adjudicator form message"),
     institutionMessage: formMessage(record.institutionMessage, "The institution form message"),
     institutionQuestions: parseQuestions(record.institutionQuestions, "Institution questions"),
+    coachQuestions: parseQuestions(record.coachQuestions, "Coach questions"),
     speakerQuestions: parseQuestions(record.speakerQuestions, "Speaker questions"),
   };
   if (opensAt) settings.opensAt = opensAt;
   if (closesAt) settings.closesAt = closesAt;
+  // Per-kind channels and the optional person fields are stored only when the form sent them.
+  for (const key of [
+    "openTeamRegistration",
+    "openAdjudicatorRegistration",
+    "institutionParticipantRegistration",
+    "askSpeakerEmail",
+    "askSpeakerCategories",
+    "askAdjudicatorEmail",
+  ] as const) {
+    const value = optionalBoolean(record[key]);
+    if (value !== undefined) settings[key] = value;
+  }
+  if (settings.openTeamRegistration !== undefined && settings.openAdjudicatorRegistration !== undefined) {
+    // Kept in step for readers that only know the combined switch.
+    settings.representativesOnly = !settings.openTeamRegistration && !settings.openAdjudicatorRegistration;
+  }
   if (!settings.teamRegistration && !settings.adjudicatorRegistration && !settings.institutionRegistration && settings.enabled) {
     throw new RegistrationValidationError("Allow team, adjudicator or institution registration before opening registration.");
   }
@@ -288,7 +319,14 @@ export function toPublicForm(settings: RegistrationSettings, now: number): Publi
     state: registrationWindowState(settings, now),
     teamRegistration: settings.teamRegistration,
     adjudicatorRegistration: settings.adjudicatorRegistration,
-    representativesOnly: settings.representativesOnly,
+    representativesOnly: !openRegistration(settings, "team") && !openRegistration(settings, "adjudicator"),
+    openTeamRegistration: openRegistration(settings, "team"),
+    openAdjudicatorRegistration: openRegistration(settings, "adjudicator"),
+    institutionParticipantRegistration: representativeRegistration(settings),
+    teamNameGenerated: teamNameGenerated(settings),
+    askSpeakerEmail: askedPersonFields(settings).speakerEmail,
+    askSpeakerCategories: askedPersonFields(settings).speakerCategories,
+    askAdjudicatorEmail: askedPersonFields(settings).adjudicatorEmail,
     minSpeakers: settings.minSpeakers,
     maxSpeakers: settings.maxSpeakers,
     speakerCategories: settings.speakerCategories,
@@ -307,6 +345,7 @@ export function toPublicForm(settings: RegistrationSettings, now: number): Publi
     adjudicatorMessage: settings.adjudicatorMessage ?? "",
     institutionMessage: settings.institutionMessage ?? "",
     institutionQuestions: settings.institutionQuestions ?? [],
+    coachQuestions: settings.coachQuestions ?? [],
     speakerQuestions: settings.speakerQuestions ?? [],
   };
   if (settings.opensAt) form.opensAt = settings.opensAt;
@@ -392,7 +431,9 @@ function parsePersonDetails(
 export function parseRegisteredSpeaker(item: unknown, index: number, settings: RegistrationSettings): RegisteredSpeaker {
   const record = (item ?? {}) as Record<string, unknown>;
   const name = requiredText(record.name, MAX_NAME_LENGTH, `Speaker ${index + 1}'s name`);
-  const categories = Array.isArray(record.categories) ? record.categories : [];
+  const asked = askedPersonFields(settings);
+  // Fields the form does not ask for (Tabbycat reg_speaker_fields) are ignored, not refused.
+  const categories = asked.speakerCategories && Array.isArray(record.categories) ? record.categories : [];
   if (categories.some((category) => typeof category !== "string" || !settings.speakerCategories.includes(category))) {
     throw new RegistrationValidationError(`Choose valid categories for ${name}.`);
   }
@@ -401,7 +442,7 @@ export function parseRegisteredSpeaker(item: unknown, index: number, settings: R
     categories: [...new Set(categories as string[])],
     ...parsePersonDetails(record, settings.speakerFields, name),
   };
-  const email = parseEmail(record.email, name, false);
+  const email = asked.speakerEmail ? parseEmail(record.email, name, false) : undefined;
   if (email) speaker.email = email;
   const speakerQuestions = settings.speakerQuestions ?? [];
   if (speakerQuestions.length > 0) speaker.answers = parseAnswers(record.answers, speakerQuestions);
@@ -504,7 +545,8 @@ export function parseRegistrationEntry(
   if (kind === "team") {
     const team = (record.team ?? {}) as Record<string, unknown>;
     const data: TeamRegistrationData = {
-      name: requiredText(team.name, MAX_NAME_LENGTH, "Team name"),
+      // A team-name generator names the team on approval: the form does not ask (Tabbycat).
+      name: teamNameGenerated(settings) ? optionalText(team.name, MAX_NAME_LENGTH, "Team name") : requiredText(team.name, MAX_NAME_LENGTH, "Team name"),
       speakers: parseSpeakers(team.speakers, settings),
       ...parseOptionalTeamFields(team, settings, institution !== null),
     };
@@ -518,6 +560,8 @@ export function parseRegistrationEntry(
       adjudicatorsRequested: nonNegativeInteger(request.adjudicatorsRequested, "Adjudicator places", MAX_REQUESTED_PLACES),
     };
     if (code) data.code = code;
+    const coachAnswers = parseAnswers(request.coachAnswers, settings.coachQuestions ?? []);
+    if (Object.keys(coachAnswers).length > 0) data.coachAnswers = coachAnswers;
     if (settings.institutionRegion) {
       const region = cleanText(request.region ?? "", 60);
       if (region === null) throw new RegistrationValidationError("The region can be at most 60 characters.");
@@ -526,9 +570,10 @@ export function parseRegistrationEntry(
     entry.institutionRequest = data;
   } else {
     const adjudicator = (record.adjudicator ?? {}) as Record<string, unknown>;
+    const email = askedPersonFields(settings).adjudicatorEmail ? parseEmail(adjudicator.email, "the adjudicator", true) : undefined;
     const data: AdjudicatorRegistrationData = {
       name: requiredText(adjudicator.name, MAX_NAME_LENGTH, "Adjudicator name"),
-      email: parseEmail(adjudicator.email, "the adjudicator", true)!,
+      ...(email ? { email } : {}),
       institutionConflicts: parseNameList(adjudicator.institutionConflicts, "Institution conflicts"),
       teamConflicts: parseNameList(adjudicator.teamConflicts, "Team conflicts"),
       ...parsePersonDetails(adjudicator, settings.adjudicatorFields, "the adjudicator"),
@@ -541,5 +586,9 @@ export function parseRegistrationEntry(
 /** The display name of an entry (team or adjudicator name). */
 export function entryName(entry: Pick<RegistrationEntry, "kind" | "team" | "adjudicator" | "institution">): string {
   if (entry.kind === "institution") return entry.institution?.name ?? "";
-  return (entry.kind === "team" ? entry.team?.name : entry.adjudicator?.name) ?? "";
+  if (entry.kind === "team") {
+    // A team left for the name generator is shown by its speakers until approval names it.
+    return entry.team?.name || (entry.team?.speakers ?? []).map((speaker) => speaker.name).join(" & ");
+  }
+  return entry.adjudicator?.name ?? "";
 }

@@ -207,13 +207,18 @@ function privateInput(selfSplit?: unknown) {
 }
 
 describe("self-split ballots through private URLs", () => {
-  it("are offered only to a solo adjudicator whose sheet is merged into a voting ballot", () => {
+  it("are offered only to a solo adjudicator, whose sheet becomes the voting ballot", () => {
     expect(privateSelfSplitAllowed(tournament, { stage: "preliminary" }, soloDebate)).toBe(true);
     const panel = { ...soloDebate, adjudicators: { ...soloDebate.adjudicators, panellistIds: ["p1", "p2"] } };
     expect(privateSelfSplitAllowed(tournament, { stage: "preliminary" }, panel)).toBe(false);
-    // Without individual ballots the private ballot is stored without votes, so a split means nothing.
+    // Without individual ballots a solo adjudicator's private ballot becomes the voting ballot
+    // itself (votingRoundPrivateBallot), so the split is recorded there too.
     const noIndividual = { ...tournament, preferences: { ...tournament.preferences, individualBallots: false } };
-    expect(privateSelfSplitAllowed(noIndividual, { stage: "preliminary" }, soloDebate)).toBe(false);
+    expect(privateSelfSplitAllowed(noIndividual, { stage: "preliminary" }, soloDebate)).toBe(true);
+    const ballot = buildPrivateBallot(privateInput(true), { tournament: noIndividual, adjudicator: chair, debate: soloDebate, teams, tournamentId: "t1" });
+    expect(ballot.teamScores.AFF.votes).toBe(2);
+    expect(ballot.teamScores.NEG.votes).toBe(1);
+    expect(ballot.selfSplit).toBe(true);
   });
 
   it("stores the flag, and the merged voting ballot records 2 votes to 1", () => {

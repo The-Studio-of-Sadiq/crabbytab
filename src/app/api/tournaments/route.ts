@@ -7,7 +7,7 @@ import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
 
 export const runtime = "nodejs";
 
-const tournamentFormats = new Set<TournamentFormat>(["bp", "uadc", "australs", "wsdc", "custom_2team"]);
+const tournamentFormats = new Set<TournamentFormat>(["bp", "uadc", "australs", "wsdc", "custom_2team", "poly"]);
 
 function toSummary(id: string, data: DocumentData, accessRole: "admin" | "dataEntry") {
   const slug = typeof data.slug === "string" ? data.slug : id.replace(/^tourn-/, "");

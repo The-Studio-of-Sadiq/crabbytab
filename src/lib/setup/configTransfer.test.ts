@@ -15,13 +15,21 @@ describe("tournament configuration files", () => {
     const file = buildConfigFile({
       name: "Open",
       format: "wsdc",
-      preferences: prefs({ avoidSameInstitution: false, releaseTeamTab: true, currentRoundId: "r3", releasedBreakCategoryIds: ["b1"] }),
+      preferences: prefs({
+        avoidSameInstitution: false,
+        releaseTeamTab: true,
+        currentRoundId: "r3",
+        releasedBreakCategoryIds: ["b1"],
+        publicHomepage: "# Welcome\n\nhttps://youtu.be/dQw4w9WgXcQ",
+      }),
     });
     expect(file.preferences).not.toHaveProperty("releaseTeamTab");
     expect(file.preferences).not.toHaveProperty("currentRoundId");
     const parsed = parseConfigFile(JSON.stringify(file));
     expect(parsed.ok).toBe(true);
     if (parsed.ok) expect(parsed.file.preferences.avoidSameInstitution).toBe(false);
+    // The public homepage is a setting, carried by settings export and import.
+    if (parsed.ok) expect(parsed.file.preferences.publicHomepage).toBe("# Welcome\n\nhttps://youtu.be/dQw4w9WgXcQ");
   });
 
   it("refuses files that are not configuration files or have wrong types", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  portalRoundProjection,
   loadBallotsForDebates,
   loadParticipantDebates,
   loadPortalVenues,
@@ -130,5 +131,21 @@ describe("loadPortalVenues", () => {
       { id: "v2", name: "Bad" },
     ]);
     expect(counter.reads).toBe(3);
+  });
+});
+
+describe("portalRoundProjection", () => {
+  // Regression: the team portal returned stored round documents with the tab room's working data.
+  it("sends portals only whitelisted round fields", () => {
+    const projected = portalRoundProjection({
+      id: "r1", tournamentId: "t1", seq: 1, name: "Round 1", abbreviation: "R1", stage: "preliminary",
+      drawStatus: "released", motionsReleased: true, silent: false, completed: false, feedbackEnabled: true,
+      preformedPanels: [{ id: "p1", panellistIds: [], traineeIds: [], importance: 0 }],
+      preallocatedSides: { team1: "AFF" }, drawSeed: 42, roundRobinAlgorithm: "berger", deletedAt: undefined,
+    });
+    expect(projected).toMatchObject({ id: "r1", name: "Round 1", drawStatus: "released", feedbackEnabled: true });
+    for (const hidden of ["preformedPanels", "preallocatedSides", "drawSeed", "roundRobinAlgorithm"]) {
+      expect(projected).not.toHaveProperty(hidden);
+    }
   });
 });

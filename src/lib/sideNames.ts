@@ -1,9 +1,12 @@
 import type { DebateSide, SideNames, TournamentPreferences } from "@/types";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { isPolySide, polySideNumber } from "@/lib/debateSides";
 
 /**
  * What each side is called (Tabbycat's `side_names` and `get_side_name`). Every user-facing side
  * label goes through `sideLabel`, so the tournament's choice (Gov/Opp, Prop/Opp, ...) shows the
- * same everywhere. Stored data keeps the internal codes AFF/NEG and OG/OO/CG/CO.
+ * same everywhere. Stored data keeps the internal codes AFF/NEG, OG/OO/CG/CO and P1…PN.
+ * Poly positions (N teams per room) are "Team 1", "Team 2", … as Tabbycat's `get_side_name`.
  */
 
 export type SideLabelKind = "abbr" | "full" | "team";
@@ -47,19 +50,32 @@ export function sideLabel(
   kind: SideLabelKind = "abbr"
 ): string {
   if (side in BP_NAMES) return BP_NAMES[side][kind];
+  if (isPolySide(side)) return `Team ${polySideNumber(side)}`;
   if (side !== "AFF" && side !== "NEG") return String(side);
   return SIDE_NAME_SETS[sideNamesFor(preferences)][kind][side === "AFF" ? 0 : 1];
 }
 
+type Translate = (key: MessageKey, values?: Record<string, string | number>) => string;
+
 /**
- * Full side name for translated pages: the default Affirmative/Negative (and BP positions) use the
- * page's `side.*` messages; other side names are not translated yet and use the English names.
+ * A side's own translated name, ignoring the tournament's side names: `side.AFF`, `side.OG`, …,
+ * and "Team N" (`side.position`) for a poly position.
+ */
+export function sideMessage(t: Translate, side: DebateSide | string): string {
+  if (isPolySide(side)) return t("side.position", { number: polySideNumber(side) });
+  return t(`side.${side}` as MessageKey);
+}
+
+/**
+ * Full side name for translated pages: the default Affirmative/Negative, BP positions and poly
+ * positions use the page's `side.*` messages; other side names are not translated yet and use the
+ * English names.
  */
 export function translatedSideName(
-  t: (key: `side.${DebateSide}`) => string,
+  t: Translate,
   side: DebateSide,
   preferences?: Partial<Pick<TournamentPreferences, "sideNames">>
 ): string {
-  if (side in BP_NAMES || sideNamesFor(preferences) === "aff-neg") return t(`side.${side}`);
+  if (side in BP_NAMES || isPolySide(side) || sideNamesFor(preferences) === "aff-neg") return sideMessage(t, side);
   return sideLabel(side, preferences, "full");
 }

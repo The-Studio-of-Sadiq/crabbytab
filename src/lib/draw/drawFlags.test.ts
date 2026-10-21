@@ -164,7 +164,7 @@ describe("buildDrawDetails", () => {
       { teamId: t4.id, teamName: "Team 04", rounds: ["R2"] },
     ]);
     expect(first).toMatchObject({ points: 3, pullups: 1, sideCounts: { AFF: 3, NEG: 0 } });
-    expect(first.current).toEqual({ debateId: "now-1", room: "Room team-1", side: "AFF", opponents: ["Team 03"], pulledUp: true });
+    expect(first.current).toEqual({ debateId: "now-1", room: "Room team-1", side: "AFF", opponents: ["Team 03"], pulledUp: true, drawFlags: [] });
   });
 
   it("shows sides not yet recorded as tbc and unplaced teams without a debate", () => {

@@ -144,7 +144,7 @@ describe("trimmed mean (Tabbycat's high-low drop)", () => {
   it("is the plain mean when too few scores remain to trim", () => {
     expect(trimmedMean([60, 80], 1)).toBe(70); // Tabbycat: count <= 2 -> plain mean
     expect(trimmedMean([60, 70, 80, 90], 2)).toBe(75);
-    expect(trimmedMean([], 1)).toBe(0);
+    expect(trimmedMean([], 1)).toBeNull(); // Tabbycat: no speeches -> no value
   });
 
   it("drops N from each end when speakerTrim is N, and nothing when it is 0", () => {
@@ -289,11 +289,11 @@ describe("speaker standings eligibility (Tabbycat's speeches missable)", () => {
   });
 
   it("lists speakers who missed too many speeches last, unranked", () => {
-    // 3 rounds have results; missing 1 allowed -> at least 2 speeches. A3 gave 2, A1 2, A4 2: all fine.
+    // As of round 3: missing 1 allowed -> at least 2 speeches. A3 gave 2, A1 2, A4 2: all fine.
     // With 0 missable every speaker needs 3: only A2 and the B speakers qualify.
-    const result = calculateStandings(
-      tournament({ standingsMissedDebates: 0, speakerStandingsPrecedence: ["speaks_avg"] }), rounds, teams, d, ballots
-    );
+    const asOfRound3 = (preferences: Parameters<typeof tournament>[0]) =>
+      calculateStandings(tournament(preferences), rounds.slice(0, 3), teams, d.slice(0, 3), ballots);
+    const result = asOfRound3({ standingsMissedDebates: 0, speakerStandingsPrecedence: ["speaks_avg"] });
     const eligible = result.speakers.filter((row) => !row.ineligible).map((row) => row.speakerId);
     const ineligible = result.speakers.filter((row) => row.ineligible).map((row) => row.speakerId);
     expect(eligible).toEqual(["A2", "B1", "B2", "B3"]);
@@ -302,8 +302,14 @@ describe("speaker standings eligibility (Tabbycat's speeches missable)", () => {
     expect(ineligible).toEqual(["A4", "A1", "A3"]);
     expect(result.speakers.filter((row) => row.ineligible).every((row) => row.rank === 0)).toBe(true);
 
-    const lenient = calculateStandings(tournament({ standingsMissedDebates: 1 }), rounds, teams, d, ballots);
+    const lenient = asOfRound3({ standingsMissedDebates: 1 });
     expect(lenient.speakers.some((row) => row.ineligible)).toBe(false);
+  });
+
+  it("counts a drawn round whose results are not in yet, as Tabbycat counts every round so far", () => {
+    // Round 4 is drawn: 4 rounds - 1 missable = 3 speeches needed, which only A2 and B have given.
+    const result = calculateStandings(tournament({ standingsMissedDebates: 1 }), rounds, teams, d, ballots);
+    expect(result.speakers.filter((row) => !row.ineligible).map((row) => row.speakerId).sort()).toEqual(["A2", "B1", "B2", "B3"]);
   });
 
   it("applies the replies limit to the replies tab", () => {
@@ -316,9 +322,10 @@ describe("speaker standings eligibility (Tabbycat's speeches missable)", () => {
       ballot(d[2], "AFF", replies(38, "A2"), flat("B", 69)),
     ];
     const result = calculateStandings(replyTournament, rounds, teams, d, replyBallots);
+    // Ordered by average reply (A2 38, A1 36.5), Tabbycat's only reply standings metric.
     expect(result.replies.map((row) => [row.speakerId, row.ineligible ?? false])).toEqual([
-      ["A1", true],
       ["A2", true],
+      ["A1", true],
     ]);
   });
 });
@@ -404,5 +411,126 @@ describe("wave 4/5 speaker metrics (Tabbycat standings/speakers.py)", () => {
     expect(speaker("B1").reply_count).toBe(0);
     const reply = result.replies.find((row) => row.speakerId === "A1")!.metrics;
     expect([reply.speaks_sum, reply.reply_count]).toEqual([72, 2]);
+  });
+});
+
+describe("Tabbycat parity: unconfirmed debates, replies and liveness points", () => {
+  const four = ["A", "B", "C", "D"].map((id) => team(id));
+
+  it("counts opponents of a drawn debate without a result for draw strength", () => {
+    // R1: A beats B, C beats D. R2: A vs C drawn, no ballot yet. Tabbycat: A's opponents are B (0) and C (1).
+    const d = [debate("d1", 1, "A", "B"), debate("d2", 1, "C", "D"), debate("d3", 2, "A", "C")];
+    const result = calculateStandings(
+      tournament({ teamStandingsPrecedence: ["points"] }),
+      [round(1), round(2)],
+      four,
+      d,
+      [ballot(d[0], "AFF", flat("A", 70), flat("B", 60)), ballot(d[1], "AFF", flat("C", 70), flat("D", 60))]
+    );
+    const a = result.teams.find((row) => row.teamId === "A")!;
+    expect(a.metrics.draw_strength).toBe(1);
+    // The unscored debate adds nothing else: A still has one win and one debate's speaks.
+    expect(a.points).toBe(1);
+    expect(a.metrics.speaks_avg).toBe(210);
+  });
+
+  it("counts a pull-up in a debate without a confirmed ballot", () => {
+    const d1 = debate("d1", 1, "A", "B");
+    const d2 = debate("d2", 2, "A", "B");
+    d2.teams.AFF = { ...d2.teams.AFF!, pulledUp: true };
+    const result = calculateStandings(tournament(), [round(1), round(2)], [team("A"), team("B")], [d1, d2], [
+      ballot(d1, "AFF", flat("A", 70), flat("B", 60)),
+    ]);
+    const a = result.teams.find((row) => row.teamId === "A")!;
+    const b = result.teams.find((row) => row.teamId === "B")!;
+    expect(a.metrics.pullups).toBe(1);
+    expect(a.metrics.pullup_debates).toBe(1);
+    expect(b.metrics.pullup_debates).toBe(1);
+  });
+
+  it("ranks reply speakers on their average reply, not the speaker precedence", () => {
+    // Speaker precedence on total score would put X (35 + 35) above Y (36); Tabbycat ranks on replies_avg.
+    const replyTournament = tournament({ replyScoresEnabled: true, speakerStandingsPrecedence: ["speaks_sum"] });
+    const d = [debate("d1", 1, "A", "B"), debate("d2", 2, "A", "B")];
+    const result = calculateStandings(replyTournament, [round(1), round(2)], [team("A"), team("B")], d, [
+      ballot(d[0], "AFF", [["A1", 70], ["A2", 70], ["A3", 70], ["A1", 35]], [["B1", 69], ["B2", 69], ["B3", 69], ["B1", 36]]),
+      ballot(d[1], "AFF", [["A1", 70], ["A2", 70], ["A3", 70], ["A1", 35]], [["B1", 69], ["B2", 69], ["B3", 69], ["B2", 30]]),
+    ]);
+    expect(result.replies.map((row) => [row.speakerId, row.rank])).toEqual([["B1", 1], ["A1", 2], ["B2", 3]]);
+  });
+});
+
+describe("no results yet: null, not 0 (Tabbycat's SQL aggregates over no rows)", () => {
+  // A and B debated; C sat out (a bye with no result, or no draw). Tabbycat: Sum/Avg/StdDev over
+  // no TeamScores or SpeakerScores is NULL, Count is 0 (standings/teams.py, speakers.py).
+  const d1 = debate("d1", 1, "A", "B");
+  const run = (preferences: Partial<TournamentPreferences>) =>
+    calculateStandings(tournament(preferences), [round(1)], [team("A"), team("B"), team("C")], [d1], [
+      ballot(d1, "AFF", flat("A", 70), flat("B", 60)),
+    ]);
+
+  it("reports aggregates as null and counts as 0 for a team with no results", () => {
+    const c = run({}).teams.find((row) => row.teamId === "C")!;
+    expect(c.metrics).toMatchObject({
+      points: null,
+      speaks_sum: null,
+      speaks_avg: null,
+      speaks_ind_avg: null,
+      speaks_stddev: null,
+      margin_sum: null,
+      margin_avg: null,
+      wins: 0,
+      num_adjs: 0,
+      num_iron: 0,
+      draw_strength: 0,
+      draw_strength_rank: null,
+    });
+  });
+
+  it("keeps the values of teams that have results", () => {
+    const b = run({}).teams.find((row) => row.teamId === "B")!;
+    expect(b.metrics).toMatchObject({ points: 0, wins: 0, speaks_sum: 180, speaks_avg: 180, speaks_stddev: 0, margin_sum: -30, margin_avg: -30 });
+  });
+
+  it("ranks no value below every value, on ascending and descending metrics alike (NULLS LAST)", () => {
+    // B has 0 points: C (no points) still ranks below it, as Tabbycat's ORDER BY points DESC NULLS LAST.
+    expect(run({ teamStandingsPrecedence: ["points"] }).teams.map((row) => [row.teamId, row.rank])).toEqual([
+      ["A", 1],
+      ["B", 2],
+      ["C", 3],
+    ]);
+    // A standard deviation of 0 is the best value, but no value is still last (ASC NULLS LAST).
+    expect(run({ teamStandingsPrecedence: ["speaks_stddev"] }).teams.map((row) => [row.teamId, row.rank])).toEqual([
+      ["A", 1],
+      ["B", 1],
+      ["C", 3],
+    ]);
+  });
+
+  it("ties teams that both have no value", () => {
+    const result = calculateStandings(tournament({ teamStandingsPrecedence: ["points", "speaks_stddev"] }), [round(1)], [team("C"), team("D")], [], []);
+    expect(result.teams.map((row) => row.rank)).toEqual([1, 1]);
+  });
+
+  it("reports a speaker with no speeches as null and ranks them last", () => {
+    const result = run({ speakerStandingsPrecedence: ["speaks_stddev"] });
+    const c1 = result.speakers.find((row) => row.speakerId === "C1")!;
+    expect(c1.metrics).toMatchObject({
+      speaks_sum: null,
+      speaks_avg: null,
+      speaks_stddev: null,
+      speaks_trimmed_mean: null,
+      srank: null,
+      reply_sum: null,
+      reply_avg: null,
+      team_points: null,
+      speeches_count: 0,
+      reply_count: 0,
+      team_wins: 0,
+    });
+    // Every speaker who spoke has a standard deviation of 0 (one speech); the silent ones rank below.
+    const ranks = new Map(result.speakers.map((row) => [row.speakerId, row.rank]));
+    expect(ranks.get("A1")).toBe(1);
+    expect(ranks.get("C1")).toBe(7);
   });
 });

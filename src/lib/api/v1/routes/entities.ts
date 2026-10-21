@@ -1,8 +1,9 @@
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
 import { buildPublicBreak, getPublicRelease } from "@/lib/publicRelease";
 import type { Adjudicator, BreakCategory, Institution, Motion, Round, Team, Venue } from "@/types";
 import { normaliseCategory } from "@/lib/venues/venues";
 import { categoryNames, categoryView, venueCategoryResponse } from "./write/settingsItems";
-import { notFound } from "../errors";
+import { ApiError, notFound } from "../errors";
 import { defineRoute, listOf, pageOf, pageQueryShape, pageRequest, slugParam } from "../router";
 import { s } from "../schema";
 import {
@@ -104,16 +105,17 @@ const participantRoutes = [
     path: "/tournaments/{slug}/institutions",
     operationId: "listInstitutions",
     summary: "List institutions",
-    description: "Paginated. Public tokens need the public institutions list to be released.",
+    description: "Paginated; `region` lists only that region's institutions (Tabbycat's `region` filter). Public tokens need the public institutions list to be released.",
     tag: "institutions",
     auth: { kind: "token", resource: "participants", access: "read", public: true },
     params: slugOnly,
-    query: s.object(pageQueryShape),
+    query: s.object({ ...pageQueryShape, region: s.optional(s.string({ min: 1, max: 120, description: "Region name, exactly as stored." })) }),
     paginated: true,
     response: pageOf(s.ref("Institution")),
     async handler(context) {
       requirePublicRelease(context, "institutions", "The institutions list");
-      const page = await context.data.page("institutions", pageRequest(context.query));
+      const filters = context.query.region !== undefined ? [{ field: "region", op: "==" as const, value: context.query.region }] : undefined;
+      const page = await context.data.page("institutions", pageRequest(context.query), filters);
       return { ...page, data: page.data.map((record) => serializeInstitution(asType<Institution>(record))) };
     },
   }),
@@ -389,8 +391,11 @@ const breakRoutes = [
     path: "/tournaments/{slug}/break-categories/{categoryId}/eligibility",
     operationId: "getBreakEligibility",
     summary: "List the teams eligible for a break category",
+    description:
+      "Public tokens and anonymous clients: once the participants list is released with break " +
+      "eligibility shown on it (Tabbycat `public_break_categories`).",
     tag: "break-categories",
-    auth: { kind: "token", resource: "breaks", access: "read" },
+    auth: { kind: "token", resource: "breaks", access: "read", public: true },
     params: withId("categoryId", "Break category id."),
     query: s.object(pageQueryShape),
     paginated: true,
@@ -401,6 +406,12 @@ const breakRoutes = [
     }),
     async handler(context) {
       const categoryId = (context.params as { categoryId: string }).categoryId;
+      if (context.data.view === "public") {
+        requirePublicRelease(context, "participants", "The participants list");
+        if (!getPublicSiteSettings(context.tournament.preferences).breakCategoriesOnParticipants) {
+          throw new ApiError(403, "forbidden", "Break eligibility has not been released to the public.");
+        }
+      }
       if (!(await context.data.get("breakCategories", categoryId))) throw notFound("Break category");
       const page = await context.data.page("teams", pageRequest(context.query), [
         { field: "breakCategories", op: "array-contains", value: categoryId },

@@ -210,7 +210,11 @@ export function roundBreakLiveness(source: RoundLivenessSource, round?: Round): 
     source.debates.filter((debate) => earlierIds.has(debate.roundId)),
     source.ballots.filter((ballot) => earlierIds.has(ballot.roundId))
   );
-  const pointsByTeam = new Map(standings.teams.map((row) => [row.teamId, row.points]));
+  // Tabbycat's liveness reads the raw sum of points (Sum('teamscore__points')), not the
+  // round-weighted points metric, so a weighted round counts its points once here.
+  const pointsByTeam = new Map(
+    standings.teams.map((row) => [row.teamId, row.roundResults.reduce((sum, result) => sum + result.points, 0)])
+  );
   const liveness = calculateBreakLiveness({
     teamsPerDebate: source.tournament.format === "bp" ? 4 : 2,
     categories: source.breakCategories,

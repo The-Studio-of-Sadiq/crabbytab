@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Debate } from "@/types";
 import {
+  assistantMaySeeRoundResults,
+  withoutDebateResults,
   canAssistantOverwriteBallot,
   nextAssistantResultStatus,
   prepareAssistantBallot,
   redactAssistantDebate,
+  requiredDataEntryPermissions,
   sanitizeDataEntryRecord,
   validateAssistantFeedback,
 } from "./dataEntrySync";
+import { buildDataEntrySyncPayload } from "@/features/tournament/application/cloudSync";
 
 const debate = {
   id: "d1",
@@ -137,6 +141,27 @@ describe("sanitizeDataEntryRecord", () => {
   });
 });
 
+describe("assistant room check-ins", () => {
+  // Regression: venues were not a data-entry collection, so an assistant's room check-in never
+  // left their device.
+  it("syncs only the check-in fields of rooms and needs checkins.edit", () => {
+    const { record } = sanitizeDataEntryRecord("venues", {
+      id: "v1", tournamentId: "t1", name: "Renamed", capacity: 2, priority: 99, available: false,
+      roundAvailability: { r1: false }, checkedIn: true, checkedInAt: "2026-01-01T00:00:00.000Z",
+      checkInHistory: [{ at: "2026-01-01T00:00:00.000Z", present: true }],
+    }, "t1");
+    expect(Object.keys(record).sort()).toEqual(["checkInHistory", "checkedIn", "checkedInAt", "id", "tournamentId"]);
+    expect(requiredDataEntryPermissions("venues", false, ["checkedIn", "checkedInAt"])).toEqual(["checkins.edit"]);
+  });
+
+  it("sends the device's rooms with the data-entry sync", () => {
+    const venue = { id: "v1", tournamentId: "t1", name: "Room", checkedIn: true };
+    const empty = { rounds: [], teams: [], adjudicators: [], venues: [venue], motions: [], breakCategories: [],
+      debates: [], ballots: [], feedback: [], institutions: [], auditEvents: [], ballotIntake: [] };
+    expect(buildDataEntrySyncPayload({ localCollections: empty }).collections.venues).toEqual([venue]);
+  });
+});
+
 describe("prepareAssistantBallot", () => {
   it("stamps an unconfirmed tab-room ballot from the signed-in assistant", () => {
     const ballot = prepareAssistantBallot(
@@ -201,6 +226,25 @@ describe("prepareAssistantBallot", () => {
       actor,
       preferences: { replyScoresEnabled: true },
     })).not.toThrow();
+  });
+
+  // Regression: speech positions were capped at 4 and entries at 8, so a tournament with four
+  // substantive speakers and replies (or five substantive speakers) could not take assistant ballots.
+  it("derives the speech limits from the tournament's substantive speakers and reply", () => {
+    const speeches = (count: number) => Array.from({ length: count }, (_, index) => ({ speakerId: `s${index + 1}`, position: index + 1, score: 75 }));
+    const fourPlusReply = ballotInput({
+      speakerScores: { AFF: [...speeches(4), { speakerId: "s1", position: 5, score: 37.5 }], NEG: [] },
+    });
+    expect(() => prepareAssistantBallot(fourPlusReply, {
+      debate, actor, preferences: { substantiveSpeakers: 4, replyScoresEnabled: true },
+    })).not.toThrow();
+    expect(() => prepareAssistantBallot(ballotInput({ speakerScores: { AFF: speeches(5), NEG: [] } }), {
+      debate, actor, preferences: { substantiveSpeakers: 5 },
+    })).not.toThrow();
+    // Beyond the tournament's speeches is still refused.
+    expect(() => prepareAssistantBallot(ballotInput({ speakerScores: { AFF: speeches(4), NEG: [] } }), {
+      debate, actor, preferences: { substantiveSpeakers: 3 },
+    })).toThrow(/invalid speaker scores/);
   });
 });
 
@@ -269,5 +313,33 @@ describe("redactAssistantDebate", () => {
     const shown = redactAssistantDebate(raw, { adjudicatorsRevealed: true, motionsReleased: true });
     expect(shown.adjudicators).toEqual(debate.adjudicators);
     expect(shown.motionText).toBe("THW test");
+  });
+});
+
+describe("assistant result visibility", () => {
+  const silentDone = { silent: true, completed: true, resultsReleased: false };
+  const openRound = { silent: true, completed: false, resultsReleased: false };
+  const doneRound = { silent: false, completed: true, resultsReleased: false };
+
+  // Regression: assistant-data sent every ballot, silent rounds included, to every assistant.
+  it("keeps silent rounds' results for staff with standings.view", () => {
+    expect(assistantMaySeeRoundResults(silentDone, ["results.enter", "results.confirm_others"])).toBe(false);
+    expect(assistantMaySeeRoundResults(silentDone, ["standings.view"])).toBe(true);
+    expect(assistantMaySeeRoundResults({ ...silentDone, resultsReleased: true }, ["checkins.edit"])).toBe(true);
+  });
+
+  it("lets ballot staff see the rounds they enter and completed open rounds", () => {
+    expect(assistantMaySeeRoundResults(openRound, ["results.enter"])).toBe(true);
+    expect(assistantMaySeeRoundResults(doneRound, ["ballots.intake"])).toBe(true);
+    expect(assistantMaySeeRoundResults(openRound, ["checkins.edit", "feedback.enter"])).toBe(false);
+    expect(assistantMaySeeRoundResults(undefined, ["results.enter"])).toBe(false);
+  });
+
+  it("strips points from debates whose results are hidden", () => {
+    const stripped = withoutDebateResults({
+      id: "d1", resultStatus: "confirmed", byeResult: { points: 1 },
+      teams: { AFF: { teamId: "a", teamName: "A", side: "AFF", points: 1, speakerScoreTotal: 150 } },
+    });
+    expect(stripped).toEqual({ id: "d1", resultStatus: "confirmed", teams: { AFF: { teamId: "a", teamName: "A", side: "AFF" } } });
   });
 });

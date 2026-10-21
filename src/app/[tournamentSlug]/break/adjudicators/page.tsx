@@ -12,6 +12,7 @@ import { StatusPill } from "@/components/ui/Badge";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { AdjudicatorFlagToggle } from "@/features/tournament/components/AdjudicatorFlagToggle";
+import { mayEditAdjudicatorScores } from "@/lib/staffPermissions";
 
 type Filter = "all" | "breaking";
 
@@ -20,7 +21,8 @@ type Filter = "all" | "breaking";
  * adjudicator with an inline toggle, breaking ones first. The public list is released separately.
  */
 export default function BreakingAdjudicatorsPage() {
-  const { tournament, adjudicators, isOwnerOrAdmin } = useTournament();
+  const { tournament, adjudicators, isOwnerOrAdmin, isDataEntryAssistant, staffPermissions } = useTournament();
+  const canEditScores = mayEditAdjudicatorScores({ isOwnerOrAdmin, isDataEntryAssistant, permissions: staffPermissions });
   const { t, plural, formatDecimal } = useI18n();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -101,7 +103,7 @@ export default function BreakingAdjudicatorsPage() {
                 <TD className="text-fg-muted">{adjudicator.institutionName || "—"}</TD>
                 <TD numeric>{formatDecimal(adjudicator.baseScore ?? 0, 1)}</TD>
                 <TD align="center">
-                  {isOwnerOrAdmin ? (
+                  {canEditScores ? (
                     <AdjudicatorFlagToggle
                       adjudicator={adjudicator}
                       flag="breaking"

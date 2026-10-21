@@ -4,6 +4,8 @@ import React from "react";
 import Link from "next/link";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useTournament } from "@/contexts/TournamentContext";
+import { translatedSideName } from "@/lib/sideNames";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { cn } from "@/components/ui/cn";
@@ -107,25 +109,6 @@ export function PublicDebateMotionLabel({ motion }: { motion?: PublicDebateMotio
   );
 }
 
-export function WelcomePanel({ message, staff }: { message: string; staff: string }) {
-  const { t } = useI18n();
-  if (!message && !staff) return null;
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {message && (
-        <Panel title={t("public.welcomeTitle")}>
-          <p className="p-4 text-sm text-fg whitespace-pre-line">{message}</p>
-        </Panel>
-      )}
-      {staff && (
-        <Panel title={t("public.staffTitle")}>
-          <p className="p-4 text-sm text-fg whitespace-pre-line">{staff}</p>
-        </Panel>
-      )}
-    </div>
-  );
-}
-
 type PublicBallot = BallotSubmission & { splitAdjudicatorIds?: string[] };
 
 export function splittingAdjudicators(ballot: BallotSubmission | undefined): Set<string> {
@@ -182,6 +165,7 @@ export function ScoresheetsPanel({
   replyPosition?: number;
 }) {
   const { t, formatNumber } = useI18n();
+  const { tournament } = useTournament();
   const splits = splittingAdjudicators(ballot);
   const sheets = ballot?.sheets?.length
     ? ballot.sheets.map((sheet) => ({
@@ -214,7 +198,7 @@ export function ScoresheetsPanel({
                   return (
                     <Table key={side} className="text-start">
                       <caption className="text-start text-[11px] font-semibold text-fg-muted pb-1">
-                        {t(`side.${side}` as "side.AFF")} · {teamName(side)}
+                        {translatedSideName(t, side, tournament?.preferences)} · {teamName(side)}
                       </caption>
                       <TBody>
                         <SpeechRows entries={entries} replyPosition={replyPosition} />
@@ -250,6 +234,7 @@ export function AdjudicatorTabPanel({ tab, recordHref }: { tab: PublicAdjudicato
               <TR>
                 <TH scope="col">{t("lists.col.adjudicator")}</TH>
                 <TH scope="col">{t("lists.col.institution")}</TH>
+                {tab.showUnaccredited && <TH scope="col">{t("lists.col.alwaysTrainee")}</TH>}
                 {showBase && <TH scope="col" className="text-end">{t("public.col.baseScore")}</TH>}
                 {tab.rounds.map((round) => (
                   <TH key={round.id} scope="col" className="text-end">{round.name}</TH>
@@ -268,6 +253,7 @@ export function AdjudicatorTabPanel({ tab, recordHref }: { tab: PublicAdjudicato
                       {href ? <Link href={href} className={publicRecordLinkClass}>{name}</Link> : name}
                     </TD>
                     <TD className="text-xs text-fg-muted">{row.institutionName || "—"}</TD>
+                    {tab.showUnaccredited && <TD className="text-xs text-fg-muted">{row.trainee ? t("lists.alwaysTraineeYes") : "—"}</TD>}
                     {showBase && <TD className="text-end font-mono text-xs">{row.baseScore !== undefined ? formatDecimal(row.baseScore, 2) : "—"}</TD>}
                     {tab.rounds.map((round) => (
                       <TD key={round.id} className="text-end font-mono text-xs text-fg-muted">
@@ -295,6 +281,7 @@ export function SideAllocationsPanel({
   teamsById: Map<string, Team>;
 }) {
   const { t } = useI18n();
+  const { tournament } = useTournament();
   const teamIds = Object.keys(allocations.teams).sort((left, right) =>
     (teamsById.get(left)?.name ?? "").localeCompare(teamsById.get(right)?.name ?? "") || left.localeCompare(right)
   );
@@ -317,7 +304,7 @@ export function SideAllocationsPanel({
                   <TD className="text-xs font-semibold text-fg"><PublicTeamName team={teamsById.get(teamId)} /></TD>
                   {allocations.rounds.map((round) => {
                     const side = allocations.teams[teamId]?.[round.id];
-                    return <TD key={round.id} className="text-xs">{side ? t(`side.${side}`) : "—"}</TD>;
+                    return <TD key={round.id} className="text-xs">{side ? translatedSideName(t, side, tournament?.preferences) : "—"}</TD>;
                   })}
                 </TR>
               ))}

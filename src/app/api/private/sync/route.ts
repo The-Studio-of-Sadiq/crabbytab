@@ -4,6 +4,7 @@ import {
   Adjudicator,
   BallotSubmission,
   FeedbackSubmission,
+  Motion,
   Round,
   Team,
   Tournament,
@@ -23,12 +24,32 @@ import {
   isDrawVisibleToAdjudicators,
   getPrivatePortalBallots,
   sanitizeTeamPrivateDebate,
+  createPortalNamer,
+  portalUsesParticipantCodeNames,
+  renamePortalBallot,
+  renamePortalDebate,
+  renamePortalTeam,
 } from "@/lib/privatePortalBallots";
 import { selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
-import { checkParticipantFeedback, planParticipantBallotWrites } from "@/lib/participantSubmissions";
+import {
+  checkParticipantFeedback,
+  planParticipantBallotWrites,
+  supersededFeedbackUpdate,
+  supersededParticipantFeedbackIds,
+} from "@/lib/participantSubmissions";
 import { applyPrivateBallotConfirmation } from "@/lib/privateIndividualBallots";
-import { loadBallotsForDebates, loadParticipantDebates, loadPortalVenues, loadTeamsById } from "@/lib/privateParticipantData";
+import {
+  loadBallotsForDebates,
+  loadMotionsForRounds,
+  loadParticipantDebates,
+  loadPortalVenues,
+  loadTeamsById,
+  portalRoundProjection,
+} from "@/lib/privateParticipantData";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
+import { participantBallotAsksMotion, participantRoundMotions } from "@/lib/ballots/participantMotion";
+import { motionsVisible } from "@/features/tournament/application/motionRelease";
+import { withoutUnreleasedMotion } from "@/lib/privatePortalBallots";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { checkInEvent } from "@/lib/checkins/history";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
@@ -37,6 +58,30 @@ export const runtime = "nodejs";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * The motions an adjudicator's ballot form offers: those of rounds with several motions (with
+ * motions on), restricted to the fields the form needs and to the adjudicator's rounds.
+ */
+function portalBallotMotions(motions: Motion[], roundIds: ReadonlySet<string>, tournament: Tournament): Motion[] {
+  const asking = [...roundIds].filter((roundId) =>
+    participantBallotAsksMotion(tournament.preferences, participantRoundMotions(motions, roundId))
+  );
+  if (asking.length === 0) return [];
+  return motions.flatMap((motion) => {
+    const rounds = (motion.rounds || []).filter((roundId) => asking.includes(roundId));
+    if (rounds.length === 0) return [];
+    return [{
+      id: motion.id,
+      tournamentId: tournament.id,
+      text: motion.text,
+      rounds,
+      ...(motion.seq !== undefined ? { seq: motion.seq } : {}),
+      ...(motion.roundSeq ? { roundSeq: Object.fromEntries(Object.entries(motion.roundSeq).filter(([roundId]) => rounds.includes(roundId))) } : {}),
+      released: motion.released === true,
+    }];
+  });
 }
 
 function validDocumentId(value: unknown): value is string {
@@ -169,10 +214,25 @@ export async function POST(request: NextRequest) {
         Object.values(debate.teams || {}).flatMap((slot) => (slot?.teamId ? [slot.teamId] : []))
       )
     );
+    // Motions of the adjudicator's rounds still taking ballots, and of the debates in pending ballots:
+    // a participant ballot records the debated motion, chosen on the form when the round has several.
+    const pendingBallotRoundIds = (pending as unknown[]).flatMap((item) => {
+      const debateId = isRecord(item) && item.collection === "ballots" && isRecord(item.record) ? item.record.debateId : undefined;
+      const debate = typeof debateId === "string" ? assignedDebates.get(debateId) : undefined;
+      return debate ? [debate.roundId] : [];
+    });
+    const motionRoundIds = actorType === "adjudicator"
+      ? new Set([
+          ...[...assignedDebates.values()].filter((debate) => roundById.get(debate.roundId)?.completed !== true).map((debate) => debate.roundId),
+          ...pendingBallotRoundIds,
+        ])
+      : new Set<string>();
+    const portalMotions = motionRoundIds.size > 0 ? await loadMotionsForRounds(tournamentRef, motionRoundIds) : [];
 
     const batch = firestore.batch();
     let uploadedCount = 0;
     const ballotSubmissions: BallotSubmission[] = [];
+    const feedbackSubmissions: FeedbackSubmission[] = [];
     for (const item of pending as unknown[]) {
       if (!isRecord(item) || !isRecord(item.record)) {
         return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
@@ -216,6 +276,8 @@ export async function POST(request: NextRequest) {
             teams,
             tournamentId,
             round: roundById.get(debate.roundId),
+            rounds: [...roundById.values()],
+            roundMotions: participantRoundMotions(portalMotions, debate.roundId),
           });
         } catch (error) {
           return NextResponse.json(
@@ -250,8 +312,35 @@ export async function POST(request: NextRequest) {
           );
         }
         batch.set(feedbackRef, feedback);
+        feedbackSubmissions.push(feedback);
       }
       uploadedCount += 1;
+    }
+
+    // A participant's new feedback replaces their earlier feedback on the same target in the same
+    // debate (Tabbycat versions feedback), so it is never counted twice.
+    if (feedbackSubmissions.length > 0) {
+      const feedbackCollection = tournamentRef.collection("feedback");
+      const debateIds = [...new Set(feedbackSubmissions.map((feedback) => feedback.debateId))];
+      const snapshots = await Promise.all(
+        debateIds.map((debateId) =>
+          feedbackCollection.where("debateId", "==", debateId).where("sourceId", "==", actorDocument.id).get()
+        )
+      );
+      const existingFeedback = snapshots.flatMap((snapshot) =>
+        snapshot.docs
+          .filter((document) => typeof document.data().deletedAt !== "string")
+          .map((document) => ({ ...(document.data() as FeedbackSubmission), id: document.id }))
+      );
+      const existingById = new Map(existingFeedback.map((feedback) => [feedback.id, feedback]));
+      for (const id of supersededParticipantFeedbackIds(feedbackSubmissions, existingFeedback, tournament, roundById)) {
+        const replacedInUpload = feedbackSubmissions.find((feedback) => feedback.id === id);
+        if (replacedInUpload) {
+          batch.set(feedbackCollection.doc(id), { ...replacedInUpload, confirmed: false });
+        } else {
+          batch.update(feedbackCollection.doc(id), supersededFeedbackUpdate(existingById.get(id) ?? {}));
+        }
+      }
     }
 
     let writtenBallots: BallotSubmission[] = [];
@@ -403,7 +492,8 @@ export async function POST(request: NextRequest) {
       });
     const privateRounds = roundsSnapshot.docs
       .filter((document) => assignedRoundIds.has(document.id))
-      .map((document) => ({ ...document.data(), id: document.id }));
+      // Only the fields the portal needs: never preformed panels, preallocated sides or the draw seed.
+      .map((document) => portalRoundProjection({ ...document.data(), id: document.id }));
     const safeAdjudicator = actorType === "adjudicator" && adjudicator ? {
       tournamentId,
       name: adjudicator.name,
@@ -439,20 +529,43 @@ export async function POST(request: NextRequest) {
       tournamentRef,
       [...assignedDebates.values()].filter((debate) => roundsById.get(debate.roundId)?.completed !== true)
     );
+    // Team and participant code names on the portal (Tabbycat: private URLs are non-admin pages).
+    const panelAdjudicatorIds = portalUsesParticipantCodeNames(tournament.preferences)
+      ? [...new Set([...assignedDebates.values()].flatMap((debate) => [
+          debate.adjudicators?.chairId,
+          ...(debate.adjudicators?.panellistIds ?? []),
+          ...(debate.adjudicators?.traineeIds ?? []),
+        ]).filter((id): id is string => Boolean(id)))]
+      : [];
+    const panelAdjudicators = (await Promise.all(
+      panelAdjudicatorIds.map((id) => tournamentRef.collection("adjudicators").doc(id).get())
+    )).flatMap((snapshot) => {
+      const data = snapshot.data();
+      return snapshot.exists && data ? [{ id: snapshot.id, name: String(data.name ?? ""), codeName: typeof data.codeName === "string" ? data.codeName : undefined }] : [];
+    });
+    const portalNamer = createPortalNamer({
+      preferences: tournament.preferences,
+      viewer: { type: actorType, id: actorDocument.id },
+      teams: teams.values(),
+      adjudicators: panelAdjudicators,
+    });
     const responseDebates = [...assignedDebates.values()].map((debate) =>
-      actorType === "team"
-        ? sanitizeTeamPrivateDebate(
-            debate,
-            roundsById.get(debate.roundId),
-            tournament.preferences?.publicResults !== false
-          )
-        : debate
+      renamePortalDebate(
+        actorType === "team"
+          ? sanitizeTeamPrivateDebate(
+              debate,
+              roundsById.get(debate.roundId),
+              tournament.preferences?.publicResults !== false
+            )
+          : withoutUnreleasedMotion(debate, roundsById.get(debate.roundId)),
+        portalNamer
+      )
     );
 
     return NextResponse.json({
       uploadedCount,
       selfCheckIn: selfCheckInStatus(tournament.preferences, [...roundById.values()], actorAvailability),
-      ballots,
+      ballots: ballots.map((ballot) => renamePortalBallot(ballot, portalNamer)),
       feedback,
       tournament: {
         id: tournament.id,
@@ -464,10 +577,16 @@ export async function POST(request: NextRequest) {
       },
       ...(safeAdjudicator ? { adjudicator: { ...safeAdjudicator, id: actorDocument.id, privateUrlKey } } : {}),
       ...(safeTeam ? { team: { ...safeTeam, id: actorDocument.id } } : {}),
-      teams: privateTeams,
+      teams: privateTeams.map((team) => renamePortalTeam(team, portalNamer)),
       rounds: privateRounds,
       debates: responseDebates,
       venues,
+      // Motion choices for the adjudicator's ballots, only for rounds that ask which motion was debated.
+      motions: portalBallotMotions(
+        portalMotions,
+        new Set([...motionRoundIds].filter((roundId) => motionsVisible(roundsById.get(roundId)))),
+        tournament
+      ),
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);

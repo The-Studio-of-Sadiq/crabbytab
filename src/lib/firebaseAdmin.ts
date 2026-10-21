@@ -37,6 +37,14 @@ function getAdminApp() {
   });
 }
 
+/**
+ * Whether admin credentials are configured (a service-account JSON or a credentials file). Pages
+ * that only enrich the site, such as the sitemap, check this to degrade quietly instead of failing.
+ */
+export function hasAdminCredentials(env: Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+}
+
 export function getAdminAuth() {
   return getAuth(getAdminApp());
 }

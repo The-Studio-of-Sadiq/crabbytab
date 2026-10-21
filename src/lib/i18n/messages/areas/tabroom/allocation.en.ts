@@ -187,6 +187,13 @@ export const allocationEn = {
   "tabroom.allocation.panelsFromAnticipated": "Create from anticipated draw",
   "tabroom.allocation.panelsFromAnticipatedTitle":
     "One panel per room the next draw is expected to have, annotated with its possible bracket range and live teams",
+  "tabroom.allocation.panelsAutoFill": "Auto-allocate adjudicators",
+  "tabroom.allocation.panelsAutoFillTitle":
+    "Fill every panel with Tabbycat's Hungarian allocator (voting or consensus), replacing its members. Review, then save.",
+  "tabroom.allocation.panelsAutoFilled": "Adjudicators allocated to the panels. Review them, then save.",
+  "tabroom.allocation.panelsAutoFilledWithWarnings":
+    "Adjudicators allocated to the panels, with warnings: {warnings} Review them, then save.",
+  "tabroom.allocation.panelsAutoFillFailed": "Could not allocate adjudicators to the panels.",
   "tabroom.allocation.panelsPrioritiseBracket": "Prioritise by bracket",
   "tabroom.allocation.panelsPrioritiseLiveness": "Prioritise by liveness",
   "tabroom.allocation.panelsSave": "Save panels",
@@ -233,4 +240,6 @@ export const allocationEn = {
   "tabroom.allocation.panelsAddTraineeAria": "Add a trainee to panel {number}",
   "tabroom.allocation.panelsOption": "{name} ({institution}) · {score}",
   "tabroom.allocation.panelsOptionNoInstitution": "{name} · {score}",
+  "tabroom.allocation.panellistPositionClosed": "The panellist position is turned off for this tournament (Settings, adjudicator allocation).",
+  "tabroom.allocation.traineePositionClosed": "The trainee position is turned off for this tournament (Settings, adjudicator allocation).",
 } as const;

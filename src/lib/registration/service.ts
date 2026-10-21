@@ -19,6 +19,7 @@ import type {
   RepresentativeSummary,
 } from "@/lib/registration/types";
 import { applyTransfer } from "@/lib/registration/transfers";
+import { channelRefusal } from "@/lib/registration/access";
 import {
   cleanText,
   defaultRegistrationSettings,
@@ -99,7 +100,11 @@ export async function loadRepresentativeByToken(
   }
   const snapshot = await registrationRefs(tournamentRef).representatives.doc(parsed.recordId).get();
   const record = snapshot.data() as RegistrationRepresentative | undefined;
-  if (!record || !linkSecretMatches(parsed.secret, record.tokenHash)) {
+  if (
+    !record ||
+    !(linkSecretMatches(parsed.secret, record.tokenHash) ||
+      (record.landingTokenHash !== undefined && linkSecretMatches(parsed.secret, record.landingTokenHash)))
+  ) {
     throw new RegistrationError("This registration link is not valid.", 404, true);
   }
   if (record.status !== "active") throw new RegistrationError("This registration link was withdrawn by the tournament.", 410);
@@ -117,6 +122,8 @@ function windowError(settings: RegistrationSettings, now: number): RegistrationE
 export interface RepresentativeView {
   institutionName: string;
   name: string;
+  /** The institution registered but has no places yet: the link can only show its request. */
+  awaitingPlaces?: boolean;
   remaining: { team: number | null; adjudicator: number | null };
   /** With slot transfers on: the other institutions places can be given to. */
   transferTargets?: Array<{ id: string; institutionName: string }>;
@@ -137,11 +144,16 @@ export async function describeRepresentative(
       adjudicator: remainingPlaces(counters, "adjudicator", key, quotaLimits("adjudicator", settings, representative)),
     },
   };
+  if (representative.awaitingPlaces) {
+    view.awaitingPlaces = true;
+    view.remaining = { team: 0, adjudicator: 0 };
+    return view;
+  }
   if (settings.slotTransfers) {
     const others = await registrationRefs(tournamentRef).representatives.where("status", "==", "active").get();
     view.transferTargets = others.docs
       .map((document) => document.data() as RegistrationRepresentative)
-      .filter((other) => other.id !== representative.id && other.institution.key !== representative.institution.key)
+      .filter((other) => other.id !== representative.id && other.institution.key !== representative.institution.key && !other.awaitingPlaces)
       .map((other) => ({ id: other.id, institutionName: other.institution.name }))
       .filter((other, index, all) => all.findIndex((item) => item.institutionName === other.institutionName) === index)
       .sort((left, right) => left.institutionName.localeCompare(right.institutionName));
@@ -176,10 +188,15 @@ export async function submitRegistration(input: {
   if (closed) throw closed;
   const hasToken = typeof input.representativeToken === "string" && input.representativeToken.trim() !== "";
   const representative = hasToken ? await loadRepresentativeByToken(input.tournamentRef, input.representativeToken) : undefined;
-  if (settings.representativesOnly && !representative) {
-    throw new RegistrationError("Registration is through institution representatives only. Use the link your representative received.", 403);
-  }
   const entry = parseRegistrationEntry(input.registration, settings, { institution: representative?.institution });
+  if (entry.kind !== "institution") {
+    // Open and representative registration are separate switches (src/lib/registration/access.ts).
+    const refusal = channelRefusal(settings, entry.kind, Boolean(representative));
+    if (refusal) throw new RegistrationError(refusal, 403);
+    if (representative?.awaitingPlaces) {
+      throw new RegistrationError("Your institution's places have not been allocated yet. You will get your registration link by email once they are.", 403);
+    }
+  }
   const reference = refs.submissions.doc();
   const timestamp = new Date(input.now).toISOString();
 
@@ -398,7 +415,17 @@ export function parseRepresentativeInput(input: unknown): RepresentativeInput {
 /** A new representative record (or a renewed one) with a fresh link token. */
 export function issueRepresentative(
   input: RepresentativeInput,
-  context: { tournamentId: string; actorUid: string; now: number; previous?: RegistrationRepresentative }
+  context: {
+    tournamentId: string;
+    actorUid: string;
+    now: number;
+    previous?: RegistrationRepresentative;
+    /**
+     * Allocating places to a registered institution: the link emailed when it registered keeps
+     * working (Tabbycat's coach landing page). A "new link" never keeps old links.
+     */
+    keepLandingLink?: boolean;
+  }
 ): { record: RegistrationRepresentative; token: string } {
   const id = representativeIdFor(input.institution, input.email);
   const { token, secretHash } = createLinkToken(context.tournamentId, id);
@@ -415,7 +442,42 @@ export function issueRepresentative(
   };
   if (input.teamQuota !== undefined) record.teamQuota = input.teamQuota;
   if (input.adjudicatorQuota !== undefined) record.adjudicatorQuota = input.adjudicatorQuota;
+  const previous = context.previous;
+  if (context.keepLandingLink && previous?.status === "active") {
+    const landing = previous.landingTokenHash ?? (previous.awaitingPlaces ? previous.tokenHash : undefined);
+    if (landing) record.landingTokenHash = landing;
+  }
   return { record, token };
+}
+
+/**
+ * Tabbycat's coach landing page: when an institution registers, its contact gets a representative
+ * link at once (`awaitingPlaces`), to follow the registration. Nothing is issued when that
+ * institution and email already have a representative record (an organiser-added representative is
+ * never downgraded). Returns the new token, or null.
+ */
+export async function issueInstitutionLanding(input: {
+  firestore: Firestore;
+  tournamentRef: DocumentReference;
+  submission: Pick<RegistrationSubmission, "kind" | "institution" | "contactEmail" | "contactName">;
+  now: number;
+}): Promise<string | null> {
+  const { submission } = input;
+  if (submission.kind !== "institution" || !submission.institution) return null;
+  const email = normalizeEmail(submission.contactEmail);
+  if (!email) return null;
+  const institution = submission.institution;
+  const id = representativeIdFor(institution, email);
+  const reference = registrationRefs(input.tournamentRef).representatives.doc(id);
+  return input.firestore.runTransaction(async (transaction) => {
+    if ((await transaction.get(reference)).exists) return null;
+    const { record, token } = issueRepresentative(
+      { institution, email, name: submission.contactName },
+      { tournamentId: input.tournamentRef.id, actorUid: "registration", now: input.now }
+    );
+    transaction.create(reference, { ...record, awaitingPlaces: true });
+    return token;
+  });
 }
 
 export function representativeLink(origin: string, slug: string, token: string): string {
@@ -466,8 +528,9 @@ export async function requestSlotTransfer(input: {
   const refs = registrationRefs(input.tournamentRef);
   const settings = readSettings((await refs.settingsRef.get()).data());
   if (!settings?.slotTransfers) throw new RegistrationError("This tournament does not take place transfers.", 403);
+  if (input.representative.awaitingPlaces) throw new RegistrationError("Your institution's places have not been allocated yet.", 403);
   const target = (await refs.representatives.doc(input.toRepresentativeId).get()).data() as RegistrationRepresentative | undefined;
-  if (!target || target.status !== "active" || target.institution.key === input.representative.institution.key) {
+  if (!target || target.status !== "active" || target.awaitingPlaces || target.institution.key === input.representative.institution.key) {
     throw new RegistrationError("Choose another registered institution.", 400);
   }
   const reference = refs.transfers.doc();

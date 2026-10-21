@@ -12,6 +12,11 @@ export const shellEn = {
   "setup.shell.adminAccessHelp":
     "Private URLs, email tools, draws, allocations, and settings require a verified tournament administrator. If you own this tournament, check the server Firebase credentials and that your account is listed as its owner or admin.",
 
+  "setup.shell.permissionAccessTitle": "This page needs another staff permission",
+  "setup.shell.permissionAccessNotAuthorized": "Your staff access does not include this page.",
+  "setup.shell.permissionAccessHelp":
+    "A tournament administrator can add the permission to your staff groups on the Staff page.",
+
   // Round status (shared by the shell and the overview)
   "setup.shell.roundStatusReleasedShort": "Released",
   "setup.shell.roundStatusReleased": "Draw released",

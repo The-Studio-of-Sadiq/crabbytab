@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AdjudicatorAllocationError,
   allocateTabbycatHungarian,
   hungarianStrengthCost,
   type HungarianCandidate,
@@ -55,10 +56,8 @@ describe("Tabbycat voting Hungarian", () => {
     expect(warnings[1]).toMatch(/1 panel debates but only 0 available panellists/);
   });
 
-  it("returns empty panels and a warning with no voters", () => {
-    const result = allocateTabbycatHungarian(input({ voters: [] }));
-    expect(result.panels.every((panel) => !panel.chairId)).toBe(true);
-    expect(result.warnings).toHaveLength(1);
+  it("refuses to allocate with no voters (Tabbycat AdjudicatorAllocationError)", () => {
+    expect(() => allocateTabbycatHungarian(input({ voters: [] }))).toThrow(AdjudicatorAllocationError);
   });
 
   it("avoids conflicted seats", () => {

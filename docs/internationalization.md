@@ -150,23 +150,43 @@ translated.
 
 ## Adding a language
 
-1. Add an entry to `LOCALES` in `src/lib/i18n/config.ts`:
-   ```ts
-   { code: "es", nativeName: "Español", englishName: "Spanish", intlLocale: "es", machineDrafted: true },
+1. Create the catalogue from the template:
+   ```bash
+   npm run i18n:new -- sw
    ```
-   Use a BCP 47 primary language code. Add a region (`pt-BR`) only if you
-   ship regional variants.
-2. Create `src/lib/i18n/messages/locales/es.json` with every key from
-   `en.ts` (a flat JSON object).
-3. Add a loader for it in `src/lib/i18n/messages/index.ts` (a literal
-   `import()` path, so the bundler makes it its own chunk).
-4. Run `npm test`. The catalogue test lists every missing key, unknown key,
-   missing plural category, and placeholder or markup mismatch.
-5. Check the public page and both portals in the new language. Look at long
-   words in buttons and table headers, and at RTL layout if it applies.
+   This writes `src/lib/i18n/messages/locales/sw.json` with every English key (English text as
+   the value to translate) and every plural category the language needs, worked out with
+   `Intl.PluralRules` (for example `_few` and `_many` for Russian). It refuses to overwrite an
+   existing file unless `I18N_OVERWRITE=1` is set. Use a BCP 47 code; add a region (`pt-BR`)
+   only for a regional variant.
+2. Translate the values. Keep `{placeholders}` and `<tag>…</tag>` markup exactly as in English,
+   follow the debate terms of Tabbycat's own translation for the language where one exists, and
+   leave product names (CrabbyTab, Tabbycat, CSV, API…) untranslated.
+3. Add an entry to `LOCALES` in `src/lib/i18n/config.ts`:
+   ```ts
+   { code: "sw", nativeName: "Kiswahili", englishName: "Swahili", intlLocale: "sw", machineDrafted: true },
+   ```
+   Use an `intlLocale` such as `xx-u-nu-latn` if the language's default digits are not Latin
+   (scores are checked against paper ballots). Right-to-left is detected from the code.
+4. Add a loader line in `src/lib/i18n/messages/index.ts` (a literal `import()` path, so the
+   bundler makes the catalogue its own chunk):
+   ```ts
+   sw: () => import("@/lib/i18n/messages/locales/sw.json").then(json),
+   ```
+5. Check it:
+   ```bash
+   npm run i18n:check
+   ```
+   The catalogue test lists every missing key, unknown key, missing plural category, and
+   placeholder or markup mismatch.
+6. Look at the public page, both portals and a few staff pages in the new language: long words
+   in buttons and table headers, and the right-to-left layout if it applies.
 
-The language then appears in the switcher and in the tournament
-public-language setting. It is also matched against browser preferences.
+The language then appears in the switcher and in the tournament public-language setting, and is
+matched against browser preferences.
+
+When English strings are added later, `npm run i18n:check` reports the keys each catalogue is
+missing; add them (translated) to every catalogue in the same pull request.
 
 ### Machine-drafted catalogues
 
@@ -205,8 +225,9 @@ Translated (the viewer's language unless noted):
   participant, institution, team and adjudicator record, motion-statistics
   and results panels; public check-ins, the public audit log, the public
   schedule, public ballot and feedback forms, and public registration
-  (`/register/[slug]`). On these pages the tournament's public language
-  applies when the viewer has not chosen one.
+  (`/register/[slug]`). On the public tab, record pages and private portals the
+  tournament's public language applies when the viewer has not chosen one;
+  registration follows the viewer's own choice or browser language.
 - **Private portals:** the team and adjudicator portals, including the
   passcode screen, self check-in, feedback forms, tournament feedback
   questions and in-portal ballot entry.

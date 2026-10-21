@@ -96,6 +96,11 @@ class FakeCollection {
   aggregate(spec: Record<string, unknown>) {
     return {
       get: async () => {
+        // Like Firestore without a composite index: sums over two different fields in one
+        // aggregation fail with FAILED_PRECONDITION.
+        if ("versionSum" in spec && "ballotVersionSum" in spec) {
+          throw new Error("9 FAILED_PRECONDITION: The query requires an index.");
+        }
         this.store.reads += 1;
         const records = this.matching().map((document) => this.store.docs.get(document.path)!);
         const sum = (field: string) => records.reduce((total, record) => total + (Number(record[field]) || 0), 0);

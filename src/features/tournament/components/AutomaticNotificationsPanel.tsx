@@ -59,8 +59,9 @@ const OPTIONS: {
   {
     key: "notifyBallotReceipt",
     label: "setup.email.notifyBallotReceipt",
-    description: "setup.email.notifyBallotReceiptHelp",
-    events: [],
+    description: "setup.email.notifyBallotReceiptAllHelp",
+    // Receipts also go out for tab-room confirmations; switching on starts after the current ones.
+    events: ["ballot_confirmed"],
   },
 ];
 

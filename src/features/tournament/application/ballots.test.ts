@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { BallotSubmission } from "@/types";
-import { confirmBallotCommand, discardBallotCommand, submitBallotCommand, type BallotWorkflowDependencies } from "./ballots";
+import { isTabRoomConfirmed } from "@/lib/privateSync";
+import { confirmBallotCommand, discardBallotCommand, submitBallotCommand, TAB_ROOM_CONFIRMER, type BallotWorkflowDependencies } from "./ballots";
 
 function makeBallot(overrides: Partial<BallotSubmission> = {}): BallotSubmission {
   const teamScore = (side: "OG" | "OO" | "CG" | "CO" | "AFF" | "NEG") => ({
@@ -163,6 +164,17 @@ describe("result-changing ballot actions", () => {
     expect(calls.slice(0, 2)).toEqual(["ballots", "round"]);
   });
 
+  it("stamps one confirmation once: both saves of a ballot submitted confirmed carry the same record", async () => {
+    const saves: BallotSubmission[][] = [];
+    const { dependencies } = makeDependencies({ debates: [debate as never] });
+    dependencies.repository.saveBallots = (items) => saves.push(items);
+    const submitted = makeBallot({ confirmed: true, confirmedBy: "tab@example.org", confirmedTimestamp: "2026-01-01T00:00:01.000Z" });
+    await submitBallotCommand(submitted, undefined, dependencies);
+    expect(saves).toHaveLength(2);
+    expect(saves[1][0]).toEqual(saves[0][0]);
+    expect(saves[1][0].confirmedTimestamp).toBe("2026-01-01T00:00:01.000Z");
+  });
+
   it("keeps a confirmed result when a new unconfirmed version is saved", async () => {
     let savedDebates: unknown[] = [];
     const confirmed = makeBallot({ id: "v1", confirmed: true });
@@ -223,7 +235,7 @@ describe("confirmBallotCommand", () => {
     await expect(confirmBallotCommand("v1", "debate-1", undefined, dependencies)).rejects.toThrow(/different teams/);
   });
 
-  it("confirms the identified ballot and discards the debate's other versions", async () => {
+  it("confirms the identified ballot and keeps the debate's other versions (Tabbycat)", async () => {
     let savedBallots: BallotSubmission[] = [];
     let savedDebates: Array<{ resultStatus: string }> = [];
     const { dependencies } = makeDependencies({
@@ -232,8 +244,44 @@ describe("confirmBallotCommand", () => {
       repository: { saveBallots(items) { savedBallots = items; }, saveDebates(items) { savedDebates = items as never; } },
     });
     await confirmBallotCommand("v2", "debate-1", undefined, dependencies);
-    expect(savedBallots.map((item) => [item.id, item.confirmed, item.discarded])).toEqual([["v1", false, true], ["v2", true, false]]);
+    expect(savedBallots.map((item) => [item.id, item.confirmed, item.discarded])).toEqual([["v1", false, false], ["v2", true, false]]);
     expect(savedDebates[0].resultStatus).toBe("confirmed");
+  });
+
+  it("only unconfirms the previously confirmed version and leaves drafts alone", async () => {
+    let savedBallots: BallotSubmission[] = [];
+    const { dependencies } = makeDependencies({
+      ballots: [
+        makeBallot({ id: "v1", confirmed: true, confirmedBy: "Someone" }),
+        makeBallot({ id: "v2", version: 2 }),
+        makeBallot({ id: "v3", version: 3 }),
+      ],
+      debates: [debate as never],
+      repository: { saveBallots(items) { savedBallots = items; }, saveDebates() {} },
+    });
+    await confirmBallotCommand("v3", "debate-1", undefined, dependencies);
+    expect(savedBallots.map((item) => [item.id, item.confirmed, item.discarded])).toEqual([
+      ["v1", false, false],
+      ["v2", false, false],
+      ["v3", true, false],
+    ]);
+  });
+
+  it("records who confirmed a stored ballot, so a judge's ballot confirmed by the tab room is protected", async () => {
+    let savedBallots: BallotSubmission[] = [];
+    const judgeBallot = makeBallot({ id: "j1", submitterType: "judge", submitterId: "chair", submitterName: "Chair" });
+    const { dependencies } = makeDependencies({
+      ballots: [judgeBallot],
+      debates: [debate as never],
+      repository: { saveBallots(items) { savedBallots = items; }, saveDebates() {} },
+    });
+    await confirmBallotCommand("j1", "debate-1", undefined, { ...dependencies, confirmer: { name: "Tab Director", id: "uid-1" } });
+    expect(savedBallots[0]).toMatchObject({ confirmed: true, confirmedBy: "Tab Director", confirmedById: "uid-1" });
+    expect(isTabRoomConfirmed(savedBallots[0])).toBe(true);
+
+    await confirmBallotCommand("j1", "debate-1", undefined, { ...dependencies, ballots: [judgeBallot] });
+    expect(savedBallots[0].confirmedBy).toBe(TAB_ROOM_CONFIRMER);
+    expect(isTabRoomConfirmed(savedBallots[0])).toBe(true);
   });
 
   it("saves nothing when a confirmed submission targets a missing debate", async () => {

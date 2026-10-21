@@ -6,7 +6,7 @@ import { FileCheck2, Loader2 } from "lucide-react";
 import type { Debate, DebateSide, SpeakerScoreEntry, Team } from "@/types";
 import {
   applyScoreCriteria,
-  ballotSides,
+  rulesSides,
   buildBallotResult,
   effectiveRanks,
   substantiveSpeakerCount,
@@ -16,9 +16,12 @@ import {
 } from "@/lib/ballots/result";
 import { speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
 import { privateBallotRules } from "@/lib/privateBallot";
+import { isPolyFormat } from "@/lib/debateSides";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/lib/draw/manualSides";
 import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
 import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
+import { MotionChoiceFields } from "@/features/tournament/components/ballot/MotionChoiceFields";
+import { participantBallotAsksMotion, participantBallotAsksVetoes } from "@/lib/ballots/participantMotion";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { PublicCenteredCard, PublicShell } from "@/components/public/PublicShell";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -182,9 +185,10 @@ function PublicBallotEntry({
 }) {
   const { t } = useI18n();
   const tournament = context.tournament;
-  const rules = privateBallotRules(tournament, context.round);
-  const sides = ballotSides(rules.format);
+  const rules = privateBallotRules(tournament, context.round, context.debate);
+  const sides = rulesSides(rules);
   const isBP = tournament.format === "bp";
+  const poly = isPolyFormat(tournament.format);
   const rosters = new Map(context.teams.map((team) => [team.id, team.speakers as Roster]));
   const drawn = context.debate;
   const manualSides = sidesChosenOnBallot(drawn);
@@ -195,6 +199,7 @@ function PublicBallotEntry({
       blankSpeeches(rosters.get(debate.teams[side]?.teamId || "") || [], rules),
     ])) as Record<DebateSide, SpeakerScoreEntry[]>,
     ranks: Object.fromEntries(sides.map((side, index) => [side, index + 1])),
+    ...(poly ? { winners: [] } : {}),
     motionId: debate.motionId || "",
   });
 
@@ -207,6 +212,12 @@ function PublicBallotEntry({
   const [entry, setEntry] = useState<BallotEntry>(() => entryFor(initialArrangement().debate));
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Several motions: the adjudicator says which was debated (and, with vetoes on, each team's veto).
+  const roundMotions = context.motions ?? [];
+  const asksMotion = participantBallotAsksMotion(tournament.preferences, roundMotions);
+  const asksVetoes = participantBallotAsksVetoes(tournament.preferences, roundMotions);
+  const [motionId, setMotionId] = useState("");
+  const [vetoes, setVetoes] = useState<Partial<Record<DebateSide, string>>>({});
 
   const chooseAffirmative = (affTeamId: string) => {
     const negTeamId = [drawn.teams.AFF?.teamId, drawn.teams.NEG?.teamId].find((id) => id && id !== affTeamId);
@@ -222,6 +233,10 @@ function PublicBallotEntry({
     setError("");
     if (!chosen) {
       setError(t("adjPortal.ballot.chooseSides"));
+      return;
+    }
+    if (asksMotion && !roundMotions.some((motion) => motion.id === motionId)) {
+      setError(t("adjPortal.ballot.chooseMotion"));
       return;
     }
     const sideRosters = Object.fromEntries(sides.map((side) => [side, rosters.get(debate.teams[side]?.teamId || "") || []]));
@@ -244,7 +259,14 @@ function PublicBallotEntry({
         sourceType: "adjudicator",
         sourceId: context.adjudicator.id,
         ...(password !== undefined ? { password } : {}),
-        ballot: { speakerScores: result.speakerScores, teamScores: result.teamScores },
+        ballot: {
+          speakerScores: result.speakerScores,
+          teamScores: result.teamScores,
+          ...(asksMotion ? { motionId } : {}),
+          ...(asksVetoes
+            ? { vetoes: Object.fromEntries(Object.entries(vetoes).filter(([, vetoed]) => Boolean(vetoed) && vetoed !== motionId)) }
+            : {}),
+        },
       });
       onSubmitted(t("publicForms.ballotRecorded", { name: context.adjudicator.name, venue: debate.venueName ?? "" }));
     } catch (caught) {
@@ -259,7 +281,8 @@ function PublicBallotEntry({
   };
 
   const scored = usesSpeakerScores(rules);
-  const fromScores = scored && winnerDeclarationFor(rules.preferences) === "none";
+  // Poly ranks always come from the totals (Tabbycat's PolyScoresheet).
+  const fromScores = scored && (poly || winnerDeclarationFor(rules.preferences) === "none");
   const rankCount = scored && speakerRanksFor(rules.preferences) !== "none"
     ? sides.length * substantiveSpeakerCount(rules)
     : undefined;
@@ -283,8 +306,27 @@ function PublicBallotEntry({
       <CardBody>
         <form onSubmit={submit} className="space-y-4">
           {error && <Alert tone="danger" role="alert">{error}</Alert>}
-          {debate.motionText && (
+          {tournament.preferences?.ballotIntroExplanation?.trim() && (
+            <Alert tone="info" title={t("results.ballot.instructions")}>
+              <span className="whitespace-pre-line text-xs">{tournament.preferences.ballotIntroExplanation}</span>
+            </Alert>
+          )}
+          {!asksMotion && debate.motionText && (
             <p className="rounded-md border border-border bg-background p-2.5 text-[13px] text-fg">{debate.motionText}</p>
+          )}
+          {chosen && (
+            <MotionChoiceFields
+              idPrefix="public-ballot"
+              motions={roundMotions}
+              askMotion={asksMotion}
+              askVetoes={asksVetoes}
+              sides={sides}
+              teamNames={Object.fromEntries(sides.map((side) => [side, debate.teams[side]?.teamName || side]))}
+              motionId={motionId}
+              vetoes={vetoes}
+              onMotionChange={setMotionId}
+              onVetoChange={(side, vetoed) => setVetoes((current) => ({ ...current, [side]: vetoed }))}
+            />
           )}
           {manualSides && (
             <fieldset className="space-y-2 rounded-md border border-info-border bg-info-subtle p-3">
@@ -316,9 +358,25 @@ function PublicBallotEntry({
                       {slot?.teamName || t("adjPortal.ballot.unassigned")}
                     </h3>
                   </div>
-                  {fromScores ? (
+                  {poly && rules.polyScoresOnly ? null : poly && !scored ? (
+                    <label className="flex items-center gap-2 text-xs font-medium text-fg">
+                      <input
+                        type="checkbox"
+                        className={cn("h-4 w-4 shrink-0 accent-[rgb(var(--color-accent))]", focusRing)}
+                        checked={Boolean(entry.winners?.includes(side))}
+                        onChange={(event) => setEntry((current) => ({
+                          ...current,
+                          winners: event.target.checked
+                            ? [...(current.winners || []).filter((item) => item !== side), side]
+                            : (current.winners || []).filter((item) => item !== side),
+                        }))}
+                        aria-label={t("results.ballot.advancesLabel", { team: slot?.teamName || side })}
+                      />
+                      {t("results.ballot.advances")}
+                    </label>
+                  ) : fromScores ? (
                     <span className="text-xs font-medium text-fg-muted">
-                      {isBP ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
+                      {isBP || poly ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5">

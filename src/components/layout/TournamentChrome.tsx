@@ -11,6 +11,7 @@ import { Alert } from "@/components/ui/Feedback";
 import { cn } from "@/components/ui/cn";
 import { useI18n, useTournamentLocale } from "@/components/i18n/I18nProvider";
 import { RuleOverrideHost } from "@/features/tournament/components/RuleOverrideHost";
+import { meetsRouteRequirement, routeRequirement, sharedRouteKind, tournamentSubpathSegments } from "@/lib/tournamentRoutes";
 
 /**
  * Tournament pages already rebuilt on the design system (docs/design-system.md).
@@ -56,21 +57,18 @@ export function TournamentChrome({
     cloudLoadError,
     isOwnerOrAdmin,
     isDataEntryAssistant,
+    staffPermissions,
     staffAccessLoading,
     staffAccessError,
   } = useTournament();
   const { t } = useI18n();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
-  const isDisplay = pathname?.includes("/display");
-  const isPublicRoute = Boolean(pathname && (
-    /\/(public|display)(\/|$)/.test(pathname) ||
-    /\/private\//.test(pathname)
-  ));
-  const isAdminRoute = Boolean(pathname && (
-    /\/(draw|allocation|config|staff|private-urls|email|break)(\/|$)/.test(pathname) ||
-    /\/imports\/(venues|motions|assistants)(\/|$)/.test(pathname) ||
-    /\/audit(\/|$)/.test(pathname)
-  ));
+  // Matched on the segments after the slug, so a slug like "public-speaking-open" stays a staff route.
+  const segments = tournamentSubpathSegments(pathname, tournamentSlug) ?? [];
+  const sharedKind = sharedRouteKind(segments);
+  const isDisplay = sharedKind === "display";
+  const isPublicRoute = sharedKind !== null;
+  const requirement = routeRequirement(segments);
 
   React.useEffect(() => {
     if (!isPublicRoute && !authLoading && !user) {
@@ -144,10 +142,15 @@ export function TournamentChrome({
           />
           <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
             <div className="mx-auto w-full max-w-content px-3 py-4 sm:px-4 lg:px-6 lg:py-6">
-              {isAdminRoute && !isOwnerOrAdmin ? (
-                <Alert role="alert" tone="danger" title={<span className="text-sm">{t("setup.shell.adminAccessTitle")}</span>} className="max-w-2xl">
-                  <p>{staffAccessError || t("setup.shell.adminAccessNotAuthorized")}</p>
-                  <p className="mt-1">{t("setup.shell.adminAccessHelp")}</p>
+              {!meetsRouteRequirement(requirement, { isOwnerOrAdmin, permissions: staffPermissions }) ? (
+                <Alert
+                  role="alert"
+                  tone="danger"
+                  title={<span className="text-sm">{t(requirement.kind === "admin" ? "setup.shell.adminAccessTitle" : "setup.shell.permissionAccessTitle")}</span>}
+                  className="max-w-2xl"
+                >
+                  <p>{staffAccessError || t(requirement.kind === "admin" ? "setup.shell.adminAccessNotAuthorized" : "setup.shell.permissionAccessNotAuthorized")}</p>
+                  <p className="mt-1">{t(requirement.kind === "admin" ? "setup.shell.adminAccessHelp" : "setup.shell.permissionAccessHelp")}</p>
                 </Alert>
               ) : (
                 <div

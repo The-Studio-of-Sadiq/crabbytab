@@ -24,6 +24,13 @@ When an email cannot be sent (SMTP not configured, or the provider refused it), 
 is still created and its link is shown once on the staff page so it can be shared another way.
 Only a hash of the link's secret is stored, so a link cannot be shown again later: resend instead.
 
+## Changing a password
+
+Signed-in users change their password at `/account/password` (linked from the account menu and
+the setup pages' header): Firebase reauthenticates them with the current password, then sets the
+new one (at least 6 characters, different from the current one, typed twice). Forgotten passwords
+are still reset by email at `/forgot-password`.
+
 ## Security model
 
 - **Tokens.** A link token is `{tournamentId}.{invitationId}.{secret}` with a 256-bit random

@@ -1,4 +1,5 @@
 import type { GuardViolation } from "@/features/tournament/application/stateGuards";
+import type { BallotDifference } from "@/lib/ballots/result";
 import type { ValidationIssue } from "./schema";
 
 /**
@@ -25,6 +26,8 @@ export interface ApiErrorBody {
     message: string;
     issues?: ValidationIssue[];
     violations?: Array<Pick<GuardViolation, "rule" | "message" | "overridable" | "roundId" | "debateId">>;
+    /** Blind double entry: how an entry differs from the version it checks. */
+    differences?: BallotDifference[];
   };
 }
 

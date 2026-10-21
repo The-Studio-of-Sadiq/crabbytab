@@ -22,6 +22,19 @@ export interface MinCostPairingOptions {
   wins: Map<string, number>;
   /** Hard constraint: false when the two teams have no side assignment within the side limits. */
   canMeet: (a: Team, b: Team) => boolean;
+  /**
+   * Soft constraint, Tabbycat's `max_times_on_one_side` in graph matching: false for rooms Tabbycat
+   * would not offer. Used when some pairing avoids them all; otherwise it is dropped, so it never
+   * blocks a draw, and the draw check reports the side imbalance as a warning.
+   */
+  preferredCanMeet?: (a: Team, b: Team) => boolean;
+  /**
+   * Tabbycat's `subrank`: a team's rank within its own bracket on the standings metrics after the
+   * first (teams tied on every metric share one), used for the pairing-deviation cost in place of
+   * the position in the bracket. Undefined for a team pulled up into the bracket, which counts as
+   * last (the bracket's size), as in Tabbycat. Absent: positions 1..n in the bracket.
+   */
+  subrankOf?: (team: Team) => number | undefined;
   rng: Rng;
 }
 
@@ -87,10 +100,17 @@ export function minCostPairBracket(
   const n = ranked.length;
   if (n === 0) return [];
   const teams = options.pairingMethod === "random" ? shuffle(ranked, options.rng) : ranked;
-  const rank = (i: number) => i + 1;
+  const rank = options.subrankOf
+    ? (i: number) => options.subrankOf!(teams[i]) ?? n
+    : (i: number) => i + 1;
 
-  const deviation = (i: number, j: number) =>
+  const rawDeviation = (i: number, j: number) =>
     pairingDeviation(options.pairingMethod, rank(i), rank(j), n, options.isTopBracket);
+  // Tied subranks make Tabbycat's adjacent deviation -1; every perfect matching has n/2 rooms, so
+  // shifting all deviations by the same amount keeps the optimum and the costs non-negative.
+  let minDeviation = 0;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) minDeviation = Math.min(minDeviation, rawDeviation(i, j));
+  const deviation = (i: number, j: number) => rawDeviation(i, j) - minDeviation;
   let maxDeviation = 0;
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) maxDeviation = Math.max(maxDeviation, deviation(i, j));
 
@@ -100,10 +120,11 @@ export function minCostPairBracket(
   const conflictScale = tieBreakOnly ? (maxDeviation * n) / 2 + 1 : 1;
   const deviationWeight = tieBreakOnly ? 1 : Math.round(options.pairingDeviationPenalty);
 
-  const pairs = minCostPerfectMatching(n, (i, j) => {
-    if (!options.canMeet(teams[i], teams[j])) return null;
+  const solve = (preferred: (a: Team, b: Team) => boolean) => minCostPerfectMatching(n, (i, j) => {
+    if (!options.canMeet(teams[i], teams[j]) || !preferred(teams[i], teams[j])) return null;
     return conflictCost(teams[i], teams[j], history, options) * conflictScale + deviation(i, j) * deviationWeight;
   });
+  const pairs = (options.preferredCanMeet ? solve(options.preferredCanMeet) : null) ?? solve(() => true);
   if (!pairs) throw noValidPairingError(ranked);
 
   return pairs

@@ -1,8 +1,9 @@
 import type { Debate, DebateSide, Motion, MotionsStatus, Round } from "@/types";
-import { isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
+import { isDrawLocked, isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import { scheduleGroupOf } from "@/features/tournament/application/schedule";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { motionSeqInRound } from "@/lib/motions/roundMotions";
+import { isPolySide } from "@/lib/debateSides";
 
 /** Pure helpers for the projector display (`/[slug]/display`). */
 
@@ -24,9 +25,11 @@ const TWO_TEAM_ORDER: DebateSide[] = ["AFF", "NEG"];
  * and id so the order is stable). Mirrors Tabbycat's "draw by team" projector view.
  */
 export function buildAlphabeticalDraw(debates: Debate[], isBP: boolean): AlphabeticalDrawRow[] {
-  const order = isBP ? BP_ORDER : TWO_TEAM_ORDER;
   const rows: AlphabeticalDrawRow[] = [];
   for (const debate of debates) {
+    // Poly rooms list their own positions (P1 … Pk).
+    const polyOrder = Object.keys(debate.teams || {}).filter(isPolySide).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    const order: DebateSide[] = polyOrder.length > 0 ? polyOrder : isBP ? BP_ORDER : TWO_TEAM_ORDER;
     const slots = order
       .map((side) => debate.teams?.[side])
       .filter((slot): slot is NonNullable<typeof slot> => Boolean(slot?.teamId));
@@ -127,6 +130,7 @@ type ProjectorRound = Pick<Round, "id" | "seq" | "stage" | "cancelled" | "schedu
  * with `concurrent`, every other live round of the same stage in its schedule slot, by sequence.
  * Viewers who are not staff only see rounds whose draw is public (the projection's `drawPublic`
  * mark, or for older views a fully released draw while the legacy public-draw switch is on).
+ * Staff see confirmed draws before release (Tabbycat draw-display), never drafts.
  */
 export function projectorRounds<R extends ProjectorRound>(
   activeRound: R | null | undefined,
@@ -146,9 +150,48 @@ export function projectorRounds<R extends ProjectorRound>(
         ),
       ].sort((left, right) => left.seq - right.seq)
     : [activeRound];
-  if (options.staff) return candidates;
+  if (options.staff) return candidates.filter((round) => round.cancelled !== true && isDrawLocked(round));
   return candidates.filter((round) =>
     round.cancelled !== true &&
     (round.drawPublic ?? (options.legacyPublicDraw && isDrawPubliclyReleased(round)))
   );
+}
+
+/** Records a permitted staff member projects from: their working copy or their assistant data. */
+export interface ProjectorStaffCopy {
+  rounds: Round[];
+  debates: Debate[];
+  motions: Motion[];
+}
+
+/**
+ * The round the projector opens on for staff projecting their own copy: the tournament's current
+ * round, else the round the public view shows, else the latest confirmed draw.
+ */
+export function staffProjectorRound<R extends Pick<Round, "id" | "seq" | "cancelled" | "drawStatus">>(
+  rounds: readonly R[],
+  currentRoundId: string | null | undefined,
+  publicRoundId: string | null | undefined
+): R | undefined {
+  const live = rounds.filter((round) => round.cancelled !== true);
+  return (
+    live.find((round) => round.id === currentRoundId) ??
+    live.find((round) => round.id === publicRoundId) ??
+    [...live].filter((round) => isDrawLocked(round)).sort((left, right) => right.seq - left.seq)[0]
+  );
+}
+
+/**
+ * What the projector may show a viewer (Tabbycat draw-display and motions-display): administrators
+ * everything, data-entry staff what `draw.display` / `motions.display` grant, everyone else the
+ * public projection only.
+ */
+export function projectorAccess(input: {
+  isOwnerOrAdmin: boolean;
+  isDataEntryAssistant: boolean;
+  permissions: readonly string[];
+}): { draw: boolean; motions: boolean } {
+  if (input.isOwnerOrAdmin) return { draw: true, motions: true };
+  if (!input.isDataEntryAssistant) return { draw: false, motions: false };
+  return { draw: input.permissions.includes("draw.display"), motions: input.permissions.includes("motions.display") };
 }

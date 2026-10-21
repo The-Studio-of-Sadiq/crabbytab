@@ -183,10 +183,11 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
         {staffMay("conflicts.view") && (
           <NavLink href={`${base}/imports/conflicts`} icon={ShieldAlert} label={t("setup.shell.navConflicts")} />
         )}
+        {/* Tabbycat's assistant interface has the code-name decoder too. */}
+        <NavLink href={`${base}/imports/code-names`} icon={Tags} label={t("setup.shell.navCodeNames")} />
         {!isDataEntryAssistant && (
           <>
             <NavLink href={`${base}/imports/speaker-categories`} icon={Tags} label={t("setup.shell.navSpeakerCategories")} />
-            <NavLink href={`${base}/imports/code-names`} icon={Tags} label={t("setup.shell.navCodeNames")} />
             <NavLink href={`${base}/imports/adjudicator-requirements`} icon={Scale} label={t("setup.shell.navAdjRequirement")} />
             <NavLink href={`${base}/imports/venues`} icon={MapPin} label={t("setup.shell.navVenues")} />
             <NavLink href={`${base}/imports/venue-constraints`} icon={MapPin} label={t("setup.shell.navRoomPreferences")} />
@@ -253,9 +254,13 @@ function SidebarNav({ tournamentSlug }: { tournamentSlug: string }) {
           }
         />
         {feedbackEnabled && (staffMay("feedback.enter") || staffMay("feedback.view")) && <NavLink href={`${base}/feedback`} icon={MessageSquareHeart} label={t("setup.shell.navFeedback")} />}
-        <NavLink href={`${base}/standings`} icon={Trophy} label={t("setup.shell.navStandings")} />
-        <NavLink href={`${base}/break`} icon={Award} label={t("setup.shell.navBreak")} />
-        <NavLink href={`${base}/analytics`} icon={BarChart3} label={t("setup.shell.navAnalytics")} />
+        {staffMay("standings.view") && (
+          <>
+            <NavLink href={`${base}/standings`} icon={Trophy} label={t("setup.shell.navStandings")} />
+            <NavLink href={`${base}/break`} icon={Award} label={t("setup.shell.navBreak")} />
+            <NavLink href={`${base}/analytics`} icon={BarChart3} label={t("setup.shell.navAnalytics")} />
+          </>
+        )}
       </NavGroup>
 
       <NavGroup title={t("setup.shell.groupPublic")}>

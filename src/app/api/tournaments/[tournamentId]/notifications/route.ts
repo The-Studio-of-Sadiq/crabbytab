@@ -57,6 +57,7 @@ export async function POST(
       firestore,
       tournamentId,
       sender: { uid: user.uid, email: user.email || "", name: user.name || user.email || user.uid },
+      privateUrlOrigin: request.nextUrl.origin,
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

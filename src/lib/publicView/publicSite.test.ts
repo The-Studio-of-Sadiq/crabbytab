@@ -204,9 +204,72 @@ describe("anonymity and code names", () => {
     expect(hidden.collections.teams.find((team) => team.id === "team-a")).not.toHaveProperty("emoji");
   });
 
+  it("publishes the institution list only once its page is released", () => {
+    const hidden = project({ releaseTeamTab: true, showTeamInstitutions: false, showAdjudicatorInstitutions: false });
+    expect(hidden.collections.institutions).toEqual([]);
+    const json = text(hidden);
+    for (const leaked of ["Alpha Uni", "Beta Uni", "\"BU\"", "South"]) expect(json).not.toContain(leaked);
+
+    const released = project({ publicInstitutionsList: true, showTeamInstitutions: false });
+    expect(released.collections.institutions.map((institution) => institution.id)).toEqual(["inst-1", "inst-2"]);
+    expect(released.collections.institutions[1]).toMatchObject({ name: "Beta Uni", code: "BU", region: "South" });
+  });
+
   it("publishes break eligibility only when asked", () => {
     expect(project().collections.teams[0]).not.toHaveProperty("breakCategories");
     expect(project({ publicBreakCategories: true }).collections.teams[0]).toHaveProperty("breakCategories", ["open"]);
+  });
+});
+
+describe("all results and speaker category tab releases", () => {
+  it("publishes silent and elimination round results only with all results released", () => {
+    const data = source();
+    data.rounds.push({ id: "r3", seq: 3, name: "Final", stage: "elimination", drawStatus: "released", adjudicatorsRevealed: true, resultsReleased: false, completed: true, silent: true });
+    data.debates.push({ ...data.debates[1], id: "d3", roundId: "r3", roundSeq: 3 });
+    data.ballots.push({ ...data.ballots[1], id: "b3", roundId: "r3", debateId: "d3" });
+    const hidden = project({}, data);
+    expect(hidden.collections.ballots.map((ballot) => ballot.id)).toEqual(["b1"]);
+
+    const released = project({ releaseAllResults: true }, data);
+    expect(released.collections.ballots.map((ballot) => ballot.id).sort()).toEqual(["b1", "b2", "b3"]);
+    const r2 = released.collections.rounds.find((round) => round.id === "r2");
+    expect(r2).toMatchObject({ resultsReleased: true, silent: false, teamSpeaksReleased: false });
+    // Speaker scores of never-released team speaks stay private without an unlimited speaker tab.
+    expect(released.collections.ballots.find((ballot) => ballot.id === "b3")?.speakerScores).toEqual({});
+    const withTab = project({ releaseAllResults: true, releaseSpeakerTab: true }, data);
+    expect(Object.keys(withTab.collections.ballots.find((ballot) => ballot.id === "b3")?.speakerScores ?? {})).toEqual(["AFF", "NEG"]);
+    // A round that is not completed stays private.
+    data.rounds[2] = { ...data.rounds[2], completed: false };
+    expect(project({ releaseAllResults: true }, data).collections.ballots.map((ballot) => ballot.id)).not.toContain("b3");
+  });
+
+  it("marks always-trainee adjudicators only under show_unaccredited", () => {
+    const data = source();
+    data.adjudicators[2] = { ...data.adjudicators[2], trainee: true };
+    const off = project({ releaseAdjudicatorTab: true }, data);
+    expect(text(off.collections.adjudicators)).not.toContain("trainee");
+    expect(off.derived.adjudicatorTab?.showUnaccredited).toBeUndefined();
+    const on = project({ releaseAdjudicatorTab: true, showUnaccredited: true }, data);
+    expect(on.collections.adjudicators.find((adjudicator) => adjudicator.id === "adj-3")).toMatchObject({ trainee: true });
+    expect(on.collections.adjudicators.find((adjudicator) => adjudicator.id === "adj-1")).not.toHaveProperty("trainee");
+    expect(on.derived.adjudicatorTab?.showUnaccredited).toBe(true);
+    expect(on.derived.adjudicatorTab?.rows.find((row) => row.adjudicatorId === "adj-3")?.trainee).toBe(true);
+  });
+
+  it("releases speaker category tabs with the speaker tab, or on their own", () => {
+    const categories = [{ id: "novice", name: "Novice", public: true }];
+    const data = source();
+    data.teams[0] = { ...data.teams[0], speakerCategories: ["novice"] };
+    const withTab = project({ speakerCategories: categories, releaseSpeakerTab: true }, data);
+    expect(withTab.tabs?.speakerCategoryTabs?.novice?.length).toBe(3);
+    const tabOnly = project({ speakerCategories: categories, releaseSpeakerTab: true, releaseSpeakerCategoryTabs: false }, data);
+    expect(tabOnly.tabs?.speakerTab).toBeDefined();
+    expect(tabOnly.tabs?.speakerCategoryTabs).toBeUndefined();
+    const categoriesOnly = project({ speakerCategories: categories, releaseSpeakerCategoryTabs: true }, data);
+    expect(categoriesOnly.tabs?.speakerTab).toBeUndefined();
+    expect(categoriesOnly.tabs?.speakerCategoryTabs?.novice?.length).toBe(3);
+    // Category tabs alone publish no per-round results of silent rounds.
+    expect(categoriesOnly.collections.ballots.map((ballot) => ballot.id)).toEqual(["b1"]);
   });
 });
 

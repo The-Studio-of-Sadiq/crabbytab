@@ -22,6 +22,8 @@ import { defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator
 import { describeFeedbackPaths, feedbackPathsForRound } from "@/lib/feedback/paths";
 import { adminFeedbackLinkError } from "@/features/tournament/application/feedback";
 import { AdjudicatorFlagToggle } from "@/features/tournament/components/AdjudicatorFlagToggle";
+import { mayEditAdjudicatorScores } from "@/lib/staffPermissions";
+import { BulkScoreUpdate } from "@/features/tournament/components/BulkScoreUpdate";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -55,7 +57,12 @@ export default function FeedbackPage() {
     addFeedback,
     saveTournament,
     isOwnerOrAdmin,
+    isDataEntryAssistant,
+    staffPermissions,
   } = useTournament();
+  // Breaking and tester flags: administrators and staff with adjudicators.scores_edit (synced
+  // through the data-entry sync).
+  const canEditScores = mayEditAdjudicatorScores({ isOwnerOrAdmin, isDataEntryAssistant, permissions: staffPermissions });
   const { t, plural, rich, richPlural, formatNumber, formatDecimal, formatList } = useI18n();
   const preferences = tournament?.preferences;
   const feedbackEnabled = preferences?.feedbackEnabled !== false;
@@ -586,7 +593,7 @@ export default function FeedbackPage() {
                 <TH align="right">{t("results.feedback.ratings.col.weightedAverage")}</TH>
                 <TH align="right" title={scoreWeightHint}>{t("results.feedback.field.score")}</TH>
                 <TH align="right">{t("results.feedback.ratings.col.agreement")}</TH>
-                {isOwnerOrAdmin && (
+                {canEditScores && (
                   <>
                     <TH align="center" title={t("results.feedback.tester.breakingHelp")}>
                       {t("results.feedback.tester.breakingColumn")}
@@ -621,7 +628,7 @@ export default function FeedbackPage() {
                       {formatDecimal(blendAdjudicatorScore(adj, summary?.scaledAverage, activeRound?.feedbackWeight), 2)}
                     </TD>
                     <TD numeric>{stat && stat.answered > 0 ? percent(stat.agrees / stat.answered) : "—"}</TD>
-                    {isOwnerOrAdmin && (
+                    {canEditScores && (
                       <>
                         <TD align="center">
                           <AdjudicatorFlagToggle
@@ -645,7 +652,7 @@ export default function FeedbackPage() {
                 );
               })}
               {filteredAdjs.length === 0 && (
-                <TableEmpty colSpan={isOwnerOrAdmin ? 10 : 8}>
+                <TableEmpty colSpan={canEditScores ? 10 : 8}>
                   {adjudicators.length === 0 ? t("results.feedback.ratings.emptyNone") : t("results.feedback.ratings.emptySearch")}
                 </TableEmpty>
               )}
@@ -656,6 +663,8 @@ export default function FeedbackPage() {
           {t("results.feedback.ratings.footnote")} {scoreWeightHint}
         </p>
       </Card>
+
+      {canEditScores && <BulkScoreUpdate />}
 
       {/* Entry dialog */}
       <Dialog

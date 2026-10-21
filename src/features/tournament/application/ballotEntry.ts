@@ -1,12 +1,13 @@
 import {
-  ballotSides,
   replySpeechesEnabled,
+  rulesSides,
   substantiveSpeakerCount,
   usesVotingBallots,
   type BallotEntry,
   type BallotRules,
   type SideRecord,
 } from "@/lib/ballots/result";
+import { isPolyFormat } from "@/lib/debateSides";
 import type {
   Adjudicator,
   AdjudicatorSheet,
@@ -45,7 +46,7 @@ export function blankSpeeches(roster: Speaker[], rules: BallotRules): SpeakerSco
 
 export function blankScores(rosters: SideRecord<Speaker[]>, rules: BallotRules): Record<DebateSide, SpeakerScoreEntry[]> {
   return Object.fromEntries(
-    ballotSides(rules.format).map((side) => [side, blankSpeeches(rosters[side] || [], rules)])
+    rulesSides(rules).map((side) => [side, blankSpeeches(rosters[side] || [], rules)])
   ) as Record<DebateSide, SpeakerScoreEntry[]>;
 }
 
@@ -65,11 +66,12 @@ export function blankEntry(
   adjudicators: Pick<Adjudicator, "id" | "name">[],
   rules: BallotRules
 ): BallotEntry {
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
   const speakerScores = blankScores(rosters, rules);
   return {
     speakerScores,
     ranks: Object.fromEntries(sides.map((side, index) => [side, index + 1])),
+    ...(isPolyFormat(rules.format) ? { winners: [] } : {}),
     motionId: debate.motionId || "",
     vetoes: {},
     ...(usesVotingBallots(rules)
@@ -86,7 +88,7 @@ export function blankEntry(
 
 /** Loads a saved ballot back into an editable entry. */
 export function entryFromBallot(ballot: BallotSubmission, blank: BallotEntry, rules: BallotRules): BallotEntry {
-  const sides = ballotSides(rules.format);
+  const sides = rulesSides(rules);
   const hasScores = sides.some((side) => (ballot.speakerScores?.[side] || []).length > 0);
   return {
     speakerScores: hasScores
@@ -99,6 +101,9 @@ export function entryFromBallot(ballot: BallotSubmission, blank: BallotEntry, ru
     vetoes: { ...(ballot.vetoes || {}) },
     ...(ballot.motionPreferences ? { motionPreferences: { ...ballot.motionPreferences } } : {}),
     ...(ballot.forfeitSide ? { forfeitSide: ballot.forfeitSide } : {}),
+    ...(isPolyFormat(rules.format)
+      ? { winners: sides.filter((side) => ballot.teamScores?.[side]?.win === true) }
+      : {}),
     ...(ballot.selfSplit === true && usesVotingBallots(rules) ? { selfSplit: true } : {}),
     ...(usesVotingBallots(rules)
       ? {
@@ -165,8 +170,19 @@ export function resolveCheckState(input: {
   checkMode?: "review" | "blind";
 }): BallotCheckState {
   if (!input.doubleEntry) return { kind: "single" };
+  // Confirming a version leaves the debate's other versions as they were (Tabbycat only
+  // unconfirms the previously confirmed one), so only versions newer than the confirmed result
+  // can still be waiting for a check.
+  const confirmedVersion = Math.max(
+    0,
+    ...input.ballots
+      .filter((ballot) => ballot.debateId === input.debateId && ballot.confirmed && !ballot.discarded)
+      .map((ballot) => ballot.version || 0)
+  );
   const pending = input.ballots
-    .filter((ballot) => ballot.debateId === input.debateId && !ballot.discarded && !ballot.confirmed)
+    .filter((ballot) =>
+      ballot.debateId === input.debateId && !ballot.discarded && !ballot.confirmed && (ballot.version || 0) > confirmedVersion
+    )
     .sort((left, right) => (right.version || 0) - (left.version || 0))[0];
   if (!pending) return { kind: "first-entry" };
   // Signed-out (single-device) use cannot tell people apart, so it is never blocked.

@@ -32,7 +32,9 @@ import {
 } from "@/features/tournament/application/ballotEntry";
 import {
   applyScoreCriteria,
-  ballotSides,
+  debateBallotRules,
+  polyAdvancingCount,
+  rulesSides,
   buildBallotResult,
   diffBallots,
   effectiveRanks,
@@ -51,8 +53,9 @@ import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot } from "@/li
 import { MotionPreferencesFields } from "@/features/tournament/components/ballot/MotionPreferencesFields";
 import { normalizeMotionPreferences, validateMotionPreferences } from "@/lib/motions/preferences";
 import { motionsEnabled, speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
+import { isPolyFormat, isTwoTeamFormat } from "@/lib/debateSides";
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
-import { mergeIndividualBallots, votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
+import { clearConflictingSpeakers, mergeIndividualBallots, votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 const ERROR_SUMMARY_ID = "ballot-entry-errors";
@@ -99,14 +102,22 @@ export default function BallotEntryPage() {
     return isSidePermutation(drawnDebate, assignment) ? arrangeDebateSides(drawnDebate, assignment) : drawnDebate;
   }, [drawnDebate, choosesSides, affTeamId]);
   const round = rounds.find((item) => item.seq === roundSeq);
+  const drawnTeams = drawnDebate?.teams;
   const rules: BallotRules = useMemo(
-    () => ({ format: tournament?.format || "bp", preferences: tournament?.preferences, stage: round?.stage }),
-    [tournament?.format, tournament?.preferences, round?.stage]
+    () => debateBallotRules(
+      { format: tournament?.format || "bp", preferences: tournament?.preferences },
+      round,
+      drawnTeams ? { teams: drawnTeams } : null,
+      rounds
+    ),
+    [tournament?.format, tournament?.preferences, round, drawnTeams, rounds]
   );
   const preferences = tournament?.preferences;
-  const sides = ballotSides(rules.format);
+  const sides = useMemo(() => rulesSides(rules), [rules]);
   const voting = usesVotingBallots(rules);
   const isBP = rules.format === "bp";
+  // N teams per room: ranks always come from the totals; results-only ballots name advancing teams.
+  const poly = isPolyFormat(rules.format);
   // Results-only ballots (speakersInBallots), declared winners and speech ranks change the form.
   const scored = usesSpeakerScores(rules);
   const winnerMode = winnerDeclarationFor(preferences);
@@ -486,7 +497,7 @@ export default function BallotEntryPage() {
               </Alert>
             )}
 
-            {(usingMotions || (!isBP && preferences?.enableForfeits)) && (
+            {(usingMotions || (isTwoTeamFormat(rules.format) && preferences?.enableForfeits)) && (
               <div className="grid gap-4 sm:grid-cols-2">
                 {usingMotions && (
                   <Select
@@ -505,7 +516,7 @@ export default function BallotEntryPage() {
                     ))}
                   </Select>
                 )}
-                {!isBP && preferences?.enableForfeits && (
+                {isTwoTeamFormat(rules.format) && preferences?.enableForfeits && (
                   <Select
                     label={t("results.ballot.forfeit")}
                     value={entry.forfeitSide || ""}
@@ -562,7 +573,7 @@ export default function BallotEntryPage() {
                 teamNames={Object.fromEntries(sides.map((side) => [side, teamName(side)]))}
                 onChangeSide={updateSheetSide}
                 scored={scored}
-                declaresWinner={!scored || winnerMode !== "none"}
+                declaresWinner={!poly && (!scored || winnerMode !== "none")}
                 onDeclareWinner={(sheetIndex, winner) =>
                   updateEntry({ sheets: (entry.sheets || []).map((sheet, index) => (index === sheetIndex ? { ...sheet, declaredWinner: winner } : sheet)) })
                 }
@@ -572,8 +583,12 @@ export default function BallotEntryPage() {
                   const result = sheetsFromPortalBallots(entry.sheets || [], debateBallots, debate.id);
                   // Individual ballots must agree on speakers, motion and vetoes (Tabbycat's merge check).
                   const merge = mergeIndividualBallots(debate, debateBallots, rules);
-                  // A solo adjudicator's declared split comes with their sheet.
-                  updateEntry({ sheets: result.sheets, ...(merge.result?.selfSplit ? { selfSplit: true } : {}) });
+                  // As Tabbycat's merge, speakers the sheets disagree on are left blank for the tab room
+                  // to choose; a solo adjudicator's declared split comes with their sheet.
+                  updateEntry({
+                    sheets: clearConflictingSpeakers(result.sheets, merge.clearedSpeeches),
+                    ...(merge.result?.selfSplit ? { selfSplit: true } : {}),
+                  });
                   setMessage(
                     result.filled === 0
                       ? t("results.ballot.portal.none")
@@ -596,8 +611,14 @@ export default function BallotEntryPage() {
               />
             )}
 
+            {!entry.forfeitSide && voting && poly && (
+              <Alert tone="info">{t("results.ballot.polyScoresOnly")}</Alert>
+            )}
             {!entry.forfeitSide && !voting && !scored && (
-              <Alert tone="info">{t("results.ballot.resultsOnly")}</Alert>
+              <Alert tone="info">
+                {t("results.ballot.resultsOnly")}
+                {poly && ` ${t("results.ballot.polyAdvancingHelp", { count: polyAdvancingCount(rules) })}`}
+              </Alert>
             )}
             {!entry.forfeitSide && !voting && (
               <div className="space-y-4">
@@ -611,8 +632,23 @@ export default function BallotEntryPage() {
                           <SideBadge side={side} preferences={preferences} />
                           {name}
                         </h3>
-                        {winnerFromScores ? (
-                          isBP ? (
+                        {poly && !scored ? (
+                          <label className="flex items-center gap-2 text-xs font-medium text-fg">
+                            <input
+                              type="checkbox"
+                              className={radioClasses}
+                              checked={Boolean(entry.winners?.includes(side))}
+                              onChange={(event) => updateEntry({
+                                winners: event.target.checked
+                                  ? [...(entry.winners || []).filter((item) => item !== side), side]
+                                  : (entry.winners || []).filter((item) => item !== side),
+                              })}
+                              aria-label={t("results.ballot.advancesLabel", { team: name })}
+                            />
+                            {t("results.ballot.advances")}
+                          </label>
+                        ) : winnerFromScores || poly ? (
+                          isBP || poly ? (
                             <span className="text-xs font-medium text-fg-muted">
                               {derivedRanks[side] !== undefined
                                 ? t("results.ballot.rankFromTotals", { rank: derivedRanks[side] })
@@ -677,6 +713,7 @@ export default function BallotEntryPage() {
                 sideNames={Object.fromEntries(sides.map((side) => [side, label(side)]))}
                 forfeit={entry.forfeitSide}
                 scored={!preview.noSpeakerScores}
+                showsAdvancing={poly}
               />
             )}
 
@@ -951,6 +988,8 @@ function ResultPreview(props: {
   sideNames: Record<string, string>;
   forfeit?: DebateSide;
   scored: boolean;
+  /** Poly results-only ballots: say which teams advance. */
+  showsAdvancing?: boolean;
 }) {
   const { t, plural } = useI18n();
   const formatScore = useFormatScore();
@@ -970,6 +1009,7 @@ function ResultPreview(props: {
             const score = props.teamScores[side];
             const stats = [
               plural("results.ballot.preview.points", score.points),
+              ...(props.showsAdvancing && score.win ? [t("results.ballot.preview.advances")] : []),
               ...(props.scored ? [t("results.ballot.preview.total", { total: formatScore(score.totalSpeakerScore) })] : []),
               ...(score.margin !== undefined
                 ? [t("results.ballot.preview.margin", { margin: `${score.margin > 0 ? "+" : ""}${formatScore(score.margin)}` })]

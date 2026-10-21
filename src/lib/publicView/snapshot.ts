@@ -13,6 +13,7 @@ import { isAvailableForRound } from "@/lib/roundAvailability";
 import type { PublicDerived, PublicTabs } from "@/lib/publicView/derived";
 import type { Tournament } from "@/types";
 import { buildPublicMotionSummary, type PublicMotionSummary } from "@/lib/motions/publicSummary";
+import { buildPublicSeoSummary, type PublicSeoSummary } from "@/lib/publicView/seo";
 
 /**
  * Sections are stored as separate chunked documents so no single Firestore document approaches the
@@ -92,6 +93,11 @@ export interface PublicViewRoot {
    * (one root read per tournament instead of every round section). Absent unless released.
    */
   motionSummary?: PublicMotionSummary;
+  /**
+   * Name, search-engine setting and public sub-pages, read by the sitemap (one root read per
+   * tournament instead of its tournament section). Absent on roots published before it existed.
+   */
+  seo?: PublicSeoSummary;
 }
 
 export type PublicViewSections = Record<PublicBaseSection, unknown> & {
@@ -242,6 +248,7 @@ export function buildPublicViewRoot(input: {
       ...(input.sourceToken ? { sourceToken: input.sourceToken } : {}),
       publishedAt: input.publishedAt,
       ...(motionSummary ? { motionSummary } : {}),
+      seo: buildPublicSeoSummary(input.sections.tournament),
     },
     chunks,
   };

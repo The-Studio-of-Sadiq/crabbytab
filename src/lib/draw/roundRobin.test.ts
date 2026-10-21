@@ -121,6 +121,8 @@ describe("BP round robin (Tabbycat's preset tables)", () => {
     const teams = seeded(16);
     // Seed 12 sits in OG in round 1; with two OGs already and a limit of 2 it cannot.
     const history = new Map<string, DebateSide[]>([["t12", ["OG", "OG"]]]);
-    expect(() => generateBPRoundRobinDraw(teams, 1, history, { maxTimesPerSide: 2 })).toThrow(/Team 12 in OG/);
+    expect(() => generateBPRoundRobinDraw(teams, 1, history, { maxAllowedSideImbalance: 2 })).toThrow(/Team 12 in OG/);
+    // maxTimesPerSide is not a BP limit (Tabbycat).
+    expect(() => generateBPRoundRobinDraw(teams, 1, history, { maxTimesPerSide: 2 })).not.toThrow();
   });
 });

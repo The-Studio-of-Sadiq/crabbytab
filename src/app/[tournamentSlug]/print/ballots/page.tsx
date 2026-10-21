@@ -19,6 +19,7 @@ import {
   winnerDeclarationFor,
 } from "@/lib/ballots/ballotRules";
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
 import { PrintOptionsCard, usePrintTranslator } from "@/features/tournament/components/PrintOptionsCard";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -42,6 +43,7 @@ export default function PrintableBallotsPage() {
         .sort((left, right) => left.roomRank - right.roomRank)
     : [];
   const isBP = tournament?.format === "bp";
+  const poly = isPolyFormat(tournament?.format);
   const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
   const teamMap = new Map(teams.map((team) => [team.id, team]));
   const adjudicatorMap = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
@@ -59,7 +61,8 @@ export default function PrintableBallotsPage() {
   const scored = usesSpeakerScores(ballotRules);
   const criteria = scored ? scoreCriteriaFor(preferences) : [];
   const ranked = scored && !perAdjudicator && speakerRanksFor(preferences) !== "none";
-  const declaresWinner = !isBP && (!scored || winnerDeclarationFor(preferences) !== "none");
+  // Poly sheets: scored rooms are ranked on the totals; results-only rooms tick the advancing teams.
+  const declaresWinner = poly ? !scored : !isBP && (!scored || winnerDeclarationFor(preferences) !== "none");
   // BP positions keep their (language-neutral) abbreviations; two-team sides use the translated name.
   const label = (side: DebateSide) => (isBP ? sideLabel(side, preferences) : translatedSideName(pt, side, preferences));
   const sheets = roundDebates.flatMap((debate) =>
@@ -126,6 +129,8 @@ export default function PrintableBallotsPage() {
             return adjudicator ? nameWithPronoun(adjudicator) : id;
           });
           const room = debate.venueName || pt("tabroom.ops.sheet.room", { number: debate.roomRank });
+          // A poly room lists its own positions (the last random room may be short).
+          const roomSides = poly && tournament ? debateSides(debate, tournament) : sides;
           // Sides chosen at the debate: the adjudicator ticks each team's side on the sheet.
           const sideChoice = sidesPending(debate) ? sides : undefined;
 
@@ -195,7 +200,7 @@ export default function PrintableBallotsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sides.map((side) => {
+                  {roomSides.map((side) => {
                     const slot = debate.teams[side];
                     const team = slot ? teamMap.get(slot.teamId) : undefined;
                     const speakers = team?.speakers ?? [];

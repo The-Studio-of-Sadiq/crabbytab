@@ -127,5 +127,8 @@ export function applyNameGenerators<T extends { name: string; codeName?: string;
     speakerNames,
     existingCodeNames: context.teams.map((existing) => existing.codeName).filter((value): value is string => Boolean(value)),
   });
-  return { ...team, name, ...(codeName && !team.codeName ? { codeName } : {}) };
+  // A registration left nameless for a generator that was switched back to "user" before approval:
+  // name it after its speakers rather than create a team without a name.
+  const named = name.trim() || speakerNames.map(lastName).filter(Boolean).join(" & ") || name;
+  return { ...team, name: named, ...(codeName && !team.codeName ? { codeName } : {}) };
 }

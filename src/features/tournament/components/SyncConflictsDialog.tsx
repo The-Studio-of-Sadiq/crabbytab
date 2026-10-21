@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { useI18n } from "@/components/i18n/I18nProvider";
 
 /**
@@ -25,12 +26,31 @@ export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose:
     }
   };
 
-  const resolveAll = (keep: "cloud" | "local") => {
-    const prompt = keep === "cloud"
-      ? plural("setup.data.sync.useAllCloudConfirm", summaries.length)
-      : plural("setup.data.sync.keepAllMineConfirm", summaries.length);
-    if (window.confirm(prompt)) resolve(keep);
+  // Asked in an in-page dialog, not window.confirm: a native dialog blocks the page's script
+  // (and browser automation) until answered, and cannot be translated or styled.
+  const [confirmingAll, setConfirmingAll] = useState<"cloud" | "local" | null>(null);
+
+  const confirmAll = () => {
+    if (!confirmingAll) return;
+    const keep = confirmingAll;
+    setConfirmingAll(null);
+    resolve(keep);
   };
+
+  if (confirmingAll && open) {
+    return (
+      <ConfirmActionDialog
+        title={confirmingAll === "cloud" ? t("setup.data.sync.useAllCloud") : t("setup.data.sync.keepAllMine")}
+        description={confirmingAll === "cloud"
+          ? plural("setup.data.sync.useAllCloudConfirm", summaries.length)
+          : plural("setup.data.sync.keepAllMineConfirm", summaries.length)}
+        confirmLabel={confirmingAll === "cloud" ? t("setup.data.sync.useAllCloud") : t("setup.data.sync.keepAllMine")}
+        variant={confirmingAll === "cloud" ? "danger" : "primary"}
+        onConfirm={confirmAll}
+        onCancel={() => setConfirmingAll(null)}
+      />
+    );
+  }
 
   return (
     <Dialog
@@ -43,8 +63,8 @@ export function SyncConflictsDialog({ open, onClose }: { open: boolean; onClose:
       footer={
         summaries.length > 0 ? (
           <>
-            <Button variant="secondary" onClick={() => resolveAll("local")}>{t("setup.data.sync.keepAllMine")}</Button>
-            <Button variant="danger" onClick={() => resolveAll("cloud")}>{t("setup.data.sync.useAllCloud")}</Button>
+            <Button variant="secondary" onClick={() => setConfirmingAll("local")}>{t("setup.data.sync.keepAllMine")}</Button>
+            <Button variant="danger" onClick={() => setConfirmingAll("cloud")}>{t("setup.data.sync.useAllCloud")}</Button>
           </>
         ) : (
           <Button variant="secondary" onClick={onClose}>{t("common.close")}</Button>

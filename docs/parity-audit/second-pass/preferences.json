@@ -1,0 +1,1318 @@
+[
+  {
+    "item": "score_min",
+    "tabbycat": "options/preferences.py:28",
+    "status": "PARTIAL",
+    "crabbytab": "UI: app/[tournamentSlug]/config/ConfigForm.tsx:904-909 (minSpeakerScore). Read: lib/scoring/validator.ts validateSpeakerScore <- lib/ballots/result.ts validateSpeechScore (tab room, private portal and public form via lib/privateBallot.ts:198/229, API lib/api/v1/ballotInput.ts:63, assistant sync lib/dataEntrySync.ts:307).",
+    "note": "Enforced end to end incl. server routes. But onChange uses parseFloat(v) || 68, so a minimum of 0 cannot be entered (snaps to 68), and the config form never checks min <= max (Tabbycat options/forms.py:35 refuses; only the REST API checks, lib/api/v1/routes/write/tournament.ts:74)."
+  },
+  {
+    "item": "score_max",
+    "tabbycat": "options/preferences.py:38",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:913-920 (maxSpeakerScore). Read: lib/scoring/validator.ts validateSpeakerScore (same paths as score_min).",
+    "note": "Enforced in every submission path; config form lacks Tabbycat's min<=max validation (a max below min makes every ballot invalid). API path validates."
+  },
+  {
+    "item": "score_step",
+    "tabbycat": "options/preferences.py:47",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:921-933 Select with only 1 or 0.5. Read: validator.ts validateSpeakerScore step check; default reply step = half of it (ballotRules.ts replyScoreStep).",
+    "note": "Tabbycat accepts any decimal step (e.g. 0.1, 0.25); the CrabbyTab UI offers only whole/half. Other values only via config import/API."
+  },
+  {
+    "item": "maximum_margin",
+    "tabbycat": "options/preferences.py:56",
+    "status": "HAVE",
+    "crabbytab": "UI: features/tournament/components/ballot/ResultsRulesSettings.tsx (maximumMargin, two-team only). Read: lib/ballots/result.ts validateMargin (consensus and each voting sheet), reached by all ballot paths incl. lib/privateBallot.ts:229.",
+    "note": "Two-team only, as Tabbycat results/forms.py:881 (len(totals)==2) and :1091 per adjudicator."
+  },
+  {
+    "item": "reply_score_min",
+    "tabbycat": "options/preferences.py:66",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:937-946 (minReplyScore, shown when replies on). Read: validator.ts validateReplyScore via result.ts validateSheetScores.",
+    "note": "parseFloat(v) || 34 makes 0 unenterable; no min<=max check in the config form (Tabbycat options/forms.py:38)."
+  },
+  {
+    "item": "reply_score_max",
+    "tabbycat": "options/preferences.py:75",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:947-956 (maxReplyScore). Read: validator.ts validateReplyScore.",
+    "note": "Enforced on all paths; config form lacks min<=max validation."
+  },
+  {
+    "item": "reply_score_step",
+    "tabbycat": "options/preferences.py:84",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx replyStep input (stepReplyScore, two-team + replies). Read: lib/ballots/ballotRules.ts replyScoreStep -> validator.ts validateReplyScore.",
+    "note": "Absent = half the substantive step (0.5 when step 1 = Tabbycat default)."
+  },
+  {
+    "item": "margin_includes_dissenters",
+    "tabbycat": "options/preferences.py:93",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:975-980 checkbox. Read: lib/ballots/result.ts:325 aggregateVotingSheets (relevant sheets for speaker scores, totals and margin).",
+    "note": "Logic matches Tabbycat for two-team voting ballots (BP is always consensus in CrabbyTab). BUG: the config form treats absent as true (defaultPrefs ConfigForm.tsx:175 and checked ?? true at :978) while the logic treats absent as false (result.ts:325) and Tabbycat's default is False; saving any config page writes true for tournaments that never set it, silently changing voting-ballot scores and margins."
+  },
+  {
+    "item": "score_aggregation_function",
+    "tabbycat": "options/preferences.py:103",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx aggregation Select (two-team). Read: lib/ballots/ballotRules.ts scoreAggregationFor/aggregateScoreValues <- result.ts aggregateVotingSheets:329-348.",
+    "note": "Median = Tabbycat median_or_rounded_up_mean; applied per criterion when criteria exist."
+  },
+  {
+    "item": "ballot_introduction",
+    "tabbycat": "options/preferences.py:116",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:966-973 (ballotIntroExplanation). Read: app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx, private/adjudicator/[key]/page.tsx, print/ballots/page.tsx.",
+    "note": "Not shown on the public ballot form (features/tournament/components/public/forms/PublicBallotForm.tsx has no reference); Tabbycat renders it in results/templates/ballot/ballot_set.html, used by public forms too. Plain text, not HTML (safer)."
+  },
+  {
+    "item": "teamscore_includes_ghosts",
+    "tabbycat": "options/preferences.py:127",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:981-986. Read: lib/ballots/result.ts:194 teamSpeakerTotal (team totals/margins), lib/standings/calculator.ts:212.",
+    "note": "Default differs: absent = false in logic and config form; Tabbycat default True (wizard and presets set true)."
+  },
+  {
+    "item": "teams_in_debate",
+    "tabbycat": "options/preferences.py:594",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "out of scope (concurrent work)"
+  },
+  {
+    "item": "ballots_per_debate_prelim",
+    "tabbycat": "options/preferences.py:604",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1005-1016 ballotMode (two-team). Read: lib/ballots/result.ts ballotModeFor/usesVotingBallots used by tab-room entry, privateBallot, individual ballots.",
+    "note": "BP forced to consensus as Tabbycat options/forms.py:52 requires. Default differs: CrabbyTab absent = consensus, Tabbycat default per-adj. Locked once ballots exist (stateGuards BALLOT_SHAPE_PREFERENCES)."
+  },
+  {
+    "item": "ballots_per_debate_elim",
+    "tabbycat": "options/preferences.py:617",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1018-1037 eliminationBallotMode (blank = same as prelim). Read: result.ts ballotModeFor (stage === elimination).",
+    "note": "Locked once an elimination ballot exists (stateGuards.ts checkSettingsChange)."
+  },
+  {
+    "item": "winners_in_ballots",
+    "tabbycat": "options/preferences.py:630",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx winner Select (also writes legacy allowLowPointWins). Read: ballotRules.ts winnerDeclarationFor -> result.ts sheetOutcome, validateDeclaredWinner, validateBpRanks, effectiveRanks.",
+    "note": "BP 'low-points' (ranks override totals) is a CrabbyTab extension; Tabbycat ranks BP by totals."
+  },
+  {
+    "item": "speakers_in_ballots",
+    "tabbycat": "options/preferences.py:645",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx speakers Select (locked once ballots exist). Read: ballotRules.ts ballotsHaveSpeakerScores -> result.ts usesSpeakerScores, used by results page, private adjudicator page, PublicBallotForm, print ballots, privateBallot.ts.",
+    "note": "Matches Tabbycat get_result_class (results/result.py:93-103)."
+  },
+  {
+    "item": "substantive_speakers",
+    "tabbycat": "options/preferences.py:659",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ConfigForm.tsx:861-874 (1-5, locked once ballots exist). Read: result.ts substantiveSpeakerCount, privateBallot.ts expectedCount, print ballots, CSV import, registration defaults, swing teams.",
+    "note": "Assistant data-entry sync caps speech position at 4 and 8 entries (lib/dataEntrySync.ts:286,296), so with 4 substantive + reply or 5 substantive (both allowed by the UI) assistants cannot submit ballots. Empty input stores NaN (parseInt) with no validation; Tabbycat enforces >=1."
+  },
+  {
+    "item": "side_names",
+    "tabbycat": "options/preferences.py:669",
+    "status": "PARTIAL",
+    "crabbytab": "UI: ResultsRulesSettings.tsx sideNames Select (two-team). Read: lib/sideNames.ts sideLabel/translatedSideName, used by ballots, draw, private pages, print.",
+    "note": "Several pages still hard-code Aff/Neg via t('side.'+side): app/[tournamentSlug]/public/page.tsx:922 (veto stats), team/[teamId]/page.tsx:166, features/tournament/components/public/PublicRecordPages.tsx:99, public/PublicSitePanels.tsx:217,320 (side allocations), DrawSetupPanel.tsx:189, SidePreallocationGrid.tsx:254,270; lib/csv/exporters.ts:95."
+  },
+  {
+    "item": "reply_scores_enabled",
+    "tabbycat": "options/preferences.py:679",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:877-884 (locked once ballots exist). Read: result.ts replySpeechesEnabled (validation/totals), privateBallot.ts:163, print ballots, replies standings and public replies tab.",
+    "note": "Ignored for BP."
+  },
+  {
+    "item": "require_substantive_for_reply",
+    "tabbycat": "options/preferences.py:688",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx replySubstantive checkbox. Read: ballotRules.ts requireSubstantiveForReply -> result.ts validateSheetScores reply checks; SpeechRows.tsx speaker options.",
+    "note": "Server paths validate via validateBallotEntry."
+  },
+  {
+    "item": "speaker_ranks",
+    "tabbycat": "options/preferences.py:697",
+    "status": "HAVE",
+    "crabbytab": "UI: ResultsRulesSettings.tsx ranks Select. Read: result.ts validateSpeechRanks (consensus only, as Tabbycat SingleBallotSetForm), storedSpeeches keeps ranks; SpeechRows.tsx renders rank inputs; standings srank metric.",
+    "note": "Enforced server-side through privateBallot.ts validateBallotEntry."
+  },
+  {
+    "item": "preparation_time",
+    "tabbycat": "options/preferences.py:711",
+    "status": "HAVE",
+    "crabbytab": "UI: features/tournament/components/schedule/RoundScheduleCard.tsx:236-239 (schedule page). Read: features/tournament/application/motionRelease.ts:107-110 sets round.startsAt on first motion release, wired via contexts/TournamentContext.tsx:2000-2003.",
+    "note": "-1/blank = off, as Tabbycat motions/views.py:202-205."
+  },
+  {
+    "item": "enable_forfeits",
+    "tabbycat": "options/preferences.py:722",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1039-1054 (two-team). Read: result.ts collectBallotErrors:683-689 and forfeitTeamScores; results debate page offers forfeit.",
+    "note": "Two-team only, as Tabbycat results/forms.py:512."
+  },
+  {
+    "item": "standings_missed_debates",
+    "tabbycat": "options/preferences.py:736",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1352-1360. Read: lib/standings/calculator.ts:467-486 minimumSpeeches -> row.ineligible, unranked.",
+    "note": "Tabbycat also auto-adds a 'count' column when set (standings/views.py:308); not mirrored."
+  },
+  {
+    "item": "standings_missed_replies",
+    "tabbycat": "options/preferences.py:745",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1352-1360. Read: calculator.ts:481-483 for the replies list.",
+    "note": ""
+  },
+  {
+    "item": "team_standings_precedence",
+    "tabbycat": "options/preferences.py:754",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1290-1294 PrecedenceEditor. Read: lib/standings/precedence.ts resolveTeamPrecedence -> calculator.ts:305, breaks (TournamentContext.tsx:1906, api/v1/tabRoom.ts:374), draw brackets (lib/draw/generator.ts:310), API standings.",
+    "note": "Used for standings, break and draw like Tabbycat."
+  },
+  {
+    "item": "team_standings_extra_metrics",
+    "tabbycat": "options/preferences.py:770",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1308-1313 ExtraMetricsEditor. Read: precedence.ts resolveTeamExtra -> app/[tournamentSlug]/standings/page.tsx:127, public/page.tsx:203, publicView/derived.ts.",
+    "note": ""
+  },
+  {
+    "item": "speaker_standings_precedence",
+    "tabbycat": "options/preferences.py:782",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1317-1321. Read: precedence.ts resolveSpeakerPrecedence -> calculator.ts:453,490-494.",
+    "note": ""
+  },
+  {
+    "item": "speaker_standings_extra_metrics",
+    "tabbycat": "options/preferences.py:798",
+    "status": "HAVE",
+    "crabbytab": "UI: ConfigForm.tsx:1334-1338. Read: resolveSpeakerExtra -> standings/page.tsx:128, public/page.tsx:204.",
+    "note": ""
+  },
+  {
+    "item": "adj_min_voting_score",
+    "tabbycat": "options/preferences.py:141",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:429-440 (minAdjScoreToVote); read allocator.ts:1019,1162 via allocation.ts:157-169 (preferences: tournament.preferences)",
+    "note": "Read end to end. In the tabbycat_voting/consensus strategies, sub-threshold non-trainees are seated as trainees as Tabbycat does (allocator.ts:1178-1181). Under the default crabbytab_v1/panel_average strategy, an adjudicator who is not flagged trainee but scores below the threshold is dropped from the pool entirely: nonTrainees excludes them and trainees only takes adj.trainee (allocator.ts:1161-1166). Tabbycat would seat them as trainees."
+  },
+  {
+    "item": "adj_conflict_penalty",
+    "tabbycat": "options/preferences.py:150",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:441; read allocator.ts:90 getAllocationWeights (INSTITUTION/PERSONAL/ADJUDICATOR conflict) and allocation.ts:151,164-165 (0 switches conflict checks off)",
+    "note": "Default 1,000,000 as Tabbycat. CrabbyTab also derives 0.8x/0.3x/5x weights for declared-institution, trainee-top-debate and trainee-as-chair from it, which Tabbycat does not have."
+  },
+  {
+    "item": "adj_history_penalty",
+    "tabbycat": "options/preferences.py:159",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:442; read allocator.ts:91 (REPEAT_TEAM, REPEAT_PANEL x0.4) and allocation.ts:152,166",
+    "note": "Default 10,000 as Tabbycat. CrabbyTab adds a repeat-panel cost that Tabbycat lacks."
+  },
+  {
+    "item": "preformed_panel_mismatch_penalty",
+    "tabbycat": "options/preferences.py:168",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:443-448 (importanceMismatchPenalty); read allocator.ts:92 -> strengthMismatchCost, used in placePreformedPanels (allocator.ts:945-952) and in the crabbytab_v1 voting-panel cost",
+    "note": "Stored and read. In Tabbycat it applies only to the preformed-panel allocator. CrabbyTab also uses it for normal voting panels, scaled by STRENGTH_COST_SCALE=0.05 on squared score distance (allocator.ts:112-122), so raw values do not mean the same cost as in Tabbycat. It is ignored by preformedPanelPlacement 'direct' (correct) and by the tabbycat_* strategies."
+  },
+  {
+    "item": "team_institution_penalty",
+    "tabbycat": "options/preferences.py:177",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:494; read generator.ts:323-325 -> twoTeamConfig.penalties.institutionClashPenalty -> conflictAvoidance.ts/minCostPairing.ts conflictCost",
+    "note": "Default differs: when unsaved, the generator and the form both use 200 (ConfigForm.tsx:154, generator.ts:325); Tabbycat uses 1. The penaltyInput fallback of 1 (ConfigForm.tsx:494) is dead because defaultPrefs supplies 200. Per-draw API override exists (write/rounds.ts:210)."
+  },
+  {
+    "item": "team_history_penalty",
+    "tabbycat": "options/preferences.py:187",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:495; read generator.ts:320-322 -> penalties.repeatMatchupPenalty (oneUpOneDown, min-cost, random graph)",
+    "note": "Default 1000 as Tabbycat."
+  },
+  {
+    "item": "avoid_same_institution",
+    "tabbycat": "options/preferences.py:196",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:479-484; read generator.ts:323 (false => institution penalty 0) and generator.ts:498 (BP random grouping)",
+    "note": "BP random rounds also avoid same-institution rooms, which Tabbycat's BP random generator does not do (minor extension)."
+  },
+  {
+    "item": "avoid_team_history",
+    "tabbycat": "options/preferences.py:206",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:485-490; read generator.ts:320 (false => history penalty 0)",
+    "note": "Tabbycat's graph (min-cost) matching forbids rematches outright when this is on (graph.py:31-32 returns None), and the help text says so. CrabbyTab keeps rematches as a weighted penalty only (minCostPairing.ts:76-79), so min_cost can still pair teams that have met before."
+  },
+  {
+    "item": "pullup_debates_penalty",
+    "tabbycat": "options/preferences.py:215",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:496 (previouslySawPullupPenalty); read generator.ts:329 -> minCostPairing.ts:56-59 (max of history.pullupDebates when brackets differ)",
+    "note": "Matches powerpair.py:302-303. Only takes effect with min_cost / min_cost_with_pullups, as in Tabbycat; it is zeroed for random draws (twoTeamDraw.ts:424)."
+  },
+  {
+    "item": "side_penalty",
+    "tabbycat": "options/preferences.py:224",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:543 (sideBalancePenalty); read generator.ts:327 -> twoTeamDraw.ts:105 (balanced sides only) -> minCostPairing.ts:44-55",
+    "note": "Same formula as Tabbycat graph.py:37-56."
+  },
+  {
+    "item": "pairing_penalty",
+    "tabbycat": "options/preferences.py:233",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:544 (pairingDeviationPenalty); read generator.ts:328 -> minCostPairing.ts:29-42,99-106; singleGraphPairing.ts:162",
+    "note": "When it is 0, CrabbyTab still uses the pairing method as a tie-break; Tabbycat ignores the method then. This is documented in minCostPairing.ts:76-79."
+  },
+  {
+    "item": "max_times_per_side",
+    "tabbycat": "options/preferences.py:244",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:531-541 (maxTimesPerSide, min 1); read generator.ts:298-300 -> sideAllocator.ts:86-97 violatesSideLimits (two-team, BP power-paired, round robin), twoTeamDraw.ts repairSideLimits, validateDraw.ts:278",
+    "note": "In Tabbycat this applies only inside graph matching, and only when side_allocations=balance and side_penalty>0 (graph.py:37-43; manager.py:45 also feeds the max_times_on_one_side option from it). CrabbyTab makes it a hard limit on every draw type and format, with default 5 (sideAllocator.ts:94). Consequence: a two-team tournament's 11th preliminary round cannot be drawn with default settings (see bugs)."
+  },
+  {
+    "item": "prelim_panels",
+    "tabbycat": "options/preferences.py:255",
+    "status": "PARTIAL",
+    "crabbytab": "UI RoundScheduleCard.tsx:49-50,266 (groups rounds, then saves preliminaryPanels); read schedule.ts:192-197 preliminaryPanelsOf (only from RoundScheduleCard)",
+    "note": "Grouping existing rounds into slots works (concurrent rounds then drive history and current round). Tabbycat also applies the value when rounds are created ('Round creation assigns schedule groups'). CrabbyTab's setPreliminaryRoundCount/createRound never read preliminaryPanels (no scheduleGroup in TournamentContext.tsx or roundAdministration.ts), so rounds added later are not grouped."
+  },
+  {
+    "item": "draw_odd_bracket",
+    "tabbycat": "options/preferences.py:265",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:577-593 (all 10 options); read generator.ts:314 -> twoTeamDraw.ts:316-378, oddBrackets.ts, singleGraphPairing.ts; API override write/rounds.ts:193-203",
+    "note": "All of Tabbycat's options exist. The unsaved default differs between UI and engine: ConfigForm shows 'intermediate_bubble' (ConfigForm.tsx:163, 580; Tabbycat's default), but the generator falls back to 'pullup_top' (twoTeamDraw.ts:58). A tournament created without a rules preset is drawn with pull-up-from-top while the settings page displays intermediate brackets with bubble. pullup_lowest_ds_rank* throws unless min_cost_with_pullups is chosen (twoTeamDraw.ts:319-323), matching Tabbycat's restriction."
+  },
+  {
+    "item": "draw_side_allocations",
+    "tabbycat": "options/preferences.py:286",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:505-517 (balanced/random/preallocated/manual_ballot; manual disabled for BP); read generator.ts:286-300,317; preallocated via Round.preallocatedSides (SidePreallocationGrid); manualSides.ts",
+    "note": "Preallocated and manual sides on BP throw a clear error (generator.ts:287-295), consistent with Tabbycat's two-team-only support."
+  },
+  {
+    "item": "draw_pairing_method",
+    "tabbycat": "options/preferences.py:301",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:552-563; read generator.ts:313 -> twoTeamDraw.ts:390 pairTeams, minCostPairing.ts pairingDeviation",
+    "note": "All 5 options exist. Default differs: CrabbyTab uses 'fold' in both UI and engine (ConfigForm.tsx:164, twoTeamDraw.ts:57); Tabbycat uses 'slide'. The Australs bundle preset sets 'slide'."
+  },
+  {
+    "item": "draw_avoid_conflicts",
+    "tabbycat": "options/preferences.py:318",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:565-575 (off/one_up_one_down/min_cost=graph/min_cost_with_pullups=graph_one); read generator.ts:315 -> twoTeamDraw.ts:318,357,380,389-394,422",
+    "note": "Default one_up_one_down matches. Hard-history semantics differ (see avoid_team_history)."
+  },
+  {
+    "item": "draw_pullup_restriction",
+    "tabbycat": "options/preferences.py:335",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:595-605; read generator.ts:316 -> oddBrackets.ts:33-48 applyPullupRestriction (pullup_* methods), twoTeamDraw.ts:353,375",
+    "note": "Values are renamed (least_to_date->least_pulled, lowest_ds_wins/speaks). With preallocated sides CrabbyTab also applies it (oddBrackets.ts:208), where Tabbycat does not."
+  },
+  {
+    "item": "draw_pullup_penalty",
+    "tabbycat": "options/preferences.py:353",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:607-610 (pullupPenalty); read generator.ts:330 -> singleGraphPairing.ts:163-187 (two-team graph_one) and generator.ts:516 -> powerPaired.ts:165,182 (BP npullups x penalty above bracket)",
+    "note": "Matches Tabbycat: two-team only in graph_one (powerpair.py:557) and BP via get_pullup_cost (bphungarian.py:229-232)."
+  },
+  {
+    "item": "bp_pullup_distribution",
+    "tabbycat": "options/preferences.py:362",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:622-633 (anywhere/top/bottom); read generator.ts:517 -> powerPaired.ts:96-113 defineBPRooms",
+    "note": "'bottom' stands for Tabbycat's one_room and 'top' is an extra. one_room is approximated: Tabbycat chunks the sorted points into rooms of 4 and allows only those values (bphungarian.py:154-158). CrabbyTab confines lower teams to the bottom ceil(k/4) rooms of each bracket, which matches for a single bracket boundary."
+  },
+  {
+    "item": "bp_position_cost",
+    "tabbycat": "options/preferences.py:375",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:635-646 (renyi_entropy/sum_squared_deviations/simple); read generator.ts:302 -> sideAllocator.ts:38-70; powerPaired.ts computeBPSideCost; PositionBalancePanel via positionBalance.ts:78",
+    "note": "Default entropy matches and simple matches. 'variance' is implemented as the sum of squared deviations, which is 4x Tabbycat's pvariance. That rescales costs by 4^exponent relative to the pull-up penalty but does not change the argmin when no pull-up penalty is set."
+  },
+  {
+    "item": "bp_renyi_order",
+    "tabbycat": "options/preferences.py:391",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:648-659; read sideAllocator.ts:55-67 (alpha 0, 1, other; negative throws)",
+    "note": "The engine supports alpha=0 (Hartley), but the UI cannot set it: onChange does parseFloat(v) || 1.0, so typing 0 saves 1 (ConfigForm.tsx:656). Tabbycat allows 0 (MinValueValidator(0.0)). The API override does accept 0 (write/rounds.ts:219)."
+  },
+  {
+    "item": "bp_position_cost_exponent",
+    "tabbycat": "options/preferences.py:403",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:661-672; read sideAllocator.ts:78",
+    "note": "Same coercion: parseFloat(v) || 4.0, so 0 cannot be entered (ConfigForm.tsx:669). Tabbycat allows 0. Otherwise read end to end."
+  },
+  {
+    "item": "bp_assignment_method",
+    "tabbycat": "options/preferences.py:414",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:674-685 (hungarian=preshuffled, hungarian_unshuffled, random); read generator.ts:305 -> powerPaired.ts:153,164,194; sideAllocator.ts:178",
+    "note": "CrabbyTab's 'hungarian' is Tabbycat's hungarian_preshuffled (the default) and 'hungarian_unshuffled' is Tabbycat's 'hungarian'. 'random' is an extra."
+  },
+  {
+    "item": "draw_skip_adj_checkins",
+    "tabbycat": "options/preferences.py:427",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:452-457; read allocator.ts:1005-1010 (availability filter skipped) and validateDraw.ts:331",
+    "note": ""
+  },
+  {
+    "item": "no_panellist_position",
+    "tabbycat": "options/preferences.py:436",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:458-463; read allocation.ts:148 (panel size 1), allocator.ts:1020,1136,1183,1210",
+    "note": "The auto-allocator honours it. Tabbycat also hides the panellist position in the allocation UI. No CrabbyTab page reads noPanellistAdjs (grep over src/app, src/features, src/components finds only ConfigForm), so the manual allocation editor still offers panellist slots."
+  },
+  {
+    "item": "no_trainee_position",
+    "tabbycat": "options/preferences.py:445",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx:464-469; read allocator.ts:1021,1137,1164,1180",
+    "note": "Same as no_panellist_position: honoured by the auto-allocator only. The trainee slots are not hidden in the allocation UI."
+  },
+  {
+    "item": "bye_team_results",
+    "tabbycat": "options/preferences.py:455",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:693-703 (absent/win); read generator.ts:622,638 stamps debate.byeResult -> standings/calculator.ts:153-189 (1 pt two-team, 3 pts BP, no speaks)",
+    "note": "Like Tabbycat, the value is captured when the bye debate is created (manager.py:177). Tabbycat gives points=1 even in BP; CrabbyTab gives 3 in BP (calculator.ts:162), a deliberate difference."
+  },
+  {
+    "item": "bye_team_selection",
+    "tabbycat": "options/preferences.py:469",
+    "status": "HAVE",
+    "crabbytab": "UI ConfigForm.tsx:705-716 (none/lowest_ranked/random); read generator.ts:245-270 (preliminary, non-manual rounds; swing teams exempt)",
+    "note": "In seeded draws, Tabbycat's 'lowest' picks the lowest seed (manager.py:334); CrabbyTab uses standings rank for every draw type. CrabbyTab breaks ties randomly with the draw seed."
+  },
+  {
+    "item": "max_times_on_one_side",
+    "tabbycat": "options/preferences.py:484",
+    "status": "BETTER",
+    "crabbytab": "UI ConfigForm.tsx:542 (maxAllowedSideImbalance, 0 = off); read generator.ts:300 -> sideAllocator.ts:95-96, drawFlags.ts:152, powerPaired, roundRobin",
+    "note": "In Tabbycat 2.12.1 this preference is effectively dead: the draw manager maps the max_times_on_one_side option to draw_rules__max_times_per_side (manager.py:45), so the stored value is never read except by the API serializer. CrabbyTab gives it a real meaning: a hard cap on the gap between most- and least-used sides."
+  },
+  {
+    "item": "adj_min_score",
+    "tabbycat": "options/preferences.py:495",
+    "status": "PARTIAL",
+    "crabbytab": "feedbackMinScore: UI ConfigForm.tsx:1078-1085 (+ TournamentWizard); read by lib/scoring/validator.ts validateFeedbackScore, enforced server-side in lib/participantSubmissions.ts:108 (private sync) and lib/publicForms.ts:381 (public form), lib/dataEntrySync.ts:370; scaled in lib/feedback/scores.ts:141",
+    "note": "ConfigForm uses parseInt(v)||1, so 0 (Tabbycat default) and fractional minimums cannot be entered; no min<max validation on save. API v1 write route rounds.ts:1101 checks range but not step."
+  },
+  {
+    "item": "adj_max_score",
+    "tabbycat": "options/preferences.py:504",
+    "status": "PARTIAL",
+    "crabbytab": "feedbackMaxScore: same paths as adj_min_score (ConfigForm.tsx:1087-1094; validator.ts:108; server via participantSubmissions/publicForms)",
+    "note": "Integer only (parseInt||10); 0 coerces to 10. API v1 rounds.ts:1101 defaults an absent max to 5 while every other reader defaults to 10."
+  },
+  {
+    "item": "adj_score_step",
+    "tabbycat": "options/preferences.py:513",
+    "status": "HAVE",
+    "crabbytab": "feedbackScoreStep: UI components/feedback/FeedbackOptionsFields.tsx:32 (in ConfigForm.tsx:1097); validator.ts feedbackScoreStep + step check in validateFeedbackScore (used by server routes); input step on tab-room, private and public feedback forms",
+    "note": "Tabbycat also rejects step > max (options/forms.py:64); CrabbyTab only forces step>0. API v1 admin feedback route does not check step."
+  },
+  {
+    "item": "feedback_paths",
+    "tabbycat": "options/preferences.py:522",
+    "status": "BETTER",
+    "crabbytab": "feedbackPaths (FeedbackPathConfig incl. panellistsOnEachOther) + eliminationFeedbackPaths: FeedbackPathsEditor in ConfigForm.tsx:1238-1268; lib/feedback/paths.ts; enforced server-side by canSubmitParticipantFeedback in participantSubmissions.ts and publicForms.ts:311/328; print/feedback and progress read it",
+    "note": "All six Tabbycat choices expressible as flags, plus separate elimination-round paths."
+  },
+  {
+    "item": "feedback_from_teams",
+    "tabbycat": "options/preferences.py:539",
+    "status": "HAVE",
+    "crabbytab": "FeedbackPathConfig.teams (chair|orallist|voting_allowed|all_allowed|all_voting|all_adjudicators|none) in components/feedback/FeedbackPathsEditor.tsx:19; lib/feedback/paths.ts:110-150 allowed/expected; orallist prompt private/team/[key]/page.tsx:670; server enforcement as above",
+    "note": "Extra 'chair' option. CrabbyTab presets default to 'chair'; Tabbycat default 'orallist'."
+  },
+  {
+    "item": "show_unexpected_feedback",
+    "tabbycat": "options/preferences.py:556",
+    "status": "HAVE",
+    "crabbytab": "showUnexpectedFeedback: FeedbackOptionsFields.tsx; read in feedback/page.tsx:262 and public progress lib/publicView/derived.ts:544",
+    "note": ""
+  },
+  {
+    "item": "show_unaccredited",
+    "tabbycat": "options/preferences.py:565",
+    "status": "PARTIAL",
+    "crabbytab": "No preference. Adjudicator.trainee shown only in admin imports/ImportDirectory.tsx; no public adjudicator-table column (grep '.trainee' in lib/publicLists.ts, lib/publicView, components/public: none)",
+    "note": "Tabbycat adds an 'Always trainee' column (utils/tables.py:598) to adjudicator tables incl. public ones. Listed as unsupported in lib/setup/presets.ts:453."
+  },
+  {
+    "item": "feedback_introduction",
+    "tabbycat": "options/preferences.py:574",
+    "status": "HAVE",
+    "crabbytab": "feedbackIntroduction: FeedbackOptionsFields.tsx; shown on private team/adjudicator forms (private/team/[key]/page.tsx:810) and PublicFeedbackForm.tsx:256 as plain text",
+    "note": "Not shown on the tab-room feedback entry page or printed forms; plain text instead of HTML (safer)."
+  },
+  {
+    "item": "participant_ballots",
+    "tabbycat": "options/preferences.py:949",
+    "status": "HAVE",
+    "crabbytab": "privateUrlBallots (StaffAccessSettings.tsx Switch on staff page) + publicBallotForm (PublicFormsSettings.tsx). Server: app/api/private/sync/route.ts:196 and lib/api/v1/routes/write/participant.ts:87 refuse when off; public forms/route.ts:165 isPublicFormEnabled",
+    "note": "Two independent toggles (both may be on). Default differs: private-URL ballots on when absent (Tabbycat default 'off')."
+  },
+  {
+    "item": "participant_feedback",
+    "tabbycat": "options/preferences.py:963",
+    "status": "PARTIAL",
+    "crabbytab": "publicFeedbackForm (PublicFormsSettings.tsx; enforced forms/route.ts:165 via lib/publicForms.ts:47). Private-URL feedback has no toggle of its own: gated only by feedbackEnabled in participantSubmissions.ts:103",
+    "note": "Cannot choose 'public only' or 'tab staff only' while keeping feedback on: private-URL feedback is always accepted whenever feedbackEnabled. presets.ts:452 lists the public feedback form as unsupported although it exists (stale)."
+  },
+  {
+    "item": "public_use_password",
+    "tabbycat": "options/preferences.py:977",
+    "status": "HAVE",
+    "crabbytab": "publicFormsUsePassword: PublicFormsSettings.tsx; checked server-side forms/route.ts:173 with a failed-attempt limit",
+    "note": "Fails closed until a password is set."
+  },
+  {
+    "item": "public_password",
+    "tabbycat": "options/preferences.py:986",
+    "status": "BETTER",
+    "crabbytab": "serverOnly/publicForms doc with scrypt hash (lib/publicFormsPassword.ts), set via admin-only PUT app/api/tournaments/[tournamentId]/public-forms/route.ts:40 (transactional admin re-check); constant-time verify",
+    "note": "Tabbycat stores plaintext in preferences."
+  },
+  {
+    "item": "disable_ballot_confirms",
+    "tabbycat": "options/preferences.py:997",
+    "status": "HAVE",
+    "crabbytab": "Inverse: ballotDoubleEntry (ConfigForm.tsx:990, wizard). Off = tab-room ballots confirmed on entry; on = checkIndependentConfirmation stateGuards.ts:821 + resolveCheckState ballotEntry.ts:160",
+    "note": "Default inverted (CrabbyTab default = no check, i.e. disable_ballot_confirms=true). Same-person check is a soft, overridable, client-side guard (admins write Firestore directly)."
+  },
+  {
+    "item": "enable_blind_checks",
+    "tabbycat": "options/preferences.py:1006",
+    "status": "HAVE",
+    "crabbytab": "ballotCheckMode 'blind' (ConfigForm.tsx:995-1001, shown when double entry on); ballotEntry.ts:174 -> results/[roundSeq]/[debateId]/page.tsx:177-197,420,761 (blank form, hidden scores, diff)",
+    "note": "Available for all formats, not only BP."
+  },
+  {
+    "item": "assistant_access",
+    "tabbycat": "options/preferences.py:1015",
+    "status": "HAVE",
+    "crabbytab": "assistantAccess: StaffAccessSettings.tsx Select; lib/staffPermissions.ts:167 ACCESS_LEVEL_EXCLUDES via resolveStaffPermissions, used by staffAccessServer.ts:93/120, assistant-data/route.ts:50-63 (redacts unreleased draws/motions), data-entry-sync/route.ts:283; firestore.rules:40 blocks 'none'",
+    "note": "Server-enforced. Rules use stored staff.permissions capped only for 'none', but the only rule-gated permissions (results.enter, checkins.edit) are never removed by other levels."
+  },
+  {
+    "item": "public_checkins_submit",
+    "tabbycat": "options/preferences.py:1032",
+    "status": "HAVE",
+    "crabbytab": "allowSelfCheckIn: ConfigForm.tsx:1418; server lib/selfCheckIn.ts:51 selfCheckInError used by app/api/private/sync/route.ts and api v1 participant.ts; SelfCheckInPanel on private pages",
+    "note": "Restricted to the current round."
+  },
+  {
+    "item": "checkin_window_people",
+    "tabbycat": "options/preferences.py:1041",
+    "status": "HAVE",
+    "crabbytab": "checkInExpiresAfterHours: ConfigForm.tsx:1424-1435; isAvailableForRound in draw/generator.ts:80,240, allocator.ts:1010, validateDraw.ts:125, checkins page, exports, API",
+    "note": "Default 0 = never expires (Tabbycat 12h). Expiry also affects draw availability because CrabbyTab merges check-in with availability."
+  },
+  {
+    "item": "checkin_window_venues",
+    "tabbycat": "options/preferences.py:1050",
+    "status": "HAVE",
+    "crabbytab": "venueCheckInExpiresAfterHours: ConfigForm.tsx:1436-1446; isVenueCheckedIn lib/venues/venues.ts:37 in checkins/page.tsx:147, API roundData.ts:366, write/rounds.ts:791",
+    "note": "Default 0 = never (Tabbycat 2h). Display-only, as in Tabbycat."
+  },
+  {
+    "item": "ballots_confirm_digits",
+    "tabbycat": "options/preferences.py:1059",
+    "status": "HAVE",
+    "crabbytab": "ballotsConfirmDigits: PrintOptionsCard.tsx on print/ballots; print/ballots/page.tsx:37,172,293",
+    "note": "Default off (Tabbycat on)."
+  },
+  {
+    "item": "score_return_location",
+    "tabbycat": "options/preferences.py:1068",
+    "status": "HAVE",
+    "crabbytab": "ballotReturnLocation: PrintOptionsCard.tsx; print/ballots/page.tsx:38,238; 'TBA'/empty hidden by lib/printOptions.ts",
+    "note": ""
+  },
+  {
+    "item": "feedback_return_location",
+    "tabbycat": "options/preferences.py:1077",
+    "status": "HAVE",
+    "crabbytab": "feedbackReturnLocation: PrintOptionsCard.tsx kind=feedback; print/feedback/page.tsx:106,181",
+    "note": ""
+  },
+  {
+    "item": "enable_postponements",
+    "tabbycat": "options/preferences.py:1086",
+    "status": "HAVE",
+    "crabbytab": "No toggle; Debate.postponed always available in draw/page.tsx:885-907; skipped in allocator.ts:331/536, generator.ts:172, drawFlags.ts, standings API",
+    "note": "Always on rather than opt-in. Postponed debates block round completion (stateGuards.ts:280), stricter than Tabbycat."
+  },
+  {
+    "item": "individual_ballots",
+    "tabbycat": "options/preferences.py:1095",
+    "status": "HAVE",
+    "crabbytab": "individualBallots: StaffAccessSettings.tsx (enabled only when voting ballots are used); lib/privateIndividualBallots.ts:11 merge plan used by participantSubmissions.planParticipantBallotWrites; results page; api v1 ballotInput.ts",
+    "note": ""
+  },
+  {
+    "item": "allow_self_split_ballots",
+    "tabbycat": "options/preferences.py:1104",
+    "status": "HAVE",
+    "crabbytab": "allowSelfSplitBallots: StaffAccessSettings.tsx; ballots/result.ts:125 selfSplitAllowed (result.ts:696,810; individualBallots.ts:137); server privateBallot.ts:224 rejects a self-split that is not allowed",
+    "note": "From private URLs it also needs individualBallots (privateBallot.ts:69); the switch does not show that dependency."
+  },
+  {
+    "item": "team_tab_released",
+    "tabbycat": "options/preferences.py:815",
+    "status": "HAVE",
+    "crabbytab": "UI: ReleasePanel.tsx (standings page) kind teamTab -> setRelease -> prefs.releaseTeamTab; read: getPublicRelease (lib/publicRelease.ts) -> buildPublicProjection inReleasedTab (projection.ts) + buildPublicTabs release.teamTab (publicView/derived.ts:288); projection built server-side in publishPublicView (publicView/store.ts:132), publicViews unreadable by clients (firestore.rules:212)",
+    "note": "Releasing the unlimited team tab also publishes every completed prelim round's results incl. silent rounds."
+  },
+  {
+    "item": "team_tab_limit",
+    "tabbycat": "options/preferences.py:824",
+    "status": "HAVE",
+    "crabbytab": "UI: PublicSiteSettingsFields.tsx:75-88 (ConfigForm visibility); read: getPublicSiteSettings.teamTabLimit -> derived.ts withinLimit (212, 288); projection.ts tabLimited suppresses tab-only round results so cut ranks cannot be rebuilt",
+    "note": "Ties at the cutoff kept, ineligible rows dropped when limited."
+  },
+  {
+    "item": "speaker_tab_released",
+    "tabbycat": "options/preferences.py:833",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind speakerTab -> releaseSpeakerTab; derived.ts:289 buildPublicTabs; public/page.tsx showSpeakerTab",
+    "note": ""
+  },
+  {
+    "item": "speaker_tab_limit",
+    "tabbycat": "options/preferences.py:842",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields limit inputs; derived.ts:290 withinLimit(standings.speakers, speakerTabLimit)",
+    "note": ""
+  },
+  {
+    "item": "replies_tab_released",
+    "tabbycat": "options/preferences.py:851",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind repliesTab (shown only with reply scores); getPublicRelease requires replyScoresEnabled; derived.ts:298",
+    "note": ""
+  },
+  {
+    "item": "replies_tab_limit",
+    "tabbycat": "options/preferences.py:860",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields; derived.ts:298 withinLimit(standings.replies, repliesTabLimit)",
+    "note": ""
+  },
+  {
+    "item": "break_category_tabs_released",
+    "tabbycat": "options/preferences.py:869",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind breakCategoryTabs -> releaseBreakCategoryTabs; derived.ts:299-313 breakCategoryTabs per category with category.limit; public/page.tsx teamTabOptions",
+    "note": ""
+  },
+  {
+    "item": "speaker_category_tabs_released",
+    "tabbycat": "options/preferences.py:878",
+    "status": "PARTIAL",
+    "crabbytab": "No separate switch (grep speakerCategoryTabs/speaker_category_tabs: only derived.ts:291 and public/page.tsx:199). Category tabs are published together with the speaker tab: derived.ts:289-296 builds speakerCategoryTabs for every SpeakerCategory.public whenever release.speakerTab",
+    "note": "Cannot release the speaker tab without also releasing public category tabs, or release category tabs alone."
+  },
+  {
+    "item": "motion_tab_released",
+    "tabbycat": "options/preferences.py:889",
+    "status": "PARTIAL",
+    "crabbytab": "ReleasePanel kind motionTab -> motionTabReleased; getPublicSiteSettings.motionTab (publicFeatures.ts, absent = follows publicMotions); projection.ts visibleMotionIds/debateMotionsPublic; publicSummary.ts:26; public/page.tsx computeMotionStatistics",
+    "note": "Tabbycat's motion tab includes ALL motions whether released or not; CrabbyTab only ever publishes motions with released===true (projection.ts visibleMotionIds), so unreleased motions never appear. Also stats only use rounds with public results or a released tab."
+  },
+  {
+    "item": "adjudicators_tab_released",
+    "tabbycat": "options/preferences.py:898",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind adjudicatorTab -> releaseAdjudicatorTab; derived.ts:339 buildAdjudicatorTab gated by settings.adjudicatorTab; needsPublicFeedback reads feedback only when needed",
+    "note": ""
+  },
+  {
+    "item": "adjudicators_tab_shows",
+    "tabbycat": "options/preferences.py:907",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:63-71 (test/final/all); derived.ts:342 shows",
+    "note": ""
+  },
+  {
+    "item": "ballots_released",
+    "tabbycat": "options/preferences.py:921",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind ballots -> releaseBallots; projection.ts ballots: sheets published only when settings.ballots && speaker scores visible && panel revealed (publicSheets strips free text)",
+    "note": ""
+  },
+  {
+    "item": "all_results_released",
+    "tabbycat": "options/preferences.py:930",
+    "status": "MISSING",
+    "crabbytab": "grep -i allResultsReleased|all_results_released|releaseAllResults: no hits. Nearest: an unlimited released team/speaker tab publishes completed prelim results incl. silent rounds (projection.ts inReleasedTab), but silent elimination-round results and speaker-score columns on record pages have no release switch",
+    "note": "Tabbycat uses it in api/views.py:1139, breakqual/views.py:394, participants/tables.py:64,126."
+  },
+  {
+    "item": "private_ballots_released",
+    "tabbycat": "options/preferences.py:939",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind privateBallots -> releasePrivateBallots; server: api/private/sync/route.ts:365-371 passes getPublicSiteSettings().privateBallots to getPrivatePortalBallots (privatePortalBallots.ts:76-138: speaker scores + sheets for the team's own confirmed ballots of results-released, non-silent rounds); UI private/team/[key]/page.tsx:756",
+    "note": ""
+  },
+  {
+    "item": "search_engine_indexing",
+    "tabbycat": "options/preferences.py:1124",
+    "status": "PARTIAL",
+    "crabbytab": "UI PublicSiteSettingsFields.tsx:189; read lib/publicView/robots.ts publicRobotsMetadata -> robotsForPublicPage (publicFeatures.ts:239), used by layouts of public/, public/ballots, public/feedback, public team/adjudicator records, checkins/public, audit/public, register/[slug]",
+    "note": "Not applied to /[slug]/schedule/public (client page, no layout/generateMetadata) nor tournaments/motions/public; 'homepage-only' treats the tournament public page as the homepage (Tabbycat: site homepage)."
+  },
+  {
+    "item": "public_participants",
+    "tabbycat": "options/preferences.py:1138",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind participants -> publicParticipants; projection.ts publicTeamIds/isListedAdjudicator ship all teams/adjudicators only when release.participants; public/page.tsx buildPublicParticipants",
+    "note": ""
+  },
+  {
+    "item": "public_institutions_list",
+    "tabbycat": "options/preferences.py:1147",
+    "status": "PARTIAL",
+    "crabbytab": "ReleasePanel kind institutions -> publicInstitutionsList; public/page.tsx showInstitutions / buildPublicInstitutions",
+    "note": "Gate is UI-only: projection.ts (institutions = every active institution's name/code/region) ships the full institution list regardless of this switch and of show_team_institutions."
+  },
+  {
+    "item": "public_diversity",
+    "tabbycat": "options/preferences.py:1156",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind diversity -> publicDiversity; derived.ts:449 buildDiversity returns undefined unless settings.diversity",
+    "note": ""
+  },
+  {
+    "item": "public_checkins",
+    "tabbycat": "options/preferences.py:1167",
+    "status": "PARTIAL",
+    "crabbytab": "UI ConfigForm.tsx (~1412) publicCheckInStatus; projection.ts buildPublicCheckinsSource stores data only when enabled; api/public/tournaments/[slug]/checkins/route.ts returns 403 when disabled",
+    "note": "Per-person names listed only when public_participants is also released; otherwise only per-round counts (Tabbycat lists every person/team). Deliberate privacy trade-off."
+  },
+  {
+    "item": "public_break_categories",
+    "tabbycat": "options/preferences.py:1176",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:108 publicBreakCategories; projection.ts showEligibility ships team.breakCategories only when on (or break-category tabs released); public/page.tsx buildPublicParticipants",
+    "note": ""
+  },
+  {
+    "item": "public_side_allocations",
+    "tabbycat": "options/preferences.py:1185",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind sideAllocations -> publicSideAllocations; derived.ts:385 buildSideAllocations; projection.ts sideAllocationTeamIds",
+    "note": ""
+  },
+  {
+    "item": "public_draw",
+    "tabbycat": "options/preferences.py:1194",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:49-61 publicDrawMode off/current/all (keeps legacy publicDraw); projection.ts isRoundDrawPublic/currentDrawRoundIds filters rounds and debates server-side",
+    "note": ""
+  },
+  {
+    "item": "public_results",
+    "tabbycat": "options/preferences.py:1208",
+    "status": "HAVE",
+    "crabbytab": "ConfigForm.tsx ~1394 publicResults; projection.ts areResultsPublished strips points/ballots; private routes sync/route.ts:368 and team/route.ts:132 also honour it",
+    "note": ""
+  },
+  {
+    "item": "public_motions",
+    "tabbycat": "options/preferences.py:1217",
+    "status": "HAVE",
+    "crabbytab": "ConfigForm.tsx ~1406 publicMotions; projection.ts visibleMotionIds/motionsStatus/infoSlideRoundIds; publicFeatures motionsPage",
+    "note": ""
+  },
+  {
+    "item": "public_team_standings",
+    "tabbycat": "options/preferences.py:1226",
+    "status": "PARTIAL",
+    "crabbytab": "ConfigForm.tsx:1398-1401 publicStandings; public/page.tsx:162 showPublicStandings; api/v1/routes/standings.ts:327 refuses public view when false",
+    "note": "Tabbycat shows wins-only standings whenever results are public; CrabbyTab shows the standings tab only after some round's team speaks are released (page.tsx:159-162), computed client-side from public results. Switch is UI-only, but underlying data is already public."
+  },
+  {
+    "item": "public_record",
+    "tabbycat": "options/preferences.py:1235",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind recordPages -> publicRecordPages (absent=on); PublicRecordPages.tsx:51,133 refuse when off; public/page.tsx teamHref/adjudicatorHref",
+    "note": "UI-only gate, but record pages only aggregate already-public projection data."
+  },
+  {
+    "item": "public_breaking_teams",
+    "tabbycat": "options/preferences.py:1244",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel per-category 'break' items -> releasedBreakCategoryIds; projection.ts redactUnreleasedBreak + generatedBreak only for released categories; buildPublicBreak (publicRelease.ts)",
+    "note": "Per break category rather than one switch."
+  },
+  {
+    "item": "public_break_metrics_to_show",
+    "tabbycat": "options/preferences.py:1255",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:90-100 publicBreakMetrics; derived.ts:318 buildBreakMetrics; public/page.tsx:946-960",
+    "note": ""
+  },
+  {
+    "item": "public_breaking_adjs",
+    "tabbycat": "options/preferences.py:1264",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind breakingAdjudicators -> publicBreakingAdjudicators; projection.ts breaking flag shipped only when released",
+    "note": ""
+  },
+  {
+    "item": "feedback_progress",
+    "tabbycat": "options/preferences.py:1273",
+    "status": "HAVE",
+    "crabbytab": "ReleasePanel kind feedbackProgress -> publicFeedbackProgress; derived.ts:535 buildFeedbackProgress (honours showUnexpectedFeedback, public sources only)",
+    "note": ""
+  },
+  {
+    "item": "public_schedule",
+    "tabbycat": "options/preferences.py:1282",
+    "status": "HAVE",
+    "crabbytab": "ScheduleEventsCard.tsx:72,248 publicSchedule; projection.ts strips scheduleEvents unless publicSchedule; api/public/tournaments/[slug]/schedule/route.ts:18-20 404 when not public; iCal route",
+    "note": "schedule/public page lacks robots metadata (see search_engine_indexing)."
+  },
+  {
+    "item": "tournament_staff",
+    "tabbycat": "options/preferences.py:1291",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:211; publicFeatures text() (5000 chars); public/page.tsx:476 WelcomePanel",
+    "note": "Plain text instead of Tabbycat's HTML."
+  },
+  {
+    "item": "welcome_message",
+    "tabbycat": "options/preferences.py:1302",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:203; public/page.tsx:476 WelcomePanel",
+    "note": "Plain text instead of HTML."
+  },
+  {
+    "item": "show_splitting_adjudicators",
+    "tabbycat": "options/preferences.py:1317",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:177; projection.ts splitAdjudicatorIds only when on and panel revealed",
+    "note": ""
+  },
+  {
+    "item": "team_code_names",
+    "tabbycat": "options/preferences.py:1327",
+    "status": "PARTIAL",
+    "crabbytab": "PublicSiteSettingsFields.tsx:131; public names: publicView/names.ts createPublicNamer used by projection/derived (server-side rename); public forms route.ts:245; admin tooltips: codeNames.ts:118 tabroomTeamName (TabroomTeamName.tsx)",
+    "note": "'everywhere' still shows real names in admin (codeNames.ts:128 returns real); private portals (privatePortalBallots.ts sanitizeTeamPrivateDebate keeps slot.teamName) show opponents' real names under code-name modes."
+  },
+  {
+    "item": "participant_code_names",
+    "tabbycat": "options/preferences.py:1345",
+    "status": "PARTIAL",
+    "crabbytab": "PublicSiteSettingsFields.tsx:143; names.ts participantCodes rename speakers/adjudicators in the projection; public forms route.ts:382",
+    "note": "Only public output is renamed; admin views and private portals (adjudicator names on panels) keep real names."
+  },
+  {
+    "item": "show_emoji",
+    "tabbycat": "options/preferences.py:1358",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:166; projection.ts emoji shipped only when settings.showEmoji",
+    "note": "Tabbycat also hides emoji in admin; CrabbyTab only public."
+  },
+  {
+    "item": "show_team_institutions",
+    "tabbycat": "options/preferences.py:1367",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:156; projection.ts institutionFields strips team institutionId/Name; derived.ts:257 tab rows",
+    "note": "Institutions collection itself still shipped (see public_institutions_list)."
+  },
+  {
+    "item": "show_adjudicator_institutions",
+    "tabbycat": "options/preferences.py:1376",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:161; projection.ts institutionFields for adjudicators; derived.ts:356",
+    "note": ""
+  },
+  {
+    "item": "show_speakers_in_draw",
+    "tabbycat": "options/preferences.py:1385",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:171; public/page.tsx renderDrawTeam",
+    "note": "Display-only, as in Tabbycat (speakers are public on team data anyway)."
+  },
+  {
+    "item": "show_seed_in_importer",
+    "tabbycat": "options/preferences.py:1394",
+    "status": "HAVE",
+    "crabbytab": "teamSeedMode: UI CsvImportDialog.tsx:123,268; read csv/importPlan.ts:238,322; registration route.ts:79-82 and register/[slug]/page.tsx:440; DrawSetupPanel.tsx:42",
+    "note": ""
+  },
+  {
+    "item": "reply_to_name",
+    "tabbycat": "options/preferences.py:1413",
+    "status": "HAVE",
+    "crabbytab": "EmailSettingsPanel.tsx:175 -> PUT /api/tournaments/[id]/email/settings (admin-only, parseEmailSettings sanitises) -> serverOnly/emailSettings; read by replyToHeader (lib/email/settings.ts:264) in notificationService.ts:272/346/474, email/send/route.ts:181, email/retry/route.ts:169, templatedEmail.ts",
+    "note": "Server-only doc, not in public preferences (better for a sensitive pref). Default empty instead of 'Tabulation Team'."
+  },
+  {
+    "item": "reply_to_address",
+    "tabbycat": "options/preferences.py:1423",
+    "status": "HAVE",
+    "crabbytab": "Same path as reply_to_name; validated with normalizeEmail (settings.ts:233)",
+    "note": "A name without an address is refused."
+  },
+  {
+    "item": "email_hook_key",
+    "tabbycat": "options/preferences.py:1434",
+    "status": "PARTIAL",
+    "crabbytab": "src/app/api/email/webhook/route.ts + lib/email/deliveryStatus.ts: HMAC-SHA256 signature with deployment env EMAIL_WEBHOOK_SECRET; settings GET reports webhookConfigured",
+    "note": "Deployment-wide secret in env, not a per-tournament key settable from the UI. Stronger auth (HMAC vs URL key) but not per-tournament configurable."
+  },
+  {
+    "item": "enable_ballot_receipts",
+    "tabbycat": "options/preferences.py:1446",
+    "status": "PARTIAL",
+    "crabbytab": "preferences.notifyBallotReceipt toggled in AutomaticNotificationsPanel.tsx:60; read by sendBallotReceipts (lib/email/notificationService.ts:292) called only from api/private/sync/route.ts:345 and api/public/tournaments/[slug]/forms/route.ts:348",
+    "note": "Receipts only for ballots submitted via private URL or public form. Tabbycat also sends them for ballots entered by admin/assistant (results/views.py:328 BaseBallotSetView) and skips BP elimination rounds; CrabbyTab has neither the tab-room path nor the BP-elim exclusion."
+  },
+  {
+    "item": "ballot_email_subject",
+    "tabbycat": "options/preferences.py:1456",
+    "status": "HAVE",
+    "crabbytab": "EmailSettingsPanel template 'ballot_receipt' -> templateFor(settings,'ballot_receipt') notificationService.ts:325",
+    "note": ""
+  },
+  {
+    "item": "ballot_email_message",
+    "tabbycat": "options/preferences.py:1465",
+    "status": "HAVE",
+    "crabbytab": "As ballot_email_subject (template body)",
+    "note": "Plain-text template with {{var}} placeholders instead of HTML."
+  },
+  {
+    "item": "team_points_email_subject",
+    "tabbycat": "options/preferences.py:1483",
+    "status": "HAVE",
+    "crabbytab": "template 'team_points'; sendNextRoundEventNotification templateFor(settings,event) notificationService.ts:251; gated by notifyTeamPoints",
+    "note": "Automatic on results release (opt-in) instead of a manual send button."
+  },
+  {
+    "item": "team_points_email_message",
+    "tabbycat": "options/preferences.py:1491",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "adj_email_subject",
+    "tabbycat": "options/preferences.py:1501",
+    "status": "HAVE",
+    "crabbytab": "template 'draw_adjudicators' -> notificationService.ts:251, gated by notifyDrawReleased (lib/email/notifications.ts:87-89)",
+    "note": ""
+  },
+  {
+    "item": "adj_email_message",
+    "tabbycat": "options/preferences.py:1509",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "team_draw_email_subject",
+    "tabbycat": "options/preferences.py:1519",
+    "status": "HAVE",
+    "crabbytab": "template 'draw_teams' -> notificationService.ts:251",
+    "note": ""
+  },
+  {
+    "item": "team_draw_email_message",
+    "tabbycat": "options/preferences.py:1527",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "url_email_subject",
+    "tabbycat": "options/preferences.py:1537",
+    "status": "HAVE",
+    "crabbytab": "template 'private_url' (manual) -> EmailSettingsPanel onUseTemplate loads it into the compose form (app/[tournamentSlug]/email/page.tsx:536) -> /api/email/send renders {{private_url}} (lib/email/messaging.ts:393,475)",
+    "note": ""
+  },
+  {
+    "item": "url_email_message",
+    "tabbycat": "options/preferences.py:1545",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "motion_email_subject",
+    "tabbycat": "options/preferences.py:1559",
+    "status": "HAVE",
+    "crabbytab": "template 'motions_released', automatic when notifyMotionsReleased (notifications.ts:96)",
+    "note": "Automatic on release instead of manual."
+  },
+  {
+    "item": "motion_email_message",
+    "tabbycat": "options/preferences.py:1567",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "team_email_subject",
+    "tabbycat": "options/preferences.py:1576",
+    "status": "HAVE",
+    "crabbytab": "template 'team_registration' (manual) -> compose with recipient group all_teams (email/page.tsx:542); variables from lib/email/messaging.ts:103-110",
+    "note": ""
+  },
+  {
+    "item": "team_email_message",
+    "tabbycat": "options/preferences.py:1584",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "enable_motions",
+    "tabbycat": "options/preferences.py:1601",
+    "status": "PARTIAL",
+    "crabbytab": "preferences.enableMotions via ResultsRulesSettings.tsx:211; motionsEnabled() lib/ballots/ballotRules.ts:82 read by results/[roundSeq]/[debateId]/page.tsx:117, print/ballots/page.tsx:150, result.ts:667",
+    "note": "Tab-room entry lets the motion be chosen, but private-URL and public-form ballots never ask: they store debate.motionId, which draws.ts:205-209 sets to the round's FIRST motion (privateBallot.ts:255, PublicBallotForm.tsx:198). Tabbycat's participant ballot asks for the motion when enable_motions. Motion is never required (result.ts:668 only checks membership)."
+  },
+  {
+    "item": "ballots_hide_motions",
+    "tabbycat": "options/preferences.py:1610",
+    "status": "HAVE",
+    "crabbytab": "PrintOptionsCard.tsx:70/85 saves preferences.ballotsHideMotions; read print/ballots/page.tsx:36",
+    "note": ""
+  },
+  {
+    "item": "motion_vetoes_enabled",
+    "tabbycat": "options/preferences.py:1619",
+    "status": "PARTIAL",
+    "crabbytab": "ConfigForm.tsx:1041 enableMotionVetoes; read results/[roundSeq]/[debateId]/page.tsx:525 (tab-room veto entry), result.ts:673 validation, analytics, ReleasePanel/publicVetoStatistics",
+    "note": "Vetoes can only be entered in the tab room; private-URL and public-form ballots have no veto fields (no 'veto' in private/adjudicator page or PublicBallotForm), unlike Tabbycat ballot_entry_form.html:11. Default off vs Tabbycat default True."
+  },
+  {
+    "item": "show_motions_in_results",
+    "tabbycat": "options/preferences.py:1628",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:122 -> publicFeatures.ts:127 motionsInResults -> public/page.tsx:572/637, PublicRecordPages.tsx:57/140, publicRecords.ts:135, projection.ts:296/313",
+    "note": ""
+  },
+  {
+    "item": "public_motions_order",
+    "tabbycat": "options/preferences.py:1637",
+    "status": "HAVE",
+    "crabbytab": "PublicSiteSettingsFields.tsx:113 -> publicFeatures.ts:124 -> orderPublicMotions used at public/page.tsx:272",
+    "note": "Default 'forward' (Tabbycat default 'reverse'); intentional to keep earlier CrabbyTab behaviour."
+  },
+  {
+    "item": "enable_motion_reuse",
+    "tabbycat": "options/preferences.py:1650",
+    "status": "PARTIAL",
+    "crabbytab": "No setting; reuse always available in RoundMotionsPanel.tsx:117-134 (copyMotionsToRound, lib/motions/roundMotions.ts:57)",
+    "note": "Grep enableMotionReuse|motion_reuse -> none. Reuse is always on; the Tabbycat side effect (motion stats by motion vs by round, standings_menu.html:60) is not switchable. Karl Popper preset still lists 'Motion reuse across rounds' as unsupported (lib/setup/presets.ts:451), which is stale."
+  },
+  {
+    "item": "speakers_in_team",
+    "tabbycat": "options/preferences.py:1664",
+    "status": "BETTER",
+    "crabbytab": "RegistrationSettings.minSpeakers/maxSpeakers (RegistrationSettingsForm) -> parseSpeakers validation.ts:414 (server, public registration route) and team invitations teamInvitations.ts:154",
+    "note": "Range instead of a single number; default from tournament substantiveSpeakers (validation.ts:131)."
+  },
+  {
+    "item": "team_name_generator",
+    "tabbycat": "options/preferences.py:1673",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationSettings.teamNameGenerator (RegistrationSettingsForm) -> applyNameGenerators (lib/registration/names.ts:109) in autoApprove.ts createRegisteredEntity and features/tournament/application/registrationApproval.ts",
+    "note": "Applied on approval, but the public form still requires a team name (app/register/[slug]/page.tsx:407 required) even when the generator overwrites it; toPublicForm (validation.ts:285) does not expose the generator. Tabbycat hides the name field (registration/forms.py:210). Generated value is the full name, not a separate Team.reference."
+  },
+  {
+    "item": "reg_team_fields",
+    "tabbycat": "options/preferences.py:1688",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.teamFields -> activeTeamFields validation.ts:176, toPublicForm, parseOptionalTeamFields validation.ts:430 (server), register page.tsx:233-460",
+    "note": "Default none vs Tabbycat ('use_institution_prefix','emoji')."
+  },
+  {
+    "item": "reg_institution_fields",
+    "tabbycat": "options/preferences.py:1704",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.institutionRegion -> validation.ts:521 server, toPublicForm",
+    "note": ""
+  },
+  {
+    "item": "reg_speaker_fields",
+    "tabbycat": "options/preferences.py:1717",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationSettings.speakerFields (phone|gender) -> parsePersonDetails validation.ts:402",
+    "note": "Only phone and gender are switchable; email is always asked (parseEmail validation.ts:405), categories shown whenever speakerCategories exist. Tabbycat can switch off email and categories."
+  },
+  {
+    "item": "reg_adjudicator_fields",
+    "tabbycat": "options/preferences.py:1733",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationSettings.adjudicatorFields (phone|gender) -> validation.ts:534",
+    "note": "Email is always required for adjudicators (AdjudicatorRegistrationData.email: string); Tabbycat can switch it off."
+  },
+  {
+    "item": "institution_registration",
+    "tabbycat": "options/preferences.py:1748",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.institutionRegistration -> validation.ts:480 refuses kind=institution server-side; toPublicForm",
+    "note": ""
+  },
+  {
+    "item": "institution_participant_registration",
+    "tabbycat": "options/preferences.py:1757",
+    "status": "PARTIAL",
+    "crabbytab": "Representative links (RepresentativesPanel, registration/representatives route, loadRepresentativeByToken service.ts:91) let institutions register participants",
+    "note": "No separate switch: representative links always work while team/adjudicator registration is on; institution-only participant registration is only possible via representativesOnly, which covers both kinds."
+  },
+  {
+    "item": "reg_institution_slots",
+    "tabbycat": "options/preferences.py:1766",
+    "status": "HAVE",
+    "crabbytab": "Per-representative teamQuota/adjudicatorQuota + per-institution quotas (quota.ts quotaLimits/quotaRefusal) enforced in the submitRegistration transaction service.ts:186-191",
+    "note": "Implicit: slots apply whenever a quota is set rather than via a boolean."
+  },
+  {
+    "item": "reg_block_over_allocated",
+    "tabbycat": "options/preferences.py:1775",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.blockOverAllocation -> service.ts:190 allowOver -> quotaRefusal quota.ts:76; over-allocation flagged via isOverAllocated",
+    "note": "Tournament-wide total still enforced."
+  },
+  {
+    "item": "reg_institution_slot_transfers",
+    "tabbycat": "options/preferences.py:1784",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.slotTransfers -> requestSlotTransfer service.ts:468 refuses when off; describeRepresentative service.ts:140; SlotTransfersPanel + registration/transfers route",
+    "note": ""
+  },
+  {
+    "item": "open_team_registration",
+    "tabbycat": "options/preferences.py:1793",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationSettings.teamRegistration (validation.ts:486) + representativesOnly (service.ts:179)",
+    "note": "representativesOnly is one switch for teams and adjudicators; Tabbycat can open team registration while keeping adjudicators invitation-only (and vice versa)."
+  },
+  {
+    "item": "open_adj_registration",
+    "tabbycat": "options/preferences.py:1802",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationSettings.adjudicatorRegistration (validation.ts:487) + representativesOnly",
+    "note": "Same coupling as open_team_registration."
+  },
+  {
+    "item": "code_name_generator",
+    "tabbycat": "options/preferences.py:1811",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.codeNameGenerator -> generateCodeName names.ts (emoji|last_names) via applyNameGenerators on approval and auto-approval",
+    "note": "Default 'user' vs Tabbycat 'emoji'; emoji set smaller."
+  },
+  {
+    "item": "registration_confirmation",
+    "tabbycat": "options/preferences.py:1825",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.confirmation -> needsConfirmation autoApprove.ts:26 -> createRegisteredEntity in api/public/tournaments/[slug]/registration/route.ts POST",
+    "note": "'open' keyed on absence of a representative (equivalent to Tabbycat institution is None). Default 'always' vs Tabbycat 'never'. Institutions are always reviewed."
+  },
+  {
+    "item": "institution_register_message",
+    "tabbycat": "options/preferences.py:1839",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.institutionMessage -> toPublicForm -> register page.tsx:296/375",
+    "note": "Plain text, not rich HTML."
+  },
+  {
+    "item": "adjudicator_register_message",
+    "tabbycat": "options/preferences.py:1850",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.adjudicatorMessage -> same path",
+    "note": ""
+  },
+  {
+    "item": "team_register_message",
+    "tabbycat": "options/preferences.py:1861",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.teamMessage -> same path",
+    "note": ""
+  },
+  {
+    "item": "institution_registration_email_subject",
+    "tabbycat": "options/preferences.py:1872",
+    "status": "PARTIAL",
+    "crabbytab": "template 'registration_received' via sendTemplatedEmail in api/public/tournaments/[slug]/registration/route.ts POST, gated by emailSettings.registrationEmails",
+    "note": "Generic received/approved templates for every kind, sent only when registrationEmails is on (Tabbycat always sends on institution registration); no {{URL}} to the coach landing page at that moment (the link arrives later via slots_allocated)."
+  },
+  {
+    "item": "institution_registration_email_body",
+    "tabbycat": "options/preferences.py:1881",
+    "status": "PARTIAL",
+    "crabbytab": "As above",
+    "note": "As above."
+  },
+  {
+    "item": "slots_allocated_email_subject",
+    "tabbycat": "options/preferences.py:1892",
+    "status": "HAVE",
+    "crabbytab": "template 'slots_allocated' -> registration/representativeLinks.ts:38-50 (url, teams_allocated, adjudicators_allocated, institution)",
+    "note": ""
+  },
+  {
+    "item": "slots_allocated_email_body",
+    "tabbycat": "options/preferences.py:1901",
+    "status": "HAVE",
+    "crabbytab": "As above",
+    "note": ""
+  },
+  {
+    "item": "preset mechanism (apply preset to tournament, incl. after creation)",
+    "tabbycat": "options/presets.py:73, options/views.py:25,84, tournaments/forms.py:107",
+    "status": "HAVE",
+    "crabbytab": "src/lib/setup/presets.ts RULES_PRESETS + rulesPresetPreferences; at creation TournamentWizard.tsx:213 handleRulesPresetChange and :380 spreads rulesPreset.preferences into preferences; on an existing tournament ConfigTransferCard.tsx:88 previewPreset -> planPresetApply (configTransfer.ts:283) -> apply() -> onSave with a change preview; locked/format changes blocked once ballots/draws exist",
+    "note": "CrabbyTab previews the diff before applying. Hidden Tabbycat presets (PublicInformation, TabRelease, PrivateURLs, PublicForms, RoundRobin*) are listed on Tabbycat's config index (views.py:29-38 iterates all_presets) but have no CrabbyTab preset entries; see their rows."
+  },
+  {
+    "item": "AustralsPreferences",
+    "tabbycat": "options/presets.py:166",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:186 id 'australs' (AUSTRALS_BUNDLE presets.ts:140)",
+    "note": "All draw/debate/standings/scoring values mapped. ui_options show_team_institutions=False / show_adjudicator_institutions=True are NOT set, yet the preset's unsupported list says 'Hiding team institutions' although showTeamInstitutions exists (PublicSiteSettingsFields, lib/publicFeatures.ts). Stale unsupported list; the gap is inherited by Easters/NZ/Joynt/UADC/WSDC."
+  },
+  {
+    "item": "BritishParliamentaryPreferences",
+    "tabbycat": "options/presets.py:206",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:200 id 'bp'",
+    "note": "Scoring, ghosts, per-debate ballots, speakers_in_ballots prelim, BP draw options, pullup penalty 100000 and standings mapped. preparation_time=15 is listed as unsupported although preferences.preparationTime exists and is read (motionRelease.ts; KP preset sets 60) -> not applied. show_team_institutions=False not applied. Tabbycat's team_points_email_* attributes lack '__' so Tabbycat never applies them (presets.py:80) - nothing to replicate."
+  },
+  {
+    "item": "CanadianParliamentaryPreferences",
+    "tabbycat": "options/presets.py:254",
+    "status": "HAVE",
+    "crabbytab": "presets.ts:231 id 'canadian'",
+    "note": "Every listed preference mapped (50-100, reply off, 2 speakers, gov-opp, per-debate, no motions/vetoes, pullup_top, balance, fold, conflicts off)."
+  },
+  {
+    "item": "AustralianEastersPreferences",
+    "tabbycat": "options/presets.py:279",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:255 id 'australian_easters'",
+    "note": "Margin 15, no replies, prelim consensus / elim voting mapped. Inherits the Australs gap (show_team_institutions=False not applied)."
+  },
+  {
+    "item": "NZEastersPreferences",
+    "tabbycat": "options/presets.py:299",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:267 id 'nz_easters'",
+    "note": "Scores, 2 speakers, wbw precedence, manual_ballot sides, intermediate, fold, off mapped. Inherited show_team_institutions=False not applied."
+  },
+  {
+    "item": "JoyntPreferences",
+    "tabbycat": "options/presets.py:326",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:288 id 'joynt'",
+    "note": "public_features__public_side_allocations=True is listed as unsupported (presets.ts:309) but preferences.publicSideAllocations exists and gates the public side-allocations page (lib/publicFeatures.ts, lib/publicRelease.ts) -> not applied. Inherited show_team_institutions=False not applied."
+  },
+  {
+    "item": "UADCPreferences",
+    "tabbycat": "options/presets.py:355",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:311 id 'uadc'",
+    "note": "feedback_from_teams='all-adjs' and feedback_progress=True listed as unsupported (presets.ts:331) though feedbackPaths.teams='all_adjudicators' (used by the KP preset) and publicFeedbackProgress both exist -> not applied. Inherited show_team_institutions=False not applied. Scores 67-83 / 33.5-41.5, margin_includes_dissenters=False, gov-opp, precedence, feedback 1-10 mapped."
+  },
+  {
+    "item": "WSDCPreferences",
+    "tabbycat": "options/presets.py:394",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:333 id 'wsdc'",
+    "note": "Score criteria (Tabbycat apply action) mapped as preferences.scoreCriteria (transferable, so also applied to existing tournaments); scores, dissenters, prop-opp, random pairing, pullup_top, max 5/side, graph_one -> min_cost_with_pullups, lowest_ds_wins, precedence mapped. show_team_institutions=False and show_adjudicator_institutions=False NOT applied (and not listed as unsupported)."
+  },
+  {
+    "item": "APDAPreferences",
+    "tabbycat": "options/presets.py:496",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:362 id 'apda'",
+    "note": "All draw/ballot/standings prefs mapped. unsupported lists 'Seeded first preliminary draw' and 'Seeds shown in the importer', but CrabbyTab has DrawType 'seeded' (generator.ts:471-479) and preferences.teamSeedMode='title' (lib/teamSeeds.ts) -> neither applied: teamSeedMode is not in the bundle and buildRounds (presets.ts:648) never sets round 1 to seeded."
+  },
+  {
+    "item": "KarlPopperPreferences",
+    "tabbycat": "options/presets.py:624",
+    "status": "PARTIAL",
+    "crabbytab": "presets.ts:399 id 'karl_popper'",
+    "note": "Most values mapped (median, self-split, individual ballots, penalties, feedback paths, public features). data_entry__participant_feedback='public' not applied although publicFeedbackForm exists (PublicFormsSettings; forms/route.ts:165); the unsupported list (presets.ts:463-466) wrongly calls it and motion reuse (always on in RoundMotionsPanel) unsupported. show_unaccredited genuinely missing."
+  },
+  {
+    "item": "RoundRobinTwoTeam",
+    "tabbycat": "options/presets.py:553",
+    "status": "PARTIAL",
+    "crabbytab": "no preset; drawRule 'round_robin' in TournamentWizard + ConfigForm; teamSeedMode in DrawSetupPanel/CsvImportDialog",
+    "note": "Hidden preset but appliable from Tabbycat's config index. Choosing round robin in CrabbyTab does not switch off avoidTeamHistory/avoidSameInstitution nor set teamSeedMode='numeric'; organiser must do it by hand. Grep: 'RoundRobinTwoTeam', 'round_robin' in presets.ts."
+  },
+  {
+    "item": "RoundRobinBP",
+    "tabbycat": "options/presets.py:565",
+    "status": "PARTIAL",
+    "crabbytab": "no preset (see RoundRobinTwoTeam)",
+    "note": "Same as RoundRobinTwoTeam for BP: no bundle setting numeric seeds and disabling history/institution avoidance."
+  },
+  {
+    "item": "PublicSpeaking",
+    "tabbycat": "options/presets.py:577",
+    "status": "NA",
+    "crabbytab": "presets.ts:469 id 'public_speaking' (format 'poly')",
+    "note": "Depends on teams_in_debate other than 2/4: out of scope (concurrent work). Values present map 1:1, incl. the apply action as drawRule 'random'."
+  },
+  {
+    "item": "PublicInformation",
+    "tabbycat": "options/presets.py:694 (applied by tournaments/forms.py:146)",
+    "status": "PARTIAL",
+    "crabbytab": "TournamentWizard.tsx:767-786 'public' step toggles publicDraw/publicMotions/publicResults/publicStandings",
+    "note": "Wizard covers draw/results/motions/standings but public_draw is the legacy boolean (=> 'all', not 'current') and public_break_categories is not offered; no one-click equivalent after creation."
+  },
+  {
+    "item": "TabRelease",
+    "tabbycat": "options/presets.py:708",
+    "status": "PARTIAL",
+    "crabbytab": "individual switches in ReleasePanel.tsx via lib/publicRelease.ts setRelease",
+    "note": "No one-click tab-release bundle; each switch is flipped separately, and all_results_released has no equivalent (see that row), so this preset cannot be reproduced."
+  },
+  {
+    "item": "PrivateURLs",
+    "tabbycat": "options/presets.py:730 (tournaments/forms.py:150)",
+    "status": "PARTIAL",
+    "crabbytab": "privateUrlBallots (absent=on) in StaffAccessSettings/PublicFormsSettings; private feedback always on with feedbackEnabled",
+    "note": "Default-on rather than a choice; the wizard has no 'Participant data entry' question (Tabbycat default: Disabled). Private-URL feedback has no own switch (participantSubmissions.ts:103)."
+  },
+  {
+    "item": "PublicForms",
+    "tabbycat": "options/presets.py:739",
+    "status": "PARTIAL",
+    "crabbytab": "publicBallotForm/publicFeedbackForm toggles in PublicFormsSettings.tsx",
+    "note": "Settable after creation, not in the wizard; enabling it does not turn private-URL entry off as Tabbycat's preset (participant_* = 'public') does."
+  }
+]

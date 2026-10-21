@@ -125,7 +125,8 @@ async function buildRoundRecipients(
   tournament: Tournament,
   rounds: Round[],
   event: RoundNotificationEvent,
-  round: Round
+  round: Round,
+  links?: { privateUrlOrigin?: string }
 ): Promise<EmailRecipient[]> {
   const [teamsSnapshot, adjudicatorsSnapshot] = await Promise.all([
     tournamentRef.collection("teams").get(),
@@ -147,7 +148,10 @@ async function buildRoundRecipients(
     const venues = await loadPortalVenues(tournamentRef, debates);
     return event === "draw_teams"
       ? buildDrawTeamRecipients(round, debates, teams, adjudicators, venues)
-      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators, venues);
+      : buildDrawAdjudicatorRecipients(round, debates, teams, adjudicators, venues, {
+          privateUrlOrigin: links?.privateUrlOrigin,
+          tournamentSlug: tournament.slug,
+        });
   }
   // Running totals only include rounds whose results pass the same release test.
   const releasedRounds = rounds.filter((item) => areRoundResultsReleased(item, tournament.preferences));
@@ -192,6 +196,8 @@ export async function sendNextRoundNotification(input: {
   tournamentId: string;
   sender: NotificationSender;
   createProvider?: () => EmailProvider;
+  /** The site's origin, so allocation emails can carry each adjudicator's private URL. */
+  privateUrlOrigin?: string;
 }): Promise<RoundNotificationResult> {
   const roundResult = await sendNextRoundEventNotification(input);
   if (roundResult.status !== "idle") return roundResult;
@@ -203,6 +209,7 @@ async function sendNextRoundEventNotification(input: {
   tournamentId: string;
   sender: NotificationSender;
   createProvider?: () => EmailProvider;
+  privateUrlOrigin?: string;
 }): Promise<RoundNotificationResult> {
   const { firestore } = input;
   const loaded = await loadTournament(firestore, input.tournamentId);
@@ -223,7 +230,9 @@ async function sendNextRoundEventNotification(input: {
   const provider = (input.createProvider ?? createSmtpEmailProvider)();
   const { event, round } = due[nextIndex];
   const logRef = logRefs[nextIndex];
-  const chunks = chunkRecipients(await buildRoundRecipients(tournamentRef, tournament, rounds, event, round));
+  const chunks = chunkRecipients(
+    await buildRoundRecipients(tournamentRef, tournament, rounds, event, round, { privateUrlOrigin: input.privateUrlOrigin })
+  );
 
   const claimedChunk = await firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(logRef);
@@ -298,6 +307,8 @@ export async function sendBallotReceipts(input: {
       const debate = input.debates.get(ballot.debateId);
       if (!debate) continue;
       const round = input.rounds.get(ballot.roundId);
+      // Tabbycat sends no receipts for BP elimination rounds (results only, no scores to check).
+      if (!ballotReceiptsApply(input.tournament, round)) continue;
       const recipient = buildBallotReceiptRecipient(
         input.adjudicator,
         ballot,
@@ -353,6 +364,57 @@ export async function sendBallotReceipts(input: {
       error instanceof Error ? error.message : "Unknown ballot receipt error."
     );
   }
+}
+
+/** Tabbycat `should_send_email_receipts`: never for BP elimination rounds. */
+export function ballotReceiptsApply(tournament: Pick<Tournament, "format">, round: Pick<Round, "stage"> | undefined): boolean {
+  return !(tournament.format === "bp" && round?.stage === "elimination");
+}
+
+/**
+ * Which email a confirmed result sends to its debate's adjudicators: "confirmed" (CrabbyTab's
+ * opt-in "ballot confirmed" email), else "receipt" when ballot receipts are on (Tabbycat
+ * `enable_ballot_receipts` also emails the panel when the tab room or an assistant confirms a
+ * ballot), else none.
+ */
+export function ballotConfirmationEmailMode(
+  preferences: Tournament["preferences"] | undefined
+): "confirmed" | "receipt" | null {
+  if (preferences?.notifyBallotConfirmed === true) return "confirmed";
+  if (preferences?.notifyBallotReceipt === true) return "receipt";
+  return null;
+}
+
+/**
+ * In "receipt" mode, whether a confirmed ballot is emailed: not one an adjudicator submitted
+ * (their own receipt went out on submission), and not in a BP elimination round (Tabbycat).
+ */
+export function receiptModeSendsConfirmation(
+  ballot: Pick<BallotSubmission, "submitterType">,
+  tournament: Pick<Tournament, "format">,
+  round: Pick<Round, "stage">
+): boolean {
+  return ballot.submitterType !== "judge" && ballotReceiptsApply(tournament, round);
+}
+
+/** Records ballots as handled in a round's confirmation log (sent, skipped or baselined). */
+async function claimBallotConfirmations(
+  firestore: Firestore,
+  logRef: DocumentReference,
+  roundId: string,
+  ballotIds: string[]
+): Promise<void> {
+  await firestore.runTransaction(async (transaction) => {
+    const current = (await transaction.get(logRef)).data() as BallotConfirmedLog | undefined;
+    const sentBallotIds = { ...(current?.sentBallotIds ?? {}) };
+    for (const id of ballotIds) sentBallotIds[id] = true;
+    transaction.set(logRef, {
+      event: "ballot_confirmed",
+      subjectId: roundId,
+      sentBallotIds,
+      updatedAt: new Date().toISOString(),
+    } satisfies BallotConfirmedLog);
+  });
 }
 
 /** Rounds whose confirmations are emailed: drawn for teams, not cancelled, not completed. */
@@ -423,13 +485,24 @@ export async function sendNextBallotConfirmation(input: {
 }): Promise<RoundNotificationResult> {
   const { firestore } = input;
   const loaded = await loadTournament(firestore, input.tournamentId);
-  if (!loaded || loaded.tournament.preferences?.notifyBallotConfirmed !== true) return { status: "idle" };
+  const mode = loaded ? ballotConfirmationEmailMode(loaded.tournament.preferences) : null;
+  if (!loaded || !mode) return { status: "idle" };
   const { tournament, tournamentRef } = loaded;
   for (const round of ballotConfirmationRounds(loaded.rounds)) {
     const logRef = tournamentRef.collection(LOG_COLLECTION).doc(ballotConfirmedLogId(round.id));
     const [ballots, logSnapshot] = await Promise.all([confirmedBallotsOf(tournamentRef, round.id), logRef.get()]);
+    // Receipts for tab-room confirmations are new for tournaments that already had receipts on:
+    // a round with no log yet starts from its current confirmations instead of emailing them all.
+    if (mode === "receipt" && !logSnapshot.exists) {
+      await claimBallotConfirmations(firestore, logRef, round.id, ballots.map((ballot) => ballot.id));
+      continue;
+    }
     const sent = (logSnapshot.data() as BallotConfirmedLog | undefined)?.sentBallotIds ?? {};
-    const next = ballots.find((ballot) => !sent[ballot.id]);
+    const unsent = ballots.filter((ballot) => !sent[ballot.id]);
+    // Receipt mode skips ballots it never emails, marking them so they are not read again.
+    const skipped = mode === "receipt" ? unsent.filter((ballot) => !receiptModeSendsConfirmation(ballot, tournament, round)) : [];
+    if (skipped.length > 0) await claimBallotConfirmations(firestore, logRef, round.id, skipped.map((ballot) => ballot.id));
+    const next = unsent.find((ballot) => !skipped.includes(ballot));
     if (!next) continue;
     const provider = (input.createProvider ?? createSmtpEmailProvider)();
     const claimed = await firestore.runTransaction(async (transaction) => {
@@ -452,11 +525,11 @@ export async function sendNextBallotConfirmation(input: {
       ? ({ ...debateSnapshot.data(), id: debateSnapshot.id } as Debate)
       : null;
     const recipients = debate
-      ? buildBallotConfirmedRecipients(next, debate, activeDocuments<Adjudicator>(adjudicatorsSnapshot), round, tournament.format === "bp")
+      ? buildBallotConfirmedRecipients(next, debate, activeDocuments<Adjudicator>(adjudicatorsSnapshot), round, tournament.format === "bp", tournament)
       : [];
     if (recipients.length === 0) return { status: "sent", event: "ballot_confirmed", roundName: round.name, sent: 0, failed: 0 };
     const settings = await loadEmailSettings(tournamentRef);
-    const template = templateFor(settings, "ballot_confirmed");
+    const template = templateFor(settings, mode === "confirmed" ? "ballot_confirmed" : "ballot_receipt");
     const campaign = await createEmailCampaign(firestore, {
       tournamentId: input.tournamentId,
       senderUid: SYSTEM_SENDER.uid,

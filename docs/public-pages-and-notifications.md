@@ -19,13 +19,24 @@ reload only rounds whose hash changed.
 
 | Tab | Shown when | Data |
 | --- | --- | --- |
+| Home | always (first tab; the page opens on it) | the public homepage, else the welcome message; staff credits; a Register button while registration is open (see "Public homepage" below) |
 | Draw, Results, Standings | existing per-round releases | unchanged |
 | Team / Speaker / Replies tab | `releaseTeamTab` / `releaseSpeakerTab` / `releaseRepliesTab` | completed preliminary rounds' confirmed ballots |
 | Motions | `publicMotions` and the motion is released | text, info slide; per-motion side results from released ballots only |
 | Break | the category is in `releasedBreakCategoryIds` | the generated break |
 | Participants | `publicParticipants` | every team with speaker names, every adjudicator with institution |
-| Institutions | `publicInstitutionsList` | name, code, region; team/adjudicator counts only if participants are public too |
+| Institutions | `publicInstitutionsList` | name, code, region; team/adjudicator counts only if participants are public too. The projection publishes no institution list at all until this is released (before, every institution's name, code and region was always in the published view). |
 | Adjudication core / Breaking adjudicators | `publicAdjudicatorCore` / `publicBreakingAdjudicators` | adjudicators flagged `adjCore` / `breaking` |
+
+A `?tab=` query opens another tab (`/open/public?tab=draw`; names as in `PUBLIC_TABS` in the page);
+switching tab updates it in place (`history.replaceState`), so the address of a tab can be shared. A
+requested tab that is not (yet) public shows Home until it is.
+
+Above the tabs the public page links the public pages outside its tabs, each only while
+it is switched on (`publicSiteLinks` in `src/lib/publicView/siteLinks.ts`): the schedule and its
+calendar feed (`publicSchedule`), the check-in status (`publicCheckInStatus`), the audit log (once
+released; asked from `/api/public/tournaments/[slug]/audit?status=public`, edge-cached) and the
+registration form (while it is open or opens later; asked from the edge-cached registration route).
 
 ### Public-site settings (waves 4–5, Tabbycat `public_features` / `tab_release` / `ui_options`)
 
@@ -43,6 +54,8 @@ them with their defaults.
 | Scoresheets (`ballots_released`) | `releaseBallots` | Each adjudicator's sheet, for rounds whose speaker scores **and** panels are public. Sheets are copied generically: known fields plus any numeric / side-valued field (criteria, ranks, declared winner); free text never passes. |
 | Private scoresheets (`private_ballots_released`) | `releasePrivateBallots` | A team's private URL shows its own debates' full scoresheets once the round's results are released (even before team speaks); sheets need the panel to be public. |
 | Tab limits (`team/speaker/replies_tab_limit`) | `teamTabLimit`, `speakerTabLimit`, `repliesTabLimit` (0 = all) | Tabs are computed at publish time (`tabs` section). With a limit, rounds visible only through a released tab (e.g. silent rounds) publish no individual results, so ranks below the cutoff cannot be rebuilt. Ties at the cutoff are kept. |
+| Speaker category tabs (`speaker_category_tabs_released`) | `releaseSpeakerCategoryTabs` (absent = follows `releaseSpeakerTab`, the behaviour before this setting) | A speaker tab per public speaker category, on the Speaker tab's category chips. Released alone (speaker tab hidden) it shows only the category tabs; like the break category tabs it publishes no per-round results. |
+| All round results (`all_results_released`) | `releaseAllResults` (default off; Public release panel) | Results of every completed round become public, including silent and elimination rounds (released silent rounds are published as not silent). Speaker scores of rounds whose team speaks were never released follow only with a released speaker tab without a top-N limit (Tabbycat's team record rule). Rounds not marked completed stay private. Intended for after the tournament. |
 | Break category team tabs (`break_category_tabs_released`) | `releaseBreakCategoryTabs` | A team tab per break category: the category's teams (every team not marked ineligible for a general category) ranked within it, who-beat-whom re-evaluated, cut at the category's public tab limit (see [standings-and-breaks.md](standings-and-breaks.md#public-tab-limit-per-category)). |
 | Break page metrics (`public_break_metrics_to_show`) | `publicBreakMetrics` (-1 all, 0 none, n) | The first n team precedence metrics of each breaking team. |
 | Break categories on participants (`public_break_categories`) | `publicBreakCategories` | Team break eligibility is published only with this (or with category tabs). Before wave 4 eligibility was always published. |
@@ -54,13 +67,60 @@ them with their defaults.
 | Motion statistics (`motion_tab_released`) | `motionTabReleased` (absent = follows `publicMotions`, the behaviour before this setting) | Win / selection statistics per released motion. Released on its own (motions page off) it shows a "Motion statistics" tab with the motions and their statistics but no info slides or presentation mode. Without it (and without motions in results) the projection drops `motionId` / `motionText` from debates and ballots, so which debate had which motion is not public. |
 | Motions in results (`show_motions_in_results`) | `showMotionsInResults` (default off) | A "Motion" column on public results and team / adjudicator record pages: the confirmed ballot's motion, else the debate's, else the round's only released motion. Only released motions; a debate's motion is published with the round's public results. Released motions are published for this even when the motions page is off. |
 | Institutions (`show_team_institutions`, `show_adjudicator_institutions`) | `showTeamInstitutions`, `showAdjudicatorInstitutions` | When off, institution ids and names are removed from teams, adjudicators and tabs. |
-| Team code names (`team_code_names`) | `teamCodeNames`: off / all-tooltips / admin-tooltips-code / admin-tooltips-real / everywhere | Every mode except off and all-tooltips publishes **only** the code name (teams without one have an empty name and show "(no public name)"). all-tooltips publishes the real name and the code name as a tooltip. A code name equal to the team name (what older versions stored) counts as none. Tab-room draw, allocation, results and standings pages follow Tabbycat's admin modes: all-tooltips and admin-tooltips-code show the real name with the code name in a tooltip; admin-tooltips-real shows the code name with the real name in a tooltip (standings search matches both). Under "everywhere" the tab room keeps real names (Tabbycat shows code names to admins there). |
-| Participant code names (`participant_code_names`) | `participantCodeNames`: off / everywhere | Speakers and adjudicators are published under `codeName`. |
+| Unaccredited adjudicators (`show_unaccredited`) | `showUnaccredited` (default off) | An "Always trainee" column on the public participants list and adjudicator tab (and a marker on the core / breaking lists). The projection publishes `trainee: true` only with this setting. |
+| Team code names (`team_code_names`) | `teamCodeNames`: off / all-tooltips / admin-tooltips-code / admin-tooltips-real / everywhere | Every mode except off and all-tooltips publishes **only** the code name (teams without one have an empty name and show "(no public name)"). all-tooltips publishes the real name and the code name as a tooltip. A code name equal to the team name (what older versions stored) counts as none. Tab-room draw, allocation, results and standings pages follow Tabbycat's admin modes: all-tooltips and admin-tooltips-code show the real name with the code name in a tooltip; admin-tooltips-real shows the code name with the real name in a tooltip (standings search matches both). Under "everywhere" the tab room shows only the code name, as Tabbycat does for admins. Private-URL portals are participant pages (Tabbycat `use_team_code_names(admin=False)`): under every mode except off and all-tooltips, other teams appear under their code names there too (a team's own portal keeps its own real name). |
+| Participant code names (`participant_code_names`) | `participantCodeNames`: off / everywhere | Speakers and adjudicators are published under `codeName`. On private-URL portals other adjudicators appear under their code names, and on team portals other teams' speakers do too; adjudicator portals keep real speaker names, which ballot entry needs. |
 | Anonymous people (`Person.anonymous`) | `Speaker.anonymous`, `Adjudicator.anonymous` (participant directory) | Name published as empty with `anonymous: true`; pages show "Redacted". In tab rows an anonymous speaker also loses their team and gets an opaque id. |
 | Emoji / speakers in draw / splitting adjudicators | `showEmoji`, `showSpeakersInDraw` (default on), `showSplittingAdjudicators` | Emoji are removed when off; splits are published as `splitAdjudicatorIds` on ballots whose panel is public. |
-| Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection. |
-| Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, at the top of the public tab. |
+| Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection, including the public schedule, check-in and audit pages and the registration form; the sitemap follows the same setting. See "Search engines and link previews" below. The cross-tournament motion statistics (`/tournaments/motions/public`) are `noindex` whenever any tournament pooled there has indexing other than "all". |
+| Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, on the Home tab. The welcome message is shown only while the public homepage is empty. |
+| Public homepage (CrabbyTab only) | `publicHomepage` | Markdown, at most 20,000 characters, on the Home tab. See "Public homepage" below. |
 | Motions order (`public_motions_order`) | `publicMotionsOrder`: forward / reverse | By the motions' earliest round; CrabbyTab's default stays forward (Tabbycat: reverse). |
+
+### Public homepage
+
+Organisers can write the tournament's homepage in **Settings → Public Visibility → Public
+homepage** instead of running a separate event site. It is the `publicHomepage` preference
+(validated to 20,000 characters in `src/lib/setup/preferenceValidation.ts`, carried by settings
+export / import), published like every other setting with the tournament section of the public
+projection (no live Firestore read) and shown on the public page's Home tab. Organiser content is
+not translated. While it is empty the Home tab shows the welcome message (plain text, as before), so
+existing tournaments need no migration. While public registration is open the Home tab also shows a
+**Register** button to `/register/{slug}` (`registrationOpen` in `src/lib/publicView/siteLinks.ts`,
+from the same edge-cached registration check as the site links). The page description and link
+previews use the homepage's first prose paragraph as plain text (`firstParagraphText` in
+`src/lib/markdown/plainText.ts`), else the welcome message.
+
+Supported syntax (`src/components/markdown/MarkdownRenderer.tsx`; the editor shows a live preview
+rendered by the same component and a short syntax help):
+
+- **GitHub-flavoured Markdown** (react-markdown + remark-gfm): headings, bold / italic /
+  strikethrough, lists and task lists, tables, block quotes, code, horizontal rules, autolinks.
+  Headings are shifted down a level (`#` becomes `h2`) because the tournament name is the page's
+  only `h1`.
+- **Links**: `http:`, `https:`, `mailto:` and paths on this site (`/open/schedule/public`, `#id`);
+  every link gets `rel="noopener noreferrer nofollow"`, external ones open in a new tab. Any other
+  URL (`javascript:`, `data:`, `vbscript:`, `//other-host`, …) is dropped and its text kept.
+- **Images**: `![description](https://…)`, https only; lazy-loaded, responsive, the description is
+  the alt text. Other URLs (http, `data:`) are not rendered.
+- **Maths** (remark-math + rehype-katex): `$…$` inline and `$$…$$` as a block. KaTeX runs with
+  `trust: false` (no `\href`, `\url`, `\includegraphics`, `\html…`), `strict: "ignore"`,
+  `maxSize: 10`, `maxExpand: 200`, and shows errors in place. A literal dollar sign is written `\$`.
+- **YouTube**: a YouTube link alone on its own line (youtube.com/watch, youtu.be, /shorts/, /embed/,
+  /live/; `t=` / `start=` become the start time), or the shortcode `@[youtube](URL or video id)`,
+  becomes a responsive `https://www.youtube-nocookie.com/embed/{id}` player with a title. A link
+  with its own text (`[Trailer](https://youtu.be/…)`) stays a link.
+
+Security: raw HTML is never passed through (`skipHtml`); every URL attribute goes through
+`safeMarkdownUrl` (`src/lib/markdown/safeUrls.ts`); a final rehype step removes event-handler
+attributes and any iframe that is not a youtube-nocookie embed built by the renderer, and the
+iframe itself is sandboxed. The Content-Security-Policy (`securityHeaders.mjs`) allows framing
+`https://www.youtube-nocookie.com` only; `img-src https:` was already allowed. Tests:
+`src/components/markdown/MarkdownRenderer.test.tsx`, `src/lib/markdown/markdown.test.ts`.
+
+The renderer, KaTeX and their stylesheets (`markdown.css`, `katex.min.css`) form a separate chunk
+loaded through `LazyMarkdown` (`next/dynamic`) only when a homepage is shown or previewed, so other
+pages and tabs do not load them.
 
 **Code-name and emoji generators.** Settings → Public Visibility can fill in missing team emoji and
 code names (emoji names or speakers' last names, Tabbycat's `code_name_generator`); existing values
@@ -70,6 +130,42 @@ are never overwritten (`src/lib/codeNames.ts`, seeded random source).
 or all), diversity or feedback progress is on (`needsPublicFeedback`); otherwise a publish reads the
 same collections as before. The new `tabs` and `derived` base sections are cached like the others;
 views published before them read as having none until the next publish (view format 3).
+
+### Search engines and link previews
+
+- **robots.txt** (`src/app/robots.ts`, rules in `src/lib/seo/robotsRules.ts`) allows the public site
+  and disallows `/api/` (including `/api/public/`), `/login`, `/forgot-password`, `/invite`,
+  `/account`, `/tournaments/new|import|demo`, participants' private URLs (`/*/private/`), the
+  projector (`/*/display`) and every tab-room section (`/*/draw`, `/*/config`, …). The sections come
+  from `TOURNAMENT_STAFF_SECTIONS` in `src/lib/tournamentRoutes.ts`; a test fails when a route folder
+  under `src/app/[tournamentSlug]/` is missing from that list. Crawlers apply the longest matching
+  rule and `*` also matches `/`, so each disallowed section has a longer Allow for its public twin
+  (`/*/public/feedback`, `/*/schedule/public`). It points to `/sitemap.xml`. robots.txt only steers
+  crawling; the bare tab-room home `/{slug}` and `/tournaments/api` (matched by `/*/api`) are known
+  imprecisions, covered by the metadata below.
+- **noindex on staff pages.** `src/app/[tournamentSlug]/layout.tsx` sets `robots: noindex, nofollow`
+  for the tab room, projector and private URLs (`private/layout.tsx` repeats it); the sign-in,
+  invitation, account and new / import / demo tournament pages have small layouts doing the same.
+  Public pages always set robots explicitly, so they override the tournament layout.
+- **Sitemap** (`src/app/sitemap.ts`, `src/lib/publicView/sitemapStore.ts`): the home page plus, for
+  each **published** tournament (a `publicViews/{slug}` root; never-published tournaments are left
+  out), nothing under "none", `/{slug}/public` under "homepage-only", and under "all" also
+  `/{slug}/schedule/public` and `/{slug}/checkins/public` when those pages are on. Each publish stores
+  a small `seo` summary on the root (name, indexing, schedule / check-in switches, description), so
+  the sitemap is one query over the roots selecting only those fields; roots published before this
+  fall back to their cached `tournament` section until the next publish. The result is cached for
+  six hours (`unstable_cache`, tag `public-sitemap`) and publishes deliberately do not invalidate it,
+  so crawlers cost at most one read per published tournament every six hours (Spark: 50k reads/day).
+  Without admin credentials (`FIREBASE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS`) or
+  when Firestore fails the sitemap lists only the home page. Record pages, the audit log and the
+  registration form are not listed (they stay crawlable through links).
+- **Link previews** (`buildPublicPageMetadata` in `src/lib/publicView/seo.ts`): public pages get a
+  title (`{page} · {tournament} | CrabbyTab`), a description (the public homepage's first paragraph
+  as plain text, else the welcome message, shortened to 160 characters, else a generated sentence), a canonical URL, and Open Graph / Twitter cards with the
+  site image, all from the cached projection with no extra Firestore read. Previews are produced
+  whatever the indexing setting. An unknown tournament is `noindex`; any other read failure keeps the
+  page indexable. The root layout carries the site-wide default description and cards; absolute URLs
+  use `NEXT_PUBLIC_APP_URL`, else the Vercel URL, else `http://localhost:3000` (`src/lib/seo/site.ts`).
 
 ### When public pages change
 
@@ -136,6 +232,12 @@ themselves from a list, as in Tabbycat's public modes. Settings (Staff page, **P
 All absent = off, so existing tournaments are unchanged. The public tab shows links to the forms
 while they are on.
 
+Like every tournament setting, the switches are saved on this device; public pages and private URLs
+read the published cloud copy. After a save, the **Public forms**, **Staff access and private-URL
+ballots** (Staff page) and tournament settings cards show "Saved on this device only" with an **Upload
+and publish** button, which runs the same upload-and-publish step as a release
+(`PublishSettingsNotice`, `planReleaseSync`). It is not shown on devices without cloud sync.
+
 - **Password.** Set on the same card and saved at once through
   `PUT /api/tournaments/{id}/public-forms` (administrators only). Only a salted scrypt hash is kept,
   in `tournaments/{id}/serverOnly/publicForms`, which `firestore.rules` deny to every client; it is
@@ -146,7 +248,9 @@ while they are on.
   round, else the newest round whose draw is released (the full release; a teams-only release is
   not enough). As in Tabbycat, the form refuses while the round's motions are unreleased (when the
   round has motions), when the adjudicator has no debate or more than one debate in the round, and
-  when the debate has no chair. Feedback can be given for any debate of a round whose draw is
+  when the debate has no chair. The ballot form shows the tournament's ballot introduction
+  (`ballotIntroExplanation`) and, when the round has several motions, asks which was debated (and
+  each team's veto, with vetoes on), as on private URLs. Feedback can be given for any debate of a round whose draw is
   released, on the targets the feedback paths allow (teams see the panel only once adjudicators
   are revealed), exactly as on private URLs.
 - **Submission.** Pages call `POST /api/public/tournaments/{slug}/forms` (`action: "load" |
@@ -176,7 +280,8 @@ When the shown round shares its schedule slot with other rounds of the same stag
 rounds), the projector shows every one of them, each under its own heading (Tabbycat
 `draw-display-current-rounds-*`); **All current rounds** narrows it to the shown round alone.
 Public viewers only see rounds whose draw is on the public draw page (a teams-only release never
-is); staff see every round of the slot (`projectorRounds` in `src/lib/display.ts`).
+is); staff projecting their own copy see every confirmed (locked or later) draw of the slot, never
+a draft (`projectorRounds` in `src/lib/display.ts`).
 
 Three views: **Draw by room** (responsive: one column on phones, two on tablets, four BP positions on
 wide screens), **Draw by team** (alphabetical, with side, room and opponents) and **Motion reveal**.
@@ -185,10 +290,12 @@ The motion reveal shows a cover slide, then each motion's information slide (if 
 motion, in `seq` order. Keys: → / Space / Enter / Page Down advance, ← / Backspace / Page Up go back,
 Home / End jump, Esc returns to the draw.
 
-Public viewers only see released motions (the projection holds nothing else). Signed-in users whose
-administrator role is confirmed by `/api/tournaments/[id]/access` can preview unreleased motions;
-those come from the administrator's own working copy on this device (IndexedDB), never from a
-server response.
+Public viewers only see released motions and released draws (the projection holds nothing else).
+Signed-in administrators (role confirmed by `/api/tournaments/[id]/access`) project from their own
+working copy on this device (IndexedDB): a confirmed draw before it is released, and unreleased
+motions. Data-entry staff with `draw.display` / `motions.display` project from their assistant data
+(`/api/tournaments/[id]/assistant-data`), which the server already limits to what those permissions
+allow (see [staff access](staff-access.md#projector)). **Reload staff copy** fetches it again.
 
 ## Automatic notifications
 
@@ -199,7 +306,7 @@ Opt in per event on the email page:
 | `notifyDrawReleased` | each team's speakers | the round's draw is confirmed or released (panels show "TBA" until revealed) |
 | `notifyDrawReleased` | each allocated adjudicator | the draw is visible **and** panels are revealed |
 | `notifyTeamPoints` | each team's speakers | results are released, the round is not silent and public results are on |
-| `notifyBallotReceipt` | the submitting adjudicator | they submit a ballot from their private URL |
+| `notifyBallotReceipt` | the submitting adjudicator; for results the tab room (or an assistant) enters, the debate's adjudicators | they submit a ballot from their private URL or the public form; the tab room confirms a result it entered (Tabbycat `enable_ballot_receipts`, which also emails tab-room confirmations). Not for BP elimination rounds. With `notifyBallotConfirmed` on, tab-room confirmations send that email instead. Turning receipts on (or a round with no log yet) starts after the round's existing confirmations |
 | `notifyMotionsReleased` | speakers and (revealed) adjudicators in the round | the round's motions are released and its draw is visible |
 | `notifyBallotConfirmed` | every adjudicator of the debate | the tab room confirms its result (running rounds only) |
 
@@ -310,5 +417,6 @@ Tabbycat's check-in events and bulk check-ins, mapped onto CrabbyTab's per-round
 - Notifications and self check-ins depend on the cloud copy, so they lag local changes until the
   next upload (or, for check-ins, the next download or tournament open). This goes away with the Firestore source-of-truth work
   (Phase 4.1).
-- Notification templates are fixed in code.
-- Veto statistics are not public: vetoes are not in the projection.
+- Notification templates have defaults in code; each tournament can save its own (see
+  [email-notifications.md](email-notifications.md)).
+- Veto statistics are public with the motion statistics release (wave 4–5 public site).

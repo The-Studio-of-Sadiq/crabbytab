@@ -3,8 +3,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { SideBadge } from "@/components/ui/SideBadge";
 import { Debate, DebateSide, Motion, Round } from "@/types";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { Monitor, Lock, ChevronLeft, ChevronRight } from "lucide-react";
 import {
@@ -12,7 +14,10 @@ import {
   buildMotionRevealSteps,
   motionsForDisplay,
   nextRevealStep,
+  projectorAccess,
   projectorRounds,
+  staffProjectorRound,
+  type ProjectorStaffCopy,
 } from "@/lib/display";
 import { safeJsonParse } from "@/lib/safeJson";
 import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
@@ -40,7 +45,17 @@ const toggleClasses = (active: boolean) =>
 export default function DisplayPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
-  const { tournament, activeRound, rounds, debates, motions, isOwnerOrAdmin } = useTournament();
+  const {
+    tournament,
+    activeRound: publicActiveRound,
+    rounds: publicRounds,
+    debates: publicDebates,
+    motions: publicMotions,
+    isOwnerOrAdmin,
+    isDataEntryAssistant,
+    staffPermissions,
+  } = useTournament();
+  const { user } = useAuth();
   const { t, plural, formatList } = useI18n();
   const [scale, setScale] = useState(1);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -48,57 +63,101 @@ export default function DisplayPage() {
   /** Concurrent rounds (same schedule slot) are shown together unless narrowed to the active round. */
   const [showConcurrent, setShowConcurrent] = useState(true);
   const [revealIndex, setRevealIndex] = useState(0);
-  const [staffMotions, setStaffMotions] = useState<Motion[] | null>(null);
+  const [staffCopy, setStaffCopy] = useState<ProjectorStaffCopy | null>(null);
+  const [staffCopyReload, setStaffCopyReload] = useState(0);
 
   const isBP = tournament?.format === "bp";
   const prefs = tournament?.preferences;
 
-  // Staff (server-verified tournament administrators, never a device-local owner id) may show the
-  // draw and reveal motions before they are public. Shared pages load only the public projection,
-  // so unreleased motions come from the administrator's own working copy on this device.
+  // Staff (server-verified administrators, or data-entry staff with draw.display / motions.display;
+  // never a device-local owner id) may project a confirmed draw and motions before they are public,
+  // as in Tabbycat. The page itself loads only the public projection, so their records come from
+  // the administrator's working copy on this device, or the staff member's assistant data.
+  const access = projectorAccess({ isOwnerOrAdmin, isDataEntryAssistant, permissions: staffPermissions });
+  const mayProjectEarly = access.draw || access.motions;
+  const tournamentId = tournament?.id;
   useEffect(() => {
-    if (!isOwnerOrAdmin || typeof window === "undefined") {
-      setStaffMotions(null);
+    if (!mayProjectEarly || typeof window === "undefined") {
+      setStaffCopy(null);
       return;
     }
     let active = true;
-    getLocalStore()
-      .read(`crabbytab_t_${tournamentSlug}_motions`)
-      .then((raw) => {
-        if (active) setStaffMotions(safeJsonParse<Motion[]>(raw, []));
+    const load = async (): Promise<ProjectorStaffCopy> => {
+      if (isOwnerOrAdmin) {
+        const store = getLocalStore();
+        const [rounds, debates, motions] = await Promise.all(
+          ["rounds", "debates", "motions"].map((name) => store.read(`crabbytab_t_${tournamentSlug}_${name}`))
+        );
+        return {
+          rounds: safeJsonParse<Round[]>(rounds, []),
+          debates: safeJsonParse<Debate[]>(debates, []),
+          motions: safeJsonParse<Motion[]>(motions, []),
+        };
+      }
+      if (!user || !tournamentId) throw new Error("Sign in to project the staff copy.");
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/tournaments/${encodeURIComponent(tournamentId)}/assistant-data`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        collections?: { rounds?: Round[]; debates?: Debate[]; motions?: Motion[] };
+      };
+      if (!response.ok) throw new Error(result.error || `Could not load staff data (${response.status}).`);
+      return {
+        rounds: result.collections?.rounds ?? [],
+        debates: result.collections?.debates ?? [],
+        motions: result.collections?.motions ?? [],
+      };
+    };
+    load()
+      .then((copy) => {
+        // No working copy on this device (e.g. a fresh projector laptop): the public view stays.
+        if (active) setStaffCopy(copy.rounds.length > 0 ? copy : null);
       })
       .catch((error: unknown) => {
-        console.warn("Could not read local motions for the staff display:", error);
-        if (active) setStaffMotions(null);
+        console.warn("Could not load the staff copy for the projector:", error);
+        if (active) setStaffCopy(null);
       });
     return () => {
       active = false;
     };
-  }, [isOwnerOrAdmin, tournamentSlug]);
+  }, [mayProjectEarly, isOwnerOrAdmin, user, tournamentId, tournamentSlug, staffCopyReload]);
+
+  const staffDraw = access.draw && staffCopy !== null;
+  const staffMotions = access.motions && staffCopy !== null;
+  const staffRound = staffCopy
+    ? staffProjectorRound(staffCopy.rounds, prefs?.currentRoundId, publicActiveRound?.id)
+    : undefined;
+  const activeRound = (staffDraw || staffMotions) && staffRound ? staffRound : publicActiveRound;
+  const rounds = staffDraw && staffCopy ? staffCopy.rounds : publicRounds;
+  const debates = staffDraw && staffCopy ? staffCopy.debates : publicDebates;
+  const motions = staffMotions && staffCopy ? staffCopy.motions : publicMotions;
 
   // For non-staff viewers, the round's draw must be on the public draw page: the projection marks
   // it under the draw mode (current round only / every released draw); older views fall back to
-  // the legacy switch and the draw status.
+  // the legacy switch and the draw status. Staff projecting their copy see confirmed draws.
   // Concurrent rounds of the active round's schedule slot are shown together (Tabbycat's "current
   // rounds" display), each under its own heading.
   const slotRounds = projectorRounds(activeRound, rounds, { staff: true, legacyPublicDraw: true, concurrent: true });
   const hasConcurrent = slotRounds.length > 1;
   const shownRounds = projectorRounds(activeRound, rounds, {
-    staff: isOwnerOrAdmin,
+    staff: staffDraw,
     legacyPublicDraw: prefs?.publicDraw !== false,
     concurrent: showConcurrent,
   });
   const showDraw = shownRounds.length > 0;
-  const showAdjudicatorsFor = (round: Round) => isOwnerOrAdmin || round.adjudicatorsRevealed === true;
-  const showMotions = isOwnerOrAdmin || prefs?.publicMotions !== false;
+  const showAdjudicatorsFor = (round: Round) => staffDraw || round.adjudicatorsRevealed === true;
+  const showMotions = staffMotions || prefs?.publicMotions !== false;
 
   const shownRoundIds = new Set(shownRounds.map((round) => round.id));
   const roundDebates = debates.filter((d) => shownRoundIds.has(d.roundId));
   // Three-state release: viewers see nothing, the info slides only, or the motions (motionRelease.ts).
   const motionsStatus = motionsStatusOf(activeRound ?? undefined);
-  const infoSlidesOnly = !isOwnerOrAdmin && motionsStatus === "info_slides_released";
-  const roundMotions = showMotions && (isOwnerOrAdmin || motionsStatus !== "not_released")
-    ? motionsForDisplay(isOwnerOrAdmin && staffMotions ? staffMotions : motions, activeRound?.id, isOwnerOrAdmin, motionsStatus)
+  const infoSlidesOnly = !staffMotions && motionsStatus === "info_slides_released";
+  const roundMotions = showMotions && (staffMotions || motionsStatus !== "not_released")
+    ? motionsForDisplay(motions, activeRound?.id, staffMotions, motionsStatus)
     : [];
   const revealSteps = buildMotionRevealSteps(roundMotions, { roundId: activeRound?.id, infoSlidesOnly });
   const revealStep = revealSteps[Math.min(revealIndex, revealSteps.length - 1)];
@@ -231,8 +290,8 @@ export default function DisplayPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", isBP && "xl:grid-cols-4")}>
-                        {sides.map((side) => (
+                      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2", (isBP || isPolyFormat(tournament?.format)) && "xl:grid-cols-4")}>
+                        {(tournament && isPolyFormat(tournament.format) ? debateSides(debate, tournament) : sides).map((side) => (
                           <div key={side} className="rounded-md border border-border bg-muted p-3">
                             {sidesPending(debate)
                               ? <span className="text-[11px] font-semibold uppercase text-fg-muted">{t("results.display.sidesAtDebate")}</span>
@@ -320,6 +379,14 @@ export default function DisplayPage() {
               {t("results.display.concurrentRounds")}
             </Button>
           )}
+          {mayProjectEarly && (
+            <Button
+              onClick={() => setStaffCopyReload((count) => count + 1)}
+              title={t("results.display.reloadStaffCopyHint")}
+            >
+              {t("results.display.reloadStaffCopy")}
+            </Button>
+          )}
           {view !== "motions" && (
             <Button onClick={() => setAutoScroll((v) => !v)} aria-pressed={autoScroll}>
               {autoScroll ? t("results.display.pauseScroll") : t("results.display.autoScroll")}
@@ -342,7 +409,7 @@ export default function DisplayPage() {
               <p className="text-fg-muted">{t("results.display.motionsNotPublic")}</p>
             ) : roundMotions.length === 0 || !revealStep ? (
               <p className="text-fg-muted">
-                {isOwnerOrAdmin ? t("results.display.noMotionsStaff") : t("results.display.noMotionsPublic")}
+                {staffMotions ? t("results.display.noMotionsStaff") : t("results.display.noMotionsPublic")}
               </p>
             ) : revealStep.kind === "cover" ? (
               <>
@@ -375,7 +442,7 @@ export default function DisplayPage() {
                 <p className="max-w-5xl text-3xl font-bold leading-tight sm:text-5xl">{revealStep.motion.text}</p>
               </>
             )}
-            {isOwnerOrAdmin && revealStep && revealStep.kind !== "cover" && (
+            {staffMotions && revealStep && revealStep.kind !== "cover" && (
               revealStep.kind === "info" ? motionsStatus === "not_released" : revealStep.motion.released !== true
             ) && (
               <p className="rounded-md border border-warning-border bg-warning-subtle px-2 py-1 text-xs font-semibold text-warning">

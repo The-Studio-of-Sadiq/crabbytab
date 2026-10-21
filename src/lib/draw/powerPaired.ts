@@ -13,6 +13,10 @@ export interface PairedDebateDraft {
   teamsWithSides: Record<DebateSide, Team>;
   /** Teams in this room with fewer points/wins than the room's best team. */
   pulledUpTeamIds?: string[];
+  /** Tabbycat's debate draw flags (1u1d_hist, 1u1d_inst, 1u1d_other, max_swapped). */
+  flags?: string[];
+  /** Tabbycat's team draw flags by team id (bub_up_*, bub_dn_*, no_bub_updn). */
+  teamFlags?: Record<string, string[]>;
 }
 
 export interface BPDrawOptions {
@@ -131,9 +135,9 @@ export function defineBPRooms(points: number[], distribution: BPPullupDistributi
  * `bpAssignmentMethod: "random"` (or random sides) drops the position cost and
  * places teams at random within their brackets.
  *
- * Side limits (maxTimesPerSide, maxAllowedSideImbalance) are hard: a slot that
+ * The side-imbalance limit (maxAllowedSideImbalance) is hard: a slot that
  * would break one is forbidden, and the draw fails with an error if every
- * assignment breaks one. Unlike the two-team draw, the BP draw ignores
+ * assignment breaks it. maxTimesPerSide does not apply to BP (Tabbycat). Unlike the two-team draw, the BP draw ignores
  * history and institution clashes, as Tabbycat and the WUDC rules do.
  */
 export function generatePowerPairedDraw(

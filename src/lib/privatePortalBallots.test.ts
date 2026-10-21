@@ -7,6 +7,11 @@ import {
   isDrawVisibleToAdjudicators,
   isDrawVisibleToTeams,
   sanitizeTeamPrivateDebate,
+  withoutUnreleasedMotion,
+  createPortalNamer,
+  renamePortalBallot,
+  renamePortalDebate,
+  renamePortalTeam,
 } from "./privatePortalBallots";
 
 const round: Round = {
@@ -195,5 +200,92 @@ describe("team draw and panel visibility", () => {
     expect(hidden).not.toHaveProperty("motionId");
     const shown = sanitizeTeamPrivateDebate(debate, { ...round, motionsReleased: true });
     expect(shown.motionText).toBe("This House would test");
+  });
+});
+
+describe("portal code names", () => {
+  const teams = [
+    { id: "own", name: "Own Real", codeName: "Owl", speakers: [{ id: "s-own", name: "Own Speaker", codeName: "OS" }] },
+    { id: "opp", name: "Opp Real", codeName: "Fox", speakers: [{ id: "s-opp", name: "Opp Speaker", codeName: "XS" }] },
+    { id: "bare", name: "Bare Real", speakers: [] },
+  ];
+  const adjudicators = [
+    { id: "adj-1", name: "Chair Real", codeName: "Judge C" },
+    { id: "adj-2", name: "Wing Real", codeName: "Judge W" },
+  ];
+  const debate = {
+    id: "debate-1",
+    tournamentId: "tournament-1",
+    roundId: "round-1",
+    roundSeq: 1,
+    teams: {
+      AFF: { side: "AFF", teamId: "own", teamName: "Own Real" },
+      NEG: { side: "NEG", teamId: "opp", teamName: "Opp Real" },
+    },
+    adjudicators: { chairId: "adj-1", chairName: "Chair Real", panellistIds: ["adj-2"], panellistNames: ["Wing Real"], traineeIds: [], traineeNames: [] },
+  } as unknown as Debate;
+
+  it("changes nothing when code names are off or real names with tooltips", () => {
+    for (const teamCodeNames of [undefined, "off", "all-tooltips"] as const) {
+      const namer = createPortalNamer({
+        preferences: { teamCodeNames } as never,
+        viewer: { type: "team", id: "own" },
+        teams,
+        adjudicators,
+      });
+      expect(namer.active).toBe(false);
+      expect(renamePortalDebate(debate, namer)).toBe(debate);
+    }
+  });
+
+  it("shows other teams under code names on a team portal, keeping the team's own name", () => {
+    const namer = createPortalNamer({ preferences: { teamCodeNames: "everywhere" } as never, viewer: { type: "team", id: "own" }, teams, adjudicators });
+    const renamed = renamePortalDebate(debate, namer);
+    expect(renamed.teams.AFF?.teamName).toBe("Own Real");
+    expect(renamed.teams.NEG?.teamName).toBe("Fox");
+    expect(renamePortalTeam({ id: "bare", name: "Bare Real", speakers: [] }, namer).name).toBe("");
+    // Speakers and adjudicators keep real names without participant code names.
+    expect(renamed.adjudicators.chairName).toBe("Chair Real");
+  });
+
+  it("uses code names for every team on an adjudicator portal (admin-tooltips modes too)", () => {
+    for (const teamCodeNames of ["admin-tooltips-code", "admin-tooltips-real", "everywhere"] as const) {
+      const namer = createPortalNamer({ preferences: { teamCodeNames } as never, viewer: { type: "adjudicator", id: "adj-1" }, teams });
+      const renamed = renamePortalDebate(debate, namer);
+      expect([renamed.teams.AFF?.teamName, renamed.teams.NEG?.teamName]).toEqual(["Owl", "Fox"]);
+    }
+  });
+
+  it("applies participant code names to other speakers and adjudicators", () => {
+    const teamView = createPortalNamer({ preferences: { participantCodeNames: "everywhere" } as never, viewer: { type: "team", id: "own" }, teams, adjudicators });
+    const renamed = renamePortalDebate(debate, teamView);
+    expect(renamed.adjudicators.chairName).toBe("Judge C");
+    expect(renamed.adjudicators.panellistNames).toEqual(["Judge W"]);
+    expect(renamePortalTeam({ id: "opp", name: "Opp Real", speakers: [{ id: "s-opp", name: "Opp Speaker" }] }, teamView).speakers[0].name).toBe("XS");
+    expect(renamePortalTeam({ id: "own", name: "Own Real", speakers: [{ id: "s-own", name: "Own Speaker" }] }, teamView).speakers[0].name).toBe("Own Speaker");
+    const ballotView = renamePortalBallot({
+      speakerScores: { NEG: [{ speakerId: "s-opp", speakerName: "Opp Speaker", position: 1, score: 75 }] },
+      sheets: [{ adjudicatorId: "adj-2", adjudicatorName: "Wing Real", speakerScores: {} }],
+    }, teamView);
+    expect(JSON.stringify(ballotView)).not.toContain("Opp Speaker");
+    expect(JSON.stringify(ballotView)).not.toContain("Wing Real");
+
+    // The adjudicator keeps their own name and the speakers' real names (ballot entry is by speaker).
+    const adjudicatorView = createPortalNamer({ preferences: { participantCodeNames: "everywhere" } as never, viewer: { type: "adjudicator", id: "adj-1" }, teams, adjudicators });
+    const adjRenamed = renamePortalDebate(debate, adjudicatorView);
+    expect(adjRenamed.adjudicators.chairName).toBe("Chair Real");
+    expect(adjRenamed.adjudicators.panellistNames).toEqual(["Judge W"]);
+    expect(adjudicatorView.speaker("s-opp", "Opp Speaker")).toBe("Opp Speaker");
+  });
+});
+
+describe("withoutUnreleasedMotion", () => {
+  const debate = { id: "d1", roundId: "r1", motionId: "m1", motionText: "THW test" } as unknown as Debate;
+  it("hides the motion until the round's motions are released", () => {
+    const hidden = withoutUnreleasedMotion(debate, { id: "r1", motionsStatus: "not_released" } as unknown as Round);
+    expect(hidden).not.toHaveProperty("motionId");
+    expect(hidden).not.toHaveProperty("motionText");
+    const shown = withoutUnreleasedMotion(debate, { id: "r1", motionsStatus: "motions_released" } as unknown as Round);
+    expect(shown.motionText).toBe("THW test");
   });
 });

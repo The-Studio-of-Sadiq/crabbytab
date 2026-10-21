@@ -1,6 +1,6 @@
 import type { ImportedTournament } from "@/features/tournament/application/debateXmlImport";
 import { createSeededRng, randomInt, shuffle, type Rng } from "@/lib/draw/rng";
-import { buildBreakCategories, buildRounds, defaultPreferences } from "@/lib/setup/presets";
+import { buildBreakCategories, buildRounds, defaultPreferences, getRulesPreset, rulesPresetPreferences } from "@/lib/setup/presets";
 import type { Adjudicator, Institution, Motion, Team, TournamentPreferences, Venue } from "@/types";
 
 /**
@@ -87,8 +87,14 @@ export function buildDemoTournament(options: DemoTournamentOptions): ImportedTou
   const openBreak = isBP ? 8 : 4;
   const eslBreak = isBP ? 4 : 2;
 
+  // The demo runs under its format's rules preset (as the setup wizard applies it), so it shows the
+  // preset's side names (WSDC: Proposition/Opposition), ballots and draw rules. Motions stay on
+  // even where the preset hides motion selection on ballots: the demo releases motions per round.
+  const rulesPreset = getRulesPreset(options.format);
   const preferences: TournamentPreferences = {
     ...defaultPreferences(options.format),
+    ...(rulesPreset ? rulesPresetPreferences(rulesPreset) : {}),
+    enableMotions: true,
     feedbackQuestions: [
       { id: "demo-clarity", label: "Was the decision explained clearly?", type: "yes_no", required: true },
       { id: "demo-rating", label: "Overall adjudication quality", type: "integer_scale", required: false, min: 1, max: 5 },

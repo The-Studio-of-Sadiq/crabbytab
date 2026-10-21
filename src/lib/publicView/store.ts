@@ -89,21 +89,22 @@ export async function readPublicSourceStats(
   tournamentData: Record<string, unknown> = {}
 ): Promise<PublicSourceStats> {
   const collections = sourceCollectionsFor(tournamentData);
+  // Two sums over different fields in one aggregation need a composite index (syncVersion, version)
+  // that projects do not have, which made every publish of a tournament with ballots fail with
+  // FAILED_PRECONDITION. The ballot `version` sum is therefore its own single-field aggregation.
   const results = await Promise.all(
-    collections.map((name) =>
-      tournamentRef
-        .collection(name)
-        .aggregate({
-          count: AggregateField.count(),
-          versionSum: AggregateField.sum("syncVersion"),
-          ...(name === "ballots" ? { ballotVersionSum: AggregateField.sum("version") } : {}),
-        })
-        .get()
-    )
+    collections.map(async (name) => {
+      const collection = tournamentRef.collection(name);
+      const [main, ballotVersions] = await Promise.all([
+        collection.aggregate({ count: AggregateField.count(), versionSum: AggregateField.sum("syncVersion") }).get(),
+        name === "ballots" ? collection.aggregate({ ballotVersionSum: AggregateField.sum("version") }).get() : null,
+      ]);
+      return { ...main.data(), ...(ballotVersions ? ballotVersions.data() : {}) };
+    })
   );
   return Object.fromEntries(
     collections.map((name, index) => {
-      const data = results[index].data() as { count: number; versionSum: number; ballotVersionSum?: number };
+      const data = results[index] as { count: number; versionSum: number; ballotVersionSum?: number };
       return [
         name,
         {
@@ -255,6 +256,12 @@ const readSectionCached = (slug: string, section: string, hash: string, chunkCou
     ["public-view-section", slug, section, hash, String(chunkCount)],
     { revalidate: SECTION_REVALIDATE_SECONDS }
   )();
+
+/** The public `tournament` section of a published root, from its cached chunks. */
+export async function readPublishedTournamentSection(root: Pick<PublicViewRoot, "slug" | "sections">): Promise<unknown> {
+  const meta = root.sections?.tournament;
+  return meta ? readSectionCached(root.slug, "tournament", meta.hash, meta.chunks) : undefined;
+}
 
 type LiveFallback =
   | { ok: true; sections: PublicViewSections }

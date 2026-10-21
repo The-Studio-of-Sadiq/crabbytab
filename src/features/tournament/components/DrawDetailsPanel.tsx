@@ -8,7 +8,8 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Field";
 import { Table, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import type { DebateSide } from "@/types";
-import type { RoundSide, TeamDrawDetails } from "@/lib/draw/drawFlags";
+import type { RoundSide, TabbycatDrawFlag, TeamDrawDetails } from "@/lib/draw/drawFlags";
+import type { MessageKey } from "@/lib/i18n";
 
 /**
  * "Draw details": one row per team with its points, this round's room and opponents, sides by
@@ -30,6 +31,21 @@ function sideTitle(side: RoundSide | null, t: T): string {
   if (side === "tbc") return t("tabroom.draw.details.tbcTitle");
   return side;
 }
+
+/** Tabbycat's draw flag descriptions (draw/generator/__init__.py DRAW_FLAG_DESCRIPTIONS). */
+const DRAW_FLAG_KEYS: Record<TabbycatDrawFlag, MessageKey> = {
+  max_swapped: "tabroom.draw.details.drawFlag.maxSwapped",
+  "1u1d_hist": "tabroom.draw.details.drawFlag.oneUpOneDownHistory",
+  "1u1d_inst": "tabroom.draw.details.drawFlag.oneUpOneDownInstitution",
+  "1u1d_other": "tabroom.draw.details.drawFlag.oneUpOneDownOther",
+  bub_up_hist: "tabroom.draw.details.drawFlag.bubbleUpHistory",
+  bub_dn_hist: "tabroom.draw.details.drawFlag.bubbleDownHistory",
+  bub_up_inst: "tabroom.draw.details.drawFlag.bubbleUpInstitution",
+  bub_dn_inst: "tabroom.draw.details.drawFlag.bubbleDownInstitution",
+  bub_up_accom: "tabroom.draw.details.drawFlag.bubbleUpAccommodate",
+  bub_dn_accom: "tabroom.draw.details.drawFlag.bubbleDownAccommodate",
+  no_bub_updn: "tabroom.draw.details.drawFlag.noBubble",
+};
 
 export function DrawDetailsPanel({ rows, sides }: { rows: TeamDrawDetails[]; sides: readonly DebateSide[] }) {
   const { t, formatList, formatNumber } = useI18n();
@@ -103,6 +119,13 @@ export function DrawDetailsPanel({ rows, sides }: { rows: TeamDrawDetails[]; sid
                       )}
                       {row.current.pulledUp && (
                         <div className="font-semibold text-warning">{t("tabroom.draw.details.pulledUp")}</div>
+                      )}
+                      {row.current.drawFlags.length > 0 && (
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {row.current.drawFlags.map((flag) => (
+                            <Badge key={flag} tone="warning">{t(DRAW_FLAG_KEYS[flag])}</Badge>
+                          ))}
+                        </div>
                       )}
                     </>
                   ) : (

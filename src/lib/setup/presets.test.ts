@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
+  RESERVED_SLUGS,
   validateSlug,
   slugify,
   eliminationRoundCount,
@@ -64,6 +67,19 @@ describe("Setup Presets (setup/presets)", () => {
     it("rejects reserved slugs", () => {
       expect(validateSlug("login")).toBe('"login" is reserved. Please choose another slug.');
       expect(validateSlug("tournaments")).toBe('"tournaments" is reserved. Please choose another slug.');
+    });
+
+    it("reserves every top-level app route and the shared-view segments", () => {
+      // A tournament with one of these slugs could never be opened at its own URL.
+      const topLevelRoutes = readdirSync(join(process.cwd(), "src", "app"), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("[") && !entry.name.startsWith("("))
+        .map((entry) => entry.name);
+      expect(topLevelRoutes.length).toBeGreaterThan(0);
+      for (const route of [...topLevelRoutes, "public", "display", "private", "invite"]) {
+        expect(RESERVED_SLUGS.has(route), route).toBe(true);
+      }
+      expect(validateSlug("public")).toContain("reserved");
+      expect(validateSlug("public-speaking-open")).toBe("");
     });
   });
 
@@ -252,5 +268,66 @@ describe("Karl Popper preset", () => {
       teamStandingsPrecedence: ["wins", "num_adjs", "wbw", "speaks_sum", "draw_strength"],
     });
     expect(UNSUPPORTED_TABBYCAT_PRESETS["Karl Popper (Czechia)"]).toBeUndefined();
+  });
+});
+
+describe("every Tabbycat preset setting CrabbyTab supports is applied", () => {
+  it("applies the UI options, preparation time, side allocations page, feedback paths and seeds", async () => {
+    const { getRulesPreset, rulesPresetPreferences, RULES_PRESETS } = await import("./presets");
+    const prefs = (id: string) => rulesPresetPreferences(getRulesPreset(id)!);
+    // ui_options of AustralsPreferences, inherited by its subclasses; WSDC hides both.
+    for (const id of ["australs", "australian_easters", "nz_easters", "joynt", "uadc"]) {
+      expect(prefs(id), id).toMatchObject({ showTeamInstitutions: false, showAdjudicatorInstitutions: true });
+    }
+    expect(prefs("wsdc")).toMatchObject({ showTeamInstitutions: false, showAdjudicatorInstitutions: false });
+    expect(prefs("bp")).toMatchObject({
+      preparationTime: 15,
+      standingsMissedDebates: -1,
+      feedbackMaxScore: 10,
+      showTeamInstitutions: false,
+      showAdjudicatorInstitutions: true,
+    });
+    expect(prefs("joynt")).toMatchObject({ publicSideAllocations: true });
+    expect(prefs("uadc")).toMatchObject({ publicFeedbackProgress: true, feedbackPaths: { teams: "all_adjudicators" } });
+    expect(prefs("apda")).toMatchObject({ teamSeedMode: "title" });
+    expect(getRulesPreset("apda")!.firstPrelimDrawType).toBe("seeded");
+    expect(prefs("karl_popper")).toMatchObject({
+      enableMotionReuse: true,
+      privateUrlFeedback: false,
+      publicFeedbackForm: true,
+      showUnaccredited: true,
+    });
+    // Nothing CrabbyTab supports is listed as unsupported any more.
+    for (const preset of RULES_PRESETS) expect(preset.unsupported, preset.id).toEqual([]);
+  });
+
+  it("seeds the first preliminary round for APDA, otherwise draws it at random", async () => {
+    const { buildRounds } = await import("./presets");
+    const base = { tournamentId: "t", prelimRounds: 3, maxBreakSize: 0, teamsInDebate: 2, drawRule: "power_paired" as const };
+    expect(buildRounds({ ...base, firstPrelimDrawType: "seeded" }).map((round) => round.drawType)).toEqual(["seeded", "power_paired", "power_paired"]);
+    expect(buildRounds(base).map((round) => round.drawType)).toEqual(["random", "power_paired", "power_paired"]);
+  });
+});
+
+describe("Tabbycat's hidden presets", () => {
+  it("PublicInformation, TabRelease, participant data entry and round robin", async () => {
+    const { PUBLIC_INFORMATION_PREFERENCES, tabReleasePreferences, participantDataEntryPreferences, ROUND_ROBIN_PREFERENCES } = await import("./presets");
+    expect(PUBLIC_INFORMATION_PREFERENCES).toEqual({
+      publicDraw: true, publicDrawMode: "current", publicBreakCategories: true, publicResults: true, publicMotions: true, publicStandings: true,
+    });
+    expect(tabReleasePreferences(["b", "a", "b"])).toMatchObject({
+      releaseTeamTab: true, releaseSpeakerTab: true, motionTabReleased: true, releaseBallots: true, releaseAllResults: true,
+      publicDiversity: true, publicResults: true, releasedBreakCategoryIds: ["a", "b"], publicBreakingAdjudicators: true,
+      publicCheckInStatus: false, publicStandings: false, publicDrawMode: "off", publicBreakCategories: false,
+    });
+    expect(participantDataEntryPreferences("default")).toEqual({});
+    expect(participantDataEntryPreferences("public_forms")).toEqual({
+      privateUrlBallots: false, privateUrlFeedback: false, publicBallotForm: true, publicFeedbackForm: true,
+    });
+    expect(participantDataEntryPreferences("private_urls")).toMatchObject({ privateUrlBallots: true, publicBallotForm: false });
+    expect(participantDataEntryPreferences("tab_staff")).toEqual({
+      privateUrlBallots: false, privateUrlFeedback: false, publicBallotForm: false, publicFeedbackForm: false,
+    });
+    expect(ROUND_ROBIN_PREFERENCES).toEqual({ avoidTeamHistory: false, avoidSameInstitution: false, teamSeedMode: "numeric" });
   });
 });

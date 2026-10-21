@@ -160,12 +160,20 @@ describe("generatePowerPairedDraw (BP Hungarian)", () => {
     const { teams, standings } = field([0, 0, 0, 0]);
     const history = emptyHistory();
     history.sides.set("t0", ["OG"]);
-    const [room] = generatePowerPairedDraw(teams, standings, history, { maxTimesPerSide: 1 }, createSeededRng(1));
+    const [room] = generatePowerPairedDraw(teams, standings, history, { maxAllowedSideImbalance: 1 }, createSeededRng(1));
     expect(sideOf(room, "t0")).not.toBe("OG");
 
     teams.forEach((t) => history.sides.set(t.id, ["OG"]));
-    expect(() => generatePowerPairedDraw(teams, standings, history, { maxTimesPerSide: 1 }, createSeededRng(1))).toThrow(
-      /side limits \(at most 1 times per side\)/
+    expect(() => generatePowerPairedDraw(teams, standings, history, { maxAllowedSideImbalance: 1 }, createSeededRng(1))).toThrow(
+      /side limits \(a side imbalance of at most 1\)/
     );
+  });
+
+  // Tabbycat never applies max_times_per_side to BP.
+  it("ignores maxTimesPerSide", () => {
+    const { teams, standings } = field([0, 0, 0, 0]);
+    const history = emptyHistory();
+    teams.forEach((t) => history.sides.set(t.id, ["OG", "OG"]));
+    expect(generatePowerPairedDraw(teams, standings, history, { maxTimesPerSide: 1 }, createSeededRng(1))).toHaveLength(1);
   });
 });

@@ -7,6 +7,7 @@ import type {
   DebateSide,
   FeedbackSubmission,
   Institution,
+  MetricValue,
   Motion,
   Round,
   SpeakerCategory,
@@ -80,7 +81,7 @@ export interface PublicTabs {
   teamTab?: PublicTeamTabRow[];
   speakerTab?: PublicSpeakerTabRow[];
   repliesTab?: PublicSpeakerTabRow[];
-  /** Per public speaker category (released with the speaker tab), the category's own limit applied. */
+  /** Per public speaker category (`releaseSpeakerCategoryTabs`, absent = with the speaker tab), the category's own limit applied. */
   speakerCategoryTabs?: Record<string, PublicSpeakerTabRow[]>;
   /**
    * Per break category: the category's teams ranked within the category (every team for a general
@@ -96,6 +97,8 @@ export interface PublicAdjudicatorTabRow {
   name: string;
   anonymous?: true;
   institutionName?: string;
+  /** Tabbycat `show_unaccredited`: always a trainee (only sent when the setting is on). */
+  trainee?: true;
   /** Pre-feedback (test) score: shown for "test" and "all". */
   baseScore?: number;
   /** Feedback-blended score: shown for "final" and "all". */
@@ -107,6 +110,8 @@ export interface PublicAdjudicatorTabRow {
 
 export interface PublicAdjudicatorTab {
   shows: AdjudicatorTabShows;
+  /** Tabbycat `show_unaccredited`: the table has an "Always trainee" column. */
+  showUnaccredited?: true;
   rounds: Array<{ id: string; name: string; seq: number }>;
   rows: PublicAdjudicatorTabRow[];
 }
@@ -174,7 +179,7 @@ export interface PublicDerived {
 export interface DerivedInput {
   tournament: Pick<Tournament, "id" | "format" | "preferences">;
   settings: PublicSiteSettings;
-  release: { teamTab: boolean; speakerTab: boolean; repliesTab: boolean; breakCategoryIds: Set<string>; adjudicatorCore: boolean };
+  release: { teamTab: boolean; speakerTab: boolean; repliesTab: boolean; speakerCategoryTabs?: boolean; breakCategoryIds: Set<string>; adjudicatorCore: boolean };
   rounds: Round[];
   teams: Team[];
   adjudicators: Adjudicator[];
@@ -204,7 +209,8 @@ function isCompletedPrelim(round: Round): boolean {
   return round.stage === "preliminary" && round.cancelled !== true && round.completed === true;
 }
 
-function pickMetrics<T extends string>(metrics: Partial<Record<T, number>> | undefined, ids: T[]): Partial<Record<T, number>> {
+/** The chosen metrics that have a value; a metric with no value (null) is left out and shows as "—". */
+function pickMetrics<T extends string>(metrics: Partial<Record<T, MetricValue>> | undefined, ids: T[]): Partial<Record<T, number>> {
   return Object.fromEntries(ids.filter((id) => typeof metrics?.[id] === "number").map((id) => [id, metrics![id]])) as Partial<Record<T, number>>;
 }
 
@@ -245,7 +251,9 @@ function computeStandings(input: DerivedInput) {
 export function buildPublicTabs(input: DerivedInput, computed = computeStandings(input)): PublicTabs | undefined {
   const { settings, release, namer } = input;
   const wantsCategoryTabs = settings.breakCategoryTabs;
-  if (!release.teamTab && !release.speakerTab && !release.repliesTab && !wantsCategoryTabs) return undefined;
+  const publicSpeakerCategories: SpeakerCategory[] = (input.tournament.preferences?.speakerCategories ?? []).filter((category) => category.public);
+  const wantsSpeakerCategoryTabs = release.speakerCategoryTabs === true && publicSpeakerCategories.length > 0;
+  if (!release.teamTab && !release.speakerTab && !release.repliesTab && !wantsCategoryTabs && !wantsSpeakerCategoryTabs) return undefined;
   const { standings, roundCount } = computed;
   const preferences = input.tournament.preferences;
   const teamExtra = resolveTeamExtra(preferences);
@@ -280,14 +288,14 @@ export function buildPublicTabs(input: DerivedInput, computed = computeStandings
       metrics: pickMetrics(row.metrics, speakerExtra),
     };
   };
-  const publicSpeakerCategories: SpeakerCategory[] = (preferences?.speakerCategories ?? []).filter((category) => category.public);
   const tabs: PublicTabs = {
     roundCount,
     limits: { team: settings.teamTabLimit, speaker: settings.speakerTabLimit, replies: settings.repliesTabLimit },
   };
   if (release.teamTab) tabs.teamTab = withinLimit(standings.teams, settings.teamTabLimit).map(teamRow);
-  if (release.speakerTab) {
-    tabs.speakerTab = withinLimit(standings.speakers, settings.speakerTabLimit).map(speakerRow);
+  if (release.speakerTab) tabs.speakerTab = withinLimit(standings.speakers, settings.speakerTabLimit).map(speakerRow);
+  // Tabbycat `speaker_category_tabs_released`, released on its own or with the speaker tab.
+  if (wantsSpeakerCategoryTabs) {
     tabs.speakerCategoryTabs = Object.fromEntries(
       publicSpeakerCategories.map((category) => [
         category.id,
@@ -354,6 +362,7 @@ export function buildAdjudicatorTab(input: DerivedInput): PublicAdjudicatorTab |
       name: namer.adjudicator(adjudicator.id, adjudicator.name),
       ...(anonymous ? { anonymous: true as const } : {}),
       ...(settings.showAdjudicatorInstitutions && adjudicator.institutionName ? { institutionName: adjudicator.institutionName } : {}),
+      ...(settings.showUnaccredited && adjudicator.trainee === true ? { trainee: true as const } : {}),
     };
     if (shows !== "final") row.baseScore = preFeedbackScore(adjudicator);
     if (shows !== "test") {
@@ -377,6 +386,7 @@ export function buildAdjudicatorTab(input: DerivedInput): PublicAdjudicatorTab |
   );
   return {
     shows,
+    ...(settings.showUnaccredited ? { showUnaccredited: true as const } : {}),
     rounds: shows === "all" ? rounds.map((round) => ({ id: round.id, name: round.name, seq: round.seq })) : [],
     rows,
   };
@@ -599,7 +609,8 @@ export function buildFeedbackProgress(input: DerivedInput): PublicDerived["feedb
 
 export function buildPublicDerived(input: DerivedInput, breakingTeamIds: Set<string>): { tabs?: PublicTabs; derived: PublicDerived } {
   const needsStandings =
-    input.release.teamTab || input.release.speakerTab || input.release.repliesTab || input.settings.breakCategoryTabs || breakingTeamIds.size > 0;
+    input.release.teamTab || input.release.speakerTab || input.release.repliesTab || input.release.speakerCategoryTabs === true ||
+    input.settings.breakCategoryTabs || breakingTeamIds.size > 0;
   const computed = needsStandings ? computeStandings(input) : undefined;
   const derived: PublicDerived = {};
   const tabs = computed ? buildPublicTabs(input, computed) : undefined;

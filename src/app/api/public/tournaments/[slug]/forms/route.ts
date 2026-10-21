@@ -15,7 +15,8 @@ import type { PublicDerived } from "@/lib/publicView/derived";
 import { buildPrivateBallot } from "@/lib/privateBallot";
 import { planPrivateBallotWrites, supersededBallotUpdate } from "@/lib/privateSync";
 import { planIndividualBallotWrites, usesIndividualBallots } from "@/lib/privateIndividualBallots";
-import { loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import { loadMotionsForRounds, loadParticipantDebates, loadTeamsById } from "@/lib/privateParticipantData";
+import { participantBallotAsksMotion, participantRoundMotions } from "@/lib/ballots/participantMotion";
 import { isRoundLockedForPortalBallots } from "@/features/tournament/application/stateGuards";
 import { motionsVisible } from "@/features/tournament/application/motionRelease";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
@@ -251,7 +252,8 @@ async function handleBallot(context: HandlerContext & { adjudicator: Adjudicator
   const { firestore, tournamentRef, tournament, form, adjudicator, roundsById } = context;
   const round = publicBallotRound([...roundsById.values()], tournament.preferences?.currentRoundId);
   if (!round) throw new PublicFormError("No round is open for ballots right now.", 409);
-  const roundHasMotions = !(await tournamentRef.collection("motions").where("rounds", "array-contains", round.id).limit(1).get()).empty;
+  const roundMotions = participantRoundMotions(await loadMotionsForRounds(tournamentRef, [round.id]), round.id);
+  const roundHasMotions = roundMotions.length > 0;
   const { debates } = await loadParticipantDebates(tournamentRef, adjudicator.id);
   const debate = selectPublicBallotDebate({ round, roundHasMotions, adjudicator, debates: debates.values() });
   const teams = await loadTeamsById(
@@ -289,9 +291,15 @@ async function handleBallot(context: HandlerContext & { adjudicator: Adjudicator
           traineeIds: [],
           traineeNames: [],
         },
-        ...(showMotion && motionId ? { motionId } : {}),
-        ...(showMotion && motionText ? { motionText } : {}),
+        // One motion: shown. Several: the form asks which was debated (Tabbycat `enable_motions`),
+        // never assuming the draw-time motion.
+        ...(showMotion && roundMotions.length === 1
+          ? { motionId: roundMotions[0].id, motionText: roundMotions[0].text }
+          : showMotion && roundMotions.length === 0 && motionId
+            ? { motionId, ...(motionText ? { motionText } : {}) }
+            : {}),
       },
+      ...(showMotion && participantBallotAsksMotion(tournament.preferences, roundMotions) ? { motions: roundMotions } : {}),
       teams: [...teams.values()].map((team) => ({
         id: team.id,
         name: nameOf(team),
@@ -306,7 +314,7 @@ async function handleBallot(context: HandlerContext & { adjudicator: Adjudicator
   try {
     built = buildPrivateBallot(
       { ...form.ballot, id: `ballot-${debate.id}-adj-${adjudicator.id}-${randomUUID()}`, submitterType: "judge", submitterId: adjudicator.id },
-      { tournament, adjudicator, debate, teams, tournamentId: tournament.id, round }
+      { tournament, adjudicator, debate, teams, tournamentId: tournament.id, round, roundMotions }
     );
   } catch (error) {
     // The same validation (and messages) as private-URL ballots.

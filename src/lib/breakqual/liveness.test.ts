@@ -189,6 +189,36 @@ describe("roundBreakLiveness", () => {
     expect(result.byTeam.get("t1")).toEqual([{ categoryId: "open", status: "dead" }]);
   });
 
+  it("reads raw points, not round-weighted points, as Tabbycat's Sum(points)", () => {
+    const weighted = rounds.map((item) => (item.id === "r3" ? ({ ...item, weight: 3 } as Round) : item));
+    const debate = {
+      id: "d3",
+      tournamentId: "t",
+      roundId: "r3",
+      roundSeq: 3,
+      teams: { AFF: { teamId: "t1", teamName: "t1", side: "AFF" }, NEG: { teamId: "t2", teamName: "t2", side: "NEG" } },
+      adjudicators: { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
+    } as unknown as import("@/types").Debate;
+    const ballot = {
+      id: "b3",
+      tournamentId: "t",
+      roundId: "r3",
+      debateId: "d3",
+      version: 1,
+      confirmed: true,
+      discarded: false,
+      submitterType: "tabroom",
+      timestamp: "",
+      speakerScores: { AFF: [], NEG: [] },
+      teamScores: {
+        AFF: { side: "AFF", teamId: "t1", points: 1, win: true, totalSpeakerScore: 0 },
+        NEG: { side: "NEG", teamId: "t2", points: 0, totalSpeakerScore: 0 },
+      },
+    } as unknown as import("@/types").BallotSubmission;
+    const result = roundBreakLiveness({ ...source, rounds: weighted, debates: [debate], ballots: [ballot] })!;
+    expect(result.pointsByTeam.get("t1")).toBe(1);
+  });
+
   it("is null for an elimination round and once there are no break categories", () => {
     expect(roundBreakLiveness(source, rounds[4])).toBeNull();
     expect(roundBreakLiveness({ ...source, breakCategories: [] })).toBeNull();

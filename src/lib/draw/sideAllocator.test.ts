@@ -96,15 +96,15 @@ describe("Side Allocator (sideAllocator)", () => {
     expect(bpPositionBaseCost(["OG"], "OO", { renyiOrder: 0 })).toBe(2);
     expect(bpPositionBaseCost(["OG", "OG"], "OO", { renyiOrder: 0 })).toBeCloseTo(3, 10);
     expect(bpPositionBaseCost(["OG", "OG"], "OO", { renyiOrder: 2 })).toBeCloseTo((2 + Math.log2(5 / 9)) * 3, 10);
-    // Sum of squared deviations: counts [3,1,0,0], mean 1.
-    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(6);
+    // Tabbycat "variance" (statistics.pvariance): counts [3,1,0,0], mean 1, squared deviations 6, / 4.
+    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(1.5);
     // Legacy saved value.
-    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "std_dev" as never })).toBe(6);
+    expect(bpPositionBaseCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "std_dev" as never })).toBe(1.5);
     expect(() => bpPositionBaseCost([], "OG", { renyiOrder: -1 })).toThrow(/negative/);
   });
 
   it("raises the base cost to the exponent, with no extra repeat-position penalty", () => {
-    expect(computeBPSideCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(1296);
+    expect(computeBPSideCost(["OG", "OG", "OO"], "OG", { bpPositionCost: "sum_squared_deviations" })).toBe(1.5 ** 4);
     expect(computeBPSideCost(["OG"], "OG", { bpPositionCostExponent: 2 })).toBe(16);
     expect(computeBPSideCost(["OG", "OO", "CG"], "CO")).toBe(0);
   });
@@ -141,13 +141,25 @@ describe("Side Allocator (sideAllocator)", () => {
     expect(Object.entries(allocation).find(([, team]) => team.id === "t0")?.[0]).not.toBe("OG");
   });
 
-  it("throws for a two-team room where neither orientation fits the limits", () => {
+  // Regression: maxTimesPerSide (default 5) was a hard limit, so an 11th two-team round could not
+  // be drawn. As in Tabbycat it only steers minimum-cost pairing and is reported as a warning.
+  it("still allocates an 11th two-team round with the default of 5 times per side", () => {
     const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
     const history = new Map<string, DebateSide[]>([
       ["t1", ["AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG"]],
       ["t2", ["AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG", "AFF", "NEG"]],
     ]);
-    expect(() => allocateSidesForDebate(teams, history, "uadc", "balanced", { maxTimesPerSide: 5 })).toThrow(
+    const allocation = allocateSidesForDebate(teams, history, "uadc", "balanced", { maxTimesPerSide: 5 });
+    expect(new Set([allocation.AFF.id, allocation.NEG.id])).toEqual(new Set(["t1", "t2"]));
+  });
+
+  it("throws for a two-team room where neither orientation fits the imbalance limit", () => {
+    const teams = [makeTeam("t1", "Team 1"), makeTeam("t2", "Team 2")];
+    const history = new Map<string, DebateSide[]>([
+      ["t1", ["AFF", "AFF"]],
+      ["t2", ["AFF", "AFF"]],
+    ]);
+    expect(() => allocateSidesForDebate(teams, history, "uadc", "balanced", { maxAllowedSideImbalance: 1 })).toThrow(
       /Team 1 vs Team 2/
     );
   });
@@ -161,7 +173,7 @@ describe("Side Allocator (sideAllocator)", () => {
     expect(allocation.NEG.id).toBe("t1");
   });
 
-  it("throws explicitly when no assignment can satisfy the configured hard limits", () => {
+  it("never applies maxTimesPerSide to BP (Tabbycat does not)", () => {
     const teams = Array.from({ length: 4 }, (_, index) => makeTeam(`t${index}`, `Team ${index}`));
     const history = new Map<string, DebateSide[]>(
       teams.map((team) => [
@@ -169,7 +181,14 @@ describe("Side Allocator (sideAllocator)", () => {
         ["OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO", "OG", "OO", "CG", "CO"],
       ])
     );
-    expect(() => allocateSidesForDebate(teams, history, "bp", "random", { maxTimesPerSide: 5 }))
-      .toThrow(/No side assignment satisfies the configured side limits \(at most 5 times per side\)/);
+    const allocation = allocateSidesForDebate(teams, history, "bp", "random", { maxTimesPerSide: 5 });
+    expect(Object.keys(allocation).sort()).toEqual(["CG", "CO", "OG", "OO"]);
+  });
+
+  it("throws explicitly when no BP assignment can satisfy the imbalance limit", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => makeTeam(`t${index}`, `Team ${index}`));
+    const history = new Map<string, DebateSide[]>(teams.map((team) => [team.id, ["OG", "OO", "CG"]]));
+    expect(() => allocateSidesForDebate(teams, history, "bp", "random", { maxAllowedSideImbalance: 1 }))
+      .toThrow(/No side assignment satisfies the configured side limits \(a side imbalance of at most 1\)/);
   });
 });

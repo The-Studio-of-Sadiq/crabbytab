@@ -79,10 +79,10 @@ describe("background draw and allocation", () => {
   });
 
   it("reports an unsatisfiable draw with the generator's own message", async () => {
-    const request: ComputeRequest = { kind: "draw", input: { ...drawParams, venues: makeVenues(3, tournament.id) } };
+    const request: ComputeRequest = { kind: "draw", input: { ...drawParams, teams: teams.slice(0, 1) } };
     const { factory } = fakeWorkers();
-    await expect(runComputeJob(request, { createWorker: factory })).rejects.toThrow("Not enough available venues");
-    await expect(runComputeJob(request, { createWorker: null })).rejects.toThrow("Not enough available venues");
+    await expect(runComputeJob(request, { createWorker: factory })).rejects.toThrow(/At least \d+ teams are required/);
+    await expect(runComputeJob(request, { createWorker: null })).rejects.toThrow(/At least \d+ teams are required/);
   });
 
   it("stops the worker when cancelled", async () => {

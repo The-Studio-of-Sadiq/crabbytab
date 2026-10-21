@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Save, Trash2, Upload, X, Wand2, ArrowDownWideNarrow, Crown, Layers } from "lucide-react";
+import { ArrowLeft, Plus, Save, Trash2, Upload, X, Wand2, ArrowDownWideNarrow, Crown, Layers, Users } from "lucide-react";
 import { useTournament } from "@/contexts/TournamentContext";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n";
@@ -10,6 +10,7 @@ import type { Adjudicator, PreformedPanel } from "@/types";
 import {
   anticipateRound,
   assignToPanel,
+  autoFillPreformedPanels,
   panelsFromAnticipatedDraw,
   prioritisePanels,
   emptyPreformedPanel,
@@ -59,6 +60,7 @@ export default function PreformedPanelsPage() {
     debates,
     ballots,
     breakCategories,
+    feedback,
     updateRound,
     recordAuditEvent,
   } = useTournament();
@@ -142,6 +144,23 @@ export default function PreformedPanelsPage() {
       kind: anticipation.notice ? "error" : "success",
       text: anticipation.notice ?? plural("tabroom.allocation.panelsAnticipated", anticipation.rooms.length),
     });
+  };
+
+  // Tabbycat's "auto-allocate adjudicators to preformed panels": fills the draft, saved after review.
+  const handleAutoFill = () => {
+    if (!round || !tournament) return;
+    try {
+      const result = autoFillPreformedPanels(round, panels, { tournament, rounds, debates, adjudicators, feedback });
+      setPanels(result.panels);
+      setMessage({
+        kind: result.warnings.length > 0 ? "error" : "success",
+        text: result.warnings.length > 0
+          ? t("tabroom.allocation.panelsAutoFilledWithWarnings", { warnings: result.warnings.join(" ") })
+          : t("tabroom.allocation.panelsAutoFilled"),
+      });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : t("tabroom.allocation.panelsAutoFillFailed") });
+    }
   };
 
   const handlePrioritise = (method: "bracket" | "liveness") => {
@@ -275,6 +294,14 @@ export default function PreformedPanelsPage() {
             </Button>
             <Button size="sm" onClick={handleAnticipate} title={t("tabroom.allocation.panelsFromAnticipatedTitle")}>
               <Wand2 aria-hidden="true" /> {t("tabroom.allocation.panelsFromAnticipated")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleAutoFill}
+              disabled={panels.length === 0}
+              title={t("tabroom.allocation.panelsAutoFillTitle")}
+            >
+              <Users aria-hidden="true" /> {t("tabroom.allocation.panelsAutoFill")}
             </Button>
             <Button size="sm" onClick={() => handlePrioritise("bracket")} disabled={panels.length === 0}>
               <ArrowDownWideNarrow aria-hidden="true" /> {t("tabroom.allocation.panelsPrioritiseBracket")}

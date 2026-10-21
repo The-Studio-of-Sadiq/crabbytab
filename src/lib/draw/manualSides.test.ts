@@ -171,9 +171,9 @@ describe("draw check with manual-ballot sides", () => {
       teams: { AFF: slot(teams[0], "AFF"), NEG: slot(teams[1], "NEG") } as Debate["teams"],
     });
     const input = { tournament, round: round2, rounds: [round1, round2], teams, adjudicators: [], venues: [] };
-    expect(validateDraw({ ...input, debates: [earlier, current] }).map((issue) => issue.code)).not.toContain("side_limit");
+    expect(validateDraw({ ...input, debates: [earlier, current] }).map((issue) => issue.code)).not.toContain("max_times_per_side");
     expect(validateDraw({ ...input, debates: [earlier, { ...current, flags: [] }] }).map((issue) => issue.code))
-      .toContain("side_limit");
+      .toContain("max_times_per_side");
   });
 });
 

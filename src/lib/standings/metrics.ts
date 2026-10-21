@@ -1,4 +1,4 @@
-import type { TeamMetricId, SpeakerMetricId } from "@/types";
+import type { MetricValue, TeamMetricId, SpeakerMetricId } from "@/types";
 
 /* -------------------------------------------------------------------------- */
 /* Labels and sort direction                                                  */
@@ -120,15 +120,18 @@ export const EXTRA_ONLY_TEAM_METRICS: TeamMetricId[] = ["draw_strength_rank"];
 export const VOTES_NORMALISED_PANEL_SIZE = 3;
 
 /** Defaults chosen to exactly reproduce the tab's pre-existing, hardcoded sort order. */
-export const DEFAULT_TEAM_PRECEDENCE: Record<"bp" | "two_team", TeamMetricId[]> = {
+export const DEFAULT_TEAM_PRECEDENCE: Record<"bp" | "two_team" | "poly", TeamMetricId[]> = {
   bp: ["points", "speaks_sum", "firsts", "seconds", "thirds"],
   two_team: ["points", "speaks_sum", "margin_sum"],
+  // N teams per room: Tabbycat's default ranks on wins (always 0 here) then average speaks, and its
+  // Public Speaking preset on average speaks alone.
+  poly: ["speaks_avg"],
 };
 export const DEFAULT_SPEAKER_PRECEDENCE: SpeakerMetricId[] = ["speaks_sum", "speaks_avg"];
 
-/** Display form of a metric value: whole numbers as they are, anything else to two decimals. */
-export function formatMetricValue(value: number | undefined): string {
-  if (value === undefined || !Number.isFinite(value)) return "—";
+/** Display form of a metric value: whole numbers as they are, anything else to two decimals; "—" for no value. */
+export function formatMetricValue(value: MetricValue | undefined): string {
+  if (value === undefined || value === null || !Number.isFinite(value)) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
@@ -136,15 +139,27 @@ export function formatMetricValue(value: number | undefined): string {
 /* Small stats helpers                                                        */
 /* -------------------------------------------------------------------------- */
 
-function mean(xs: number[]): number {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+/*
+ * Tabbycat computes most metrics as SQL aggregates (Sum, Avg, StdDev) over the results a team or
+ * speaker has. Over no results those are NULL, not 0 (standings/teams.py, speakers.py); counts
+ * (Count) are 0. The helpers below follow that: an aggregate over nothing is null ("no value").
+ */
+
+/** Sum, or null when there is nothing to sum (SQL SUM over no rows). */
+function sumOrNull(xs: number[]): number | null {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) : null;
 }
 
-/** Population standard deviation (matches Tabbycat's own metric). */
-function popStdDev(xs: number[]): number {
-  if (xs.length === 0) return 0;
-  const m = mean(xs);
-  return Math.sqrt(mean(xs.map((x) => (x - m) ** 2)));
+/** Mean, or null when there is nothing to average (SQL AVG over no rows). */
+function mean(xs: number[]): number | null {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
+/** Population standard deviation (Tabbycat's StdDev, STDDEV_POP); null over no values. */
+function popStdDev(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / xs.length);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -174,6 +189,11 @@ export interface TeamRoundAccum {
   /** Some team in this debate was pulled up (Tabbycat's debate "pullup" flag). */
   pullupDebate?: boolean;
   /**
+   * A drawn debate without a confirmed result: it carries only the opponents (draw strength) and
+   * pull-ups, which Tabbycat counts for every preliminary debate; every other metric ignores it.
+   */
+  noResult?: boolean;
+  /**
    * The round's weight (Tabbycat Round.weight; absent = 1). Draw strength multiplies opponents'
    * points by it, as Tabbycat's PointsMetricAnnotator does.
    */
@@ -183,6 +203,17 @@ export interface TeamRoundAccum {
 /** Points this team earned, each round's points multiplied by its weight (Tabbycat's points metric). */
 export function weightedPoints(rounds: TeamRoundAccum[]): number {
   return rounds.reduce((sum, round) => sum + round.points * (round.roundWeight ?? 1), 0);
+}
+
+/**
+ * Adjudicator votes carried, normalised to a panel of three (Tabbycat's num_adjs, which reports a
+ * team with none as 0). Consensus ballots record no votes and so carry none, as in Tabbycat.
+ */
+function votesCarried(rounds: TeamRoundAccum[]): number {
+  return rounds.reduce(
+    (s, r) => (r.votesPossible ? s + ((r.votesGiven ?? 0) * VOTES_NORMALISED_PANEL_SIZE) / r.votesPossible : s),
+    0
+  );
 }
 
 export interface TeamMetricContext {
@@ -196,24 +227,22 @@ export interface TeamMetricContext {
 export function computeTeamMetrics(
   rounds: TeamRoundAccum[],
   ctx: TeamMetricContext
-): Record<TeamMetricId, number> {
+): Record<TeamMetricId, MetricValue> {
   const played = rounds.filter((r) => r.speaksSum !== null);
+  // Rounds with a confirmed result (a bye win included): Tabbycat's TeamScore rows. A team with
+  // none has no points (null), as Tabbycat's Sum over no TeamScores; it ranks below 0 points.
+  const resulted = rounds.filter((r) => !r.noResult);
   // Tabbycat multiplies points by the round's weight (Round.weight); wins and who-beat-whom are unweighted.
-  const points = weightedPoints(rounds);
+  const points = resulted.length ? weightedPoints(resulted) : null;
   const wins = rounds.filter((r) => r.win).length;
   const speaksValues = played.map((r) => r.speaksSum as number);
-  const speaksSum = speaksValues.reduce((s, v) => s + v, 0);
   const individualScores = rounds.flatMap((r) => r.individualScores);
-  const marginSum = rounds.reduce((s, r) => s + r.margin, 0);
+  // Byes, forfeits and results-only ballots have no margin (null in Tabbycat), so they are left out.
+  const margins = rounds.filter((r) => !r.bye && r.speaksSum !== null).map((r) => r.margin);
   const firsts = rounds.filter((r) => r.rankInRoom === 1).length;
   const seconds = rounds.filter((r) => r.rankInRoom === 2).length;
   const thirds = rounds.filter((r) => r.rankInRoom === 3).length;
   const pullups = rounds.filter((r) => r.pulledUp).length;
-  // Consensus ballots record no votes and so carry none, as in Tabbycat.
-  const votesCarried = rounds.reduce(
-    (s, r) => (r.votesPossible ? s + ((r.votesGiven ?? 0) * VOTES_NORMALISED_PANEL_SIZE) / r.votesPossible : s),
-    0
-  );
 
   const opponentIds = rounds.flatMap((r) => r.opponentTeamIds);
   const drawStrengthWins = opponentIds.reduce((s, id) => s + (ctx.opponentWins.get(id) ?? 0), 0);
@@ -223,18 +252,17 @@ export function computeTeamMetrics(
   return {
     wins,
     points,
-    speaks_sum: speaksSum,
+    speaks_sum: sumOrNull(speaksValues),
     speaks_avg: mean(speaksValues),
     speaks_ind_avg: mean(individualScores),
     speaks_stddev: popStdDev(speaksValues),
-    margin_sum: marginSum,
-    // Byes, forfeits and results-only ballots have no margin (null in Tabbycat), so they are left out.
-    margin_avg: mean(rounds.filter((r) => !r.bye && r.speaksSum !== null).map((r) => r.margin)),
+    margin_sum: sumOrNull(margins),
+    margin_avg: mean(margins),
     draw_strength_wins: drawStrengthWins,
     draw_strength: drawStrength,
     draw_strength_speaks: drawStrengthSpeaks,
-    // Filled in by the calculator once every team is ranked; NaN (shown as "—") without opponents.
-    draw_strength_rank: Number.NaN,
+    // Filled in by the calculator once every team is ranked; null (shown as "—") without opponents.
+    draw_strength_rank: null,
     firsts,
     seconds,
     thirds,
@@ -242,7 +270,7 @@ export function computeTeamMetrics(
     pullup_debates: rounds.filter((r) => r.pullupDebate).length,
     // Filled in by the calculator, which needs every team's standing to evaluate it.
     wbw: 0,
-    num_adjs: votesCarried,
+    num_adjs: votesCarried(rounds),
     num_iron: rounds.filter((r) => r.ironed).length,
   };
 }
@@ -256,7 +284,7 @@ export function computeTeamMetrics(
  * when more than 2·trim remain, otherwise the plain mean. Tabbycat always drops one from each end
  * (trim = 1); CrabbyTab lets `speakerTrim` choose how many.
  */
-export function trimmedMean(scores: number[], trim: number): number {
+export function trimmedMean(scores: number[], trim: number): number | null {
   const sorted = [...scores].sort((a, b) => a - b);
   const kept = trim > 0 && sorted.length > 2 * trim ? sorted.slice(trim, sorted.length - trim) : sorted;
   return mean(kept);
@@ -268,7 +296,8 @@ export function trimmedMean(scores: number[], trim: number): number {
  * team, whether or not this speaker spoke in it.
  */
 export interface SpeakerTeamResults {
-  points: number;
+  /** null when the team has no confirmed results (Tabbycat's Sum over no TeamScores). */
+  points: number | null;
   wins: number;
   firsts: number;
   seconds: number;
@@ -276,7 +305,7 @@ export interface SpeakerTeamResults {
   votesCarried: number;
 }
 
-export const NO_TEAM_RESULTS: SpeakerTeamResults = { points: 0, wins: 0, firsts: 0, seconds: 0, thirds: 0, votesCarried: 0 };
+export const NO_TEAM_RESULTS: SpeakerTeamResults = { points: null, wins: 0, firsts: 0, seconds: 0, thirds: 0, votesCarried: 0 };
 
 /**
  * The speaker team metrics from the team's rounds. Points are not multiplied by round weights:
@@ -284,20 +313,21 @@ export const NO_TEAM_RESULTS: SpeakerTeamResults = { points: 0, wins: 0, firsts:
  */
 export function speakerTeamResults(rounds: TeamRoundAccum[] | undefined): SpeakerTeamResults {
   if (!rounds || rounds.length === 0) return NO_TEAM_RESULTS;
-  const metrics = computeTeamMetrics(rounds, { opponentWins: new Map(), opponentPoints: new Map(), opponentSpeaksSum: new Map() });
+  const resulted = rounds.filter((round) => !round.noResult);
   return {
-    points: rounds.reduce((sum, round) => sum + round.points, 0),
-    wins: metrics.wins,
-    firsts: metrics.firsts,
-    seconds: metrics.seconds,
-    thirds: metrics.thirds,
-    votesCarried: metrics.num_adjs,
+    points: resulted.length ? resulted.reduce((sum, round) => sum + round.points, 0) : null,
+    wins: rounds.filter((round) => round.win).length,
+    firsts: rounds.filter((round) => round.rankInRoom === 1).length,
+    seconds: rounds.filter((round) => round.rankInRoom === 2).length,
+    thirds: rounds.filter((round) => round.rankInRoom === 3).length,
+    votesCarried: votesCarried(rounds),
   };
 }
 
 /**
  * `speechRanks` are the ranks of the speaker's counted substantive speeches, for Tabbycat's
- * "srank" (their sum). A speaker with no ranked speeches gets 0, as Tabbycat sorts a missing sum.
+ * "srank" (their sum). Aggregates over no speeches (scores, replies, ranks) are null, as in
+ * Tabbycat; counts are 0.
  */
 export function computeSpeakerMetrics(
   substantiveScores: number[],
@@ -305,19 +335,16 @@ export function computeSpeakerMetrics(
   trim: number,
   team: SpeakerTeamResults = NO_TEAM_RESULTS,
   speechRanks: number[] = []
-): Record<SpeakerMetricId, number> {
-  const sum = substantiveScores.reduce((a, b) => a + b, 0);
-  const replySum = replyScores.reduce((a, b) => a + b, 0);
-
+): Record<SpeakerMetricId, MetricValue> {
   return {
-    speaks_sum: sum,
+    speaks_sum: sumOrNull(substantiveScores),
     speaks_avg: mean(substantiveScores),
     speaks_stddev: popStdDev(substantiveScores),
     speaks_trimmed_mean: trimmedMean(substantiveScores, trim),
     speeches_count: substantiveScores.length,
-    reply_sum: replySum,
+    reply_sum: sumOrNull(replyScores),
     reply_avg: mean(replyScores),
-    srank: speechRanks.reduce((a, b) => a + b, 0),
+    srank: sumOrNull(speechRanks),
     reply_stddev: popStdDev(replyScores),
     reply_count: replyScores.length,
     team_points: team.points,

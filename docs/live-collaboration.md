@@ -71,6 +71,12 @@ calls `planLiveWrites` (`src/features/tournament/application/liveSync.ts`):
    which can be older than what the device holds if a listener delivered another device's change
    meanwhile. The plan compares the command's input with its output, and applies only the changed
    records and fields on top of the device's current copy, so other devices' changes are kept.
+   A command that saves the same collection twice (submitting a ballot confirmed saves it, then
+   its confirmation saves it again) passes its starting state both times; a record that is missing
+   from that state but already synced here (created by the first save) is diffed against its
+   synced copy, so the second save is written live too. Before, it stayed a local-only edit that
+   the next listener event reported as a sync conflict. A confirmation also keeps the
+   `confirmedTimestamp` the ballot was submitted with, so one confirmation has one timestamp.
 3. **Field-level patches.** A synced record is written as a Firestore `set` with `mergeFields`
    naming exactly the changed field paths, so Firestore leaves every other field as it is. Map
    fields are written key by key: `roundAvailability` / `roundAvailabilityAt` per round, a debate's
@@ -120,7 +126,7 @@ re-apply every cloud record on top of the new state.
 | Collection | Unit | Rule |
 |---|---|---|
 | `ballots` | one document per ballot version | Append-only versions: a new or corrected ballot is a new document; a confirmed or discarded version is never rewritten (guarded). Confirmation and discard flags are last write wins per field. |
-| `ballots` → confirmation | per debate | One confirmation batch discards every other version the device knows. If two devices confirm different versions while one could not yet see the other's ballot (offline, or within a listener's delay), two versions can end up confirmed. `findConfirmationConflicts` detects this; the cloud status shows "N double confirmations" until someone discards the version that should not count. It is never resolved automatically. |
+| `ballots` → confirmation | per debate | Confirming a version unconfirms the previously confirmed one (drafts are kept); a double-entry check also discards the entry it replaces. If two devices confirm different versions while one could not yet see the other's ballot (offline, or within a listener's delay), two versions can end up confirmed. `findConfirmationConflicts` detects this; the cloud status shows "N double confirmations" until someone discards the version that should not count. It is never resolved automatically. |
 | `teams`, `adjudicators` | per field; availability per round | Last write wins per round of `roundAvailability` / `roundAvailabilityAt`, and per field otherwise (`checkedIn`, name, …). Checking a team in for round 3 never undoes another device's round 2 change. |
 | `debates` | per field; result per side | The adjudicator panel (`adjudicators`) is one unit, last write wins, so two allocators never produce a mixed panel. Venue, motion and result status are per field; points and speaker totals per side. |
 

@@ -152,8 +152,9 @@ export const BP_ROUND_ROBIN_TABLES: Readonly<Record<number, readonly (readonly (
  * BP round robin (Tabbycat's BPRoundRobinDrawGenerator): the room list for `roundIndex` from the
  * preset table for this many teams, seats taken from the table. Only the team counts Tabbycat
  * has tables for are supported, and the teams' seeds must be exactly 1..N. Unlike Tabbycat, the
- * side limits (maxTimesPerSide, maxAllowedSideImbalance) stay hard: a table seat that would break
- * one is reported as an error instead of being drawn.
+ * side-imbalance limit (maxAllowedSideImbalance, CrabbyTab's own) stays hard: a table seat that
+ * would break it is reported as an error instead of being drawn. maxTimesPerSide does not apply
+ * to BP (Tabbycat).
  */
 export function generateBPRoundRobinDraw(
   teams: Team[],

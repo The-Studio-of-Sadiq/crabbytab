@@ -13,7 +13,8 @@ import { isAvailableForRound } from "@/lib/roundAvailability";
 import { buildPastAdjTeams, calculateAdjDebateConflict } from "./allocator";
 import { buildMatchupHistory, getEligibleTeamsForRound } from "./generator";
 import { sameInstitution } from "./history";
-import { BP_SIDES, TWO_TEAM_SIDES, violatesSideLimits } from "./sideAllocator";
+import { exceedsMaxTimesPerSide, maxTimesPerSideOf, violatesSideLimits } from "./sideAllocator";
+import { isPolyFormat, isPolySide, polySideNumber, polySides, teamsInDebateFor, tournamentSides } from "@/lib/debateSides";
 import { getVenueIncompatibilities } from "./venueAllocator";
 import { constraintLookup, isVenueAvailableForRound, unmetVenueConstraints } from "@/lib/venues/venues";
 import { resolveRecordedSides, sidesPending } from "./manualSides";
@@ -40,6 +41,7 @@ export type DrawIssueCode =
   | "team_ineligible"
   | "team_unavailable"
   | "side_limit"
+  | "max_times_per_side"
   | "preallocated_side"
   | "unknown_adjudicator"
   | "adjudicator_in_multiple_debates"
@@ -124,7 +126,9 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
   const preferences = tournament.preferences;
   const expiry = preferences?.checkInExpiresAfterHours;
   const isBP = tournament.format === "bp";
-  const sides: readonly DebateSide[] = isBP ? BP_SIDES : TWO_TEAM_SIDES;
+  const poly = isPolyFormat(tournament.format);
+  const sides: readonly DebateSide[] = tournamentSides(tournament);
+  const polyCount = teamsInDebateFor(tournament);
   const roundDebates = input.debates
     .filter((debate) => debate.roundId === round.id)
     .sort((left, right) => left.roomRank - right.roomRank || left.id.localeCompare(right.id));
@@ -150,6 +154,28 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
     if (debate.byeTeamId) {
       seenInDebate.add(debate.byeTeamId);
       placements.set(debate.byeTeamId, [...(placements.get(debate.byeTeamId) ?? []), debate]);
+    } else if (poly) {
+      // A poly room holds positions P1 … Pk with 1 <= k <= N (a random draw's last room may be short).
+      const own = Object.keys(debate.teams || {}).filter((side) => isPolySide(side) && Boolean(debate.teams[side as DebateSide]?.teamId));
+      const highest = Math.max(0, ...own.map(polySideNumber));
+      if (highest > polyCount) {
+        add({
+          code: "missing_side",
+          severity: "error",
+          message: `${roomLabel(debate)} has more than ${polyCount} teams.`,
+          debateIds: [debate.id],
+        });
+      }
+      for (const side of polySides(Math.max(1, Math.min(highest, polyCount)))) {
+        if (!debate.teams?.[side]?.teamId) {
+          add({
+            code: "missing_side",
+            severity: "error",
+            message: `${roomLabel(debate)} has no ${side} team.`,
+            debateIds: [debate.id],
+          });
+        }
+      }
     } else {
       for (const side of sides) {
         if (!debate.teams?.[side]) {
@@ -165,6 +191,8 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
     for (const [side, slot] of slots) {
       if (!slot) continue;
       if (!slot.teamId) {
+        // An empty poly position past the room's last team only makes the room smaller.
+        if (poly) continue;
         add({
           code: "unassigned_side",
           severity: "error",
@@ -249,7 +277,8 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
   /* Sides ------------------------------------------------------------------ */
 
   const sideRule = preferences?.sideAllocationRule;
-  if (round.stage === "preliminary") {
+  // Poly positions have no side rules (Tabbycat's poly draw has no side options).
+  if (round.stage === "preliminary" && !poly) {
     for (const debate of roundDebates) {
       // Sides chosen on the ballot are not part of the draw, so no side rule applies to them.
       if (debate.byeTeamId || sidesPending(debate)) continue;
@@ -269,17 +298,24 @@ export function validateDraw(input: ValidateDrawInput): DrawIssue[] {
           continue;
         }
         const past = history.sides.get(slot.teamId) ?? [];
+        const times = past.filter((item) => item === side).length + 1;
         if (violatesSideLimits(past, side, sides, preferences ?? {})) {
-          const times = past.filter((item) => item === side).length + 1;
           add({
             code: "side_limit",
             severity: "error",
             message: `${teamName(slot.teamId)} would be ${side} for the ${times}${ordinalSuffix(times)} time, ` +
-              `which breaks the side limits (at most ${preferences?.maxTimesPerSide ?? 5} times per side${
-                (preferences?.maxAllowedSideImbalance ?? 0) > 0
-                  ? `, imbalance at most ${preferences?.maxAllowedSideImbalance}`
-                  : ""
-              }).`,
+              `which breaks the side limit (imbalance at most ${preferences?.maxAllowedSideImbalance}).`,
+            debateIds: [debate.id],
+            teamIds: [slot.teamId],
+          });
+        } else if (!isBP && exceedsMaxTimesPerSide(past, side, maxTimesPerSideOf(preferences?.maxTimesPerSide))) {
+          // Tabbycat max_times_per_side: a preference of minimum-cost pairing, never a hard limit
+          // (and never applied to BP), so a team past it is a warning.
+          add({
+            code: "max_times_per_side",
+            severity: "warning",
+            message: `${teamName(slot.teamId)} would be ${side} for the ${times}${ordinalSuffix(times)} time, ` +
+              `more than the ${maxTimesPerSideOf(preferences?.maxTimesPerSide)} times per side set in the draw rules.`,
             debateIds: [debate.id],
             teamIds: [slot.teamId],
           });

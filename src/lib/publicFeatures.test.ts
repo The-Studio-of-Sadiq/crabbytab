@@ -46,12 +46,16 @@ describe("getPublicSiteSettings", () => {
       speakerTabLimit: 2.7,
       publicBreakMetrics: -5,
       welcomeMessage: `  ${"x".repeat(6000)}`,
+      publicHomepage: `  ${"y".repeat(25_000)}`,
     });
     expect(settings.drawMode).toBe("all");
     expect(settings.teamTabLimit).toBe(0);
     expect(settings.speakerTabLimit).toBe(2);
     expect(settings.breakMetrics).toBe(-1);
     expect(settings.welcomeMessage).toHaveLength(5000);
+    expect(settings.homepage).toHaveLength(20_000);
+    expect(getPublicSiteSettings(undefined).homepage).toBe("");
+    expect(getPublicSiteSettings({ publicHomepage: 7 as never }).homepage).toBe("");
   });
 
   it("releases the motion tab with the motions page unless set on its own", () => {
@@ -272,9 +276,12 @@ describe("tab-room team names under team code names", () => {
   it("shows code names with real-name tooltips in admin-tooltips-real", () => {
     expect(tabroomTeamName(team, "Alpha Real", "admin-tooltips-real")).toEqual({ name: "Fox", tooltip: { kind: "real", name: "Alpha Real" } });
   });
-  it("shows the real name alone when off, everywhere, or without a code name", () => {
+  it("shows the code name alone everywhere, as Tabbycat does for admins too", () => {
+    expect(tabroomTeamName(team, undefined, "everywhere")).toEqual({ name: "Fox" });
+    expect(tabroomTeamName({ name: "Beta" }, undefined, "everywhere")).toEqual({ name: "Beta" });
+  });
+  it("shows the real name alone when off, or without a code name", () => {
     expect(tabroomTeamName(team, undefined, "off")).toEqual({ name: "Alpha Real" });
-    expect(tabroomTeamName(team, undefined, "everywhere")).toEqual({ name: "Alpha Real" });
     expect(tabroomTeamName({ name: "Beta", codeName: "Beta" }, undefined, "admin-tooltips-real")).toEqual({ name: "Beta" });
     expect(tabroomTeamName(undefined, "Stored", "admin-tooltips-real")).toEqual({ name: "Stored" });
   });

@@ -1,0 +1,92 @@
+name: Pages
+
+# Builds the landing page and the guide (rendered from docs/wiki) and publishes
+# site/dist to the gh-pages branch. See site/README.md.
+on:
+  push:
+    branches: [main, beta]
+    paths:
+      - "docs/wiki/**"
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One publish at a time; a newer run waits instead of racing the force-push.
+concurrency:
+  group: pages-publish
+  cancel-in-progress: false
+
+env:
+  MARKED_VERSION: 17.0.6
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # marked is a build-time tool only: install it into a temp folder so the
+      # app's package.json and package-lock.json are never touched.
+      - name: Install marked
+        run: npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/marked" "marked@${MARKED_VERSION}"
+
+      - name: Build site
+        env:
+          MARKED_DIR: ${{ runner.temp }}/marked
+          SITE_SOURCE_BRANCH: ${{ github.ref_name }}
+        run: node site/build.mjs
+
+      - name: Publish to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: site/dist
+        run: |
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish site from ${GITHUB_REF_NAME} ${GITHUB_SHA}"
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic ${auth}" \
+            push --force "https://github.com/${GITHUB_REPOSITORY}.git" gh-pages:gh-pages
+
+      # GITHUB_TOKEN cannot push to a wiki, so this needs a personal access token
+      # with write access to the repository, stored as the WIKI_TOKEN secret.
+      # Pages are added or updated, never deleted: wiki-only pages are kept and listed.
+      - name: Sync docs/wiki to the GitHub wiki
+        env:
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
+        run: |
+          if [ -z "${WIKI_TOKEN}" ]; then
+            echo "WIKI_TOKEN secret is not set; skipping the wiki sync."
+            exit 0
+          fi
+          wiki_dir="$RUNNER_TEMP/wiki"
+          auth=$(printf 'x-access-token:%s' "$WIKI_TOKEN" | base64 -w0)
+          if ! git -c http.extraheader="AUTHORIZATION: basic ${auth}" \
+              clone -q --depth 1 "https://github.com/${GITHUB_REPOSITORY}.wiki.git" "$wiki_dir"; then
+            echo "::error::Could not clone the wiki. Create its first page once in the GitHub UI, and check that WIKI_TOKEN can write to the repository."
+            exit 1
+          fi
+          cp docs/wiki/*.md "$wiki_dir/"
+          for page in "$wiki_dir"/*.md; do
+            [ -e "docs/wiki/$(basename "$page")" ] || echo "Kept wiki-only page: $(basename "$page")"
+          done
+          cd "$wiki_dir"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Sync from ${GITHUB_REPOSITORY}@${GITHUB_SHA} (${GITHUB_REF_NAME})"
+          git -c http.extraheader="AUTHORIZATION: basic ${auth}" push -q origin HEAD

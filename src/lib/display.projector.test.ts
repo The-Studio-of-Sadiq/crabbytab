@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Round } from "@/types";
 import { makeRound } from "@/test/tournamentFixtures";
-import { projectorRounds } from "./display";
+import { projectorAccess, projectorRounds, staffProjectorRound } from "./display";
 
 const T = "t-projector";
 const round = (seq: number, overrides: Partial<Round> & { drawPublic?: boolean } = {}) =>
@@ -39,5 +39,37 @@ describe("projector rounds (concurrent rounds)", () => {
     const marked = [{ ...a, drawPublic: false }, { ...c, drawPublic: true }];
     const shown = projectorRounds(marked[0], marked, { staff: false, legacyPublicDraw: true, concurrent: true });
     expect(shown.map((item) => item.id)).toEqual([c.id]);
+  });
+});
+
+describe("staff projection before release", () => {
+  // Regression: /display only had the public projection, so nobody could project a confirmed but
+  // unreleased draw, and draw.display / motions.display gave staff nothing there.
+  it("lets administrators and permitted staff project early", () => {
+    expect(projectorAccess({ isOwnerOrAdmin: true, isDataEntryAssistant: false, permissions: [] }))
+      .toEqual({ draw: true, motions: true });
+    expect(projectorAccess({ isOwnerOrAdmin: false, isDataEntryAssistant: true, permissions: ["draw.display"] }))
+      .toEqual({ draw: true, motions: false });
+    expect(projectorAccess({ isOwnerOrAdmin: false, isDataEntryAssistant: true, permissions: ["motions.display"] }))
+      .toEqual({ draw: false, motions: true });
+    expect(projectorAccess({ isOwnerOrAdmin: false, isDataEntryAssistant: false, permissions: ["draw.display"] }))
+      .toEqual({ draw: false, motions: false });
+  });
+
+  it("projects confirmed (locked) draws for staff, never drafts", () => {
+    const locked = round(7, { drawStatus: "locked" });
+    const draft = round(8, { drawStatus: "draft" });
+    expect(projectorRounds(locked, [locked], { staff: true, legacyPublicDraw: true, concurrent: false })).toEqual([locked]);
+    expect(projectorRounds(locked, [locked], { staff: false, legacyPublicDraw: true, concurrent: false })).toEqual([]);
+    expect(projectorRounds(draft, [draft], { staff: true, legacyPublicDraw: true, concurrent: false })).toEqual([]);
+  });
+
+  it("opens on the current round, else the public round, else the latest confirmed draw", () => {
+    const locked = round(7, { drawStatus: "locked" });
+    const draft = round(8, { drawStatus: "draft" });
+    const staffRounds = [r1, locked, draft];
+    expect(staffProjectorRound(staffRounds, draft.id, r1.id)?.id).toBe(draft.id);
+    expect(staffProjectorRound(staffRounds, undefined, r1.id)?.id).toBe(r1.id);
+    expect(staffProjectorRound(staffRounds, undefined, undefined)?.id).toBe(locked.id);
   });
 });

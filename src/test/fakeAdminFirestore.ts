@@ -8,7 +8,7 @@ import type { Firestore } from "firebase-admin/firestore";
  */
 
 type Data = Record<string, unknown>;
-/** Field, value and operator: "==" (the default) or "array-contains". */
+/** Field, value and operator: "==" (the default), "array-contains", "array-contains-any" or "in". */
 type Filter = [string, unknown, string?];
 
 export interface FakeAdminFirestore {
@@ -61,7 +61,12 @@ export function createFakeAdminFirestore(initial: Record<string, Data> = {}): Fa
       .sort()
       .filter((key) => filters.every(([field, value, operator]) => {
         const stored = store.get(key)?.[field];
-        return operator === "array-contains" ? Array.isArray(stored) && stored.includes(value) : stored === value;
+        if (operator === "array-contains") return Array.isArray(stored) && stored.includes(value);
+        if (operator === "array-contains-any") {
+          return Array.isArray(stored) && Array.isArray(value) && value.some((item) => stored.includes(item));
+        }
+        if (operator === "in") return Array.isArray(value) && value.includes(stored);
+        return stored === value;
       }))
       .slice(0, max)
       .map((key) => snapshot(key));

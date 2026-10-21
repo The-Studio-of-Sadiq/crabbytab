@@ -204,9 +204,14 @@ export function planLiveWrites(input: {
     !baseline[id] && !(record && syncVersionOf(record) > 0);
 
   for (const [id, after] of nextById) {
-    const before = baseById.get(id);
-    if (before && syncContentHash(before) === syncContentHash(after)) continue;
     const current = latestById.get(id);
+    // A command that saves the same collection twice (submitting a ballot confirmed saves it, then
+    // its confirmation saves it again) passes the state it started from both times, so the second
+    // save does not find the record the first one created. That record is already in the cloud and
+    // in sync here: diff against it, so what the second save changed is written too instead of
+    // staying a local-only edit that the next listener event reports as a sync conflict.
+    const before = baseById.get(id) ?? (current && inSync(id, current) ? current : undefined);
+    if (before && syncContentHash(before) === syncContentHash(after)) continue;
     if (!current || !before) {
       // New on this device (or re-added): the whole record is written if the cloud lacks it.
       const record = { ...after };

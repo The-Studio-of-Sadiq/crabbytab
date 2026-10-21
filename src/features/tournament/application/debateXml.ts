@@ -3,8 +3,10 @@ import {
   consensusTeamScores,
   sheetOutcome,
   substantiveSpeakerCount,
+  teamSpeakerTotal,
   TWO_TEAM_SIDES,
 } from "@/lib/ballots/result";
+import { compareSides, isPolyFormat } from "@/lib/debateSides";
 import { effectiveSpeakerCategories, resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
 import type {
   Adjudicator,
@@ -191,12 +193,13 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
         continue;
       }
       // DebateXML encodes the side by the order of <side> elements.
-      const sideOrder = ballotSides(input.tournament.format);
+      const poly = isPolyFormat(input.tournament.format);
       const slots = Object.entries(debate.teams || {})
         .filter(([, slot]) => slot?.teamId && teamIds.has(slot.teamId))
-        .sort(([a], [b]) => sideOrder.indexOf(a as DebateSide) - sideOrder.indexOf(b as DebateSide));
+        .sort(([a], [b]) => compareSides(a, b));
       if (slots.length === 0) continue;
-      if (slots.length < 2) {
+      // A poly room may hold a single team (a random draw's remainder).
+      if (slots.length < (poly ? 1 : 2)) {
         throw new Error(`Debate ${debate.id} has an incomplete assignment and cannot be archived.`);
       }
       const assignedAdjudicators = [
@@ -213,7 +216,20 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
       // Voting ballots are archived as one ballot per adjudicator, as DebateXML expects.
       const rules = { format: input.tournament.format, preferences: input.tournament.preferences };
       const debateBallots = (ballotsByDebate.get(debate.id) ?? []).flatMap((ballot) =>
-        ballot.sheets?.length
+        ballot.sheets?.length && poly
+          // Poly voting sheets carry scores only (no ranks or winner).
+          ? ballot.sheets.map((sheet) => ({
+              ...ballot,
+              chairId: sheet.adjudicatorId,
+              speakerScores: sheet.speakerScores,
+              teamScores: Object.fromEntries(slots.map(([side]) => [side, {
+                side: side as DebateSide,
+                teamId: "",
+                points: 0,
+                totalSpeakerScore: teamSpeakerTotal(sheet.speakerScores?.[side as DebateSide] || [], rules),
+              }])) as BallotSubmission["teamScores"],
+            }))
+          : ballot.sheets?.length
           ? ballot.sheets.map((sheet) => {
               const outcome = sheetOutcome(sheet, rules);
               const ranks = Object.fromEntries(
@@ -313,7 +329,7 @@ export function createDebateXmlArchive(input: DebateXmlArchiveInput): string {
     ),
   ].join("");
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<tournament${attribute("name", input.tournament.name)}${attribute("short", input.tournament.shortName)}${attribute("style", input.tournament.format === "custom_2team" ? undefined : input.tournament.format)}${attribute("teamscore-includes-ghosts", String(input.tournament.preferences?.teamScoreIncludesGhosts ?? false))}>\n${roundXml}\n<participants>${participantsXml}</participants>\n${institutions.map((institution) => `<institution${attribute("id", institutionIds.get(institution.id))}${attribute("reference", institution.code)}>${escapeXml(institution.name)}</institution>`).join("")}\n${input.motions.map((motion) => `<motion id="${motionIds.get(motion.id)}"${attribute("reference", motion.reference)}>${escapeXml(motion.text)}${motion.infoSlide ? `<info-slide>${escapeXml(motion.infoSlide)}</info-slide>` : ""}</motion>`).join("")}\n${input.venues.map((venue) => `<venue id="${venueIds.get(venue.id)}"${attribute("priority", venue.priority)}>${escapeXml(venue.name)}</venue>`).join("")}\n${questionXml}\n${input.breakCategories.map((category) => `<break-category${attribute("id", breakIds.get(category.id))}${attribute("priority", category.priority)}${attribute("break-size", category.breakSize)}${attribute("reserve-size", category.reserveSize)}${attribute("general", category.isGeneral ? "true" : undefined)}>${escapeXml(category.name)}</break-category>`).join("")}\n${speakerCategoryNames.map((name) => `<speaker-category id="${speakerCategoryIds.get(name)}">${escapeXml(name)}</speaker-category>`).join("")}\n${[...divisionDefinitions].map(([id, name]) => `<division id="${divisionIds.get(id)}">${escapeXml(name)}</division>`).join("")}\n</tournament>`;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<tournament${attribute("name", input.tournament.name)}${attribute("short", input.tournament.shortName)}${attribute("style", input.tournament.format === "custom_2team" || input.tournament.format === "poly" ? undefined : input.tournament.format)}${attribute("teamscore-includes-ghosts", String(input.tournament.preferences?.teamScoreIncludesGhosts ?? false))}>\n${roundXml}\n<participants>${participantsXml}</participants>\n${institutions.map((institution) => `<institution${attribute("id", institutionIds.get(institution.id))}${attribute("reference", institution.code)}>${escapeXml(institution.name)}</institution>`).join("")}\n${input.motions.map((motion) => `<motion id="${motionIds.get(motion.id)}"${attribute("reference", motion.reference)}>${escapeXml(motion.text)}${motion.infoSlide ? `<info-slide>${escapeXml(motion.infoSlide)}</info-slide>` : ""}</motion>`).join("")}\n${input.venues.map((venue) => `<venue id="${venueIds.get(venue.id)}"${attribute("priority", venue.priority)}>${escapeXml(venue.name)}</venue>`).join("")}\n${questionXml}\n${input.breakCategories.map((category) => `<break-category${attribute("id", breakIds.get(category.id))}${attribute("priority", category.priority)}${attribute("break-size", category.breakSize)}${attribute("reserve-size", category.reserveSize)}${attribute("general", category.isGeneral ? "true" : undefined)}>${escapeXml(category.name)}</break-category>`).join("")}\n${speakerCategoryNames.map((name) => `<speaker-category id="${speakerCategoryIds.get(name)}">${escapeXml(name)}</speaker-category>`).join("")}\n${[...divisionDefinitions].map(([id, name]) => `<division id="${divisionIds.get(id)}">${escapeXml(name)}</division>`).join("")}\n</tournament>`;
 
   return xml;
 }

@@ -38,6 +38,12 @@ export interface BallotWorkflowDependencies {
   recordAuditEvent(event: BallotAuditEvent): Promise<void>;
   /** Double-entry policy: who may confirm tab-room ballots (see checkIndependentConfirmation). */
   checkPolicy?: BallotCheckPolicy;
+  /**
+   * Who confirms ballots through these commands (Tabbycat's `confirmer`), recorded as
+   * `confirmedBy` / `confirmedById`. Absent = "Tab room". A judge's ballot confirmed by the tab room
+   * must say so, or a later private-URL ballot from the chair could supersede it (isTabRoomConfirmed).
+   */
+  confirmer?: { name?: string; id?: string };
   queuePrivateRecord(
     record: { collection: "ballots"; record: BallotSubmission },
     privateUrlKey?: string,
@@ -165,6 +171,9 @@ export async function confirmBallotCommand(
   await confirmCheckedBallot(ballotId, debateId, submittedBallot, dependencies);
 }
 
+/** `confirmedBy` recorded when the confirming person is not known. */
+export const TAB_ROOM_CONFIRMER = "Tab room";
+
 /** Confirms a ballot whose state rules were already checked by the calling command. */
 async function confirmCheckedBallot(
   ballotId: string,
@@ -195,13 +204,34 @@ async function confirmCheckedBallot(
   if (!ballotMatchesDebate(confirmedBallot, debate)) {
     throw new Error("This ballot names different teams from the current draw, so it cannot be confirmed.");
   }
+  // A ballot submitted already confirmed keeps the confirmer it carries (the person who entered it,
+  // or the chair of a private-URL ballot); confirming a stored version records who confirmed it.
+  const confirmerName = dependencies.confirmer?.name?.trim() || TAB_ROOM_CONFIRMER;
+  const confirmation: Pick<BallotSubmission, "confirmedBy" | "confirmedById" | "confirmedTimestamp"> =
+    submittedBallot?.id === ballotId && submittedBallot.confirmed && submittedBallot.confirmedBy
+      ? {
+          confirmedBy: submittedBallot.confirmedBy,
+          ...(submittedBallot.confirmedById ? { confirmedById: submittedBallot.confirmedById } : {}),
+          confirmedTimestamp: submittedBallot.confirmedTimestamp ?? now,
+        }
+      : {
+          confirmedBy: confirmerName,
+          ...(dependencies.confirmer?.id ? { confirmedById: dependencies.confirmer.id } : {}),
+          confirmedTimestamp: now,
+        };
   const updatedBallots = dependencies.ballots.map((item) => {
     if (item.id === ballotId) {
-      return { ...item, confirmed: true, discarded: false, confirmedTimestamp: now };
+      const { confirmedById: _previousConfirmerId, ...rest } = item;
+      return { ...rest, confirmed: true, discarded: false, ...confirmation };
     }
-    if (item.debateId === debateId && item.id !== ballotId) {
-      return { ...item, confirmed: false, discarded: true };
+    if (item.debateId !== debateId) return item;
+    // A double-entry check confirms the same ballot again: the entry it checked is superseded.
+    if (confirmedBallot.checksVersion !== undefined && item.version === confirmedBallot.checksVersion && !item.confirmed) {
+      return { ...item, discarded: true };
     }
+    // As Tabbycat (Submission.save / BallotSetForm.save): confirming a version only unconfirms the
+    // previously confirmed one; drafts and other versions are kept as they are.
+    if (item.confirmed) return { ...item, confirmed: false };
     return item;
   });
   if (!updatedBallots.some((item) => item.id === ballotId)) {
@@ -209,7 +239,7 @@ async function confirmCheckedBallot(
       ...confirmedBallot,
       confirmed: true,
       discarded: false,
-      confirmedTimestamp: now,
+      ...confirmation,
     });
   }
   dependencies.repository.saveBallots(updatedBallots);

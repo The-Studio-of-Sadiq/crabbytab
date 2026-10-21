@@ -40,6 +40,7 @@ export const STAFF_PERMISSION_KEYS: Record<StaffPermission, MessageKey> = {
   "feedback.view": "setup.staff.permFeedbackView",
   "adjudicators.scores_edit": "setup.staff.permAdjudicatorScoresEdit",
   "allocation.edit": "setup.staff.permAllocationEdit",
+  "standings.view": "setup.staff.permStandingsView",
 };
 
 /** Permission groups of one data-entry staff member, saved through the staff route's PATCH. */

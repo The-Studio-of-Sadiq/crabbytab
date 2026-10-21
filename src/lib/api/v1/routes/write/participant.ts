@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { setParticipantAvailability } from "@/lib/checkins/history";
-import { checkParticipantFeedback, planParticipantBallotWrites } from "@/lib/participantSubmissions";
+import { participantRoundMotions } from "@/lib/ballots/participantMotion";
+import {
+  checkParticipantFeedback,
+  planParticipantBallotWrites,
+  supersededFeedbackUpdate,
+  supersededParticipantFeedbackIds,
+} from "@/lib/participantSubmissions";
 import { buildPrivateBallot, privateUrlBallotsEnabled } from "@/lib/privateBallot";
 import { applyPrivateBallotConfirmation } from "@/lib/privateIndividualBallots";
 import { filterParticipantVisibleDebates } from "@/lib/privatePortalBallots";
 import { selectAssignedDebates } from "@/lib/privateSync";
 import { currentCheckInRound, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
-import type { Adjudicator, BallotSubmission, Debate, FeedbackSubmission, Round, Team } from "@/types";
+import type { Adjudicator, BallotSubmission, Debate, FeedbackSubmission, Motion, Round, Team } from "@/types";
 import { ApiError, notFound } from "../../errors";
 import { defineRoute, slugParam } from "../../router";
 import { s } from "../../schema";
@@ -47,10 +53,11 @@ const speechInput = s.object({
   position: s.integer({ min: 1, max: 4 }),
   score: s.number({ min: 0, max: 1000 }),
   ghost: s.optional(s.boolean()),
-  rank: s.optional(s.integer({ min: 1, max: 8 })),
+  rank: s.optional(s.integer({ min: 1, max: 512 })),
   criteria: s.optional(s.record(s.number(), { maxKeys: 20 })),
 });
-const sideKeys = /^(OG|OO|CG|CO|AFF|NEG)$/;
+/** Two-team, BP and poly (P1 … PN, N teams per room) side codes. */
+const sideKeys = /^(OG|OO|CG|CO|AFF|NEG|P[1-9][0-9]*)$/;
 
 export const participantWriteRoutes = [
   defineRoute({
@@ -71,12 +78,15 @@ export const participantWriteRoutes = [
     params: slugOnly,
     body: s.object({
       debateId: idSchema("Debate id (from the participant's draw)."),
-      speakerScores: s.record(s.array(speechInput, { max: 8 }), { maxKeys: 4, keyPattern: sideKeys }),
+      speakerScores: s.record(s.array(speechInput, { max: 8 }), { maxKeys: 64, keyPattern: sideKeys }),
       teamScores: s.record(s.object({
-        rank: s.integer({ min: 1, max: 4 }),
+        rank: s.optional(s.integer({ min: 1, max: 64, description: "Required except with N teams per debate on score-only or results-only ballots." })),
+        win: s.optional(s.boolean("N teams per debate, results-only ballots: this side advances.")),
         teamId: s.optional(idSchema("Team on this side (sides chosen on the ballot).")),
-      }), { maxKeys: 4, keyPattern: sideKeys }),
+      }), { maxKeys: 64, keyPattern: sideKeys }),
       selfSplit: s.optional(s.boolean("A solo adjudicator declares a split decision, where allowed.")),
+      motionId: s.optional(idSchema("The motion debated; required when the round has several motions and motions are enabled.")),
+      vetoes: s.optional(s.record(idSchema("Vetoed motion id."), { maxKeys: 64, keyPattern: sideKeys })),
     }),
     response: s.ref("Ballot"),
     async handler(context) {
@@ -90,6 +100,9 @@ export const participantWriteRoutes = [
         const { debate, round, rounds } = await participantDebate(context, session, context.body.debateId);
         const adjudicator = await session.one<Adjudicator>("adjudicators", participant.id);
         if (!adjudicator) throw notFound("Adjudicator");
+        // The round's motions, so a ballot in a round with several motions names the one debated
+        // (validated like the private portal's; see participantMotion.ts).
+        const motions = await session.where<Motion>("motions", [{ field: "rounds", op: "array-contains", value: debate.roundId }]);
         let ballot: BallotSubmission;
         try {
           ballot = buildPrivateBallot({
@@ -97,7 +110,16 @@ export const participantWriteRoutes = [
             id: `ballot-${debate.id}-adj-${participant.id}-${randomUUID().slice(0, 8)}`,
             submitterType: "judge",
             submitterId: participant.id,
-          }, { tournament, adjudicator, debate, teams: await debateTeams(session, debate), tournamentId: tournament.id, round });
+          }, {
+            tournament,
+            adjudicator,
+            debate,
+            teams: await debateTeams(session, debate),
+            tournamentId: tournament.id,
+            round,
+            rounds: [...rounds.values()],
+            roundMotions: participantRoundMotions(motions, debate.roundId),
+          });
         } catch (error) {
           throw new ApiError(422, "validation_failed", error instanceof Error ? error.message : "The ballot is invalid.");
         }
@@ -154,7 +176,7 @@ export const participantWriteRoutes = [
     async handler(context) {
       const participant = context.participant!;
       return runParticipantWrite(context, async (session) => {
-        const { debate, round } = await participantDebate(context, session, context.body.debateId);
+        const { debate, round, rounds } = await participantDebate(context, session, context.body.debateId);
         const checked = checkParticipantFeedback({ ...context.body, sourceType: participant.type, sourceId: participant.id }, {
           tournament: session.tournament,
           tournamentId: session.tournament.id,
@@ -170,7 +192,15 @@ export const participantWriteRoutes = [
             ? new ApiError(403, "forbidden", checked.error)
             : new ApiError(422, "validation_failed", checked.error);
         }
-        session.put<FeedbackSubmission>("feedback", [checked.feedback]);
+        // As the private portal: the source's earlier confirmed feedback on the same target in this
+        // debate is kept but unconfirmed, so it is not counted twice.
+        const earlier = (await session.where<FeedbackSubmission>("feedback", [{ field: "debateId", op: "==", value: debate.id }]))
+          .filter((item) => item.sourceType === participant.type && item.sourceId === participant.id);
+        const superseded = new Set(supersededParticipantFeedbackIds([checked.feedback], earlier, session.tournament, rounds));
+        session.put<FeedbackSubmission>("feedback", [
+          ...earlier.filter((item) => superseded.has(item.id)).map((item) => ({ ...item, ...supersededFeedbackUpdate(item) })),
+          checked.feedback,
+        ]);
         await session.recordAuditEvent({
           action: "feedback.submitted",
           category: "feedback",

@@ -467,7 +467,7 @@ export default function EmailSettingsPage() {
           <div className="rounded-md border border-border bg-muted p-3 text-xs text-fg">
             <p className="font-semibold">{t("setup.email.variablesTitle")}</p>
             <p className="mt-1 break-words font-mono">
-              {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{side}} {{result}} {{points}} {{ballot}} {{speakers}} {{code_name}} {{emoji}} {{break_categories}}"}
+              {"{{name}} {{email}} {{tournament}} {{team}} {{institution}} {{round}} {{debate}} {{venue}} {{venue_url}} {{chair}} {{panellists}} {{private_url}} {{passcode}} {{key}} {{position}} {{long_name}} {{side}} {{result}} {{points}} {{ballot}} {{speakers}} {{code_name}} {{emoji}} {{break_categories}}"}
             </p>
             <p className="mt-1 text-fg-muted">{t("setup.email.variablesHelp")}</p>
           </div>

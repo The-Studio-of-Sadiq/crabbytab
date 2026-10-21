@@ -15,6 +15,7 @@ import {
   roundRobinIndex,
   roundsInSameSlot,
   scheduleGroupOf,
+  slotNewPreliminaryRounds,
 } from "./schedule";
 
 function round(id: string, seq: number, overrides: Partial<Round> = {}): Round {
@@ -206,5 +207,29 @@ describe("start times", () => {
     expect(debateStartTime({ scheduledTime: "2026-10-21T09:30:00.000Z" }, { startsAt: start })?.toISOString()).toBe("2026-10-21T09:30:00.000Z");
     expect(debateStartTime({}, { startsAt: start })?.toISOString()).toBe(start);
     expect(debateStartTime({ scheduledTime: "nonsense" }, undefined)).toBeUndefined();
+  });
+});
+
+describe("slotNewPreliminaryRounds (prelim_panels at round creation)", () => {
+  it("leaves rounds alone with one panel per slot", () => {
+    const created = [round("r3", 3)];
+    expect(slotNewPreliminaryRounds([round("r1", 1), round("r2", 2)], created, 1)).toBe(created);
+  });
+
+  it("groups new rounds into slots of prelim_panels, filling the last slot first", () => {
+    const fresh = slotNewPreliminaryRounds([], [round("a", 1), round("b", 2), round("c", 3)], 2);
+    expect(fresh.map((item) => [item.scheduleGroup, item.name, item.abbreviation])).toEqual([
+      [1, "Round 1 (A)", "R1A"],
+      [1, "Round 1 (B)", "R1B"],
+      [2, "Round 2 (A)", "R2A"],
+    ]);
+    const existing = [round("a", 1, { scheduleGroup: 1 }), round("b", 2, { scheduleGroup: 1 }), round("c", 3, { scheduleGroup: 2 })];
+    const added = slotNewPreliminaryRounds(existing, [round("d", 4), round("e", 5)], 2);
+    expect(added.map((item) => item.scheduleGroup)).toEqual([2, 3]);
+  });
+
+  it("keeps a typed name when asked", () => {
+    const [added] = slotNewPreliminaryRounds([round("a", 1)], [round("b", 2)], 2, { renameDefaults: false });
+    expect(added).toMatchObject({ scheduleGroup: 1, name: "Round 2", abbreviation: "R2" });
   });
 });

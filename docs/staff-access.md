@@ -21,15 +21,16 @@ mapped onto CrabbyTab. Code: `src/lib/staffPermissions.ts`, `src/lib/staffAccess
 | `results.confirm_others` | confirm, or blind-check, a ballot someone else entered | assistant-ballots route |
 | `ballots.intake` | record paper ballots arriving | data-entry-sync |
 | `feedback.enter` | enter feedback | data-entry-sync |
-| `checkins.edit` | change check-in and availability fields | data-entry-sync, firestore.rules (live check-in update) |
+| `checkins.edit` | change check-in and availability fields of teams and adjudicators, and check rooms in (rooms: `checkedIn`, `checkedInAt`, `checkInHistory` only; staff never create rooms) | data-entry-sync, firestore.rules (live check-in update) |
 | `participants.edit` | add and edit teams, adjudicators, institutions | data-entry-sync |
-| `draw.display` | see draft draws (draw display before release) | assistant-data |
-| `motions.display` | see a round's motions before they are released | assistant-data |
+| `draw.display` | see draft draws (draw display before release) and project confirmed draws on `/display` | assistant-data |
+| `motions.display` | see a round's motions before they are released and reveal them on `/display` | assistant-data |
 | `conflicts.view` | see adjudicator conflicts and team–institution conflicts | assistant-data (`conflicts`, `institutionConflictIds` are sent only with it) |
 | `conflicts.edit` | change those conflicts (only together with `conflicts.view`) | data-entry-sync |
 | `feedback.view` | see feedback scores, comments and answers, and adjudicators' base/test scores, score history, breaking and adjudication-core flags | assistant-data |
-| `adjudicators.scores_edit` | change base and test scores and breaking status (recorded in the score history with the staff member's name) | data-entry-sync |
+| `adjudicators.scores_edit` | change base and test scores (one by one or in bulk), breaking status and the tester flag (recorded in the score history with the staff member's name); the app offers it only together with `feedback.view`, since staff cannot change scores they cannot see | data-entry-sync |
 | `allocation.edit` | change adjudicator panels of draws they can see | data-entry-sync (one transaction per round), assistant-data (unrevealed panels) |
+| `standings.view` | see standings, the break and analytics, and the results of silent and unreleased rounds (Tabbycat VIEW_TEAMSTANDINGS, VIEW_SPEAKERSSTANDINGS, VIEW_MOTIONSTAB, VIEW_BREAK) | assistant-data (ballots and debate points) |
 
 Groups (set per staff member on **Tournament access**; more than one may be ticked):
 
@@ -40,7 +41,7 @@ Groups (set per staff member on **Tournament access**; more than one may be tick
 | Check-in desk | `checkins.edit` | — |
 | Feedback desk | `feedback.enter` | — |
 | Equity | `conflicts.view`, `conflicts.edit` | Equity |
-| Adjudication core | `feedback.view`, `adjudicators.scores_edit`, `allocation.edit`, `conflicts.view`, `draw.display`, `motions.display` | Adjudication Core |
+| Adjudication core | `feedback.view`, `adjudicators.scores_edit`, `allocation.edit`, `conflicts.view`, `draw.display`, `motions.display`, `standings.view` | Adjudication Core |
 
 Staff documents written before groups existed have no groups and keep the tabulation assistant
 set. Equity leaves out Tabbycat's room-constraint and participant-contact permissions (room
@@ -72,6 +73,40 @@ assistant routes read the custom groups only for staff who use one.
 The level is a tournament preference, so it reaches the server with the next upload of the
 tournament. Without `draw.display`, staff receive debates only for rounds whose draw is confirmed
 or released (ballot entry needs nothing else).
+
+### Results staff may see
+
+Ballots and the points on debates reach a staff member's device only for rounds whose results
+they may see (`assistantMaySeeRoundResults` in `src/lib/dataEntrySync.ts`): every round with
+`standings.view`; rounds whose results are released; for ballot staff (`results.enter`,
+`results.confirm_others`, `ballots.intake`) also rounds still being entered and completed rounds
+that are not silent. Other debates arrive without `points`, `speakerScoreTotal` and `byeResult`.
+Staff groups saved before `standings.view` existed (including the default tabulation assistant
+set) do not have it, so their standings, break and analytics pages close, as in Tabbycat.
+
+### Pages
+
+The tournament shell checks each staff page against the permission the server enforces for its
+data (`routeRequirement` in `src/lib/tournamentRoutes.ts`), the same permissions the sidebar uses:
+the allocation editor needs `allocation.edit` (preformed panels stay administrator-only), the
+standings, break and analytics pages `standings.view`, breaking adjudicators and the adjudicator
+record `feedback.view` or `adjudicators.scores_edit`, check-ins `checkins.edit`, conflicts
+`conflicts.view`; the draw, configuration, staff, private URLs, email, audit log, exports,
+rehearsal, API, registration, schedule and the venue, motion, speaker-category and room
+preference setup pages are administrator-only. Within the break page, changing categories,
+generating the break and overrides stay administrator-only. Routes are matched on path segments
+after the slug, so a slug such as `public-speaking-open` never turns staff pages into the public
+view; `public`, `display`, `private`, `invite`, `account` and every other top-level route are
+reserved slugs (`RESERVED_SLUGS`, kept in step with `src/app` by a test).
+
+### Projector
+
+`/display` loads the public projection for everyone. Administrators also project from this
+device's working copy, and staff with `draw.display` or `motions.display` from their assistant
+data (`projectorAccess` in `src/lib/display.ts`): confirmed (locked) draws before release, never
+drafts, and the round's motions before release. **Reload staff copy** refreshes it. On a device
+without a working copy (a fresh projector laptop) an administrator sees the public view; open the
+tournament there once first.
 
 ## Server enforcement
 
@@ -106,7 +141,8 @@ written. Panel names and the debates' participant index are rebuilt by the serve
   differences, and nothing changes.
 
 The server runs the tab room's confirmation command against the debate's records in one
-transaction: the other versions are discarded, the debate's result is recorded, and every written
+transaction: the previously confirmed version is unconfirmed (and a blind check's checked entry
+discarded; other drafts are kept), the debate's result is recorded, and every written
 record's `syncVersion` moves on. Extra rules for staff:
 
 - the same-person check always applies, double entry or not: nobody confirms their own entry;
@@ -133,11 +169,27 @@ tab-room ballot page and printed ballots do.
 
 `privateBallotConfirmation`:
 
-- **The chair confirms** (default; CrabbyTab's behaviour before this setting): a chair's ballot
-  counts at once and supersedes earlier ballots of the debate (unless the tab room confirmed one
-  or the round is locked).
-- **The tab room confirms** (Tabbycat's default): every private-URL ballot is stored unconfirmed
-  and waits for the tab room or data-entry staff with `results.confirm_others`.
+- **The chair confirms** (Tabbycat's `disable_ballot_confirms` on; CrabbyTab's behaviour before
+  this setting, and still what a tournament without the field gets): a chair's ballot counts at
+  once and supersedes earlier ballots of the debate (unless the tab room confirmed one or the
+  round is locked).
+- **The tab room confirms** (Tabbycat's default, and stored on every tournament created from now
+  on): every private-URL ballot is stored unconfirmed and waits for the tab room or data-entry
+  staff with `results.confirm_others`.
+
+A ballot the tab room confirms records who confirmed it (`confirmedBy`, the signed-in user, or
+"Tab room"; `confirmedById`). That is what protects a tab-room-confirmed judge ballot from being
+superseded by a later private-URL ballot from the chair (`isTabRoomConfirmed`); before this,
+confirming a stored ballot recorded no confirmer.
+
+**Voting rounds without individual ballots.** Tabbycat gives the chair a per-adjudicator form, so
+a voting result always has every voting adjudicator's sheet. A private URL records only the
+submitter's own sheet, so (`votingRoundPrivateBallot`): when the submitter is the debate's only
+voting adjudicator, their sheet becomes a proper voting ballot (with its sheet and votes, and a
+declared 2:1 split when self-split ballots are on); otherwise the ballot is stored **unconfirmed**
+whatever this setting says, and the tab room enters the panel's sheets ("Fill from private URLs"
+takes this one). Before this, the chair's sheet became the confirmed result with no sheets or
+votes.
 
 ### Individual ballots (`individualBallots`)
 
@@ -149,7 +201,11 @@ The latest sheet of each voting adjudicator is merged into one voting ballot and
 any voting ballot (`aggregateVotingSheets`). As in Tabbycat's `populate_from_merge`, the sheets
 must agree on everything that is not a score: who gave each speech (and ghost speeches), the
 motion, vetoes and, with sides chosen on the ballot, which team took which side. A sheet with
-tied totals cannot vote. Disagreements are reported, never resolved.
+tied totals cannot vote. Disagreements are reported, never resolved: as in Tabbycat, a speaker,
+motion or veto the sheets disagree on is **cleared** in the merge (and in *Fill from private
+URLs*) and everything else is kept, so the tab room only chooses what is missing. A merge with
+disagreements is never confirmed automatically; different teams on a side, or a sheet without a
+winner, cannot be merged at all.
 
 - With **the chair confirms**, the merge happens automatically when the last sheet arrives and
   agrees: a merged ballot (`submitterName` "Merged individual ballots", `mergedFromIds`) is written
@@ -160,6 +216,11 @@ tied totals cannot vote. Disagreements are reported, never resolved.
 
 Ballot receipts go to the adjudicator for their own sheet only.
 
+`privateUrlFeedback` (Staff page, "Feedback submissions through private URLs"; Tabbycat
+`participant_feedback`): off, private URLs refuse feedback (`checkParticipantFeedback`, so the v1
+API too) and the portals hide the feedback forms; take feedback on the public form or in the tab
+room. Absent = on.
+
 ## Limitations
 
 - Data-entry staff cannot merge individual ballots themselves; they confirm the merged or
@@ -167,3 +228,4 @@ Ballot receipts go to the adjudicator for their own sheet only.
 - Equity and Adjudication Core cover conflicts, feedback, adjudicator scores and allocation only
   (see above); room preferences, motions, feedback questions and releases stay administrator work.
 - Staff confirmations are not in the audit log (see above).
+- A staff member cannot clear a test score (only change it); administrators can.

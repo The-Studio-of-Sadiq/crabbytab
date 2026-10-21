@@ -26,6 +26,8 @@ export interface PublicParticipantAdjudicator {
   name: string;
   institutionName?: string;
   anonymous?: boolean;
+  /** Always a trainee; the projection sends it only under `showUnaccredited`. */
+  trainee?: boolean;
 }
 
 export interface PublicParticipants {
@@ -64,6 +66,7 @@ export function buildPublicParticipants(
         name: adjudicator.name,
         institutionName: adjudicator.institutionName || undefined,
         ...(adjudicator.anonymous ? { anonymous: true } : {}),
+        ...(adjudicator.trainee === true ? { trainee: true } : {}),
       }))
       .sort(byName),
   };
@@ -125,6 +128,7 @@ export function buildPublicAdjudicatorLists(
     name: adjudicator.name,
     institutionName: adjudicator.institutionName || undefined,
     ...(adjudicator.anonymous ? { anonymous: true } : {}),
+    ...(adjudicator.trainee === true ? { trainee: true } : {}),
   });
   return {
     core: release.adjudicatorCore ? adjudicators.filter((item) => item.adjCore === true).map(row).sort(byName) : [],

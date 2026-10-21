@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { hashApiToken, isPublicOnlyToken, readBearerToken, scopesAllow, storedTokenScopes } from "@/lib/apiTokens";
 import { passcodesMatch } from "@/lib/passcode";
+import { matchPrivateTeamCredential } from "@/lib/privateSpeakerAccess";
 import type { PublicViewReader } from "@/lib/publicView/store";
 import { isTournamentRuleError } from "@/features/tournament/application/stateGuards";
 import type { Tournament } from "@/types";
@@ -248,17 +249,26 @@ async function authenticateParticipant(
   );
   if (!limit.allowed) throw rateLimited(limit.retryAfterSeconds, "Too many private key attempts. Try again later.");
   const store = services.store.forTournament(tournamentRecord.id);
-  const [teams, adjudicators] = await Promise.all([
+  // A team's key, one of its speakers' keys (the per-speaker private URLs the portal accepts,
+  // indexed in `speakerUrlKeys`), or an adjudicator's key.
+  const [teamsByKey, teamsBySpeakerKey, adjudicators] = await Promise.all([
     store.query("teams", { filters: [{ field: "privateUrlKey", op: "==", value: key }], limit: 2 }),
+    store.query("teams", { filters: [{ field: "speakerUrlKeys", op: "array-contains", value: key }], limit: 2 }),
     store.query("adjudicators", { filters: [{ field: "privateUrlKey", op: "==", value: key }], limit: 2 }),
   ]);
+  const teams = [...new Map([...teamsByKey, ...teamsBySpeakerKey].filter(isActive).map((record) => [record.id, record])).values()];
   const candidates: Array<{ type: "team" | "adjudicator"; record: StoredRecord }> = [
-    ...teams.filter(isActive).map((record) => ({ type: "team" as const, record })),
+    ...teams.map((record) => ({ type: "team" as const, record })),
     ...adjudicators.filter(isActive).map((record) => ({ type: "adjudicator" as const, record })),
   ];
   const match = candidates.length === 1 ? candidates[0] : undefined;
+  const credential = !match
+    ? null
+    : match.type === "team"
+      ? matchPrivateTeamCredential(match.record, key, passcode)
+      : passcodesMatch(match.record.privatePasscode as string | undefined, passcode) ? {} : null;
   // Unknown key and wrong passcode get the same answer, so valid keys cannot be enumerated.
-  if (!match || !passcodesMatch(match.record.privatePasscode, passcode)) {
+  if (!match || !credential) {
     throw new ApiError(401, "unauthenticated", "Invalid private URL key or passcode.");
   }
   return {
@@ -271,6 +281,7 @@ async function authenticateParticipant(
       type: match.type,
       id: match.record.id,
       name: typeof match.record.name === "string" ? match.record.name : "",
+      ...(credential.speakerId ? { speakerId: credential.speakerId } : {}),
     },
   };
 }

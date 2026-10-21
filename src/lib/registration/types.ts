@@ -36,8 +36,22 @@ export interface RegistrationSettings {
   closesAt?: string;
   teamRegistration: boolean;
   adjudicatorRegistration: boolean;
-  /** Only people holding an institution representative link may register. */
+  /**
+   * Only people holding an institution representative link may register. Superseded by the
+   * per-kind switches below when they are set (see src/lib/registration/access.ts).
+   */
   representativesOnly: boolean;
+  /**
+   * Tabbycat `open_team_registration` / `open_adj_registration`: teams / adjudicators may register
+   * on the public form without a representative link. Absent: `!representativesOnly` (as before).
+   */
+  openTeamRegistration?: boolean;
+  openAdjudicatorRegistration?: boolean;
+  /**
+   * Tabbycat `institution_participant_registration`: representative links may register teams and
+   * adjudicators. Absent: on (as before).
+   */
+  institutionParticipantRegistration?: boolean;
   minSpeakers: number;
   maxSpeakers: number;
   /** Speaker category labels registrants may tick (e.g. "ESL", "Novice"). */
@@ -63,6 +77,13 @@ export interface RegistrationSettings {
   codeNameGenerator?: CodeNameGenerator;
   speakerFields?: PersonField[];
   adjudicatorFields?: PersonField[];
+  /**
+   * Tabbycat `reg_speaker_fields` "email" / "categories" and `reg_adjudicator_fields` "email":
+   * whether the forms ask for them. Absent: asked (as before).
+   */
+  askSpeakerEmail?: boolean;
+  askSpeakerCategories?: boolean;
+  askAdjudicatorEmail?: boolean;
   /** Optional team fields (Tabbycat `reg_team_fields`); absent = none (the form as before). */
   teamFields?: TeamRegistrationField[];
   /**
@@ -79,6 +100,11 @@ export interface RegistrationSettings {
   adjudicatorMessage?: string;
   institutionMessage?: string;
   institutionQuestions?: FeedbackQuestion[];
+  /**
+   * Asked of the institution's contact person (Tabbycat's coach questions, reg-coach-questions) on
+   * the institution form, separately from the questions about the institution. Absent = none.
+   */
+  coachQuestions?: FeedbackQuestion[];
   /** Asked once per speaker on the team form. */
   speakerQuestions?: FeedbackQuestion[];
   /** Copied from the tournament when saved, so the public form needs no tournament read. */
@@ -97,6 +123,7 @@ export interface RegisteredSpeaker {
 }
 
 export interface TeamRegistrationData {
+  /** Empty when a team-name generator names the team on approval (the form does not ask). */
   name: string;
   speakers: RegisteredSpeaker[];
   /** Optional team fields (present only when the settings ask for them). */
@@ -109,7 +136,8 @@ export interface TeamRegistrationData {
 
 export interface AdjudicatorRegistrationData {
   name: string;
-  email: string;
+  /** Absent when the form does not ask for it (`askAdjudicatorEmail: false`). */
+  email?: string;
   /** Institutions the adjudicator is conflicted with, beyond their own. */
   institutionConflicts: string[];
   /** Teams or people the adjudicator is conflicted with (free text; matched on approval). */
@@ -124,6 +152,8 @@ export interface InstitutionRegistrationData {
   region?: string;
   teamsRequested: number;
   adjudicatorsRequested: number;
+  /** The contact person's answers to the coach questions (absent when none were asked). */
+  coachAnswers?: Record<string, FeedbackAnswer>;
 }
 
 export interface RegistrationInstitution {
@@ -203,6 +233,14 @@ export interface RegistrationRepresentative {
   sendCount: number;
   lastSentAt?: string;
   deliveryError?: string;
+  /**
+   * Issued when the institution registered (Tabbycat's coach landing page), before the tab room
+   * allocated places: the link shows the institution's own request only and cannot register
+   * anyone or transfer places. Cleared when places are allocated.
+   */
+  awaitingPlaces?: boolean;
+  /** Hash of that registration-time link, kept valid after allocation issues the places link. */
+  landingTokenHash?: string;
 }
 
 export type RepresentativeSummary = Omit<RegistrationRepresentative, "tokenHash">;
@@ -227,7 +265,17 @@ export interface PublicRegistrationForm {
   closesAt?: string;
   teamRegistration: boolean;
   adjudicatorRegistration: boolean;
+  /** True when neither teams nor adjudicators may register without a representative link. */
   representativesOnly: boolean;
+  /** Resolved channels (src/lib/registration/access.ts); optional for forms cached before them. */
+  openTeamRegistration?: boolean;
+  openAdjudicatorRegistration?: boolean;
+  institutionParticipantRegistration?: boolean;
+  /** A team-name generator names teams: the team-name field is not asked. */
+  teamNameGenerated?: boolean;
+  askSpeakerEmail?: boolean;
+  askSpeakerCategories?: boolean;
+  askAdjudicatorEmail?: boolean;
   minSpeakers: number;
   maxSpeakers: number;
   speakerCategories: string[];
@@ -248,5 +296,6 @@ export interface PublicRegistrationForm {
   adjudicatorMessage: string;
   institutionMessage: string;
   institutionQuestions: FeedbackQuestion[];
+  coachQuestions: FeedbackQuestion[];
   speakerQuestions: FeedbackQuestion[];
 }

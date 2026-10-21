@@ -42,11 +42,13 @@ export interface BreakExclusionEntry {
 
 /**
  * Teams tied on every standings precedence metric (the same tab rank) that straddle the last
- * breaking place or the last reserve place. Tabbycat lets every such team through (the break
- * grows) and leaves it to the tab director to resolve; CrabbyTab instead holds the whole group
- * out of the break (or reserves) and refuses to generate the break until the director resolves
- * it with overrides: "Manually included" for the teams that go through, or a remark such as
- * "Lost coin toss" for those that do not. No arbitrary order (e.g. by name) decides it.
+ * breaking place or the last reserve place. Tabbycat 2.12.1 does not resolve such a tie on purpose:
+ * its standard generator first appends every tied team to the break, but its reserve step then
+ * re-marks the teams beyond the break size as reserves, so in effect the random tiebreak of the
+ * standings decides who breaks. CrabbyTab instead holds the whole group out of the break (or
+ * reserves) and refuses to generate the break until the director resolves it with overrides:
+ * "Manually included" for the teams that go through, or a remark such as "Lost coin toss" for
+ * those that do not. No arbitrary order (e.g. by name) decides it.
  */
 export interface BreakCutoffTie {
   cutoff: "break" | "reserve";
@@ -137,11 +139,37 @@ export function aidaInstitutionCap(rule: BreakQualificationRule, breakSize: numb
   return 3 + Math.floor(additionalTeams / 8);
 }
 
+/**
+ * Tabbycat's institution rank (RankFromInstitutionAnnotator): each team's place among the teams of
+ * its own institution in the category's standings. It is taken over every team in those standings,
+ * including teams that are ineligible, excluded by a remark or broke in another category, and teams
+ * tied in the standings share their institution rank (1, 2, 2, 4).
+ */
+export function institutionRanks(standings: TeamStandingRow[], teamMap: Map<string, Team>): Map<string, number> {
+  const byInstitution = new Map<string, { teamId: string; rank: number }[]>();
+  standings.forEach((standing, index) => {
+    const team = teamMap.get(standing.teamId);
+    if (!team) return;
+    const key = institutionKey(team);
+    const members = byInstitution.get(key) ?? [];
+    members.push({ teamId: standing.teamId, rank: standing.rank || index + 1 });
+    byInstitution.set(key, members);
+  });
+  const result = new Map<string, number>();
+  for (const members of byInstitution.values()) {
+    for (const member of members) {
+      result.set(member.teamId, 1 + members.filter((other) => other.rank < member.rank).length);
+    }
+  }
+  return result;
+}
+
 function selectAida2016Teams(
   eligible: TeamStandingRow[],
   teamMap: Map<string, Team>,
   breakSize: number,
   rule: Aida2016Rule,
+  institutionRankByTeam: Map<string, number>,
   /** The category's full break size, which sets the AIDA 2019 cap (Tabbycat uses break_size). */
   categoryBreakSize: number = breakSize
 ): QualificationOutcome {
@@ -150,20 +178,12 @@ function selectAida2016Teams(
   const cap = aidaInstitutionCap(rule, categoryBreakSize);
   const winsOf = (standing: TeamStandingRow) => standing.wins ?? standing.points;
   const minimumWins = winsOf(eligible[breakSize - 1]);
+  // Tabbycat drops teams with fewer wins than the nth team from the eligible teams altogether, so
+  // they can neither break nor be reserves.
   const winEligible = eligible.filter((standing) => winsOf(standing) >= minimumWins);
   const naturalBreakCutoff = winEligible[breakSize - 1]?.rank ?? eligible[breakSize - 1].rank;
-  const institutionRanks = new Map<string, number>();
-  const institutionRankByTeam = new Map<string, number>();
   const ranks = new Map<string, number>();
-  eligible.forEach((standing, index) => {
-    ranks.set(standing.teamId, standing.rank || index + 1);
-    const team = teamMap.get(standing.teamId);
-    if (!team) return;
-    const key = institutionKey(team);
-    const institutionRank = (institutionRanks.get(key) ?? 0) + 1;
-    institutionRanks.set(key, institutionRank);
-    institutionRankByTeam.set(standing.teamId, institutionRank);
-  });
+  eligible.forEach((standing, index) => ranks.set(standing.teamId, standing.rank || index + 1));
 
   const isCapped = (standing: TeamStandingRow) => {
     const institutionRank = institutionRankByTeam.get(standing.teamId) ?? 1;
@@ -183,9 +203,10 @@ function selectAida2016Teams(
       : [capped];
 
     for (const pass of reinsertionPasses) {
+      // Teams tied on every precedence metric (one standings rank) are reinserted together.
       const groups = new Map<string, TeamStandingRow[]>();
       for (const standing of pass) {
-        const key = tieKey(standing);
+        const key = standing.rank ? `rank:${standing.rank}` : tieKey(standing);
         const group = groups.get(key) ?? [];
         group.push(standing);
         groups.set(key, group);
@@ -201,13 +222,14 @@ function selectAida2016Teams(
   }
 
   const selectedIds = new Set(selected.map((standing) => standing.teamId));
-  // Reserves are the next teams in rank order that the cap would not remove.
-  const reserves = eligible.filter(
+  // Reserves are the next teams in rank order, among those with enough wins, that the cap would
+  // not remove.
+  const reserves = winEligible.filter(
     (standing) => !selectedIds.has(standing.teamId) && teamMap.has(standing.teamId) && !isCapped(standing)
   );
   return {
     ordered: [...eligible.filter((standing) => selectedIds.has(standing.teamId)), ...reserves],
-    capped: eligible.filter(
+    capped: winEligible.filter(
       (standing) => !selectedIds.has(standing.teamId) && teamMap.has(standing.teamId) && isCapped(standing)
     ),
   };
@@ -218,24 +240,20 @@ function applyQualificationRule(
   rule: BreakQualificationRule,
   breakSize: number,
   teamMap: Map<string, Team>,
+  institutionRankByTeam: Map<string, number>,
   categoryBreakSize: number = breakSize
 ): QualificationOutcome {
   if (rule === "standard") return { ordered: eligible, capped: [] };
   if (rule === "aida_1996") {
-    const institutionRanks = new Map<string, number>();
     const ordered: TeamStandingRow[] = [];
     const capped: TeamStandingRow[] = [];
     for (const standing of eligible) {
-      const team = teamMap.get(standing.teamId);
-      if (!team) continue;
-      const key = institutionKey(team);
-      const rank = (institutionRanks.get(key) ?? 0) + 1;
-      institutionRanks.set(key, rank);
-      (rank <= 3 ? ordered : capped).push(standing);
+      if (!teamMap.has(standing.teamId)) continue;
+      ((institutionRankByTeam.get(standing.teamId) ?? 1) <= 3 ? ordered : capped).push(standing);
     }
     return { ordered, capped };
   }
-  return selectAida2016Teams(eligible, teamMap, breakSize, rule as Aida2016Rule, categoryBreakSize);
+  return selectAida2016Teams(eligible, teamMap, breakSize, rule as Aida2016Rule, institutionRankByTeam, categoryBreakSize);
 }
 
 export function applyBreakStatuses(
@@ -310,7 +328,10 @@ export function isGeneratedBreakStale(result: BreakCategoryResult): boolean {
  * Calculates breaking and reserve teams for each break category according to priority rules.
  *
  * Categories are processed from highest priority down; a team that breaks in
- * one category is not considered for lower-priority ones. Manual overrides on
+ * one category is not considered for lower-priority ones. Categories of equal
+ * priority do not exclude each other, so a team may break in several of them
+ * (Tabbycat only excludes teams that broke in a strictly higher-priority
+ * category, `priority__gt`). Manual overrides on
  * a category exclude a team (any remark) or force it into the break
  * ("include", which also bypasses category eligibility and institution caps
  * but not the one-category rule). Forced teams take break places first; the
@@ -342,10 +363,13 @@ export function calculateBreaks(
   // Sort categories by priority (highest priority number or rank first)
   const sortedCategories = [...categories].sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-  const brokenTeamIds = new Set<string>();
+  // Team id -> the highest priority of a category it broke in so far.
+  const brokenPriority = new Map<string, number>();
   const results: BreakCategoryResult[] = [];
 
   for (const cat of sortedCategories) {
+    const brokeInHigherCategory = (teamId: string) =>
+      brokenPriority.has(teamId) && (brokenPriority.get(teamId) as number) > (cat.priority || 0);
     const overrides = cat.teamOverrides ?? {};
     const inCategory = (team: Team) => cat.isGeneral || Boolean(team.breakCategories?.includes(cat.id));
     // The category's own standings: everyone for a general category, otherwise the category's
@@ -371,7 +395,7 @@ export function calculateBreaks(
       const team = teamMap.get(standing.teamId);
       if (!team) continue;
       const override = overrides[team.id];
-      if (brokenTeamIds.has(team.id)) {
+      if (brokeInHigherCategory(team.id)) {
         if (inCategory(team) || override === "include") brokeElsewhere.push(standing);
         continue;
       }
@@ -385,7 +409,14 @@ export function calculateBreaks(
 
     const naturalPlaces = Math.max(0, cat.breakSize - forced.length);
     const qualificationRule = cat.qualificationRule ?? "standard";
-    const qualification = applyQualificationRule(natural, qualificationRule, naturalPlaces, teamMap, cat.breakSize);
+    const qualification = applyQualificationRule(
+      natural,
+      qualificationRule,
+      naturalPlaces,
+      teamMap,
+      institutionRanks(categoryStandings, teamMap),
+      cat.breakSize
+    );
     const institutionLimit = qualificationRule !== "standard"
       ? undefined
       : Number.isInteger(cat.maxPerInstitution) && (cat.maxPerInstitution ?? 0) > 0
@@ -454,7 +485,7 @@ export function calculateBreaks(
 
     const breakingEntries: BreakingTeamEntry[] = breakingSlice.map((st, idx) => {
       const team = teamMap.get(st.teamId)!;
-      brokenTeamIds.add(team.id); // Mark as broken
+      brokenPriority.set(team.id, Math.max(brokenPriority.get(team.id) ?? -Infinity, cat.priority || 0));
       const firstTied = breakingSlice.findIndex((other) => other.rank === st.rank);
       return {
         seed: idx + 1,

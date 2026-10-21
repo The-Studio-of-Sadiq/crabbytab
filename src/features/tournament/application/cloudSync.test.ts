@@ -318,10 +318,10 @@ describe("tournament cloud synchronization", () => {
       localCollections,
     });
 
-    expect(Object.keys(payload.collections)).toEqual(["teams", "adjudicators", "institutions", "ballots", "feedback", "ballotIntake"]);
+    // Venues are sent for room check-ins; the server keeps only their check-in fields.
+    expect(Object.keys(payload.collections)).toEqual(["teams", "adjudicators", "institutions", "venues", "ballots", "feedback", "ballotIntake"]);
     expect(payload).toMatchObject({ debates: [{ id: "debate-1" }] });
     expect(payload).not.toHaveProperty("rounds");
-    expect(payload).not.toHaveProperty("venues");
     expect(payload).not.toHaveProperty("motions");
     expect(payload.collections.teams[0]).not.toHaveProperty("privateUrlKey");
     expect(payload.collections.teams[0]).not.toHaveProperty("privatePasscode");

@@ -1,0 +1,1 @@
+CrabbyTab is free software under the [GNU AGPL v3.0 or later](https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE) · [Source on GitHub](https://github.com/The-Studio-of-Sadiq/crabbytab) · [Report an issue](https://github.com/The-Studio-of-Sadiq/crabbytab/issues) · Not affiliated with Tabbycat.

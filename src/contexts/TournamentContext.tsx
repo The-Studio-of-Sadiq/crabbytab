@@ -48,10 +48,12 @@ import {
 import { safeJsonParse } from "@/lib/safeJson";
 import { getLocalStore } from "@/lib/offline/localStore";
 import { generatePrivateKey } from "@/lib/privateUrls";
+import { sharedRouteKind, tournamentSubpathSegments } from "@/lib/tournamentRoutes";
 import { portalCurrentRound, sharedViewCurrentRound } from "@/lib/publicFeatures";
 import { createRoundCommand, updateRoundCommand, updateRoundsCommand } from "@/features/tournament/application/rounds";
 import { createEntityId, createTournamentEntityCommands, type EntityBatch } from "@/features/tournament/application/entities";
 import { confirmBallotCommand, discardBallotCommand, submitBallotCommand } from "@/features/tournament/application/ballots";
+import { feedbackVersionOptions } from "@/lib/feedback/versions";
 import { addIntakeRecord, createIntakeRecord, type BallotSheet } from "@/features/tournament/application/ballotIntake";
 import { createSeededRng } from "@/lib/draw/rng";
 import {
@@ -59,7 +61,7 @@ import {
   roundsNeedingMotionReleaseSync,
   setMotionsStatusCommand,
 } from "@/features/tournament/application/motionRelease";
-import { currentRounds, migrateSchedulePreferences, roundsInSameSlot } from "@/features/tournament/application/schedule";
+import { currentRounds, migrateSchedulePreferences, preliminaryPanelsOf, roundsInSameSlot } from "@/features/tournament/application/schedule";
 import {
   addFeedbackInSequence,
   planSimulatedBallots,
@@ -125,6 +127,7 @@ import {
   parseCloudIdMap,
   parseUploadIssue,
   planRepublish,
+  describePublishFailure,
   publishBlockerAfterUpload,
   type PendingChanges,
   type UploadIssue,
@@ -402,6 +405,8 @@ export function TournamentProvider({
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
+  /** `uid|tournamentId` whose role `cloudStaffRole` holds (see the access check below). */
+  const verifiedAccessKeyRef = useRef("");
   const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [liveAdminVerified, setLiveAdminVerified] = useState(false);
   const [staffAccessError, setStaffAccessError] = useState("");
@@ -768,10 +773,10 @@ export function TournamentProvider({
   // Public and projector pages poll a tiny cached version marker and refetch the (CDN-cached)
   // projection only when something was published. Private portals are excluded because they merge
   // participant-specific data into state.
-  const isPollingPublicView =
-    Boolean(db) &&
-    !pathname?.includes("/private/") &&
-    Boolean(pathname?.includes("/public") || pathname?.includes("/display"));
+  // Route kinds come from the path segments after the slug (lib/tournamentRoutes.ts), so a slug
+  // such as "public-speaking-open" never turns the tab room into the shared view.
+  const sharedKind = sharedRouteKind(tournamentSubpathSegments(pathname, tournamentSlug));
+  const isPollingPublicView = Boolean(db) && (sharedKind === "public" || sharedKind === "display");
   useEffect(() => {
     if (!isPollingPublicView || !tournamentSlug) return;
     let cancelled = false;
@@ -796,13 +801,9 @@ export function TournamentProvider({
 
   // Only the shared-view flag depends on the route. Keying the load effect on it (not on
   // `pathname`) stops every in-tournament navigation from re-reading the cloud copy.
-  const isSharedView = Boolean(
-    pathname?.includes("/public") ||
-    pathname?.includes("/private/") ||
-    pathname?.includes("/display")
-  );
-  const isPrivatePortal = Boolean(pathname?.includes("/private/"));
-  const isProjectorView = Boolean(pathname?.includes("/display"));
+  const isSharedView = sharedKind !== null;
+  const isPrivatePortal = sharedKind === "private";
+  const isProjectorView = sharedKind === "display";
 
   // Public pages open with the latest round and load the others' debates and ballots after it
   // (standings and results need them); the projector loads a round when it is shown. Private
@@ -1293,6 +1294,8 @@ export function TournamentProvider({
         debates?: Debate[];
         /** Rooms of running debates (name, category, link) for the portal's room links. */
         venues?: Array<Pick<Venue, "id" | "name" | "category" | "categories" | "url">>;
+        /** Motion choices for rounds whose ballots ask which motion was debated. */
+        motions?: Motion[];
         selfCheckIn?: SelfCheckInStatus | null;
       };
 
@@ -1373,6 +1376,14 @@ export function TournamentProvider({
         setVenues((current) => [
           ...current.filter((item) => !portalVenues.some((remote) => remote.id === item.id)),
           ...portalVenues,
+        ]);
+      }
+      if (result.motions && result.motions.length > 0) {
+        // Motion choices for the adjudicator's ballot form (rounds with several motions).
+        const portalMotions = result.motions;
+        setMotions((current) => [
+          ...current.filter((item) => !portalMotions.some((remote) => remote.id === item.id)),
+          ...portalMotions,
         ]);
       }
       setBallots(mergedBallots);
@@ -1487,8 +1498,15 @@ export function TournamentProvider({
   }, [isOwnerOrAdmin, isSharedView, loading, rounds, motions, saveRoundsLocally]);
   useEffect(() => {
     let active = true;
-    setCloudStaffRole(null);
-    setStaffAccessError("");
+    // Access is verified again on every navigation, but a role already verified for this account
+    // and tournament stays in force meanwhile: resetting it put the whole shell back on "Checking
+    // access" (unmounting the page, its dialogs and the navigation) after every link.
+    const accessKey = user && tournament ? `${user.uid}|${tournament.id}` : "";
+    if (verifiedAccessKeyRef.current !== accessKey) {
+      verifiedAccessKeyRef.current = "";
+      setCloudStaffRole(null);
+      setStaffAccessError("");
+    }
     if (!user || !tournament || !db) return () => { active = false; };
     const currentUser = user;
     const currentTournament = tournament;
@@ -1531,6 +1549,7 @@ export function TournamentProvider({
           setStaffPermissions(permissions);
           persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null, permissions });
           setLiveAdminVerified(result.role === "admin");
+          verifiedAccessKeyRef.current = accessKey;
           setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
           setStaffAccessError(
             result.role === "admin" || result.role === "dataEntry"
@@ -1552,6 +1571,7 @@ export function TournamentProvider({
           (cached.role === "admin" || cached.role === "dataEntry")
         ) {
           setLiveAdminVerified(cached.role === "admin");
+          verifiedAccessKeyRef.current = accessKey;
           setCloudStaffRole(cached.role);
           setStaffPermissions(Array.isArray(cached.permissions)
             ? cached.permissions.filter((item): item is string => typeof item === "string")
@@ -1931,6 +1951,11 @@ export function TournamentProvider({
           : undefined,
       recordAuditEvent,
       warn: (message, error) => console.warn(message, error),
+      resave: {
+        debates,
+        saveBallots: (items: BallotSubmission[]) => saveLiveRecords("ballots", ballots, items),
+        saveDebates: (items: Debate[]) => saveLiveRecords("debates", debates, items),
+      },
     }, override));
   };
 
@@ -1949,6 +1974,7 @@ export function TournamentProvider({
         stage,
         customDrawType,
         defaultDrawRule: tournament?.preferences?.drawRule || "power_paired",
+        preliminaryPanels: preliminaryPanelsOf(tournament?.preferences),
       },
       rounds,
       {
@@ -2022,6 +2048,8 @@ export function TournamentProvider({
       doubleEntry: Boolean(tournament?.preferences?.ballotDoubleEntry),
       actorId: user?.uid,
     },
+    // Recorded as the ballot's confirmedBy (the same label the ballot form records).
+    confirmer: { name: user?.email || undefined, id: user?.uid },
   };
   // Draws and allocations run in a Web Worker; these let their results land on the current state.
   const latestRecordsRef = useRef({ rounds, debates, ballots });
@@ -2106,6 +2134,7 @@ export function TournamentProvider({
       ballots,
       tournamentId: tournament?.id || tournamentSlug,
       drawRule: tournament?.preferences?.drawRule || "power_paired",
+      preliminaryPanels: preliminaryPanelsOf(tournament?.preferences),
       localRepository: {
         saveRounds: (items) => {
           setRounds(items);
@@ -2306,7 +2335,11 @@ export function TournamentProvider({
    * them once the writes are flushed. A failure only delays them to the next trigger.
    */
   const notifyBallotConfirmed = () => {
-    if (!db || !user || !tournament || !isOwnerOrAdmin || tournament.preferences?.notifyBallotConfirmed !== true) return;
+    // "Ballot confirmed" emails, or ballot receipts (Tabbycat also sends them for tab-room confirmations).
+    if (
+      !db || !user || !tournament || !isOwnerOrAdmin ||
+      (tournament.preferences?.notifyBallotConfirmed !== true && tournament.preferences?.notifyBallotReceipt !== true)
+    ) return;
     const currentUser = user;
     const tournamentId = tournament.id;
     void (async () => {
@@ -2449,6 +2482,7 @@ export function TournamentProvider({
       privateUrlKey,
       teams,
       adjudicators,
+      versionOptions: feedbackVersionOptions(tournament?.preferences, rounds.find((round) => round.id === fbData.roundId)),
       repository: {
         saveFeedback: (items) => {
           setFeedback(items);
@@ -2763,9 +2797,7 @@ export function TournamentProvider({
         } catch (publishError) {
           // The upload itself succeeded; public pages keep serving the previous published view.
           outcome.publish = "failed";
-          outcome.publishError = `Public pages were not updated: ${
-            publishError instanceof Error ? publishError.message : "publish failed"
-          }. Use Republish public pages to retry.`;
+          outcome.publishError = describePublishFailure(publishError);
           publishSummary = ` ${outcome.publishError}`;
         }
       }

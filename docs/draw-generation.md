@@ -55,8 +55,9 @@ Tabbycat's `BPHungarianDrawGenerator`:
    Slots in a room whose bracket does not allow the team's points are forbidden.
    - Rényi entropy: `C = n·(2 − H_α(p))`, with p the team's position distribution after
      this round, n its number of rounds, and entropy in bits (α = 1 Shannon, α = 0 Hartley).
-   - Sum of squared deviations: Σ (count − mean)² after this round. This is 4 × Tabbycat's
-     "variance" option, which only rescales it.
+   - Variance (stored as `sum_squared_deviations`): Tabbycat's "variance" option, the population
+     variance Σ (count − mean)² / 4 of the four position counts after this round (until this
+     release CrabbyTab used 4 × that, which re-weighted it against the pull-up penalty).
    - Simple (`simple`): the number of times the team has already held that position
      (Tabbycat's `_position_cost_simple`, before this round).
 3. **Assignment.** One Hungarian assignment over all teams and slots. The cost matrix is
@@ -81,11 +82,17 @@ institution or history clashes, as in Tabbycat and the WUDC rules.
    - `pullup_lowest_ds_rank` / `pullup_lowest_ds_rank_npulls`: only with
      `min_cost_with_pullups` (below); any other conflict avoidance refuses them, as in Tabbycat.
    - `intermediate`: the bottom team of an odd bracket and the top team of the next
-     bracket form an intermediate bracket between them.
+     bracket form an intermediate bracket, labelled the lower bracket + 0.5 (Tabbycat
+     `points+0.5`, also when a points level in between is empty: 3 and 1 give 1.5).
    - `intermediate_bubble`: intermediate brackets, then each intermediate debate with a
      history or institution clash tries to swap its higher team with the bottom team of
-     its bracket ("bubble up"), else its lower team with the top team of the bracket below
-     ("bubble down"). A swap is accepted only if the new intermediate pairing is clean.
+     the bracket half a point above ("bubble up"), else its lower team with the top team of
+     the bracket half a point below ("bubble down"). A swap is accepted only if the new
+     intermediate pairing is clean. When a points level is empty there is no bracket half a
+     point above, so only bubbling down is possible, as in Tabbycat.
+   - Intermediate methods (including `intermediate1`/`intermediate2`) are refused when any
+     team's first standings metric is not a whole number, with Tabbycat's message ("Intermediate
+     brackets require the first team standings metric to be an integer").
 2. **Pairing** (`pairingMethod`, per bracket, ten-team examples): slide (1 v 6), fold
    (1 v 10), adjacent (1 v 2), random, or fold in the top bracket and adjacent elsewhere.
 3. **Conflict avoidance** (`conflictAvoidance`):
@@ -93,12 +100,20 @@ institution or history clashes, as in Tabbycat and the WUDC rules.
      second teams. A dynamic programme picks the best set of non-overlapping swaps. Each
      swap's gain is the clash cost it removes. It never adds history conflicts, and when
      gains are equal it prefers fewer swaps and swaps higher in the bracket.
+   - Pairing deviations in `min_cost` use Tabbycat's `subrank`: a team's rank within its own
+     bracket on the standings (teams tied on every metric share one; a pulled-up team counts as
+     last), not its position after the random tie-break.
    - `min_cost`: an exact minimum-weight perfect matching per bracket (`weightedMatching.ts`,
      a port of the blossom algorithm behind NetworkX and Tabbycat's graph generators). A
      room costs: previous meetings × team history penalty, + same-institution penalty,
      + Tabbycat's side penalty × `sideBalancePenalty` when both teams lean to the same
      side, + max(pull-up debates) × `previouslySawPullupPenalty` when the room mixes
      brackets, + Tabbycat's pairing-deviation cost × `pairingDeviationPenalty`.
+     With balanced sides and a side penalty, `maxTimesPerSide` (Tabbycat `max_times_per_side`,
+     default 5, 0 = off) also applies here as in Tabbycat's graph matching: rooms with a team
+     already more than that many times on one side are not offered. Unlike Tabbycat it is never
+     a failure: if no pairing avoids them, they are allowed, and the draw check reports the team
+     as a warning (`max_times_per_side`). The same applies to `min_cost_with_pullups`.
    - `min_cost_with_pullups`: Tabbycat's `graph_one` (`SingleGraphPowerPairedDrawGenerator`,
      `singleGraphPairing.ts`). Steps 1–3 become one minimum-cost perfect matching over the whole
      field. Teams may meet within a bracket or across adjacent brackets (no non-empty bracket
@@ -119,17 +134,21 @@ institution or history clashes, as in Tabbycat and the WUDC rules.
      everywhere here (graph_one passes no bracket index).
 4. **Side limits as a pairing constraint.** Pairing methods and one-up-one-down pair before
    sides are known. `repairSideLimits` checks every room; if two teams cannot take opposite
-   sides within `maxTimesPerSide` / `maxAllowedSideImbalance`, the bracket is re-paired by a
+   sides within `maxAllowedSideImbalance` (CrabbyTab's own hard limit, off by default), the
+   bracket is re-paired by a
    minimum-cost matching that forbids such rooms, widening to the neighbouring bracket(s) (below
    first) when the bracket alone cannot fit. Within the window a room costs, in strict order:
    the win gap between its teams, its clashes, then whether it differs from the rooms already
-   chosen. Brackets that fit are untouched. (Tabbycat enforces the cap only in graph conflict
-   avoidance and otherwise silently breaks it; the harness's `twoteam-odd-ties` round 5 shows
-   this.)
+   chosen. Brackets that fit are untouched. `maxTimesPerSide` is not repaired here: as in
+   Tabbycat it only steers minimum-cost matching, so with one-up-one-down a team can get one
+   more debate on a side than the setting (the harness's `twoteam-odd-ties` round 5 now matches
+   Tabbycat), and the draw check shows a warning.
 5. **Sides.** Balanced: the team that has been affirmative more often (relative to
-   negative) goes negative, and equal records are decided at random. `maxTimesPerSide`
-   and `maxAllowedSideImbalance` are hard limits. A side that breaks one is never used,
-   and the draw fails with an error naming the room if neither side fits.
+   negative) goes negative, and equal records are decided at random.
+   `maxAllowedSideImbalance` is a hard limit: a side that breaks it is never used, and the
+   draw fails with an error naming the room if neither side fits. `maxTimesPerSide` is never
+   a hard limit (with the old hard default of 5, an 11th two-team preliminary round could not
+   be drawn) and does not apply to BP, as in Tabbycat.
 
 ### Preallocated sides
 
@@ -170,10 +189,17 @@ show the side each team took. Two bulk actions fill the grid:
 ## Other draw types
 
 - **Random** (and power-paired rounds before any results): two-team rounds shuffle the
-  field. Unless conflict avoidance is off, the shuffled field is then paired by
-  minimum-cost matching over history and institution clashes, so later random rounds avoid
-  rematches. BP random rounds spread institutions across rooms and then balance positions
-  within each room.
+  field, then by conflict avoidance:
+  - `one_up_one_down` (the default; Tabbycat picks its `SwapRandomDrawGenerator` for it): the
+    shuffled teams are paired in order and each room with a history or institution clash tries
+    up to 20 swaps of its second team with a random room, keeping a swap that removes the clash
+    (or improves it without leaving the other room clashing). A room that runs out of attempts
+    is flagged *Too many swaps* (`max_swapped`). A zero penalty switches that clash check off.
+  - `min_cost` / `min_cost_with_pullups` (CrabbyTab's explicit minimum-cost option, Tabbycat's
+    `graph` random generator): the shuffled field is paired by minimum-cost matching over
+    history and institution clashes, so later random rounds avoid rematches whenever they can.
+  - `off`: the shuffled teams are paired in order.
+  BP random rounds spread institutions across rooms and then balance positions within each room.
 - **Seeded**: teams ordered by `Team.seed`, highest first; equal seeds are in random order.
   Two-team: one bracket paired with the configured pairing method and conflict avoidance.
   BP (Tabbycat's `SeededDrawManager` with 4 teams): every team counts as 0 points, so the
@@ -189,8 +215,9 @@ show the side each team took. Two bulk actions fill the grid:
 - **Round robin**, BP (Tabbycat's `BPRoundRobinDrawGenerator`): Tabbycat's preset tables,
   which exist for 16 teams (5 rounds) and 28 teams (9 rounds). Seeds must be exactly 1..N,
   each once. Seats come from the table. Other team counts, round indices past the table,
-  and invalid seeds are reported as errors. Unlike Tabbycat, the side limits stay hard: a
-  table seat that would break one is reported instead of drawn.
+  and invalid seeds are reported as errors. Unlike Tabbycat, the side-imbalance limit
+  (`maxAllowedSideImbalance`) stays hard: a table seat that would break it is reported instead
+  of drawn.
 - **Manual** is unchanged.
 
 Each two-team round-robin round drawn with the Berger schedule is marked
@@ -330,7 +357,10 @@ ballot, and the draw check's problems and warnings. Each team carries inline fla
 
 "Draw details" lists every team with points, this round's room and opponents, sides by
 round (TBC when not yet recorded), previous opponents with rounds, side counts and pull-ups,
-for checking a draw before release.
+for checking a draw before release. It also shows Tabbycat's draw flags, which the generator
+records on the debate (`Debate.flags`) and the team (`DebateTeamSlot.flags`): one-up-one-down
+(history / institution / to accommodate, on every room a swap changed), bubble up and bubble down
+(history / institution / to accommodate), *Can't bubble up/down*, and *Too many swaps*.
 
 Teams can be moved without dragging: **Move** picks a team (from a slot or the unassigned
 pool), then **Place here** / **Swap here** on a slot, or **Return picked team to pool**.
@@ -340,14 +370,48 @@ where HTML5 drag does not. Every move is announced in an ARIA live region, and d
 same move logic (`src/lib/draw/drawEditing.ts`): a swap within a room keeps each team's slot
 details; a team moved to another room loses its pull-up mark.
 
+## N teams per room (public speaking)
+
+Tabbycat's `teams_in_debate` may be any whole number; 2 and 4 are its two-team and BP formats.
+CrabbyTab has a format for every other count, **N teams per room** (`format: "poly"`,
+`preferences.teamsInDebate`, any whole number of at least 1 except 2 and 4; Tabbycat's Public
+Speaking preset uses 6). A room's positions are `P1` … `PN` (Tabbycat sides 0 … N−1) and are
+named "Team 1", "Team 2", … as Tabbycat's `get_side_name` does. Stored data of two-team and BP
+tournaments is unchanged. The format exposes exactly what Tabbycat does for these counts
+(`DRAW_MANAGER_CLASSES[(None, …)]`):
+
+- **Random** (`RandomPolyDrawGenerator`): the field is shuffled with the draw's seed and dealt
+  into rooms of N in order, so when the field does not divide the last room holds the
+  remainder (a room may have fewer than N teams, even one). Positions follow the deal order.
+  No conflict avoidance, history, institution or side rule applies (Tabbycat's poly draw takes
+  no options). With an automatic bye method the remainder takes byes instead (Tabbycat's
+  `n_byes`), and a bye counted as a win is worth 1 point, as in Tabbycat.
+- **Manual**: empty rooms of N positions; fill as many as a room needs. The draw editor shows
+  N slots per room; a room's teams must sit in P1 … Pk without gaps, and a room may not hold
+  more than N teams (draw checks report both).
+- **Refused**, with a clear error, as Tabbycat refuses them: power-paired, seeded and
+  round-robin draws ("can't be used with N teams per debate"), generated elimination draws
+  (Tabbycat's elimination generators exist only for 2 and 4 teams; its `EliminationDrawManager`
+  fails for other counts), preallocated sides and sides chosen on the ballot. Elimination
+  rounds are drawn manually; setup plans none, and a break assigns every break category to the
+  elimination rounds the tab room has added.
+
+## Rooms
+
+Rooms are allocated after the draw (see adjudicator-allocation, "Rooms"). Too few rooms no longer
+stops a draw: as Tabbycat's VenueAllocator, the rooms that fit are allocated, the lowest-ranked
+debates are left without a venue, the draw page says so before generating, and the draw check lists
+each debate without one. *Auto-allocate rooms* on the draw page never uses a room booked by a
+concurrent round and reports debates it could not give a room.
+
 ## Differences from Tabbycat
 
 - History clashes in `min_cost` are a weighted penalty, not a forbidden pairing, so a
   bracket where every option is a rematch still draws.
 - With `pairingDeviationPenalty` at 0, the pairing method still decides between equally
   clash-free matchings. Tabbycat then ignores the method.
-- Bubble up/down swaps with the bracket the intermediate team came from, even when win
-  counts skip a value.
+- `intermediate_bubble` checks only the clashes whose avoidance is switched on, and two teams
+  without an institution do not clash (Tabbycat compares `None == None` as a clash).
 - The pull-up restriction also applies to allocated-sides pull-ups, falling back to the
   whole side list when too few teams satisfy it.
 - `fold_top_adjacent_rest` and `adjacent` with preallocated sides pair the side lists in
@@ -356,14 +420,16 @@ details; a team moved to another room loses its pull-up mark.
 - Random side pre-allocation balances each team's affirmatives across rounds (Tabbycat
   shuffles every round independently).
 - Elimination sides default to *by seed*; Tabbycat's random, unconfirmed sides are an option.
-- Debates with a team count other than 2 or 4 (Tabbycat's `teams_in_debate` is any number,
-  e.g. its public-speaking preset uses 6 with random, manual and elimination draws) are not
-  supported: CrabbyTab's ballots, results and standings are built for two-team and BP.
+- N teams per room: Tabbycat's consensus ballots crash on a short room (its sides come from the
+  tournament's count); CrabbyTab scores a short room on its own teams (see results-and-ballots).
+  The anticipated draw for preformed panels gives rooms of more than 8 teams no bracket range
+  (Tabbycat brute-forces every finishing order of a mixed room).
 - Swing teams are excluded from standings and breaks automatically (Tabbycat leaves it to
   the tab director).
 - `min_cost_with_pullups` breaks Tabbycat's arbitrary ties deterministically (see above) and,
-  like `min_cost`, treats history as a penalty and side limits as hard.
-- Side limits are hard for every two-team conflict avoidance method (Tabbycat: graph only).
+  like `min_cost`, treats history as a penalty and the side-imbalance limit as hard.
+- `maxAllowedSideImbalance` (CrabbyTab's own) is hard for every conflict avoidance method;
+  `maxTimesPerSide` follows Tabbycat (minimum-cost matching only, never blocking).
 
 ## Known limitations
 

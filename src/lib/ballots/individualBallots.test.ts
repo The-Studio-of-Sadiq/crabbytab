@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BallotSubmission, Debate, DebateSide, SpeakerScoreEntry } from "@/types";
+import type { BallotSubmission, Debate, DebateSide, SpeakerScoreEntry, Tournament } from "@/types";
 import type { BallotRules } from "./result";
 import {
   buildMergedBallot,
@@ -8,7 +8,7 @@ import {
   mergeIndividualBallots,
   votingAdjudicatorIds,
 } from "./individualBallots";
-import { planIndividualBallotWrites, applyPrivateBallotConfirmation, usesIndividualBallots } from "@/lib/privateIndividualBallots";
+import { planIndividualBallotWrites, applyPrivateBallotConfirmation, usesIndividualBallots, votingRoundPrivateBallot } from "@/lib/privateIndividualBallots";
 import { isTabRoomConfirmed } from "@/lib/privateSync";
 
 const rules: BallotRules = {
@@ -240,5 +240,73 @@ describe("individual ballots with declared winners", () => {
     expect(merge.errors).toEqual([]);
     expect(merge.result?.sheets?.map((sheet) => sheet.declaredWinner)).toEqual(["NEG", "NEG"]);
     expect(merge.result?.teamScores.NEG).toMatchObject({ win: true, votes: 2 });
+  });
+});
+
+describe("Tabbycat parity: merge clears only what the sheets disagree on", () => {
+  it("clears a disagreeing speaker and keeps every score, but never auto-confirms", () => {
+    const ballots = [
+      sheet("c", [75, 75], [70, 70]),
+      sheet("p1", [74, 74], [71, 71]),
+      { ...sheet("p2", [70, 70], [75, 75]), speakerScores: { AFF: speeches("AFF", [70, 70], "x"), NEG: speeches("NEG", [75, 75]) } } as BallotSubmission,
+    ];
+    const merge = mergeIndividualBallots(debate, ballots, rules);
+    expect(merge.errors).toEqual(expect.arrayContaining([expect.stringContaining("different speakers for AFF speech 1")]));
+    expect(merge.clearedSpeeches).toEqual([{ side: "AFF", index: 0 }, { side: "AFF", index: 1 }]);
+    expect(merge.result?.teamScores.AFF.votes).toBe(2);
+    expect(merge.result?.speakerScores.AFF[0]).toMatchObject({ speakerId: "", score: 74.5 });
+    expect(merge.result?.speakerScores.NEG[0].speakerId).toBe("neg1");
+    expect(merge.result?.motionId).toBe("m1");
+    expect(buildMergedBallot(merge, { debate, version: 2, timestamp: "now", confirmed: true })).toBeNull();
+  });
+
+  it("clears a disagreeing motion and keeps the speakers", () => {
+    const ballots = [sheet("c", [75, 75], [70, 70]), sheet("p1", [74, 74], [71, 71]), { ...sheet("p2", [70, 70], [75, 75]), motionId: "m2" }];
+    const merge = mergeIndividualBallots(debate, ballots, rules);
+    expect(merge.result?.motionId).toBeUndefined();
+    expect(merge.result?.speakerScores.AFF[0].speakerId).toBe("aff1");
+    expect(merge.errors).toEqual([expect.stringContaining("different motions")]);
+  });
+});
+
+describe("Tabbycat parity: the chair's casting vote", () => {
+  it("refuses to break a 1-1 tie when the chair has no scoresheet", () => {
+    const panel = { ...debate, adjudicators: { ...debate.adjudicators, panellistIds: ["p1", "p2"] } } as Debate;
+    const merge = mergeIndividualBallots(
+      { ...panel, adjudicators: { ...panel.adjudicators, chairId: "absent" } },
+      [sheet("p1", [75, 75], [70, 70]), sheet("p2", [70, 70], [75, 75])],
+      rules
+    );
+    expect(merge.result).toBeUndefined();
+    expect(merge.errors.join(" ")).toMatch(/chair's scoresheet is missing/);
+  });
+});
+
+describe("private-URL ballots in a voting round without individual ballots", () => {
+  const tournament = { format: "wsdc", preferences: { ...rules.preferences, individualBallots: false } } as unknown as Tournament;
+  const round = { stage: "preliminary" as const };
+
+  it("turns a solo chair's sheet into a voting ballot with its sheet and votes", () => {
+    const solo = { ...debate, adjudicators: { chairId: "c", panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] } } as unknown as Debate;
+    const own = { ...sheet("c", [75, 75], [70, 70]), singleAdjudicator: undefined, confirmed: true, confirmedBy: "C" };
+    const ballot = votingRoundPrivateBallot(own, { tournament, round, debate: solo });
+    expect(ballot.confirmed).toBe(true);
+    expect(ballot.sheets).toHaveLength(1);
+    expect(ballot.teamScores.AFF).toMatchObject({ win: true, votes: 1 });
+    expect(ballot.teamScores.NEG.votes).toBe(0);
+  });
+
+  it("keeps one panel member's sheet unconfirmed instead of making it the result", () => {
+    const own = { ...sheet("c", [75, 75], [70, 70]), singleAdjudicator: undefined, confirmed: true, confirmedBy: "C", confirmedTimestamp: "now" };
+    const ballot = votingRoundPrivateBallot(own, { tournament, round, debate });
+    expect(ballot.confirmed).toBe(false);
+    expect(ballot.confirmedBy).toBeUndefined();
+    expect(ballot.sheets).toBeUndefined();
+  });
+
+  it("leaves consensus rounds alone", () => {
+    const own = { ...sheet("c", [75, 75], [70, 70]), confirmed: true };
+    const consensus = { format: "wsdc", preferences: { ...rules.preferences, ballotMode: "consensus" } } as unknown as Tournament;
+    expect(votingRoundPrivateBallot(own, { tournament: consensus, round, debate })).toBe(own);
   });
 });

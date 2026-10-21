@@ -11,6 +11,7 @@ import { StatusPill } from "@/components/ui/Badge";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { getPublicRelease, isTabRound, setRelease } from "@/lib/publicRelease";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import { tabReleasePreferences } from "@/lib/setup/presets";
 
 type ReleaseChange = Parameters<typeof setRelease>[1];
 
@@ -27,6 +28,7 @@ export function ReleasePanel() {
   const { tournament, rounds, breakCategories, teams, adjudicators, isOwnerOrAdmin, saveTournament } = useTournament();
   const { t, plural } = useI18n();
   const [pending, setPending] = useState<{ item: ReleaseItem; released: boolean } | null>(null);
+  const [tabReleasePending, setTabReleasePending] = useState(false);
 
   if (!tournament || !isOwnerOrAdmin) return null;
 
@@ -53,6 +55,15 @@ export function ReleasePanel() {
       released: release.speakerTab,
       change: (released) => ({ kind: "speakerTab", released }),
     },
+    ...((preferences.speakerCategories ?? []).some((category) => category.public)
+      ? [{
+          key: "speakerCategoryTabs",
+          label: t("results.release.speakerCategoryTabs"),
+          description: t("results.release.speakerCategoryTabsDescription"),
+          released: release.speakerCategoryTabs,
+          change: (released: boolean): ReleaseChange => ({ kind: "speakerCategoryTabs", released }),
+        }]
+      : []),
     ...(preferences.replyScoresEnabled
       ? [{
           key: "repliesTab",
@@ -102,6 +113,13 @@ export function ReleasePanel() {
       ),
       released: site.adjudicatorTab,
       change: (released) => ({ kind: "adjudicatorTab", released }),
+    },
+    {
+      key: "allResults",
+      label: t("results.release.allResults"),
+      description: t("results.release.allResultsDescription"),
+      released: release.allResults,
+      change: (released) => ({ kind: "allResults", released }),
     },
     {
       key: "ballots",
@@ -216,6 +234,11 @@ export function ReleasePanel() {
         icon={<Megaphone aria-hidden="true" />}
         title={t("results.release.title")}
         description={t("results.release.coverage", { completed: completedPrelims.length, total: prelims.length })}
+        actions={
+          <Button size="sm" variant="secondary" onClick={() => setTabReleasePending(true)}>
+            {t("results.release.tabReleaseBundle")}
+          </Button>
+        }
       />
       <ul className="divide-y divide-border">
         {items.map((item) => (
@@ -246,6 +269,25 @@ export function ReleasePanel() {
           </li>
         ))}
       </ul>
+      {tabReleasePending && (
+        <ReleaseActionDialog
+          title={t("results.release.tabReleaseBundleTitle")}
+          description={`${t("results.release.tabReleaseBundleDescription")}${
+            completedPrelims.length < prelims.length
+              ? ` ${t("results.release.incompleteRounds", { completed: completedPrelims.length, total: prelims.length })}`
+              : ""
+          }`}
+          confirmLabel={t("results.release.confirmRelease")}
+          apply={async () => {
+            // Tabbycat's "Tab Release Options" preset, applied to the stored preferences.
+            await saveTournament({
+              ...tournament,
+              preferences: { ...tournament.preferences, ...tabReleasePreferences(breakCategories.map((category) => category.id)) },
+            });
+          }}
+          onClose={() => setTabReleasePending(false)}
+        />
+      )}
       {pending && (
         <ReleaseActionDialog
           title={t(pending.released ? "results.release.confirmReleaseTitle" : "results.release.confirmUnreleaseTitle", {

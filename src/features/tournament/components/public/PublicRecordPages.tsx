@@ -11,6 +11,7 @@ import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import { SCORE_DISPLAY_OPTIONS } from "@/lib/scoreDisplay";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import { translatedSideName } from "@/lib/sideNames";
 import { adjudicatorRecord, publicRecordPath, teamRecord } from "@/lib/publicRecords";
 import { PublicDebateMotionLabel, PublicPersonName, PublicTeamName, publicRecordLinkClass } from "@/features/tournament/components/public/PublicSitePanels";
 
@@ -96,16 +97,19 @@ export function TeamRecordPage({ slug, teamId }: { slug: string; teamId: string 
                 {rows.map((row) => (
                   <TR key={row.debateId}>
                     <TD className="text-xs font-semibold">{row.roundName}</TD>
-                    <TD className="text-xs">{t(`side.${row.side}`)}</TD>
+                    <TD className="text-xs">{translatedSideName(t, row.side, tournament?.preferences)}</TD>
                     <TD className="text-xs">
                       {t("public.record.opponents", { teams: formatList(row.opponents.map((opponent) => opponent.name || t("public.noPublicName"))) })}
                       {row.venueName && <span className="block text-[11px] text-fg-muted">{row.venueName}</span>}
                     </TD>
                     <TD className="text-xs font-mono">
                       {row.result
-                        ? row.result.rank !== undefined && tournament?.format === "bp"
+                        ? row.result.rank !== undefined && (tournament?.format === "bp" || tournament?.format === "poly")
                           ? t("public.rank", { rank: row.result.rank })
-                          : row.result.win ? t("public.win") : t("public.loss")
+                          : tournament?.format === "poly"
+                            // N teams per room without a rank: advancing (results only) or scores only.
+                            ? row.result.win ? t("results.ballot.advances") : "—"
+                            : row.result.win ? t("public.win") : t("public.loss")
                         : "—"}
                       {row.speakerScoreTotal !== undefined && (
                         <span className="ms-2 text-fg-muted">{t("public.speaks", { speaks: formatNumber(row.speakerScoreTotal, SCORE_DISPLAY_OPTIONS) })}</span>

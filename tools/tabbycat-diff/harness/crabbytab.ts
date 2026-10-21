@@ -149,6 +149,12 @@ export function translatePreferences(
   preferences.byeTeamResults = pick("draw_rules__bye_team_results", { none: "absent", points: "win" } as const);
   preferences.avoidSameInstitution = Boolean(value("draw_rules__avoid_same_institution"));
   preferences.avoidTeamHistory = Boolean(value("draw_rules__avoid_team_history"));
+  // Tabbycat's clash weights (team_history_penalty 1000, team_institution_penalty 1 by default),
+  // used by one-up-one-down, swap random draws and minimum-cost matching.
+  const teamHistoryPenalty = Number(value("draw_rules__team_history_penalty"));
+  if (Number.isFinite(teamHistoryPenalty)) preferences.teamHistoryPenalty = teamHistoryPenalty;
+  const teamInstitutionPenalty = Number(value("draw_rules__team_institution_penalty"));
+  if (Number.isFinite(teamInstitutionPenalty)) preferences.teamInstitutionPenalty = teamInstitutionPenalty;
   preferences.teamHistoryPenalty = Number(value("draw_rules__team_history_penalty"));
   preferences.teamInstitutionPenalty = Number(value("draw_rules__team_institution_penalty"));
   preferences.sideAllocationRule = pick("draw_rules__draw_side_allocations", {
@@ -209,7 +215,8 @@ export function translatePreferences(
       lowest_ds_wins: "lowest_draw_strength_wins",
     } as const);
     const maxTimes = Number(value("draw_rules__max_times_per_side"));
-    if (Number.isFinite(maxTimes) && maxTimes > 0) preferences.maxTimesPerSide = maxTimes;
+    // 0 = off in both engines (Tabbycat only reads it in graph matching with a side penalty).
+    if (Number.isFinite(maxTimes) && maxTimes >= 0) preferences.maxTimesPerSide = maxTimes;
     preferences.pullupPenalty = Number(value("draw_rules__draw_pullup_penalty"));
     // Minimum-cost matching weights (absent from older golden files).
     const weight = (key: string) => (Number.isFinite(Number(value(key))) ? Number(value(key)) : undefined);
@@ -379,8 +386,8 @@ function standingsUpTo(fixture: LoadedFixture, seq: number) {
   return calculateStandings(fixture.tournament, rounds, fixture.data.teams, debates, ballots);
 }
 
-function metricsOut(metrics: Record<string, number>, map: Record<string, string>): Record<string, number> {
-  const out: Record<string, number> = {};
+function metricsOut(metrics: Record<string, number | null>, map: Record<string, string>): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
   for (const [tabbycatKey, crabbyKey] of Object.entries(map)) {
     if (metrics[crabbyKey] !== undefined) out[tabbycatKey] = metrics[crabbyKey];
   }
@@ -447,7 +454,11 @@ function drawOnce(fixture: LoadedFixture, seq: number, seed: number): DrawSample
           roomRank: debate.roomRank,
           teams: Object.values(debate.teams)
             .filter((slot) => slot?.teamId)
-            .map((slot) => ({ team: slot.teamId, side: sides.indexOf(slot.side), flags: slot.pulledUp ? ["pullup"] : [] }))
+            .map((slot) => ({
+              team: slot.teamId,
+              side: sides.indexOf(slot.side),
+              flags: [...(slot.pulledUp ? ["pullup"] : []), ...(slot.flags ?? [])],
+            }))
             .sort((a, b) => a.side - b.side),
           flags: debate.flags ?? [],
         })),
@@ -533,9 +544,15 @@ function allocationFor(fixture: LoadedFixture): AllocationResult {
   const panelSize = voting ? 3 : Math.ceil(data.adjudicators.length / Math.max(1, roundDebateCount));
   const panelSizing = voting ? "by_priority" : "fixed";
   const standings = standingsUpTo(fixture, seq - 1).teams;
+  // Tabbycat picks its Voting Hungarian allocator for per-adjudicator ballots and its Consensus one
+  // otherwise; CrabbyTab's ports of them are compared (its own default strategy is not Tabbycat's).
+  const strategy = voting ? "tabbycat_voting" : "tabbycat_consensus";
   try {
     const result = computeAutoAllocation({
-      tournament,
+      tournament: {
+        ...tournament,
+        preferences: { ...tournament.preferences, adjudicatorPanelStrategy: strategy },
+      },
       rounds: data.rounds.map((item) => (item.seq > seq ? { ...item, completed: false } : item)),
       teams: data.teams,
       debates,
@@ -550,7 +567,7 @@ function allocationFor(fixture: LoadedFixture): AllocationResult {
     });
     return {
       round: seq,
-      allocator: `crabbytab ${panelSizing} panelSize=${panelSize}`,
+      allocator: `crabbytab ${strategy}`,
       debates: (result?.panelledDebates ?? [])
         .filter((debate) => !debate.byeTeamId)
         .map((debate) => ({

@@ -30,8 +30,8 @@ export function sideCounts(history: DebateSide[], sides: readonly DebateSide[]):
  * - renyi_entropy: C = n·[2 − H_α(p)], where p is the team's position
  *   distribution *after* this round, n its number of rounds, and H_α the
  *   Rényi entropy of order α in bits (α = 1 Shannon, α = 0 Hartley).
- * - sum_squared_deviations: Σ (count − mean)² over the four positions after
- *   this round (4 × Tabbycat's "variance" option, which only rescales it).
+ * - sum_squared_deviations: Tabbycat's "variance" option, the population variance
+ *   Σ (count − mean)² / 4 of the four position counts after this round (statistics.pvariance).
  * - simple: the number of times the team has already been in `side`
  *   (Tabbycat's _position_cost_simple, history[pos], before this round).
  */
@@ -49,7 +49,7 @@ export function bpPositionBaseCost(
   const costFunction: string = options.bpPositionCost ?? "renyi_entropy";
   if (costFunction === "sum_squared_deviations" || costFunction === "std_dev") {
     const mean = n / 4;
-    return counts.reduce((sum, c) => sum + (c - mean) ** 2, 0);
+    return counts.reduce((sum, c) => sum + (c - mean) ** 2, 0) / 4;
   }
 
   const alpha = options.renyiOrder ?? 1;
@@ -79,29 +79,57 @@ export function computeBPSideCost(
 }
 
 /**
- * Hard side limits: placing a team in `side` must not take it past
- * `maxTimesPerSide`, nor leave its most- and least-used sides more than
- * `maxAllowedSideImbalance` apart (0 disables that limit).
+ * The hard side limit: placing a team in `side` must not leave its most- and least-used sides more
+ * than `maxAllowedSideImbalance` apart (0 disables it).
+ *
+ * `maxTimesPerSide` is deliberately not a hard limit (Tabbycat `max_times_per_side`): it only
+ * shapes minimum-cost pairing (`exceedsTimesOnOneSide`), and the draw check reports a team past it
+ * as a warning. As a hard limit it made, for example, an 11th two-team preliminary round impossible
+ * with the default of 5, and Tabbycat never applies it to BP.
  */
 export function violatesSideLimits(
   history: DebateSide[],
   side: DebateSide,
   sides: readonly DebateSide[],
-  options: Pick<SideAllocationOptions, "maxTimesPerSide" | "maxAllowedSideImbalance"> = {}
+  options: Pick<SideAllocationOptions, "maxAllowedSideImbalance"> = {}
 ): boolean {
+  const maxImbalance = options.maxAllowedSideImbalance ?? 0;
+  if (!(maxImbalance > 0)) return false;
   const counts = sideCounts(history, sides);
   counts[sides.indexOf(side)] += 1;
-  if (counts[sides.indexOf(side)] > (options.maxTimesPerSide ?? 5)) return true;
-  const maxImbalance = options.maxAllowedSideImbalance ?? 0;
-  return maxImbalance > 0 && Math.max(...counts) - Math.min(...counts) > maxImbalance;
+  return Math.max(...counts) - Math.min(...counts) > maxImbalance;
 }
 
-export function describeSideLimits(options: Pick<SideAllocationOptions, "maxTimesPerSide" | "maxAllowedSideImbalance">): string {
-  const parts = [`at most ${options.maxTimesPerSide ?? 5} times per side`];
-  if ((options.maxAllowedSideImbalance ?? 0) > 0) {
-    parts.push(`a side imbalance of at most ${options.maxAllowedSideImbalance}`);
-  }
-  return parts.join(" and ");
+export function describeSideLimits(options: Pick<SideAllocationOptions, "maxAllowedSideImbalance">): string {
+  return `a side imbalance of at most ${options.maxAllowedSideImbalance ?? 0}`;
+}
+
+/** Tabbycat's default `max_times_per_side`. */
+export const DEFAULT_MAX_TIMES_PER_SIDE = 5;
+
+/** The effective `maxTimesPerSide`: Tabbycat's default 5 when unset, 0 (or less) = off. */
+export function maxTimesPerSideOf(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_MAX_TIMES_PER_SIDE;
+  return Math.max(0, Math.floor(value));
+}
+
+/**
+ * Tabbycat's graph (minimum-cost) pairing rule for `max_times_on_one_side`, which its draw manager
+ * fills from `max_times_per_side`: with balanced sides and a side penalty, a room is not offered
+ * when either team has already been on one side more than `max` times (draw/generator/graph.py).
+ * Tabbycat's code compares the first team's negative count twice; CrabbyTab checks both teams'
+ * counts as intended. `max` 0 = off.
+ */
+export function exceedsTimesOnOneSide(historyA: DebateSide[], historyB: DebateSide[], max: number): boolean {
+  if (!(max > 0)) return false;
+  const [aAff, aNeg] = sideCounts(historyA, TWO_TEAM_SIDES);
+  const [bAff, bNeg] = sideCounts(historyB, TWO_TEAM_SIDES);
+  return Math.max(aAff, aNeg, bAff, bNeg) > max;
+}
+
+/** Whether placing a team in `side` takes it past `maxTimesPerSide` (0 = off); a warning, never a failure. */
+export function exceedsMaxTimesPerSide(history: DebateSide[], side: DebateSide, max: number): boolean {
+  return max > 0 && history.filter((past) => past === side).length + 1 > max;
 }
 
 /**

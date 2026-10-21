@@ -1,6 +1,7 @@
 "use client";
 
 import { sideLabel, translatedSideName } from "@/lib/sideNames";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
@@ -45,14 +46,16 @@ const BP_SIDES: readonly DebateSide[] = ["OG", "OO", "CG", "CO"];
 const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
 
 /** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
-function TeamResultCell({ team, teamName, score, isBP }: { team?: Team; teamName?: string; score?: TeamScoreEntry; isBP: boolean }) {
+function TeamResultCell({ team, teamName, score, isBP, poly = false }: { team?: Team; teamName?: string; score?: TeamScoreEntry; isBP: boolean; poly?: boolean }) {
   const { t, plural } = useI18n();
   const formatScore = useFormatScore();
-  const won = score ? (isBP ? score.rank === 1 : Boolean(score.win)) : false;
+  const won = score ? (isBP ? score.rank === 1 : poly ? score.rank === 1 || score.win === true : Boolean(score.win)) : false;
+  // Poly voting ballots record scores only: no rank, no winner.
+  const decided = Boolean(score) && (!poly || score?.rank !== undefined || score?.win !== undefined);
   return (
     <TD>
       <div className="flex items-center gap-1 font-medium">
-        {score &&
+        {score && decided &&
           (won ? (
             <>
               <ArrowUp className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
@@ -68,8 +71,10 @@ function TeamResultCell({ team, teamName, score, isBP }: { team?: Team; teamName
       </div>
       {score && (
         <div className="font-mono text-[11px] text-fg-muted">
-          {isBP
+          {isBP || (poly && score.rank !== undefined)
             ? plural("results.overview.points", score.points)
+            : poly
+              ? score.win ? t("results.ballot.advances") : "—"
             : score.win
               ? t("results.overview.win")
               : t("results.overview.loss")}{" "}
@@ -127,7 +132,9 @@ export default function ResultsOverviewPage() {
   const isBP = tournament?.format === "bp";
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   // [side, full name] in the tournament's side names (sideNames).
-  const sides = (isBP ? BP_SIDES : TWO_TEAM_SIDES).map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
+  const poly = isPolyFormat(tournament?.format);
+  const sides = (tournament && poly ? tournamentSides(tournament) : isBP ? BP_SIDES : TWO_TEAM_SIDES)
+    .map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
   const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
@@ -344,6 +351,7 @@ export default function ResultsOverviewPage() {
                         teamName={debate.teams?.[side]?.teamName}
                         score={ballot?.teamScores?.[side]}
                         isBP={isBP}
+                        poly={poly}
                       />
                     ))}
                     <TD className="text-xs">

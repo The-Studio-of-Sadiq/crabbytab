@@ -78,6 +78,11 @@ export function maximumMarginFor(preferences: Prefs): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+/** `enable_motion_reuse`; on unless explicitly turned off (see TournamentPreferences.enableMotionReuse). */
+export function motionReuseEnabled(preferences: Prefs): boolean {
+  return preferences?.enableMotionReuse !== false;
+}
+
 /** `enable_motions`; on unless explicitly turned off. */
 export function motionsEnabled(preferences: Prefs): boolean {
   return preferences?.enableMotions !== false;

@@ -7,6 +7,7 @@ import { describeTeamInvitation, joinTeamByInvitation } from "@/lib/registration
 import { loadInstitutionResponse } from "@/lib/registration/institutionResponse";
 import type { Firestore } from "firebase-admin/firestore";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { linkOrigin } from "@/lib/linkTokens";
 import {
   checkPrivateApiRateLimit,
   checkPrivateFailureLimit,
@@ -16,7 +17,9 @@ import {
 import { publicCacheHeaders } from "@/lib/publicView/store";
 import {
   describeRepresentative,
+  issueInstitutionLanding,
   loadRepresentativeByToken,
+  representativeLink,
   readSettings,
   registrationRefs,
   RegistrationError,
@@ -205,6 +208,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         accepted = Boolean(await markAutoApproved({ firestore, tournamentRef, submission: result.submission, entity, now }));
       } catch (error) {
         console.error("Automatic registration acceptance failed:", error instanceof Error ? error.message : error);
+      }
+    }
+    if (result.kind === "institution") {
+      // Tabbycat's institution registration email: the contact gets a link to follow the
+      // registration (their landing page) at once, whatever the registration-email switch says.
+      // The link is only emailed, never returned, so it reaches the address the tab room approves.
+      let token: string | null = null;
+      try {
+        token = await issueInstitutionLanding({ firestore, tournamentRef, submission: result.submission, now });
+      } catch (error) {
+        console.error("Could not issue the institution's landing link:", error instanceof Error ? error.message : error);
+      }
+      if (token) {
+        await sendTemplatedEmail({
+          tournamentRef,
+          tournamentName: result.tournamentName,
+          event: "institution_registered",
+          recipient: {
+            email: result.entry.contactEmail,
+            name: result.entry.contactName,
+            institution: result.entry.institution?.name ?? "",
+            url: representativeLink(linkOrigin(request.nextUrl.origin), slug, token),
+          },
+        });
+        return json({ received: true, kind: result.kind, accepted });
       }
     }
     // Registration received / approved (docs/email-notifications.md): only when switched on.

@@ -14,9 +14,14 @@ import { cn } from "@/components/ui/cn";
 import type { MessageKey } from "@/lib/i18n";
 import { getLocalStore } from "@/lib/offline/localStore";
 import type { Tournament, TournamentFormat, TournamentPreferences } from "@/types";
+import { DEFAULT_POLY_TEAMS_IN_DEBATE, isPolyFormat, isTwoTeamFormat, isValidPolyTeamCount, validatePolyTeamsInDebate } from "@/lib/debateSides";
 import {
   BreakDraft,
   FORMAT_PRESETS,
+  PUBLIC_INFORMATION_PREFERENCES,
+  ROUND_ROBIN_PREFERENCES,
+  participantDataEntryPreferences,
+  type ParticipantDataEntry,
   PrelimDrawRule,
   RULES_PRESETS,
   getRulesPreset,
@@ -39,6 +44,8 @@ interface WizardState {
   slug: string;
   slugTouched: boolean;
   format: TournamentFormat;
+  /** Teams per room for the poly format (N teams per room); other formats use their own count. */
+  teamsInDebate: number;
   /** A Tabbycat rules preset applied on top of the format ("" = none). */
   rulesPresetId: string;
   substantiveSpeakers: number;
@@ -60,6 +67,10 @@ interface WizardState {
   feedbackEnabled: boolean;
   feedbackMinScore: number;
   feedbackMaxScore: number;
+  /** Tabbycat's "Public Information Options" preset at creation. */
+  publicInformation: boolean;
+  /** Tabbycat's participant data entry choice at creation (its PrivateURLs / PublicForms presets). */
+  participantDataEntry: ParticipantDataEntry;
 }
 
 let breakKeyCounter = 0;
@@ -73,6 +84,7 @@ function initialState(): WizardState {
     slug: "",
     slugTouched: false,
     format: "bp",
+    teamsInDebate: DEFAULT_POLY_TEAMS_IN_DEBATE,
     rulesPresetId: "",
     substantiveSpeakers: preset.substantiveSpeakers,
     replyScoresEnabled: preset.replyScoresEnabled,
@@ -89,6 +101,8 @@ function initialState(): WizardState {
     feedbackEnabled: true,
     feedbackMinScore: 1,
     feedbackMaxScore: 10,
+    publicInformation: false,
+    participantDataEntry: "default",
   };
 }
 
@@ -111,6 +125,7 @@ const FORMAT_MESSAGES = {
   australs: { label: "setup.wizard.formatAustrals", blurb: "setup.wizard.formatAustralsBlurb" },
   wsdc: { label: "setup.wizard.formatWsdc", blurb: "setup.wizard.formatWsdcBlurb" },
   custom_2team: { label: "setup.wizard.formatCustom2Team", blurb: "setup.wizard.formatCustom2TeamBlurb" },
+  poly: { label: "setup.wizard.formatPoly", blurb: "setup.wizard.formatPolyBlurb" },
 } as const satisfies Record<TournamentFormat, { label: MessageKey; blurb: MessageKey }>;
 
 const DRAW_RULE_LABELS = {
@@ -163,7 +178,10 @@ export function TournamentWizard() {
   const patch = (p: Partial<WizardState>) => setS((prev) => ({ ...prev, ...p }));
 
   const preset = getFormatPreset(s.format);
-  const teamsInDebate = preset.teamsInDebate;
+  const poly = isPolyFormat(s.format);
+  const teamsInDebate = poly ? s.teamsInDebate : preset.teamsInDebate;
+  // Tabbycat draws other team counts only at random (or by hand).
+  const drawRule: PrelimDrawRule = poly ? "random" : s.drawRule;
 
   const maxBreakSize = useMemo(
     () => s.breaks.reduce((m, b) => Math.max(m, b.breakSize), 0),
@@ -176,10 +194,12 @@ export function TournamentWizard() {
         tournamentId: "preview",
         prelimRounds: Number.isInteger(s.prelimRounds) && s.prelimRounds > 0 ? s.prelimRounds : 0,
         maxBreakSize,
-        teamsInDebate,
-        drawRule: s.drawRule,
+        // An invalid count is reported by the format step; the preview treats it as poly.
+        teamsInDebate: poly && !isValidPolyTeamCount(teamsInDebate) ? DEFAULT_POLY_TEAMS_IN_DEBATE : teamsInDebate,
+        drawRule,
+        firstPrelimDrawType: getRulesPreset(s.rulesPresetId)?.firstPrelimDrawType,
       }),
-    [s.prelimRounds, maxBreakSize, teamsInDebate, s.drawRule]
+    [s.prelimRounds, maxBreakSize, teamsInDebate, drawRule, poly, s.rulesPresetId]
   );
 
   /* ------------------------------ handlers ------------------------------ */
@@ -193,9 +213,10 @@ export function TournamentWizard() {
 
   const handleFormatChange = (format: TournamentFormat) => {
     const p = getFormatPreset(format);
-    // Clamp existing break sizes to what the new format can run.
+    // Clamp existing break sizes to what the new format can run (poly breaks need only 1 team).
+    const minimumBreak = isPolyFormat(format) ? 1 : p.teamsInDebate;
     const breaks = s.breaks.map((b) =>
-      b.breakSize < p.teamsInDebate ? { ...b, breakSize: p.teamsInDebate } : b
+      b.breakSize < minimumBreak ? { ...b, breakSize: minimumBreak } : b
     );
     patch({
       format,
@@ -205,7 +226,8 @@ export function TournamentWizard() {
       ...p.scores,
       breaks,
       // Sides chosen on the ballot are two-team only.
-      ...(format === "bp" && s.sideAllocationRule === "manual_ballot" ? { sideAllocationRule: "balanced" as const } : {}),
+      ...(!isTwoTeamFormat(format) && s.sideAllocationRule === "manual_ballot" ? { sideAllocationRule: "balanced" as const } : {}),
+      ...(isPolyFormat(format) ? { drawRule: "random" as const, teamsInDebate: p.teamsInDebate } : {}),
     });
   };
 
@@ -215,14 +237,19 @@ export function TournamentWizard() {
       patch({ rulesPresetId: "" });
       return;
     }
-    const teams = rules.format === "bp" ? 4 : 2;
+    const polyTeams = rules.preferences.teamsInDebate ?? DEFAULT_POLY_TEAMS_IN_DEBATE;
+    const teams = rules.format === "bp" ? 4 : isPolyFormat(rules.format) ? 1 : 2;
     patch({
       format: rules.format,
+      ...(isPolyFormat(rules.format) ? { teamsInDebate: polyTeams, drawRule: "random" as const } : {}),
       rulesPresetId: rules.id,
       substantiveSpeakers: rules.substantiveSpeakers,
       replyScoresEnabled: rules.replyScoresEnabled,
       ...rules.scores,
       sideAllocationRule: rules.preferences.sideAllocationRule ?? s.sideAllocationRule,
+      // The preset's feedback range (Karl Popper: up to 6), which the wizard would otherwise overwrite.
+      feedbackMinScore: rules.preferences.feedbackMinScore ?? s.feedbackMinScore,
+      feedbackMaxScore: rules.preferences.feedbackMaxScore ?? s.feedbackMaxScore,
       breaks: s.breaks.map((b) => (b.breakSize < teams ? { ...b, breakSize: teams } : b)),
     });
   };
@@ -238,7 +265,7 @@ export function TournamentWizard() {
         {
           key: newBreakKey(),
           name: "",
-          breakSize: Math.max(4, teamsInDebate),
+          breakSize: poly ? 4 : Math.max(4, teamsInDebate),
           reserveSize: 1,
           isGeneral: false,
         },
@@ -256,6 +283,10 @@ export function TournamentWizard() {
       case 0: {
         if (s.name.trim().length < 3) return t("setup.wizard.errName");
         return validateSlug(s.slug);
+      }
+      case 1: {
+        // validatePolyTeamsInDebate returns an English sentence from lib code; it is shown verbatim.
+        return poly ? validatePolyTeamsInDebate(s.teamsInDebate) : "";
       }
       case 2: {
         if (!Number.isInteger(s.substantiveSpeakers) || s.substantiveSpeakers < 1 || s.substantiveSpeakers > 6)
@@ -348,7 +379,7 @@ export function TournamentWizard() {
     }
 
     // Re-validate every step so a skipped-over problem can't slip through.
-    for (const i of [0, 2, 3, 4, 5]) {
+    for (const i of [0, 1, 2, 3, 4, 5]) {
       const problem = validateStep(i);
       if (problem) {
         setStep(i);
@@ -376,8 +407,16 @@ export function TournamentWizard() {
       preferences: {
         // Tabbycat's default for every format (scoring__teamscore_includes_ghosts); a preset may override it.
         teamScoreIncludesGhosts: true,
+        // Tabbycat's disable_ballot_confirms is off by default: private-URL ballots wait for the tab
+        // room. Stored explicitly, so tournaments created earlier keep their old default.
+        privateBallotConfirmation: "tab_room",
+        // Tabbycat's default motion_vetoes_enabled (on); presets that set it override this. Stored
+        // explicitly, so tournaments created earlier keep vetoes off.
+        enableMotionVetoes: true,
         // The rules preset's bundle first, so anything edited in the wizard wins.
         ...(rulesPreset?.preferences ?? {}),
+        // Tabbycat's RoundRobinTwoTeam / RoundRobinBP presets: pairings come from the schedule.
+        ...(drawRule === "round_robin" ? ROUND_ROBIN_PREFERENCES : {}),
         teamsInDebate,
         substantiveSpeakers: s.substantiveSpeakers,
         replyScoresEnabled: s.replyScoresEnabled,
@@ -386,7 +425,7 @@ export function TournamentWizard() {
         stepSpeakerScore: s.stepSpeakerScore,
         minReplyScore: s.minReplyScore,
         maxReplyScore: s.maxReplyScore,
-        drawRule: s.drawRule,
+        drawRule,
         sideAllocationRule: s.sideAllocationRule,
         ballotDoubleEntry: s.ballotDoubleEntry,
         publicDraw: s.publicDraw,
@@ -396,6 +435,14 @@ export function TournamentWizard() {
         feedbackEnabled: s.feedbackEnabled,
         feedbackMinScore: s.feedbackMinScore,
         feedbackMaxScore: s.feedbackMaxScore,
+        // The preset's other switches are the public checkboxes above (ticked with it, editable after).
+        ...(s.publicInformation
+          ? {
+              ...(s.publicDraw ? { publicDrawMode: PUBLIC_INFORMATION_PREFERENCES.publicDrawMode } : {}),
+              publicBreakCategories: PUBLIC_INFORMATION_PREFERENCES.publicBreakCategories,
+            }
+          : {}),
+        ...participantDataEntryPreferences(s.participantDataEntry),
       },
       createdAt: now,
       updatedAt: now,
@@ -406,7 +453,8 @@ export function TournamentWizard() {
       prelimRounds: s.prelimRounds,
       maxBreakSize,
       teamsInDebate,
-      drawRule: s.drawRule,
+      drawRule,
+      firstPrelimDrawType: rulesPreset?.firstPrelimDrawType,
     });
     const breakCategories = buildBreakCategories(id, s.breaks);
 
@@ -582,6 +630,16 @@ export function TournamentWizard() {
                   );
                 })}
               </fieldset>
+              {poly && (
+                <NumberInput
+                  label={t("setup.wizard.teamsPerRoomLabel")}
+                  help={t("setup.wizard.teamsPerRoomHelp")}
+                  value={s.teamsInDebate}
+                  onChange={(n) => patch({ teamsInDebate: n })}
+                  min={1}
+                  step={1}
+                />
+              )}
               <Select
                 label={t("setup.wizard.rulesPresetLabel")}
                 help={t("setup.wizard.rulesPresetHelp")}
@@ -669,6 +727,9 @@ export function TournamentWizard() {
                 min={1}
                 max={20}
               />
+              {poly ? (
+                <p className="text-[13px] text-fg-muted">{t("setup.wizard.polyDrawNote")}</p>
+              ) : (
               <Select
                 label={t("setup.wizard.drawMethodLabel")}
                 help={t("setup.wizard.drawMethodHelp")}
@@ -679,6 +740,8 @@ export function TournamentWizard() {
                 <option value="random">{t("setup.wizard.drawRandom")}</option>
                 <option value="round_robin">{t("setup.wizard.drawRoundRobin")}</option>
               </Select>
+              )}
+              {!poly && (
               <Select
                 label={t("setup.wizard.sideAllocationLabel")}
                 value={s.sideAllocationRule}
@@ -692,6 +755,7 @@ export function TournamentWizard() {
                   <option value="manual_ballot">{t("setup.wizard.sideManualBallotOption")}</option>
                 )}
               </Select>
+              )}
               <Checkbox
                 label={t("setup.wizard.doubleEntryLabel")}
                 description={t("setup.wizard.doubleEntryHelp")}
@@ -722,7 +786,7 @@ export function TournamentWizard() {
                         label={t("setup.wizard.breakSizeLabel")}
                         value={b.breakSize}
                         onChange={(n) => updateBreak(b.key, { breakSize: n })}
-                        min={teamsInDebate}
+                        min={poly ? 1 : teamsInDebate}
                         step={teamsInDebate === 4 ? 2 : 1}
                       />
                       <NumberInput
@@ -785,6 +849,31 @@ export function TournamentWizard() {
                   checked={s.publicStandings}
                   onChange={(e) => patch({ publicStandings: e.target.checked })}
                 />
+                <Checkbox
+                  label={t("setup.wizard.publicInformation")}
+                  description={t("setup.wizard.publicInformationHelp")}
+                  checked={s.publicInformation}
+                  onChange={(e) => patch(
+                    e.target.checked
+                      ? { publicInformation: true, publicDraw: true, publicMotions: true, publicResults: true, publicStandings: true }
+                      : { publicInformation: false }
+                  )}
+                />
+              </fieldset>
+              <fieldset className="space-y-3">
+                <legend className="mb-3 text-[13px] font-semibold text-fg">{t("setup.wizard.dataEntryHeading")}</legend>
+                <Select
+                  label={t("setup.wizard.dataEntryLabel")}
+                  help={t("setup.wizard.dataEntryHelp")}
+                  value={s.participantDataEntry}
+                  onChange={(e) => patch({ participantDataEntry: e.target.value as ParticipantDataEntry })}
+                  wrapperClassName="max-w-md"
+                >
+                  <option value="default">{t("setup.wizard.dataEntryDefault")}</option>
+                  <option value="private_urls">{t("setup.wizard.dataEntryPrivateUrls")}</option>
+                  <option value="public_forms">{t("setup.wizard.dataEntryPublicForms")}</option>
+                  <option value="tab_staff">{t("setup.wizard.dataEntryTabStaff")}</option>
+                </Select>
               </fieldset>
               <fieldset className="space-y-3">
                 <legend className="mb-3 text-[13px] font-semibold text-fg">{t("setup.wizard.feedbackHeading")}</legend>
@@ -836,7 +925,7 @@ export function TournamentWizard() {
                 <dt className="text-fg-muted">{t("setup.wizard.reviewDraw")}</dt>
                 <dd className="mb-2 text-fg sm:mb-0">
                   {t("setup.wizard.drawSummary", {
-                    draw: t(DRAW_RULE_LABELS[s.drawRule]),
+                    draw: t(DRAW_RULE_LABELS[drawRule]),
                     sides: t(SIDE_RULE_LABELS[s.sideAllocationRule]),
                   })}
                 </dd>

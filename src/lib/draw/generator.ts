@@ -18,11 +18,12 @@ import { generateRandomTwoTeamDraw, generateTwoTeamDraw, orderBySeed, TwoTeamDra
 import { eliminationRoomCount, planEliminationRound, resolveBracketPositions } from "./elimination";
 import { createSeededRng, randomInt, randomSeed, Rng, shuffle } from "./rng";
 import { sameInstitution } from "./history";
-import { allocateVenuesToDebates } from "./venueAllocator";
+import { allocateVenuesBestEffort, withAllocatedVenues } from "./venueAllocator";
 import { isVenueAvailableForRound, type VenueConstraintContext } from "@/lib/venues/venues";
 import { MANUAL_SIDES_FLAG, sidesPending } from "./manualSides";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { isPolyFormat, polySide, teamsInDebateFor, tournamentSides } from "@/lib/debateSides";
 
 export interface GenerateDrawParams {
   tournament: Tournament;
@@ -75,7 +76,7 @@ export function getRequiredVenueCount(
   round: Round,
   teams: Team[]
 ): number {
-  const teamsPerDebate = tournament.format === "bp" ? 4 : 2;
+  const teamsPerDebate = teamsInDebateFor(tournament);
   const eligibleTeams = getEligibleTeamsForRound(teams, round).filter((team) =>
     isAvailableForRound(team, round, tournament.preferences?.checkInExpiresAfterHours)
   );
@@ -99,6 +100,31 @@ export function getRequiredVenueCount(
     const byeCount = usesByes ? categoryTeams.length % teamsPerDebate : 0;
     return required + Math.ceil((categoryTeams.length - byeCount) / teamsPerDebate);
   }, 0);
+}
+
+/**
+ * Tabbycat's RandomPolyDrawGenerator (N teams per room): the teams are shuffled and dealt into rooms
+ * of `teamsInDebate` in order, so when the count does not divide (and no byes are taken) the last
+ * room holds the remainder. No conflict avoidance or side balancing applies, as in Tabbycat.
+ */
+export function groupPolyRooms(teams: Team[], teamsInDebate: number, rng: Rng): Team[][] {
+  if (!Number.isInteger(teamsInDebate) || teamsInDebate < 1) throw new Error("Teams per debate must be a whole number of at least 1.");
+  const shuffled = shuffle(teams, rng);
+  const rooms: Team[][] = [];
+  for (let index = 0; index < shuffled.length; index += teamsInDebate) rooms.push(shuffled.slice(index, index + teamsInDebate));
+  return rooms;
+}
+
+/** Why a round of this draw type cannot be drawn for a poly tournament, or "" when it can. */
+export function polyDrawTypeProblem(round: Pick<Round, "drawType" | "stage">, teamsInDebate: number): string {
+  if (round.drawType === "manual") return "";
+  if (round.stage === "elimination") {
+    return `Elimination draws cannot be generated for debates with ${teamsInDebate} teams. ` +
+      "Set the round's draw type to manual and draw it by hand.";
+  }
+  if (round.drawType === "random") return "";
+  return `The ${String(round.drawType).replace(/_/g, "-")} draw type cannot be used with ${teamsInDebate} teams per debate. ` +
+    "Use a random or manual draw.";
 }
 
 function groupRandomTeams(
@@ -200,17 +226,19 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const { tournament, round, teams, institutions = [], venues, pastDebates, standings } = params;
   const institutionsById = new Map(institutions.map((institution) => [institution.id, institution]));
   const isBP = tournament.format === "bp";
-  const teamsPerDebate = isBP ? 4 : 2;
+  const poly = isPolyFormat(tournament.format);
+  const teamsPerDebate = teamsInDebateFor(tournament);
+  if (poly) {
+    // Tabbycat draws other team counts only at random or by hand (DRAW_MANAGER_CLASSES[None, ...]).
+    const problem = polyDrawTypeProblem(round, teamsPerDebate);
+    if (problem) throw new Error(problem);
+  }
   const availableVenues = venues.filter((venue) => isVenueAvailableForRound(venue, round.id));
   // Soft room constraints of teams and their institutions (adjudicators are not allocated yet).
   const venueContext: VenueConstraintContext = { teams, institutions };
   const rng = createSeededRng(params.seed ?? randomSeed());
-  const requiredVenues = getRequiredVenueCount(tournament, round, teams);
-  if (availableVenues.length < requiredVenues) {
-    throw new Error(
-      `Not enough available venues: ${requiredVenues} required, but only ${availableVenues.length} available.`
-    );
-  }
+  // Too few rooms does not stop the draw (Tabbycat's VenueAllocator): the rooms that fit are
+  // allocated and the rest are left without a venue, which the draw check reports ("no_venue").
 
   if (round.stage === "elimination" && (round.breakCategoryIds?.length || 0) > 1) {
     const generated: Debate[] = [];
@@ -271,12 +299,14 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
   const totalTeams = activeTeams.length;
 
-  if (totalTeams < teamsPerDebate) {
-    throw new Error(`At least ${teamsPerDebate} teams are required to generate a draw.`);
+  // Poly rooms may be short (the last random room takes the remainder, as Tabbycat's).
+  const minimumTeams = poly ? 1 : teamsPerDebate;
+  if (totalTeams < minimumTeams) {
+    throw new Error(`At least ${minimumTeams} team${minimumTeams === 1 ? " is" : "s are"} required to generate a draw.`);
   }
 
   // Elimination rounds validate their own field (partial eliminations give byes).
-  if (round.stage !== "elimination" && totalTeams % teamsPerDebate !== 0) {
+  if (!poly && round.stage !== "elimination" && totalTeams % teamsPerDebate !== 0) {
     throw new Error(
       `Number of teams (${totalTeams}) must be divisible by ${teamsPerDebate} for ${tournament.format.toUpperCase()} format.`
     );
@@ -284,14 +314,18 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   const history = buildMatchupHistory(pastDebates);
   const preferences = tournament.preferences;
   const sideRule = preferences?.sideAllocationRule || "balanced";
-  if (sideRule === "preallocated" && isBP && round.stage !== "elimination" && round.drawType !== "manual") {
-    throw new Error("Preallocated sides are only supported for two-team formats. Choose balanced or random sides for BP.");
+  if (sideRule === "preallocated" && (isBP || poly) && round.stage !== "elimination" && round.drawType !== "manual") {
+    throw new Error(isBP
+      ? "Preallocated sides are only supported for two-team formats. Choose balanced or random sides for BP."
+      : "Preallocated sides are only supported for two-team formats. Choose balanced or random sides.");
   }
   // Manual-ballot sides: teams are paired without sides (the ballot records them), so no side
   // rule or side limit shapes the pairing; the debate lists its teams in the pairing's order.
   const sidesOnBallot = sideRule === "manual_ballot";
-  if (sidesOnBallot && isBP) {
-    throw new Error("Sides chosen on the ballot are only supported for two-team formats. Choose balanced or random sides for BP.");
+  if (sidesOnBallot && (isBP || poly)) {
+    throw new Error(isBP
+      ? "Sides chosen on the ballot are only supported for two-team formats. Choose balanced or random sides for BP."
+      : "Sides chosen on the ballot are only supported for two-team formats. Choose balanced or random sides.");
   }
   // Rounds that are not two-team power-paired/random/seeded draws treat preallocated as balanced.
   const nonPreallocatedSideRule = sideRule === "preallocated" || sidesOnBallot ? "balanced" : sideRule;
@@ -343,7 +377,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   if (round.drawType === "manual") {
     const numDebates = Math.ceil(totalTeams / teamsPerDebate);
     const debates: Debate[] = [];
-    const sidesList: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+    const sidesList: DebateSide[] = tournamentSides(tournament);
 
     for (let idx = 0; idx < numDebates; idx++) {
       const emptyTeamsSlot: Record<string, any> = {};
@@ -382,11 +416,39 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
 
     return [
       ...markSidesOnBallot(assignVenues(debates, availableVenues, venueContext)),
-      ...createByeDebates(byeTeams, debates.length, tournament, round, isBP),
+      ...createByeDebates(byeTeams, debates.length, tournament, round),
     ];
   }
 
-  let debateDrafts: (Pick<PairedDebateDraft, "bracket" | "teamsWithSides" | "pulledUpTeamIds"> & {
+  if (poly) {
+    // Random poly draw (the only generated poly draw): rooms in deal order, positions P1, P2, ...
+    const rooms = groupPolyRooms(activeTeams, teamsPerDebate, rng);
+    const polyDebates = rooms.map((room, idx): Debate => ({
+      id: `debate-${round.id}-${idx + 1}`,
+      tournamentId: tournament.id,
+      roundId: round.id,
+      roundSeq: round.seq,
+      breakCategoryId: round.breakCategoryIds?.length === 1 ? round.breakCategoryIds[0] : undefined,
+      venueName: `Room ${idx + 1}`,
+      bracket: 0,
+      roomRank: idx + 1,
+      importance: 0,
+      resultStatus: "none",
+      sidesConfirmed: true,
+      flags: [],
+      ...getTeamVenueRequirements(room, institutionsById),
+      teams: Object.fromEntries(
+        room.map((team, seat) => [polySide(seat), { teamId: team.id, teamName: team.name, side: polySide(seat) }])
+      ) as Debate["teams"],
+      adjudicators: { panellistIds: [], panellistNames: [], traineeIds: [], traineeNames: [] },
+    }));
+    return [
+      ...assignVenues(polyDebates, availableVenues, venueContext),
+      ...createByeDebates(byeTeams, polyDebates.length, tournament, round),
+    ];
+  }
+
+  let debateDrafts: (Pick<PairedDebateDraft, "bracket" | "teamsWithSides" | "pulledUpTeamIds" | "flags" | "teamFlags"> & {
     breakCategoryId?: string;
     bracketPositions?: Partial<Record<DebateSide, number>>;
     /** Elimination sides drawn at random and left to be confirmed (eliminationSideRule "random"). */
@@ -533,6 +595,7 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
         teamName: team.name,
         side: side as DebateSide,
         ...(draft.pulledUpTeamIds?.includes(team.id) ? { pulledUp: true } : {}),
+        ...(draft.teamFlags?.[team.id]?.length ? { flags: [...draft.teamFlags[team.id]] } : {}),
         ...(bracketPosition !== undefined ? { bracketPosition } : {}),
       };
     });
@@ -555,7 +618,8 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
       sidesConfirmed: !draft.sidesUnconfirmed,
       // Two-team ballots can record the sides taken (manual-ballot machinery); BP ballots cannot,
       // so a BP room keeps its drawn seats, which the draw editor can still swap.
-      flags: draft.sidesUnconfirmed && !isBP ? [MANUAL_SIDES_FLAG] : [],
+      // Tabbycat's debate draw flags (one-up-one-down, max_swapped) are kept with the debate.
+      flags: [...(draft.sidesUnconfirmed && !isBP ? [MANUAL_SIDES_FLAG] : []), ...(draft.flags ?? [])],
       ...requirements,
       teams: teamsSlotRecord as Record<DebateSide, any>,
       adjudicators: {
@@ -570,8 +634,8 @@ export function generateRoundDraw(params: GenerateDrawParams): Debate[] {
   });
   return [
     ...markSidesOnBallot(assignVenues(generatedDebates, availableVenues, venueContext)),
-    ...createByeDebates(byeTeams, generatedDebates.length, tournament, round, isBP),
-    ...createEliminationByeDebates(eliminationByes, generatedDebates.length, tournament, round, isBP),
+    ...createByeDebates(byeTeams, generatedDebates.length, tournament, round),
+    ...createEliminationByeDebates(eliminationByes, generatedDebates.length, tournament, round),
   ];
 }
 
@@ -602,23 +666,16 @@ export function getTeamVenueRequirements(
 }
 
 function assignVenues(debates: Debate[], venues: Venue[], context?: VenueConstraintContext): Debate[] {
-  const allocation = allocateVenuesToDebates(debates, venues, context);
-  return debates.map((debate) => {
-    const venue = allocation.get(debate.id);
-    return venue
-      ? { ...debate, venueId: venue.id, venueName: venue.name }
-      : debate;
-  });
+  return withAllocatedVenues(debates, allocateVenuesBestEffort(debates, venues, context));
 }
 
 function createByeDebates(
   byeTeams: Team[],
   startingIndex: number,
   tournament: Tournament,
-  round: Round,
-  isBP: boolean
+  round: Round
 ): Debate[] {
-  const side: DebateSide = isBP ? "OG" : "AFF";
+  const side: DebateSide = tournamentSides(tournament)[0];
   const byeResult = tournament.preferences?.byeTeamResults ?? "absent";
 
   return byeTeams.map((team, index) => ({
@@ -653,10 +710,9 @@ function createEliminationByeDebates(
   byes: { team: Team; position: number; breakCategoryId?: string }[],
   startingIndex: number,
   tournament: Tournament,
-  round: Round,
-  isBP: boolean
+  round: Round
 ): Debate[] {
-  const side: DebateSide = isBP ? "OG" : "AFF";
+  const side: DebateSide = tournamentSides(tournament)[0];
   return byes.map(({ team, position, breakCategoryId }, index) => ({
     id: `debate-${round.id}-${startingIndex + index + 1}`,
     tournamentId: tournament.id,

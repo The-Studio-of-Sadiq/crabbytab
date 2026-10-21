@@ -136,6 +136,10 @@ export function RepresentativesPanel({
                       >
                         {t(representative.status === "active" ? "setup.registration.representativeActive" : "setup.registration.representativeRevoked")}
                       </StatusPill>
+                      {representative.status === "active" && representative.awaitingPlaces && (
+                        // Issued when the institution registered; allocate its places from the review queue.
+                        <StatusPill tone="warning">{t("setup.registration.representativeAwaitingPlaces")}</StatusPill>
+                      )}
                     </p>
                     <p className="text-xs text-fg-muted">
                       {[

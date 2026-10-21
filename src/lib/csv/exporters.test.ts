@@ -102,6 +102,9 @@ describe("CSV exports", () => {
     ]);
     const [header] = parse(drawCsv(debates, { format: "bp", includeAdjudicators: false }));
     expect(header).toEqual(["Room Rank", "Venue", "Opening Government", "Opening Opposition", "Closing Government", "Closing Opposition", "Notes"]);
+    // The tournament's side names head the two-team columns.
+    const [named] = parse(drawCsv(debates, { format: "wsdc", sideNames: "prop-opp", includeAdjudicators: false }));
+    expect(named).toEqual(["Room Rank", "Venue", "Proposition", "Opposition", "Notes"]);
   });
 
   it("exports adjudicator scores and feedback submissions with question answers", () => {

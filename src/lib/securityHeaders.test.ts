@@ -20,6 +20,14 @@ describe("security headers", () => {
     expect(policy.get("script-src")).not.toContain("'unsafe-eval'");
   });
 
+  it("frames only the privacy-enhanced YouTube host beyond Firebase, and nothing else", () => {
+    const policy = directives(buildContentSecurityPolicy());
+    expect(policy.get("frame-src")).toEqual(["'self'", "https://*.firebaseapp.com", "https://*.web.app", "https://www.youtube-nocookie.com"]);
+    expect(policy.get("frame-src")).not.toContain("https://www.youtube.com");
+    expect(policy.get("default-src")).toEqual(["'self'"]);
+    expect(policy.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
+  });
+
   it("only relaxes eval and websockets for the dev server", () => {
     const policy = directives(buildContentSecurityPolicy({ dev: true }));
     expect(policy.get("script-src")).toContain("'unsafe-eval'");

@@ -15,6 +15,7 @@ import {
   enforceGuards,
   type RuleOverride,
 } from "./stateGuards";
+import { slotNewPreliminaryRounds } from "./schedule";
 
 export interface RoundAdministrationAuditEvent {
   action: string;
@@ -30,6 +31,8 @@ export interface PreliminaryRoundCountDependencies {
   ballots: BallotSubmission[];
   tournamentId: string;
   drawRule: DrawType | "bracket";
+  /** Tabbycat prelim_panels: new preliminary rounds are grouped into schedule slots of this many. */
+  preliminaryPanels?: number;
   localRepository: {
     saveRounds(rounds: Round[]): void;
     saveDebates(debates: Debate[]): void;
@@ -108,10 +111,20 @@ export async function setPreliminaryRoundCountCommand(
     .filter((round) => round.stage === "elimination" && !round.cancelled)
     .sort((left, right) => left.seq - right.seq);
   const cancelled = updated.filter((round) => round.cancelled).sort((left, right) => left.seq - right.seq);
-  const ordered = [...prelims, ...eliminations, ...cancelled].map((round, index) => ({
+  const renumbered = [...prelims, ...eliminations, ...cancelled].map((round, index) => ({
     ...round,
     seq: index + 1,
   }));
+  // New rounds join schedule slots by prelim_panels; existing rounds keep their slots.
+  const existingIds = new Set(rounds.map((round) => round.id));
+  const slotted = new Map(
+    slotNewPreliminaryRounds(
+      renumbered.filter((round) => existingIds.has(round.id)),
+      renumbered.filter((round) => !existingIds.has(round.id)),
+      dependencies.preliminaryPanels ?? 1
+    ).map((round) => [round.id, round])
+  );
+  const ordered = renumbered.map((round) => slotted.get(round.id) ?? round);
   const sequenceByRoundId = new Map(ordered.map((round) => [round.id, round.seq]));
   const updatedDebates = debates.map((debate) => ({
     ...debate,

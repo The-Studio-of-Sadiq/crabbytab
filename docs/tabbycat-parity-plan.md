@@ -131,8 +131,8 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
   "extra" columns. **#9** (S): ballot mode per stage (prelims vs elims) and the missing presets
   (NZ Easters, Joynt, Canadian, Japan BP). *Done in wave 2 (see docs/standings-and-breaks.md):
   cutoff ties are reported and must be resolved with overrides rather than growing the break as
-  Tabbycat does; Tabbycat has no Japan BP preset (BP is used); APDA, Public Speaking and Karl
-  Popper presets are not offered because CrabbyTab lacks the features they need.*
+  Tabbycat does; Tabbycat has no Japan BP preset (BP is used). The APDA, Karl Popper and Public
+  Speaking presets were added later (wave 5, the closing PR and N-teams-per-room support).*
 - **#10 Differential testing against real Tabbycat** (M): identical fixtures through Tabbycat
   (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations. *Done:
   `tools/tabbycat-diff` (README there) with three seeded fixtures, golden output from Tabbycat
@@ -259,22 +259,64 @@ classified, with no CrabbyTab defect and no configuration difference left.
   already-public data; feedback questions, score criteria, venue categories, schedule events
   and read-only user groups.
 
+### Second, independent audit (2026-10-21) and what it changed
+The first audit above was done and fixed by the same agents, so a second audit was run by agents
+that had not written the fixes, told not to trust our docs, and required to cite code paths (and,
+for algorithms, to run Tabbycat's own Python against CrabbyTab on hand-made cases). It was much
+stricter — rows in [`docs/parity-audit/second-pass/`](parity-audit/second-pass/), statuses before
+the fixes below:
+
+| Slice | Rows | HAVE | BETTER | PARTIAL | MISSING | NA |
+|---|---|---|---|---|---|---|
+| Preferences and presets | 188 | 122 | 4 | 59 | 1 | 2 |
+| Routes (pages and actions) | 145 | 121 | 0 | 18 | 1 | 5 |
+| REST API | 69 | 40 | 2 | 18 | 7 | 2 |
+| Models, commands, algorithms | 322 | 180 | 13 | 104 | 10 | 15 |
+
+It also found about 60 outright bugs, several older than this PR, for example: participant
+ballots recorded the round's first motion; saving any settings page silently rewrote untouched
+preferences; an 11th two-team prelim could not be drawn (hard side cap); equal-priority break
+categories excluded each other; a tab-room confirmation could be overridden by a later chair
+ballot; duplicate feedback counted twice; round ids could collide after deleting a round; admin
+pages turned into the public view for slugs containing "public"/"display"; assistants received
+silent-round ballots; the full institution list and real names leaked under code-name modes. A
+browser walk-through on the Vercel preview then found that publishing failed for every tournament
+with ballots (a two-field Firestore aggregate that needs a missing index), a false sync conflict on
+every confirmed ballot, and several UI defects. All of these are fixed in the same PR with
+regression tests, and the differential harness was made stricter (it no longer calls a
+systematically worse result a "valid alternative" or treats null as 0); it now reports no
+CrabbyTab defect.
+
 ### Still different from Tabbycat (deliberate or out of scope)
-- `teams_in_debate` other than 2 or 4 (Tabbycat allows any count, e.g. public speaking): sides,
-  ballots, results and standings are built for 2/4 teams.
+- `teams_in_debate` other than 2 or 4 is supported as the "N teams per room" format with
+  Tabbycat's scope (random and manual draws, poly ballots, the Public Speaking preset). Remaining
+  differences: a short last room is scored on its own teams (Tabbycat's consensus ballots fail
+  there), poly elimination rooms are entered manually as in Tabbycat, and the anticipated draw
+  skips bracket ranges for rooms of more than 8 teams.
+- Ties inside a standings tier: Tabbycat orders tied teams by database order (institution, then
+  reference), which decides byes and pairings among tied teams; CrabbyTab uses the draw's seeded
+  random order (AGENTS.md 7.2). Given Tabbycat's order, CrabbyTab pairs the same rooms
+  (`tools/tabbycat-diff/tieOrder.test.ts`).
+- Null standings values rank last in every precedence; Tabbycat's Python sort path (used with
+  who-beat-whom, draw strength or `speaks_ind_avg`) counts them as 0, which would rank a team with
+  no scores best on standard deviation.
+- BP voting ballots with `margin_includes_dissenters` (Tabbycat stores no points for them) are not
+  offered; BP ballots are consensus.
 - A teams-only draw release shows on team portals only; Tabbycat also lists it on the public draw
   page without adjudicators (one-line change in `isRoundDrawPublic`).
 - Elimination sides default to "by seed" for existing tournaments (Tabbycat randomises);
-  Tabbycat's behaviour is a setting.
+  Tabbycat's behaviour is a setting. Allocating adjudicators on a draft draw is still allowed.
 - Ties at the break cutoff are held out for the tab director rather than all breaking.
+- Swing teams are excluded from standings and liveness counts.
 - Staff/group membership cannot be written through API tokens (a leaked token must not grant
   access); Equity cannot see participant contact details; Adjudication Core cannot edit motions,
   feedback questions or releases.
 - No browser push notifications (email and SMS relay instead); no IP addresses stored in the
-  audit log (privacy); institutions are per tournament.
-- Smaller items: v1 participant login does not accept speaker URL keys; CSV/API serializers do not
-  yet carry team references, composite fields, pronouns or last names; speaker check-in via API
-  checks in the whole team; liveness is not yet used inside the automatic allocation blend.
+  audit log (privacy); institutions are per tournament; anonymous ballot/feedback creation is
+  through the public forms, not the REST API.
+- Smaller items: CSV/API serializers do not yet carry team references, composite fields, pronouns
+  or last names; speaker check-in via API checks in the whole team; slug reservation is checked
+  in the client only.
 
 ### Where CrabbyTab goes further than Tabbycat
 Local-first working copy that keeps working offline, with explicit cloud sync, conflict review

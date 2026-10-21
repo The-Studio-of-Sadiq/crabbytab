@@ -156,7 +156,7 @@ const scoreCriteriaRoutes = [
     operationId: "getScoreCriterion",
     summary: "Get one score criterion",
     tag: "tournaments",
-    auth: { kind: "token", resource: "tournament", access: "read" },
+    auth: { kind: "token", resource: "tournament", access: "read", public: true },
     params: criterionParams,
     response: s.unknown("ScoreCriterion"),
     async handler(context) {

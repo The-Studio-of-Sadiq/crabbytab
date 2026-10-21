@@ -1,0 +1,159 @@
+/*
+ * Organiser Markdown (MarkdownRenderer.tsx). Loaded only with the renderer (SafeMarkdown.tsx).
+ * Colours come from the design tokens, so dark mode follows the theme; spacing uses logical
+ * properties so right-to-left languages mirror correctly.
+ */
+.ct-markdown {
+  color: rgb(var(--color-fg));
+  font-size: 0.875rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.ct-markdown > * + * {
+  margin-block-start: 0.85em;
+}
+.ct-markdown h2,
+.ct-markdown h3,
+.ct-markdown h4,
+.ct-markdown h5,
+.ct-markdown h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-block-start: 1.4em;
+}
+.ct-markdown > :first-child {
+  margin-block-start: 0;
+}
+.ct-markdown h2 { font-size: 1.25rem; }
+.ct-markdown h3 { font-size: 1.075rem; }
+.ct-markdown h4 { font-size: 0.95rem; }
+.ct-markdown h5,
+.ct-markdown h6 { font-size: 0.875rem; color: rgb(var(--color-fg-muted)); }
+.ct-markdown a {
+  color: rgb(var(--color-accent-text));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.ct-markdown a:focus-visible {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 2px;
+}
+.ct-markdown ul,
+.ct-markdown ol {
+  padding-inline-start: 1.5em;
+}
+.ct-markdown ul { list-style: disc; }
+.ct-markdown ol { list-style: decimal; }
+.ct-markdown li + li,
+.ct-markdown li > ul,
+.ct-markdown li > ol { margin-block-start: 0.25em; }
+.ct-markdown li.task-list-item {
+  list-style: none;
+}
+.ct-markdown ul.contains-task-list {
+  padding-inline-start: 0.25em;
+}
+.ct-markdown li.task-list-item input[type="checkbox"] {
+  margin-inline-end: 0.5em;
+  vertical-align: -0.1em;
+  accent-color: rgb(var(--color-accent));
+}
+.ct-markdown blockquote {
+  border-inline-start: 3px solid rgb(var(--color-border-strong));
+  padding-inline-start: 0.85em;
+  color: rgb(var(--color-fg-muted));
+}
+.ct-markdown hr {
+  border: 0;
+  border-block-start: 1px solid rgb(var(--color-border));
+}
+.ct-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: rgb(var(--color-muted));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+.ct-markdown pre {
+  background: rgb(var(--color-muted));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: var(--radius-md);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  /* Code reads left to right even on right-to-left pages. */
+  direction: ltr;
+  text-align: start;
+}
+.ct-markdown pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.8125rem;
+}
+.ct-markdown .ct-md-table {
+  overflow-x: auto;
+}
+.ct-markdown table {
+  border-collapse: collapse;
+  min-width: 50%;
+  font-size: 0.8125rem;
+}
+.ct-markdown th,
+.ct-markdown td {
+  border: 1px solid rgb(var(--color-border));
+  padding: 0.4em 0.7em;
+  text-align: start;
+}
+.ct-markdown th {
+  background: rgb(var(--color-muted));
+  font-weight: 600;
+}
+.ct-markdown td[align="center"],
+.ct-markdown th[align="center"] { text-align: center; }
+.ct-markdown td[align="right"],
+.ct-markdown th[align="right"] { text-align: end; }
+.ct-markdown img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+.ct-markdown .ct-md-missing-image {
+  font-style: italic;
+  color: rgb(var(--color-fg-muted));
+}
+.ct-markdown .ct-md-video {
+  position: relative;
+  width: 100%;
+  max-width: 48rem;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgb(var(--color-muted));
+}
+.ct-markdown .ct-md-video iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.ct-markdown del {
+  color: rgb(var(--color-fg-muted));
+}
+/* KaTeX: inherit the text colour (dark mode) and keep wide display maths inside the column. */
+.ct-markdown .katex {
+  color: inherit;
+  font-size: 1.1em;
+}
+.ct-markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25em;
+  direction: ltr;
+}
+.ct-markdown .katex-error {
+  color: rgb(var(--color-danger));
+}

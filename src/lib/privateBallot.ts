@@ -11,19 +11,27 @@ import {
 import { validateReplyScore, validateSpeakerScore } from "@/lib/scoring/validator";
 import {
   buildBallotResult,
+  debateBallotRules,
+  polyBallotProblem,
+  replySpeechesEnabled,
+  rulesSides,
   selfSplitAllowed,
   substantiveSpeakerCount,
   usesSpeakerScores,
+  usesVotingBallots,
   validateBallotEntry,
   type BallotRules,
 } from "@/lib/ballots/result";
 import { scoreCriteriaFor } from "@/lib/ballots/ballotRules";
 import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
 import { votingAdjudicatorIds } from "@/lib/ballots/individualBallots";
-import { usesIndividualBallots } from "@/lib/privateIndividualBallots";
-
-const BP_SIDES: DebateSide[] = ["OG", "OO", "CG", "CO"];
-const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
+import { votingRoundPrivateBallot } from "@/lib/privateIndividualBallots";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
+import {
+  resolveParticipantBallotMotion,
+  resolveParticipantBallotVetoes,
+  type ParticipantMotion,
+} from "@/lib/ballots/participantMotion";
 
 /**
  * Rules for a ballot submitted through an adjudicator's private URL. It is that adjudicator's
@@ -32,12 +40,17 @@ const TWO_TEAM_SIDES: DebateSide[] = ["AFF", "NEG"];
  */
 export function privateBallotRules(
   tournament: Pick<Tournament, "format" | "preferences">,
-  round: Pick<Round, "stage"> | undefined
+  round: (Pick<Round, "stage"> & Partial<Pick<Round, "seq">>) | undefined,
+  debate?: Pick<Debate, "teams"> | null,
+  rounds?: readonly Pick<Round, "seq">[]
 ): BallotRules {
+  const actual = debateBallotRules(tournament, round, debate, rounds);
+  // Poly voting rounds: the adjudicator's own sheet records scores only (PolyNoWinScoresheet).
+  const polyScoresOnly = isPolyFormat(tournament.format) && usesVotingBallots(actual);
   return {
-    format: tournament.format,
+    ...actual,
     preferences: { ...tournament.preferences, ballotMode: "consensus", eliminationBallotMode: "consensus" },
-    ...(round?.stage ? { stage: round.stage } : {}),
+    ...(polyScoresOnly ? { polyScoresOnly: true } : {}),
   };
 }
 
@@ -50,11 +63,9 @@ export function privateUrlBallotsEnabled(tournament: Pick<Tournament, "preferenc
 }
 
 /**
- * Whether a solo adjudicator may declare a 2:1 split on their private-URL ballot. The private
- * ballot becomes a voting ballot only through individual ballots (merged into one voting ballot);
- * otherwise it is stored as a consensus-shaped ballot without votes, where a split would mean
- * nothing, so the option is offered only with individual ballots on. The tab room can still record
- * a split when it enters or re-enters the voting ballot.
+ * Whether a solo adjudicator may declare a 2:1 split on their private-URL ballot: a voting round
+ * whose only voting adjudicator submits it. Their sheet then becomes the voting ballot (merged
+ * with individual ballots, or directly; see votingRoundPrivateBallot), so the split is recorded.
  */
 export function privateSelfSplitAllowed(
   tournament: Pick<Tournament, "format" | "preferences">,
@@ -66,7 +77,7 @@ export function privateSelfSplitAllowed(
     preferences: tournament.preferences,
     ...(round?.stage ? { stage: round.stage } : {}),
   };
-  return usesIndividualBallots(tournament, round) && selfSplitAllowed(rules, votingAdjudicatorIds(debate).length);
+  return selfSplitAllowed(rules, votingAdjudicatorIds(debate).length);
 }
 
 export function buildPrivateBallot(
@@ -78,6 +89,8 @@ export function buildPrivateBallot(
     teams,
     tournamentId,
     round,
+    rounds,
+    roundMotions,
   }: {
     tournament: Tournament;
     adjudicator: Adjudicator;
@@ -85,11 +98,21 @@ export function buildPrivateBallot(
     teams: Map<string, Team>;
     tournamentId: string;
     /** The debate's round, for its stage (ballots may drop speaker scores in elimination rounds). */
-    round?: Pick<Round, "stage">;
+    round?: Pick<Round, "stage"> & Partial<Pick<Round, "seq">>;
+    /** Every round, so a poly ballot knows whether it is for the last round (one team advances). */
+    rounds?: readonly Pick<Round, "seq">[];
+    /**
+     * The round's motions in order (`participantRoundMotions`). With several, the adjudicator must
+     * choose the debated motion (Tabbycat `enable_motions`); with one, it is recorded. Callers that
+     * do not pass them keep the debate's own motion (older behaviour).
+     */
+    roundMotions?: readonly ParticipantMotion[];
   }
 ): BallotSubmission {
   const adjudicatorId = adjudicator.id;
-  const sides = tournament.format === "bp" ? BP_SIDES : TWO_TEAM_SIDES;
+  const poly = isPolyFormat(tournament.format);
+  // A poly room has its own sides (the last random room may be short); others the format's.
+  const sides = rulesSides({ format: tournament.format, preferences: tournament.preferences, sides: debateSides(drawnDebate, tournament) });
   // Sides chosen on the ballot (manual-ballot sides): the chair records which team took which side
   // through each side's team id; the roster checks below then follow that arrangement.
   let debate = drawnDebate;
@@ -138,9 +161,23 @@ export function buildPrivateBallot(
     throw new Error("The ballot must contain scores for every debate side.");
   }
 
+  const rules = privateBallotRules(tournament, round, debate, rounds);
+  const polyProblem = polyBallotProblem(debateBallotRules(tournament, round, debate, rounds));
+  if (polyProblem) throw new Error(polyProblem);
+  const scored = usesSpeakerScores(rules);
+  // Poly sheets without ranks: a voting round's own sheet (scores only) or a results-only ballot,
+  // which declares the advancing teams through `teamScores[side].win`.
+  const ranked = !poly || (scored && !rules.polyScoresOnly);
   const ranks = new Map<DebateSide, number>();
   const usedRanks = new Set<number>();
+  const winners: DebateSide[] = [];
   for (const side of sides) {
+    if (!ranked) {
+      const score = inputTeamScores[side];
+      if (!isRecord(score)) throw new Error("The ballot contains an invalid team result.");
+      if (score.win === true) winners.push(side);
+      continue;
+    }
     const score = inputTeamScores[side];
     if (
       !isRecord(score) ||
@@ -158,10 +195,8 @@ export function buildPrivateBallot(
     ranks.set(side, score.rank);
   }
 
-  const rules = privateBallotRules(tournament, round);
-  const scored = usesSpeakerScores(rules);
   const substantive = substantiveSpeakerCount(rules);
-  const replyEnabled = Boolean(tournament.preferences?.replyScoresEnabled && tournament.format !== "bp");
+  const replyEnabled = replySpeechesEnabled(rules);
   const criteriaIds = new Set(scoreCriteriaFor(tournament.preferences).map((criterion) => criterion.id));
   const speakerScores = {} as BallotSubmission["speakerScores"];
   const rosters: Partial<Record<DebateSide, Team["speakers"]>> = {};
@@ -225,7 +260,16 @@ export function buildPrivateBallot(
     throw new Error("A split decision can only be declared by a solo adjudicator, when self-split ballots are allowed.");
   }
 
-  const entry = { speakerScores, ranks: Object.fromEntries(ranks) };
+  let motion: ParticipantMotion | undefined;
+  let vetoes: Partial<Record<DebateSide, string>> | undefined;
+  if (roundMotions) {
+    motion = resolveParticipantBallotMotion(input.motionId, tournament.preferences, roundMotions);
+    vetoes = resolveParticipantBallotVetoes(input.vetoes, sides, tournament.preferences, roundMotions, motion?.id);
+  } else if (debate.motionId !== undefined) {
+    motion = { id: debate.motionId, text: debate.motionText ?? "" };
+  }
+
+  const entry = { speakerScores, ...(ranked ? { ranks: Object.fromEntries(ranks) } : {}), ...(poly && !scored ? { winners } : {}) };
   const errors = validateBallotEntry(entry, { ...rules, rosters });
   if (errors.length > 0) {
     // The reply-speaker rule keeps its long-standing message for API clients.
@@ -241,7 +285,7 @@ export function buildPrivateBallot(
 
   const timestamp = new Date().toISOString();
   const isChair = debate.adjudicators?.chairId === adjudicatorId;
-  return {
+  const ballot: BallotSubmission = {
     id,
     tournamentId,
     roundId: debate.roundId,
@@ -252,8 +296,9 @@ export function buildPrivateBallot(
     submitterType: "judge",
     submitterId: adjudicatorId,
     submitterName: adjudicator.name,
-    ...(debate.motionId !== undefined ? { motionId: debate.motionId } : {}),
-    ...(debate.motionText !== undefined ? { motionText: debate.motionText } : {}),
+    ...(motion ? { motionId: motion.id } : {}),
+    ...(motion && (roundMotions || debate.motionText !== undefined) ? { motionText: motion.text } : {}),
+    ...(vetoes ? { vetoes } : {}),
     speakerScores: result.speakerScores,
     teamScores,
     ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
@@ -266,6 +311,8 @@ export function buildPrivateBallot(
       ? { confirmedBy: adjudicator.name, confirmedTimestamp: timestamp }
       : {}),
   };
+  // A voting round's result needs every voting adjudicator's sheet (Tabbycat's per-adjudicator form).
+  return votingRoundPrivateBallot(ballot, { tournament, round, debate, rounds });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

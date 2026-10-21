@@ -128,6 +128,27 @@ describe("POST /api/public/tournaments/{slug}/forms", () => {
     expect(storedBallots()).toHaveLength(0);
   });
 
+  // Regression: participant ballots recorded the draw-time (first) motion of a round with several.
+  it("asks which motion was debated when the round has several, and stores the choice", async () => {
+    const released = { released: true, rounds: ["r1"] };
+    seed({ publicBallotForm: true }, {
+      [`${T}/rounds/r1`]: { seq: 1, name: "Round 1", stage: "preliminary", drawStatus: "released", adjudicatorsRevealed: true, motionsReleased: true, motionsStatus: "motions_released" },
+      [`${T}/motions/m1`]: { text: "First", seq: 1, ...released },
+      [`${T}/motions/m2`]: { text: "Second", seq: 2, ...released },
+    });
+    // Debates drawn before the fix carry the first motion; it is not assumed.
+    fake.store.set(`${T}/debates/d1`, { ...fake.store.get(`${T}/debates/d1`), motionId: "m1", motionText: "First" });
+    const load = await POST(request({ action: "load", kind: "ballot", sourceType: "adjudicator", sourceId: "chair" }), params);
+    const loaded = await load.json();
+    expect(loaded.motions).toEqual([{ id: "m1", text: "First" }, { id: "m2", text: "Second" }]);
+    expect(loaded.debate.motionId).toBeUndefined();
+    expect((await POST(request(ballotBody()), params)).status).toBe(400);
+    const body = ballotBody();
+    const response = await POST(request({ ...body, ballot: { ...body.ballot, motionId: "m2" } }), params);
+    expect(response.status).toBe(200);
+    expect(storedBallots()[0]).toMatchObject({ motionId: "m2", motionText: "Second" });
+  });
+
   it("refuses ballots until the round's motions are released", async () => {
     seed({ publicBallotForm: true }, { [`${T}/motions/m1`]: { text: "THW", rounds: ["r1"], released: false } });
     const response = await POST(request(ballotBody()), params);

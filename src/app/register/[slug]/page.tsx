@@ -24,6 +24,8 @@ interface RepresentativeView {
   institutionName: string;
   name: string;
   remaining: { team: number | null; adjudicator: number | null };
+  /** Registered institution without places yet: the link shows the request only. */
+  awaitingPlaces?: boolean;
   transferTargets?: Array<{ id: string; institutionName: string }>;
   /** The institution's registration response (coach view). */
   response?: InstitutionResponseItem[];
@@ -139,6 +141,8 @@ export default function RegistrationPage() {
   const [teamsRequested, setTeamsRequested] = useState("0");
   const [adjudicatorsRequested, setAdjudicatorsRequested] = useState("0");
   const [answers, setAnswers] = useState<Record<string, FeedbackAnswer>>({});
+  /** The contact person's answers on the institution form (Tabbycat's coach questions). */
+  const [coachAnswers, setCoachAnswers] = useState<Record<string, FeedbackAnswer>>({});
   const [honeypot, setHoneypot] = useState("");
   const startedAt = useRef(0);
   const [busy, setBusy] = useState(false);
@@ -202,6 +206,7 @@ export default function RegistrationPage() {
     setTeamsRequested("0");
     setAdjudicatorsRequested("0");
     setAnswers({});
+    setCoachAnswers({});
     setError("");
     setSubmittedKind(null);
     startedAt.current = Date.now();
@@ -229,7 +234,7 @@ export default function RegistrationPage() {
       ...(kind === "team"
         ? {
             team: {
-              name: teamName,
+              ...(form.teamNameGenerated ? {} : { name: teamName }),
               ...(teamFields.includes("use_institution_prefix") && hasInstitution ? { useInstitutionPrefix: usePrefix } : {}),
               ...(teamFields.includes("break_categories") ? { breakCategories: teamBreakCategories } : {}),
               ...(teamFields.includes("seed") && teamSeed.trim() ? { seed: teamSeed.trim() } : {}),
@@ -237,7 +242,7 @@ export default function RegistrationPage() {
               speakers: speakers.map((speaker) => ({
                 name: speaker.name,
                 categories: speaker.categories,
-                email: speaker.email.trim() || undefined,
+                email: asksSpeakerEmail ? speaker.email.trim() || undefined : undefined,
                 phone: speaker.phone.trim() || undefined,
                 gender: speaker.gender.trim() || undefined,
                 answers: speaker.answers,
@@ -251,12 +256,14 @@ export default function RegistrationPage() {
                 region: institutionRegion,
                 teamsRequested,
                 adjudicatorsRequested,
+                // Forms cached before coach questions existed have none.
+                ...((form.coachQuestions ?? []).length > 0 ? { coachAnswers } : {}),
               },
             }
           : {
               adjudicator: {
                 name: adjudicatorName,
-                email: adjudicatorEmail,
+                ...(asksAdjudicatorEmail ? { email: adjudicatorEmail } : {}),
                 institutionConflicts: lines(institutionConflicts),
                 teamConflicts: lines(teamConflicts),
                 phone: adjudicatorPhone.trim() || undefined,
@@ -294,14 +301,32 @@ export default function RegistrationPage() {
     : [];
   const remaining = representative && kind !== "institution" ? representative.remaining[kind] : null;
   const kindMessage = form ? (kind === "team" ? form.teamMessage : kind === "adjudicator" ? form.adjudicatorMessage : form.institutionMessage) : "";
+  // Separate open / representative channels (Tabbycat open_team_registration, open_adj_registration,
+  // institution_participant_registration); forms cached before them carry representativesOnly only.
+  const openKind = (participant: "team" | "adjudicator") =>
+    (participant === "team" ? form?.openTeamRegistration : form?.openAdjudicatorRegistration) ?? !form?.representativesOnly;
+  const participantAllowed = (participant: "team" | "adjudicator") =>
+    Boolean(form && (participant === "team" ? form.teamRegistration : form.adjudicatorRegistration)) &&
+    (representative
+      ? form?.institutionParticipantRegistration !== false && !representative.awaitingPlaces
+      : openKind(participant));
   const kinds: Kind[] = form
     ? ([
-        form.teamRegistration ? "team" : null,
-        form.adjudicatorRegistration ? "adjudicator" : null,
+        participantAllowed("team") ? "team" : null,
+        participantAllowed("adjudicator") ? "adjudicator" : null,
         form.institutionRegistration && !representative ? "institution" : null,
       ].filter(Boolean) as Kind[])
     : [];
-  const needsRepresentative = Boolean(form?.representativesOnly && !representative);
+  const needsRepresentative = Boolean(form && !representative && kinds.length === 0 && (form.teamRegistration || form.adjudicatorRegistration));
+  const asksSpeakerEmail = form?.askSpeakerEmail !== false;
+  const asksSpeakerCategories = form?.askSpeakerCategories !== false;
+  const asksAdjudicatorEmail = form?.askAdjudicatorEmail !== false;
+  const kindsKey = kinds.join(",");
+  useEffect(() => {
+    // The representative link (loaded after the form) can change which kinds are on offer.
+    const available = kindsKey ? (kindsKey.split(",") as Kind[]) : [];
+    if (available.length > 0 && !available.includes(kind)) setKind(available[0]);
+  }, [kindsKey, kind]);
 
   let body: React.ReactNode;
   if (loadError && !form) {
@@ -318,6 +343,29 @@ export default function RegistrationPage() {
             : t("register.disabled")}
       </Alert>
     );
+  } else if (kinds.length === 0) {
+    // Nothing this visitor may register: say why (and show a representative its response).
+    body = (
+      <div className="space-y-4">
+        {loadError && <Alert tone="danger" role="alert">{loadError}</Alert>}
+        {representative?.awaitingPlaces ? (
+          <Alert tone="info" role="status" title={t("register.awaitingPlacesTitle")}>
+            {t("register.awaitingPlaces", { institution: representative.institutionName })}
+          </Alert>
+        ) : representative ? (
+          <Alert tone="warning" role="status" title={t("register.representativeTitle", { institution: representative.institutionName })}>
+            {t("register.representativeCannotRegister")}
+          </Alert>
+        ) : needsRepresentative ? (
+          <Alert tone="warning" role="alert" title={t("register.representativesOnlyTitle")}>
+            {t("register.representativesOnly")}
+          </Alert>
+        ) : (
+          <Alert tone="warning" role="status" title={t("register.closedTitle")}>{t("register.disabled")}</Alert>
+        )}
+        {representative?.response && <InstitutionResponseCard items={representative.response} />}
+      </div>
+    );
   } else if (submittedKind) {
     body = (
       <Alert tone="success" role="status" title={t("register.receivedTitle")}>
@@ -333,11 +381,6 @@ export default function RegistrationPage() {
     body = (
       <form onSubmit={submit} className="space-y-4">
         {loadError && <Alert tone="danger" role="alert">{loadError}</Alert>}
-        {needsRepresentative && (
-          <Alert tone="warning" role="alert" title={t("register.representativesOnlyTitle")}>
-            {t("register.representativesOnly")}
-          </Alert>
-        )}
         {representative && (
           <Alert tone="info" role="status" title={t("register.representativeTitle", { institution: representative.institutionName })}>
             {remaining === null
@@ -404,7 +447,11 @@ export default function RegistrationPage() {
                 : t("register.speakersRange", { min: String(form.minSpeakers), max: String(form.maxSpeakers) })
             } />
             <CardBody className="space-y-4">
-              <Input label={t("register.teamName")} required maxLength={120} value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+              {form.teamNameGenerated ? (
+                <p className="text-[13px] text-fg-muted">{t("register.teamNameGenerated")}</p>
+              ) : (
+                <Input label={t("register.teamName")} required maxLength={120} value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+              )}
               {teamFields.includes("use_institution_prefix") && hasInstitution && (
                 <Checkbox
                   label={t("register.useInstitutionPrefix")}
@@ -472,7 +519,9 @@ export default function RegistrationPage() {
                   <legend className="px-1 text-xs font-medium text-fg">{t("register.speaker", { number: String(index + 1) })}</legend>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label={t("register.speakerName")} required maxLength={120} value={speaker.name} onChange={(event) => updateSpeaker(index, { name: event.target.value })} />
-                    <Input label={t("register.speakerEmail")} type="email" maxLength={254} value={speaker.email} onChange={(event) => updateSpeaker(index, { email: event.target.value })} />
+                    {asksSpeakerEmail && (
+                      <Input label={t("register.speakerEmail")} type="email" maxLength={254} value={speaker.email} onChange={(event) => updateSpeaker(index, { email: event.target.value })} />
+                    )}
                   </div>
                   {(form.speakerFields.includes("phone") || form.speakerFields.includes("gender")) && (
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -491,7 +540,7 @@ export default function RegistrationPage() {
                       onChange={(id, value) => updateSpeaker(index, { answers: { ...speaker.answers, [id]: value } })}
                     />
                   )}
-                  {form.speakerCategories.length > 0 && (
+                  {asksSpeakerCategories && form.speakerCategories.length > 0 && (
                     <div className="flex flex-wrap gap-4" role="group" aria-label={t("register.speakerCategories")}>
                       {form.speakerCategories.map((category) => (
                         <Checkbox
@@ -552,6 +601,16 @@ export default function RegistrationPage() {
                 value={adjudicatorsRequested}
                 onChange={(event) => setAdjudicatorsRequested(event.target.value)}
               />
+              {(form.coachQuestions ?? []).length > 0 && (
+                <fieldset className="space-y-2 sm:col-span-2">
+                  <legend className="text-[13px] font-semibold text-fg">{t("register.coachQuestions")}</legend>
+                  <FeedbackQuestionFields
+                    questions={form.coachQuestions ?? []}
+                    answers={coachAnswers}
+                    onChange={(id, value) => setCoachAnswers((current) => ({ ...current, [id]: value }))}
+                  />
+                </fieldset>
+              )}
             </CardBody>
           </Card>
         ) : (
@@ -560,7 +619,9 @@ export default function RegistrationPage() {
             <CardBody className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input label={t("register.adjudicatorName")} required maxLength={120} value={adjudicatorName} onChange={(event) => setAdjudicatorName(event.target.value)} />
-                <Input label={t("register.adjudicatorEmail")} type="email" required maxLength={254} value={adjudicatorEmail} onChange={(event) => setAdjudicatorEmail(event.target.value)} />
+                {asksAdjudicatorEmail && (
+                  <Input label={t("register.adjudicatorEmail")} type="email" required maxLength={254} value={adjudicatorEmail} onChange={(event) => setAdjudicatorEmail(event.target.value)} />
+                )}
                 {form.adjudicatorFields.includes("phone") && (
                   <Input label={t("register.phone")} type="tel" maxLength={30} autoComplete="tel" value={adjudicatorPhone} onChange={(event) => setAdjudicatorPhone(event.target.value)} />
                 )}

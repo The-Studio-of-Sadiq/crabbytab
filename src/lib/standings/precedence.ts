@@ -1,4 +1,4 @@
-import type { SpeakerMetricId, TeamMetricId, TeamStandingRow, TournamentFormat, TournamentPreferences } from "@/types";
+import type { MetricValue, SpeakerMetricId, TeamMetricId, TeamStandingRow, TournamentFormat, TournamentPreferences } from "@/types";
 import {
   ALL_SPEAKER_METRICS,
   ALL_TEAM_METRICS,
@@ -34,6 +34,7 @@ export function resolveTeamPrecedence(
   const rankable = ALL_TEAM_METRICS.filter((id) => !EXTRA_ONLY_TEAM_METRICS.includes(id));
   const custom = sanitize(preferences?.teamStandingsPrecedence, rankable, REPEATABLE_TEAM_METRICS);
   if (custom.length > 0) return custom;
+  if (format === "poly") return DEFAULT_TEAM_PRECEDENCE.poly;
   return format === "bp" ? DEFAULT_TEAM_PRECEDENCE.bp : DEFAULT_TEAM_PRECEDENCE.two_team;
 }
 
@@ -59,29 +60,52 @@ export function resolveSpeakerExtra(
 
 const EPS = 1e-6;
 
+/** A metric as ranked: null (no value) stays null; an absent metric (older rows) counts as 0. */
+function rankedValue(value: MetricValue | undefined): number | null {
+  return value === undefined ? 0 : value;
+}
+
+/**
+ * Compares two metric values, <0 if `a` ranks first. A value beats no value (null) whatever the
+ * metric's direction, and two nulls tie: Tabbycat ranks with ORDER BY ... NULLS LAST, ascending and
+ * descending alike (standings/ranking.py, BaseRankAnnotator._get_ordering), and a window partition
+ * groups nulls together.
+ */
+export function compareMetricValues(a: MetricValue | undefined, b: MetricValue | undefined, direction: 1 | -1): number {
+  const left = rankedValue(a);
+  const right = rankedValue(b);
+  if (left === null || right === null) {
+    if (left === right) return 0;
+    return left === null ? 1 : -1;
+  }
+  const diff = (right - left) * direction;
+  return Math.abs(diff) > EPS ? (diff > 0 ? 1 : -1) : 0;
+}
+
 /**
  * Compares two rows by a precedence chain of metrics, in order, until one
  * differs beyond floating-point noise. Returns <0 if `a` ranks first.
  */
 export function compareByPrecedence<M extends string>(
-  a: Record<M, number>,
-  b: Record<M, number>,
+  a: Record<M, MetricValue>,
+  b: Record<M, MetricValue>,
   precedence: M[],
   direction: Record<M, 1 | -1>
 ): number {
   for (const m of precedence) {
-    const diff = ((b[m] ?? 0) - (a[m] ?? 0)) * direction[m];
-    if (Math.abs(diff) > EPS) return diff > 0 ? 1 : -1;
+    const byMetric = compareMetricValues(a[m], b[m], direction[m]);
+    if (byMetric !== 0) return byMetric;
   }
   return 0;
 }
 
 export function isTiedByPrecedence<M extends string>(
-  a: Record<M, number>,
-  b: Record<M, number>,
+  a: Record<M, MetricValue>,
+  b: Record<M, MetricValue>,
   precedence: M[]
 ): boolean {
-  return precedence.every((m) => Math.abs((a[m] ?? 0) - (b[m] ?? 0)) <= EPS);
+  // Direction does not matter for equality.
+  return precedence.every((m) => compareMetricValues(a[m], b[m], 1) === 0);
 }
 
 /**
@@ -91,7 +115,7 @@ export function isTiedByPrecedence<M extends string>(
  */
 export function assignSharedRanks<T, M extends string>(
   sorted: T[],
-  getMetrics: (row: T) => Record<M, number>,
+  getMetrics: (row: T) => Record<M, MetricValue>,
   precedence: M[],
   setRank: (row: T, rank: number) => void
 ): void {
@@ -114,24 +138,19 @@ type TeamRankable = Pick<TeamStandingRow, "metrics" | "whoBeatWhom">;
  * The values a team is ranked on, in precedence order. Each "wbw" reads the next entry of
  * `whoBeatWhom`; null means "n/a" (not exactly two teams tied), which only ever meets another
  * "n/a", because who-beat-whom is compared only between teams tied on every earlier metric.
+ * Any other metric's null is "no value" (no results yet); both rank below every value.
  */
-export function teamPrecedenceValues(row: TeamRankable, precedence: TeamMetricId[]): (number | null)[] {
+export function teamPrecedenceValues(row: TeamRankable, precedence: TeamMetricId[]): MetricValue[] {
   let wbwIndex = 0;
   return precedence.map((metric) =>
-    metric === "wbw" ? row.whoBeatWhom?.[wbwIndex++] ?? null : row.metrics[metric] ?? 0
+    metric === "wbw" ? row.whoBeatWhom?.[wbwIndex++] ?? null : rankedValue(row.metrics[metric])
   );
 }
 
-function compareValues(a: (number | null)[], b: (number | null)[], precedence: TeamMetricId[]): number {
+function compareValues(a: MetricValue[], b: MetricValue[], precedence: TeamMetricId[]): number {
   for (let i = 0; i < precedence.length; i++) {
-    const left = a[i];
-    const right = b[i];
-    if (left === null || right === null) {
-      if (left === right) continue;
-      return left === null ? 1 : -1;
-    }
-    const diff = (right - left) * TEAM_METRIC_DIRECTION[precedence[i]];
-    if (Math.abs(diff) > EPS) return diff > 0 ? 1 : -1;
+    const byMetric = compareMetricValues(a[i], b[i], TEAM_METRIC_DIRECTION[precedence[i]]);
+    if (byMetric !== 0) return byMetric;
   }
   return 0;
 }

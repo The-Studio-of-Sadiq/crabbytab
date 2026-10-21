@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
 import { AuditCategory, PublicAuditEvent } from "@/types";
+import { publicCacheHeaders } from "@/lib/publicView/store";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,13 @@ export async function GET(
       .doc("current")
       .get();
     if (!releaseSnapshot.exists) {
-      return NextResponse.json({ error: "This audit log has not been released." }, { status: 404 });
+      return NextResponse.json(
+        { error: "This audit log has not been released." },
+        {
+          status: 404,
+          ...(request.nextUrl.searchParams.get("status") === "public" ? { headers: publicCacheHeaders(60, 300) } : {}),
+        }
+      );
     }
 
     const release = releaseSnapshot.data();
@@ -52,10 +59,16 @@ export async function GET(
       releasedAt: release.releasedAt,
       eventCount: release.eventCount,
     };
-    if (request.nextUrl.searchParams.get("status") === "1") {
+    const status = request.nextUrl.searchParams.get("status");
+    if (status === "1") {
       return NextResponse.json(releaseInfo, {
         headers: { "Cache-Control": "no-store" },
       });
+    }
+    // The public index only asks whether to link the log: cached at the edge, so visitors cost
+    // Firestore a few reads a minute instead of a few each.
+    if (status === "public") {
+      return NextResponse.json(releaseInfo, { headers: publicCacheHeaders(60, 300) });
     }
 
     const eventSnapshot = await tournamentDocument.ref
