@@ -10,7 +10,9 @@
     "build": "next build",
     "start": "next start --port 3000",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "i18n:new": "node tools/i18n/run.mjs new",
+    "i18n:check": "node tools/i18n/run.mjs check"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

@@ -67,7 +67,7 @@ them with their defaults.
 | Participant code names (`participant_code_names`) | `participantCodeNames`: off / everywhere | Speakers and adjudicators are published under `codeName`. On private-URL portals other adjudicators appear under their code names, and on team portals other teams' speakers do too; adjudicator portals keep real speaker names, which ballot entry needs. |
 | Anonymous people (`Person.anonymous`) | `Speaker.anonymous`, `Adjudicator.anonymous` (participant directory) | Name published as empty with `anonymous: true`; pages show "Redacted". In tab rows an anonymous speaker also loses their team and gets an opaque id. |
 | Emoji / speakers in draw / splitting adjudicators | `showEmoji`, `showSpeakersInDraw` (default on), `showSplittingAdjudicators` | Emoji are removed when off; splits are published as `splitAdjudicatorIds` on ballots whose panel is public. |
-| Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection, including the public schedule (`/[slug]/schedule/public`). The cross-tournament motion statistics (`/tournaments/motions/public`) are `noindex` whenever any tournament pooled there has indexing other than "all". |
+| Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection, including the public schedule, check-in and audit pages and the registration form; the sitemap follows the same setting. See "Search engines and link previews" below. The cross-tournament motion statistics (`/tournaments/motions/public`) are `noindex` whenever any tournament pooled there has indexing other than "all". |
 | Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, at the top of the public tab. |
 | Motions order (`public_motions_order`) | `publicMotionsOrder`: forward / reverse | By the motions' earliest round; CrabbyTab's default stays forward (Tabbycat: reverse). |
 
@@ -79,6 +79,42 @@ are never overwritten (`src/lib/codeNames.ts`, seeded random source).
 or all), diversity or feedback progress is on (`needsPublicFeedback`); otherwise a publish reads the
 same collections as before. The new `tabs` and `derived` base sections are cached like the others;
 views published before them read as having none until the next publish (view format 3).
+
+### Search engines and link previews
+
+- **robots.txt** (`src/app/robots.ts`, rules in `src/lib/seo/robotsRules.ts`) allows the public site
+  and disallows `/api/` (including `/api/public/`), `/login`, `/forgot-password`, `/invite`,
+  `/account`, `/tournaments/new|import|demo`, participants' private URLs (`/*/private/`), the
+  projector (`/*/display`) and every tab-room section (`/*/draw`, `/*/config`, …). The sections come
+  from `TOURNAMENT_STAFF_SECTIONS` in `src/lib/tournamentRoutes.ts`; a test fails when a route folder
+  under `src/app/[tournamentSlug]/` is missing from that list. Crawlers apply the longest matching
+  rule and `*` also matches `/`, so each disallowed section has a longer Allow for its public twin
+  (`/*/public/feedback`, `/*/schedule/public`). It points to `/sitemap.xml`. robots.txt only steers
+  crawling; the bare tab-room home `/{slug}` and `/tournaments/api` (matched by `/*/api`) are known
+  imprecisions, covered by the metadata below.
+- **noindex on staff pages.** `src/app/[tournamentSlug]/layout.tsx` sets `robots: noindex, nofollow`
+  for the tab room, projector and private URLs (`private/layout.tsx` repeats it); the sign-in,
+  invitation, account and new / import / demo tournament pages have small layouts doing the same.
+  Public pages always set robots explicitly, so they override the tournament layout.
+- **Sitemap** (`src/app/sitemap.ts`, `src/lib/publicView/sitemapStore.ts`): the home page plus, for
+  each **published** tournament (a `publicViews/{slug}` root; never-published tournaments are left
+  out), nothing under "none", `/{slug}/public` under "homepage-only", and under "all" also
+  `/{slug}/schedule/public` and `/{slug}/checkins/public` when those pages are on. Each publish stores
+  a small `seo` summary on the root (name, indexing, schedule / check-in switches, description), so
+  the sitemap is one query over the roots selecting only those fields; roots published before this
+  fall back to their cached `tournament` section until the next publish. The result is cached for
+  six hours (`unstable_cache`, tag `public-sitemap`) and publishes deliberately do not invalidate it,
+  so crawlers cost at most one read per published tournament every six hours (Spark: 50k reads/day).
+  Without admin credentials (`FIREBASE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS`) or
+  when Firestore fails the sitemap lists only the home page. Record pages, the audit log and the
+  registration form are not listed (they stay crawlable through links).
+- **Link previews** (`buildPublicPageMetadata` in `src/lib/publicView/seo.ts`): public pages get a
+  title (`{page} · {tournament} | CrabbyTab`), a description (the welcome message, shortened to 160
+  characters, else a generated sentence), a canonical URL, and Open Graph / Twitter cards with the
+  site image, all from the cached projection with no extra Firestore read. Previews are produced
+  whatever the indexing setting. An unknown tournament is `noindex`; any other read failure keeps the
+  page indexable. The root layout carries the site-wide default description and cards; absolute URLs
+  use `NEXT_PUBLIC_APP_URL`, else the Vercel URL, else `http://localhost:3000` (`src/lib/seo/site.ts`).
 
 ### When public pages change
 
@@ -330,5 +366,6 @@ Tabbycat's check-in events and bulk check-ins, mapped onto CrabbyTab's per-round
 - Notifications and self check-ins depend on the cloud copy, so they lag local changes until the
   next upload (or, for check-ins, the next download or tournament open). This goes away with the Firestore source-of-truth work
   (Phase 4.1).
-- Notification templates are fixed in code.
-- Veto statistics are not public: vetoes are not in the projection.
+- Notification templates have defaults in code; each tournament can save its own (see
+  [email-notifications.md](email-notifications.md)).
+- Veto statistics are public with the motion statistics release (wave 4–5 public site).

@@ -7,6 +7,7 @@ import {
   isDrawVisibleToAdjudicators,
   isDrawVisibleToTeams,
   sanitizeTeamPrivateDebate,
+  withoutUnreleasedMotion,
   createPortalNamer,
   renamePortalBallot,
   renamePortalDebate,
@@ -275,5 +276,16 @@ describe("portal code names", () => {
     expect(adjRenamed.adjudicators.chairName).toBe("Chair Real");
     expect(adjRenamed.adjudicators.panellistNames).toEqual(["Judge W"]);
     expect(adjudicatorView.speaker("s-opp", "Opp Speaker")).toBe("Opp Speaker");
+  });
+});
+
+describe("withoutUnreleasedMotion", () => {
+  const debate = { id: "d1", roundId: "r1", motionId: "m1", motionText: "THW test" } as unknown as Debate;
+  it("hides the motion until the round's motions are released", () => {
+    const hidden = withoutUnreleasedMotion(debate, { id: "r1", motionsStatus: "not_released" } as unknown as Round);
+    expect(hidden).not.toHaveProperty("motionId");
+    expect(hidden).not.toHaveProperty("motionText");
+    const shown = withoutUnreleasedMotion(debate, { id: "r1", motionsStatus: "motions_released" } as unknown as Round);
+    expect(shown.motionText).toBe("THW test");
   });
 });

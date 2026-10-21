@@ -83,7 +83,7 @@ export const configEn = {
   "setup.config.motionReuseHelp": "Motions can be reused from one round to another (the round's motion panel offers other rounds' motions and a copy from the previous round).",
   "setup.config.maxTimesPerSideLabel": "Maximum number of times per side",
   "setup.config.maxTimesPerSideHelp":
-    "Absolute limit: a side assignment that would exceed this count is rejected. Draw generation reports an error if no valid assignment exists.",
+    "As in Tabbycat: in minimum-cost pairing with a side penalty, rooms that would put a team over this count are avoided when possible; otherwise the draw check warns. 0 turns it off. Not applied to BP.",
   "setup.config.maxImbalanceLabel": "Maximum allowed side imbalance",
   "setup.config.maxImbalanceHelp":
     "Absolute limit on the difference between a team's most- and least-used sides after assignment. An assignment that exceeds it is rejected; 0 disables this limit.",
@@ -350,7 +350,7 @@ export const configEn = {
   "setup.config.publicMotionsLabel": "Public motions page",
   "setup.config.publicMotionsHelp": "Publish released debate motions and information slides on the public page.",
   "setup.config.publicCheckinsLabel": "Public check-in counts",
-  "setup.config.publicCheckinsHelp": "Publish round totals only; no participant names or individual check-in details.",
+  "setup.config.publicCheckinsHelp": "Publish check-in totals for each round; each person's status is listed too when the participants list is released.",
   "setup.config.selfCheckinLabel": "Self check-in from private URLs",
   "setup.config.selfCheckinHelp":
     "Teams and adjudicators can mark themselves available for the current round. Check-ins are saved to the cloud copy; download from the cloud to see them here.",

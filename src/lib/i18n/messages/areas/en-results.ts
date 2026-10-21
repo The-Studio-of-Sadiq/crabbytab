@@ -153,7 +153,7 @@ export const enResults = {
   "results.ballot.loading": "Loading ballot…",
   "results.ballot.byeTeamFallback": "Team",
   "results.ballot.bye.title": "Bye — no ballot required",
-  "results.ballot.bye.win": "{team}: full win awarded with prior average speaker scores.",
+  "results.ballot.bye.win": "{team}: awarded a win (1 point), with no speaker scores.",
   "results.ballot.bye.absent": "{team}: absent; no standings result is added.",
   "results.ballot.sides.legend": "Sides (chosen at the debate)",
   "results.ballot.sides.help": "This round's sides were not fixed by the draw. Record which team was {side}.",

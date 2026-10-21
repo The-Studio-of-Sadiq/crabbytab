@@ -257,6 +257,12 @@ const readSectionCached = (slug: string, section: string, hash: string, chunkCou
     { revalidate: SECTION_REVALIDATE_SECONDS }
   )();
 
+/** The public `tournament` section of a published root, from its cached chunks. */
+export async function readPublishedTournamentSection(root: Pick<PublicViewRoot, "slug" | "sections">): Promise<unknown> {
+  const meta = root.sections?.tournament;
+  return meta ? readSectionCached(root.slug, "tournament", meta.hash, meta.chunks) : undefined;
+}
+
 type LiveFallback =
   | { ok: true; sections: PublicViewSections }
   | { ok: false; status: number; error: string };

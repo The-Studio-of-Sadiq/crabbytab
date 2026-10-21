@@ -17,7 +17,19 @@ export function tournamentSubpathSegments(pathname: string | null | undefined, t
 }
 
 /** Sections whose `/public` sub-page is a public view (schedule, check-in status, audit log). */
-const PUBLIC_SUBPAGE_SECTIONS = new Set(["schedule", "checkins", "audit"]);
+export const PUBLIC_SUBPAGE_SECTION_NAMES = ["schedule", "checkins", "audit"] as const;
+const PUBLIC_SUBPAGE_SECTIONS = new Set<string>(PUBLIC_SUBPAGE_SECTION_NAMES);
+
+/**
+ * Every top-level staff section under `/[tournamentSlug]/` (the tab room). Shared views (`public`,
+ * `display`, `private`) are not staff sections. robots.txt disallows these (lib/seo/robotsRules.ts);
+ * a test checks the list against the route folders so a new staff section cannot be missed.
+ */
+export const TOURNAMENT_STAFF_SECTIONS = [
+  "allocation", "analytics", "api", "audit", "break", "checkins", "config", "draw", "email", "exports",
+  "feedback", "imports", "print", "private-urls", "registration", "rehearsal", "results", "schedule",
+  "staff", "standings", "team",
+] as const;
 
 export type SharedRouteKind = "public" | "display" | "private" | null;
 

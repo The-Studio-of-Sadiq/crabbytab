@@ -131,8 +131,8 @@ and UADC 70–80 / 35–40, WSDC 60–80 / 30–40). 0.11 turned out not to be a
   "extra" columns. **#9** (S): ballot mode per stage (prelims vs elims) and the missing presets
   (NZ Easters, Joynt, Canadian, Japan BP). *Done in wave 2 (see docs/standings-and-breaks.md):
   cutoff ties are reported and must be resolved with overrides rather than growing the break as
-  Tabbycat does; Tabbycat has no Japan BP preset (BP is used); APDA, Public Speaking and Karl
-  Popper presets are not offered because CrabbyTab lacks the features they need.*
+  Tabbycat does; Tabbycat has no Japan BP preset (BP is used). The APDA, Karl Popper and Public
+  Speaking presets were added later (wave 5, the closing PR and N-teams-per-room support).*
 - **#10 Differential testing against real Tabbycat** (M): identical fixtures through Tabbycat
   (Docker) and CrabbyTab; compare draws (by rules), standings, breaks and allocations. *Done:
   `tools/tabbycat-diff` (README there) with three seeded fixtures, golden output from Tabbycat

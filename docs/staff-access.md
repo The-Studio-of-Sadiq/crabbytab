@@ -141,7 +141,8 @@ written. Panel names and the debates' participant index are rebuilt by the serve
   differences, and nothing changes.
 
 The server runs the tab room's confirmation command against the debate's records in one
-transaction: the other versions are discarded, the debate's result is recorded, and every written
+transaction: the previously confirmed version is unconfirmed (and a blind check's checked entry
+discarded; other drafts are kept), the debate's result is recorded, and every written
 record's `syncVersion` moves on. Extra rules for staff:
 
 - the same-person check always applies, double entry or not: nobody confirms their own entry;

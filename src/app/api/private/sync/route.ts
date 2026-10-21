@@ -48,6 +48,8 @@ import {
 } from "@/lib/privateParticipantData";
 import { sendBallotReceipts } from "@/lib/email/notificationService";
 import { participantBallotAsksMotion, participantRoundMotions } from "@/lib/ballots/participantMotion";
+import { motionsVisible } from "@/features/tournament/application/motionRelease";
+import { withoutUnreleasedMotion } from "@/lib/privatePortalBallots";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { checkInEvent } from "@/lib/checkins/history";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
@@ -555,7 +557,7 @@ export async function POST(request: NextRequest) {
               roundsById.get(debate.roundId),
               tournament.preferences?.publicResults !== false
             )
-          : debate,
+          : withoutUnreleasedMotion(debate, roundsById.get(debate.roundId)),
         portalNamer
       )
     );
@@ -580,7 +582,11 @@ export async function POST(request: NextRequest) {
       debates: responseDebates,
       venues,
       // Motion choices for the adjudicator's ballots, only for rounds that ask which motion was debated.
-      motions: portalBallotMotions(portalMotions, motionRoundIds, tournament),
+      motions: portalBallotMotions(
+        portalMotions,
+        new Set([...motionRoundIds].filter((roundId) => motionsVisible(roundsById.get(roundId)))),
+        tournament
+      ),
     });
   } catch (error) {
     console.error("Private portal sync failed:", error);

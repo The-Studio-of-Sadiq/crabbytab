@@ -1,3 +1,4 @@
+import { motionsVisible } from "@/features/tournament/application/motionRelease";
 import type { Adjudicator, BallotSubmission, Debate, DebateAdjudicatorSlot, Round, Team, Tournament } from "@/types";
 import { isDrawPubliclyReleased, isDrawReleasedToTeams } from "@/lib/draw/drawStatus";
 import { getPublicSiteSettings, publicUsesTeamCodeNames } from "@/lib/publicFeatures";
@@ -284,4 +285,13 @@ export function renamePortalBallot(ballot: Record<string, unknown>, namer: Porta
         }
       : {}),
   };
+}
+
+/** An adjudicator's debate without its motion until the round's motions are released (as Tabbycat). */
+export function withoutUnreleasedMotion(debate: Debate, round: Round | undefined): Debate {
+  if (motionsVisible(round)) return debate;
+  const { motionId: _motionId, motionText: _motionText, ...rest } = debate;
+  void _motionId;
+  void _motionText;
+  return rest;
 }

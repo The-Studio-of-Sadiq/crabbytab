@@ -1,190 +1,90 @@
 # CrabbyTab
 
-CrabbyTab is an offline-first web app for setting up and running British
-Parliamentary (four-team) and two-team parliamentary debate tournaments. It
-brings tournament setup, draws, results, standings, and administration tools
-together in one interface.
+CrabbyTab is a free, offline-first web app for running debate tournaments: British
+Parliamentary, two-team formats (Australs, WSDC, UADC, APDA, Karl Popper and others) and
+N-teams-per-room events such as public speaking. It covers setup, registration, draws,
+adjudicator and venue allocation, ballots, feedback, standings, breaks, public pages and
+participant portals in one Next.js app, with the tab room's working copy kept on the device.
 
-CrabbyTab is an independent project and is not affiliated with Tabbycat.
+CrabbyTab is an independent project inspired by [Tabbycat](https://github.com/TabbycatDebate/tabbycat)
+and is not affiliated with it. A source-level audit against Tabbycat v2.12.1, and the remaining
+differences, are in [`docs/tabbycat-parity-plan.md`](docs/tabbycat-parity-plan.md).
 
 ## Documentation
 
-The [CrabbyTab wiki](https://github.com/The-Studio-of-Sadiq/crabbytab/wiki)
-has installation and deployment guides, an organiser guide for running a
-tournament, a settings reference, a comparison with Tabbycat and developer
-notes. Algorithm details live in [`docs/`](./docs).
+- **Guide and landing page:** <https://the-studio-of-sadiq.github.io/crabbytab/> (built from
+  [`docs/wiki/`](docs/wiki) by [`site/`](site)).
+- **Wiki:** <https://github.com/The-Studio-of-Sadiq/crabbytab/wiki> — installation, deployment,
+  a first-tournament walkthrough, the organiser guide, settings and CSV reference, and developer
+  pages. Its source is [`docs/wiki/`](docs/wiki); edit pages there in a pull request.
+- **Developer docs:** [`docs/`](docs) — algorithms, data flow, security and API details.
 
-The public pages and private portals can be shown in other languages (English
-and 25 machine-drafted catalogues covering every language Tabbycat offers). [`docs/internationalization.md`](./docs/internationalization.md)
-explains how to translate a string or add a language.
+## Highlights
 
-## What it can do
-
-- Create tournaments with a guided setup wizard and configurable formats,
-  rounds, scoring, breaks, and public visibility.
-- Import and manage teams, adjudicators, institutions, venues, and motions.
-- Generate draws, allocate adjudicators and venues, and manage check-ins.
-- Import division IDs and names with teams, then restrict a round draw to one
-  division when divisions should run in parallel.
-- Record results and ballots, calculate standings, and manage break categories.
-- Configure adjudicator panel balancing, feedback questions, and institution
-  limits for break qualifiers.
-- Publish selected tournament information and provide private ballot and
-  feedback links.
-- Print round ballots and feedback sheets, and use barcode labels with
-  keyboard-scanner check-in.
-- Integrate through a REST API (`/api/v1`) with per-area scoped tokens: a
-  public scope that sees only released data, and administrator scopes for
-  tournaments, rounds, participants, venues, breaks, draws, ballots, feedback,
-  check-ins and standings. See [docs/api.md](docs/api.md), the reference at
-  `/tournaments/api` and the OpenAPI document at `/api/openapi.json`.
-- Export portable DebateXML archives in the Tabbycat DTA schema alongside
-  CrabbyTab's full-fidelity JSON backups.
-- Review tournament activity with audit tools and use analytics and display
-  views during an event.
-- Keep tournament data in the browser for offline use, with optional Firebase
-  authentication and cloud synchronization.
-
-### CSV divisions and venue requirements
-
-Team imports can include `division_id` and `division` columns. Select a
-division on the Draw page to limit that round's eligible teams; leaving the
-round set to **All divisions** preserves the default draw behavior. Team,
-adjudicator, and institution imports can also include `required_venue_category`,
-`min_venue_capacity`, `requires_accessible_venue`, `requires_online_venue`, and
-`requires_near_tab_room` to apply standing venue requirements. Venue imports
-accept `near_tab_room` as a capability column.
-
-Team imports may also include `speaker1_categories` (to `speaker3_categories`),
-e.g. `esl; novice`, and `break_categories`, listing the names, slugs or ids of
-existing break categories the team is eligible for. An unknown break category
-rejects the whole import and names the row.
-
-Break categories may use Standard qualification, AIDA 1996, AIDA 2016 Australs,
-or AIDA 2016 Easters rules. The AIDA 2016 options require a two-team format;
-the standard rule remains the default for existing and new categories.
-
-### Rounds, breaks and public releases
-
-- A preliminary round can be marked **complete** from the Results page once
-  every non-bye debate has a confirmed ballot and none is postponed; it can be
-  reopened. Released tabs and adjudicator break-liveness use completed rounds.
-- Break sizes need not be powers of two. A break that does not halve cleanly
-  (for example 12 two-team or 24 BP teams) starts with a partial elimination
-  round: the top `2T − N` seeds get a bye (T is the next full bracket size
-  below N) and the remaining seeds are folded. BP breaks must be even. Later
-  elimination rounds keep each team's bracket position instead of re-seeding.
-- On the Break page each category can be edited or deleted (until its break is
-  generated) and teams can be given overrides: *manually included* (takes a
-  break place first, but a team never breaks in two categories) or a remark
-  that removes it (ineligible, withdrawn, different break, disqualified, lost
-  coin toss). Generating a category's break changes only that category.
-- If teams tied on every standings metric straddle the last breaking (or reserve) place, the
-  Break page lists the tie and the break cannot be generated until the tab director resolves it
-  with overrides (*manually included* or *lost coin toss*). See
-  [docs/standings-and-breaks.md](docs/standings-and-breaks.md) for the standings metrics,
-  speaker eligibility, ballot mode per stage and the Tabbycat rule presets.
-- Full tabs and breaks are hidden by default: the **Public release** panel on the Standings
-  page releases the team, speaker and replies tabs (completed preliminary
-  rounds, silent rounds included) and each break category separately.
+- **Draws:** power-paired, random, seeded, round robin, manual and elimination draws for two-team
+  and BP formats, random and manual draws for N teams per room, Tabbycat's pairing, pull-up,
+  side-allocation and conflict-avoidance options, draw stages (confirmed, released to teams,
+  released), concurrent rounds and a schedule.
+- **Allocation:** CrabbyTab's own panel allocator plus faithful ports of Tabbycat's voting and
+  consensus allocators, preformed panels, break liveness priorities, conflicts and room
+  constraints.
+- **Results:** consensus, voting and median ballots, double entry, self-split ballots, private-URL
+  and public-form ballots, motions and vetoes, feedback with configurable paths and questions.
+- **Standings and breaks:** every Tabbycat team and speaker metric, configurable precedence,
+  standings as of any round, AIDA and standard break rules, break categories and liveness.
+- **Public site:** release switches for every tab, publish-time snapshots cached on the CDN (built
+  for Firebase's free tier), code names, schedule and iCal, search-engine controls, sitemap and
+  link previews.
+- **People and access:** registration with invitations, staff permission groups, per-team,
+  per-adjudicator and per-speaker private URLs, email notifications.
+- **26 languages** (English plus every language Tabbycat offers, machine-drafted), right-to-left
+  layouts, lazy-loaded catalogues.
+- **Integration:** a REST API (`/api/v1`) with scoped tokens, anonymous reads of public data and
+  participant keys ([`docs/api.md`](docs/api.md), `/tournaments/api`, `/api/openapi.json`);
+  DebateXML import/export and full JSON backups.
+- **Trust:** an append-only, hash-chained audit log, a rule engine with recorded overrides, and a
+  differential test harness against Tabbycat itself ([`tools/tabbycat-diff`](tools/tabbycat-diff)).
 
 ## Requirements
 
-- Node.js 22
-- npm
-- A Firebase project for authentication and cloud features (optional for local
-  browser-based use)
+- Node.js 22 and npm
+- A Firebase project (Authentication and Firestore). Creating a tournament — including a demo or
+  a DebateXML import — needs a global administrator, which the server verifies with
+  firebase-admin, so a service account is required even for local use.
+- Optional: SMTP for email, Vercel for hosting.
 
 ## Run locally
 
 ```sh
-npm install
-cp .env.example .env.local
+npm ci
+cp .env.example .env.local   # fill in the Firebase, admin and (optional) SMTP values
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000). To use Firebase,
-populate the `NEXT_PUBLIC_FIREBASE_*` values in `.env.local` from your Firebase
-project. The app can store tournament data in the browser; Firebase enables
-cloud-backed tournament discovery, authentication, and synchronization.
+Open <http://localhost:3000>. Set `FIREBASE_ADMIN_UIDS` to the Firebase Authentication UIDs of
+global administrators and `FIREBASE_SERVICE_ACCOUNT_JSON` (or Application Default Credentials) for
+server routes. Deploy [`firestore.rules`](firestore.rules) to your project. Never commit
+`.env.local` or credentials. Accounts are created in Firebase Authentication or by accepting a
+tournament staff invitation; there is no open sign-up.
 
-Do not commit `.env.local` or credentials. For server-side Firebase
-administration, configure `FIREBASE_SERVICE_ACCOUNT_JSON` or the hosting
-environment's Application Default Credentials. The email tools also require
-the SMTP settings shown in `.env.example`.
-
-Create all user accounts manually in Firebase Authentication; CrabbyTab does
-not provide public registration. Set `FIREBASE_ADMIN_UIDS` to a comma-separated
-list of Firebase Authentication UIDs for global administrators. Global admins
-can manage every tournament and Firestore collection. On sign-in, the server
-uses its Firebase Admin credentials to assign the matching Firestore custom
-claim; deploy the repository's `firestore.rules` for that claim to grant access.
-Tournament owners and tournament administrators can use the tournament's
-**Staff** page to assign existing Firebase accounts as tournament
-administrators or data-entry staff. Assignments are tournament-scoped; staff
-emails must already belong to an account, and no account directory is exposed
-to tournament administrators.
-
-When deploying, configure the Firebase Authentication and Firestore services
-for your own project and review [firestore.rules](./firestore.rules) before
-publishing them. Never expose service-account credentials or SMTP passwords in
-client-side environment variables.
-
-Cloud synchronization uses a per-record version. If an offline device edits a
-record after another device has changed it, CrabbyTab keeps the cloud copy and
-archives both versions rather than silently replacing the newer copy. Use the
-tournament's sync-recovery export to inspect archived versions. Deleted cloud
-records receive recoverable tombstones, so later downloads do not restore them
-and stale uploads cannot remove the tombstone. Each device remembers every
-record, and the tournament settings, as it last uploaded or downloaded them (its
-synced baseline). Downloading, or opening a tournament that has a cloud copy,
-gives records unchanged on this device since then the newer cloud version (self
-check-ins, private-URL ballot discards, assistant edits, other devices' uploads)
-and adds cloud-only records; data-entry assistants' devices get organiser changes
-the same way when they open the tournament. Records edited on this device are
-kept for upload; if the cloud changed them too, they are listed as sync
-conflicts (the warning in the top bar, or the account menu) with the fields that
-differ, until you keep this device's or the cloud version of each. The top bar
-counts changes not yet uploaded, and public pages only change when an upload or
-release publishes a conflict-free cloud copy; see
-[docs/public-pages-and-notifications.md](./docs/public-pages-and-notifications.md#when-public-pages-change). For
-cloud tournaments, administrator devices also sync ballots, check-ins, draws and
-allocations live (offline changes queue and send on reconnect); see
-[docs/live-collaboration.md](./docs/live-collaboration.md). Team portals show ballots only
-after results are released on a non-silent round, and hide speaker scores until
-team speaks are released.
-
-The read-only integration API uses administrator-issued bearer tokens. Store
-them securely and revoke them from the tournament's **API Access** page when
-they are no longer needed. `read:public` returns only released draws;
-`read:draws` also returns unreleased draw assignments. Neither scope returns
-participant email addresses, private portal credentials, ballot scores, or
-feedback. Full-fidelity CrabbyTab backups remain the recovery format; DebateXML
-archives are the interoperable exchange format and may omit fields that the
-DebateXML schema does not represent.
+Deployment, environment variables, the Firestore read budget and caching are described in the
+wiki: [Deploying to Vercel and Firebase](https://github.com/The-Studio-of-Sadiq/crabbytab/wiki/Deploying-to-Vercel-and-Firebase)
+and [Caching, indexing and performance](https://github.com/The-Studio-of-Sadiq/crabbytab/wiki/Caching-Indexing-and-Performance).
 
 ## Development
 
-Run the test suite:
-
 ```sh
-npm test
-```
-
-Run lint checks:
-
-```sh
+npm test            # Vitest, including the Tabbycat differential harness
 npm run lint
-```
-
-Create a production build:
-
-```sh
 npm run build
+npx tsc --noEmit
+npm run i18n:new -- <code>   # start a new language from the English template
+npm run i18n:check           # check every language catalogue
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution and pull request
-guidance, and [SECURITY.md](./SECURITY.md) for reporting security concerns.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidance, [SECURITY.md](./SECURITY.md)
+for reporting security concerns, and [`docs/internationalization.md`](docs/internationalization.md)
+for translating.
 
 ## License and attribution
 
