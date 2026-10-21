@@ -4,24 +4,91 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTournament } from "@/contexts/TournamentContext";
-import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv } from "@/lib/csv/importer";
-import {
-  Users,
-  Users2,
-  Building2,
-  Plus,
-  Upload,
-  Trash2,
-  Edit2,
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  X,
-  Sparkles,
-  ExternalLink,
-  Key,
-} from "lucide-react";
+import { Plus, Upload, Trash2, Edit2, Search, Key, FileText, UserPlus, UserMinus } from "lucide-react";
 import { Team, Adjudicator, Institution } from "@/types";
+import { createEntityId } from "@/features/tournament/application/entities";
+import { ballotsWithSpeaker } from "@/features/tournament/application/stateGuards";
+import { hasCodeName } from "@/lib/codeNames";
+import {
+  adjudicatorConflictIds,
+  applyConflictSelection,
+  changeAdjudicatorInstitution,
+  extraInstitutionConflictIds,
+  teamConflictIds,
+  type ConflictSelection,
+} from "@/lib/adjudicators/conflicts";
+import { participantRegion } from "@/lib/adjudicators/diversity";
+import { AdjudicatorConflictsEditor } from "@/features/tournament/components/AdjudicatorConflictsEditor";
+import { prepareTeamForSave, TeamIdentityFields } from "@/features/tournament/components/TeamIdentityFields";
+import { cleanCoaches, InstitutionCoachesField } from "@/features/tournament/components/InstitutionCoachesField";
+import { BreakEligibilityField, SpeakerCategoriesInput } from "@/features/tournament/components/TeamCategoryFields";
+import { CsvImportDialog } from "@/features/tournament/components/CsvImportDialog";
+import { effectiveSpeakerCategories, speakerCategoryNames, speakerCategoryRefs } from "@/lib/speakerCategories";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton, buttonClasses, iconButtonClasses } from "@/components/ui/Button";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Checkbox, Input, Select } from "@/components/ui/Field";
+import { Alert } from "@/components/ui/Feedback";
+import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+
+type DirectoryTab = "teams" | "adjs" | "institutions";
+
+const TAB_TEXT: Record<
+  DirectoryTab,
+  { title: MessageKey; description: MessageKey; search: MessageKey; add: MessageKey }
+> = {
+  institutions: {
+    title: "setup.imports.institutionsTitle",
+    description: "setup.imports.institutionsDescription",
+    search: "setup.imports.searchInstitutions",
+    add: "setup.imports.addInstitution",
+  },
+  teams: {
+    title: "setup.imports.teamsTitle",
+    description: "setup.imports.teamsDescription",
+    search: "setup.imports.searchTeams",
+    add: "setup.imports.addTeam",
+  },
+  adjs: {
+    title: "setup.imports.adjudicatorsTitle",
+    description: "setup.imports.adjudicatorsDescription",
+    search: "setup.imports.searchAdjudicators",
+    add: "setup.imports.addAdjudicator",
+  },
+};
+
+/** A record waiting for the delete confirmation. */
+interface PendingDelete {
+  kind: "team" | "adjudicator" | "institution";
+  id: string;
+  name: string;
+}
+
+const DELETE_TEXT: Record<PendingDelete["kind"], { title: MessageKey; description: MessageKey; confirm: MessageKey }> = {
+  team: {
+    title: "setup.imports.deleteTeamTitle",
+    description: "setup.imports.deleteTeamDescription",
+    confirm: "setup.imports.deleteTeamConfirm",
+  },
+  adjudicator: {
+    title: "setup.imports.deleteAdjudicatorTitle",
+    description: "setup.imports.deleteAdjudicatorDescription",
+    confirm: "setup.imports.deleteAdjudicatorConfirm",
+  },
+  institution: {
+    title: "setup.imports.deleteInstitutionTitle",
+    description: "setup.imports.deleteInstitutionDescription",
+    confirm: "setup.imports.deleteInstitutionConfirm",
+  },
+};
+
+/** Inset box grouping an affiliation choice inside a form. */
+const groupBox = "space-y-2 rounded-md border border-border bg-muted/40 p-3";
+const groupLegend = "px-1 text-xs font-medium text-fg";
 
 export default function ImportDirectory({
   category,
@@ -30,25 +97,31 @@ export default function ImportDirectory({
 }) {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
+  const { t, plural, formatDecimal } = useI18n();
 
   const {
     tournament,
+    isOwnerOrAdmin,
+    staffPermissions,
     teams,
     adjudicators,
     institutions,
+    breakCategories,
+    ballots,
     addTeam,
-    addTeams,
     updateTeam,
     deleteTeam,
     addAdjudicator,
-    addAdjudicators,
-    updateAdjudicator,
+    updateAdjudicators,
     deleteAdjudicator,
     addInstitution,
-    addInstitutions,
     updateInstitution,
     deleteInstitution,
   } = useTournament();
+  // The adjudicator record (Tabbycat participants-adjudicator-record) needs feedback or score access
+  // (lib/tournamentRoutes.ts); it is reachable here even when feedback is switched off.
+  const canOpenAdjudicatorRecord =
+    isOwnerOrAdmin || staffPermissions.includes("feedback.view") || staffPermissions.includes("adjudicators.scores_edit");
 
   const activeTab: "teams" | "adjs" | "institutions" =
     category === "adjudicators" ? "adjs" : category;
@@ -56,18 +129,26 @@ export default function ImportDirectory({
 
   // Modals state
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [editingTeam, setEditingTeamState] = useState<Team | null>(null);
+  const [teamSaveError, setTeamSaveError] = useState("");
+  const setEditingTeam = (team: Team | null) => {
+    setTeamSaveError("");
+    setEditingTeamState(team);
+  };
 
   const [showAddAdjModal, setShowAddAdjModal] = useState(false);
   const [editingAdj, setEditingAdj] = useState<Adjudicator | null>(null);
+  const [editingAdjConflicts, setEditingAdjConflicts] = useState<ConflictSelection>({
+    teamIds: [],
+    adjudicatorIds: [],
+    institutionIds: [],
+  });
+  const [adjSaveError, setAdjSaveError] = useState("");
 
   const [showAddInstModal, setShowAddInstModal] = useState(false);
   const [editingInst, setEditingInst] = useState<Institution | null>(null);
 
   const [showCsvModal, setShowCsvModal] = useState(false);
-  const [csvText, setCsvText] = useState("");
-  const [csvImportError, setCsvImportError] = useState("");
-  const [isImportingCsv, setIsImportingCsv] = useState(false);
 
   // New Institution Form State
   const [instName, setInstName] = useState("");
@@ -84,7 +165,10 @@ export default function ImportDirectory({
   const [newSpk2Email, setNewSpk2Email] = useState("");
   const [newSpk3, setNewSpk3] = useState("");
   const [newSpk3Email, setNewSpk3Email] = useState("");
-  const [newCategory, setNewCategory] = useState("");
+  const [newBreakCategories, setNewBreakCategories] = useState<string[]>([]);
+  const [newSpeakerCategories, setNewSpeakerCategories] = useState<string[][]>([[], [], []]);
+  const setNewSpeakerCategoriesAt = (index: number, categories: string[]) =>
+    setNewSpeakerCategories((current) => current.map((item, itemIndex) => (itemIndex === index ? categories : item)));
 
   // New Adj Form State
   const [newAdjName, setNewAdjName] = useState("");
@@ -95,6 +179,10 @@ export default function ImportDirectory({
   const [newAdjTrainee, setNewAdjTrainee] = useState(false);
 
   const isBP = tournament?.format === "bp";
+  const speakerCategories = useMemo(
+    () => effectiveSpeakerCategories(tournament?.preferences.speakerCategories, teams),
+    [tournament?.preferences.speakerCategories, teams]
+  );
 
   // Institution count maps
   const instTeamCount = useMemo(() => {
@@ -169,7 +257,7 @@ export default function ImportDirectory({
     e.preventDefault();
     if (!editingInst || !editingInst.name.trim()) return;
 
-    await updateInstitution(editingInst);
+    await updateInstitution(cleanCoaches(editingInst));
     setEditingInst(null);
   };
 
@@ -185,11 +273,13 @@ export default function ImportDirectory({
         id: `spk-${Date.now()}-1`,
         name: newSpk1.trim() || `${newTeamName} Spk 1`,
         email: newSpk1Email.trim() || undefined,
+        categories: newSpeakerCategories[0].length > 0 ? newSpeakerCategories[0] : undefined,
       },
       {
         id: `spk-${Date.now()}-2`,
         name: newSpk2.trim() || `${newTeamName} Spk 2`,
         email: newSpk2Email.trim() || undefined,
+        categories: newSpeakerCategories[1].length > 0 ? newSpeakerCategories[1] : undefined,
       },
     ];
 
@@ -198,17 +288,18 @@ export default function ImportDirectory({
         id: `spk-${Date.now()}-3`,
         name: newSpk3.trim() || `${newTeamName} Spk 3`,
         email: newSpk3Email.trim() || undefined,
+        categories: newSpeakerCategories[2].length > 0 ? newSpeakerCategories[2] : undefined,
       });
     }
 
     await addTeam({
+      // No code name until one is set or generated: the real name must never stand in for it.
       name: newTeamName.trim(),
-      codeName: newTeamName.trim(),
       institutionId: selectedInst ? selectedInst.id : undefined,
       institutionName: selectedInst ? selectedInst.name : undefined,
       speakers,
-      breakCategories: [],
-      speakerCategories: newCategory ? [newCategory.trim().toLowerCase()] : [],
+      breakCategories: newBreakCategories,
+      speakerCategories: [],
       checkedIn: true,
     });
 
@@ -221,7 +312,8 @@ export default function ImportDirectory({
     setNewSpk2Email("");
     setNewSpk3("");
     setNewSpk3Email("");
-    setNewCategory("");
+    setNewBreakCategories([]);
+    setNewSpeakerCategories([[], [], []]);
     setShowAddTeamModal(false);
   };
 
@@ -229,8 +321,30 @@ export default function ImportDirectory({
     e.preventDefault();
     if (!editingTeam || !editingTeam.name.trim()) return;
 
-    await updateTeam(editingTeam);
+    // A speaker slot added in this dialog but left blank is dropped rather than saved nameless.
+    const storedIds = new Set((teams.find((team) => team.id === editingTeam.id)?.speakers ?? []).map((speaker) => speaker.id));
+    const speakers = editingTeam.speakers.filter((speaker) => storedIds.has(speaker.id) || speaker.name.trim() !== "");
+    try {
+      await updateTeam(prepareTeamForSave({ ...editingTeam, speakers }, institutions, tournament?.preferences?.teamNameDisplay));
+    } catch (error) {
+      setTeamSaveError(error instanceof Error ? error.message : t("setup.imports.teamSaveError"));
+      return;
+    }
     setEditingTeam(null);
+  };
+
+  /** Ballots with speeches by a speaker; a speaker with any cannot be removed (the save is refused too). */
+  const speakerBallotCount = (speakerId: string) => ballotsWithSpeaker(speakerId, ballots).length;
+  const addSpeakerToEditingTeam = () => {
+    if (!editingTeam) return;
+    setEditingTeam({
+      ...editingTeam,
+      speakers: [...(editingTeam.speakers ?? []), { id: createEntityId("spk"), name: "" }],
+    });
+  };
+  const removeSpeakerFromEditingTeam = (speakerId: string) => {
+    if (!editingTeam || speakerBallotCount(speakerId) > 0) return;
+    setEditingTeam({ ...editingTeam, speakers: editingTeam.speakers.filter((speaker) => speaker.id !== speakerId) });
   };
 
   // Adjudicator Handlers
@@ -261,1155 +375,1043 @@ export default function ImportDirectory({
     setShowAddAdjModal(false);
   };
 
+  const institutionsById = useMemo(
+    () => new Map(institutions.map((institution) => [institution.id, institution])),
+    [institutions]
+  );
+
+  const openAdjEditor = (adjudicator: Adjudicator) => {
+    setAdjSaveError("");
+    setEditingAdj(adjudicator);
+    setEditingAdjConflicts({
+      teamIds: teamConflictIds(adjudicator),
+      adjudicatorIds: adjudicatorConflictIds(adjudicator, adjudicators),
+      institutionIds: extraInstitutionConflictIds(adjudicator),
+    });
+  };
+
   const handleUpdateAdj = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAdj || !editingAdj.name.trim()) return;
 
-    await updateAdjudicator(editingAdj);
+    setAdjSaveError("");
+    try {
+      // Also saves anyone whose declaration of a removed adjudicator conflict was dropped.
+      await updateAdjudicators(applyConflictSelection(editingAdj, editingAdjConflicts, adjudicators));
+    } catch (error) {
+      setAdjSaveError(error instanceof Error ? error.message : t("setup.imports.adjudicatorSaveError"));
+      return;
+    }
     setEditingAdj(null);
   };
 
-  // CSV Import Handler
-  const handleCsvImport = async () => {
-    if (!csvText.trim()) return;
-    setIsImportingCsv(true);
-    setCsvImportError("");
+  // Delete confirmation
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  const requestDelete = (request: PendingDelete) => {
+    setDeleteError("");
+    setPendingDelete(request);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
     try {
-      if (activeTab === "institutions") {
-        const parsed = parseInstitutionsCsv(csvText, tournament?.id || "");
-        await addInstitutions(parsed.map(({ name, code, region }) => ({ name, code, region })));
-      } else if (activeTab === "teams") {
-        const parsed = parseTeamsCsv(csvText, tournament?.id || "");
-        const matchedTeams = parsed.map((team) => {
-          // Match institution from existing list if possible
-          if (team.institutionName) {
-            const matchedInst = institutions.find(
-              (inst) =>
-                inst.name.toLowerCase() === team.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === team.institutionName?.toLowerCase()
-            );
-            if (matchedInst) {
-              return { ...team, institutionId: matchedInst.id, institutionName: matchedInst.name };
-            }
-          }
-          return team;
-        });
-        await addTeams(matchedTeams);
-      } else {
-        const parsed = parseAdjudicatorsCsv(csvText, tournament?.id || "");
-        const matchedAdjudicators = parsed.map((adjudicator) => {
-          if (adjudicator.institutionName && !adjudicator.independent) {
-            const matchedInst = institutions.find(
-              (inst) =>
-                inst.name.toLowerCase() === adjudicator.institutionName?.toLowerCase() ||
-                inst.code.toLowerCase() === adjudicator.institutionName?.toLowerCase()
-            );
-            if (matchedInst) {
-              return {
-                ...adjudicator,
-                institutionId: matchedInst.id,
-                institutionName: matchedInst.name,
-                conflicts: [{ institutionId: matchedInst.id, type: "institution" as const }],
-              };
-            }
-          }
-          return adjudicator;
-        });
-        await addAdjudicators(matchedAdjudicators);
-      }
-      setCsvText("");
-      setShowCsvModal(false);
+      if (pendingDelete.kind === "team") await deleteTeam(pendingDelete.id);
+      else if (pendingDelete.kind === "adjudicator") await deleteAdjudicator(pendingDelete.id);
+      else await deleteInstitution(pendingDelete.id);
+      setPendingDelete(null);
     } catch (error) {
-      setCsvImportError(error instanceof Error ? error.message : "Could not import CSV data.");
+      setDeleteError(error instanceof Error ? error.message : t("setup.imports.deleteError"));
     } finally {
-      setIsImportingCsv(false);
+      setDeleting(false);
     }
   };
 
-  const handleCsvFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setCsvText(await file.text());
-      setCsvImportError("");
-    } catch (error) {
-      setCsvImportError(error instanceof Error ? error.message : "Could not read the selected CSV file.");
-    } finally {
-      event.target.value = "";
-    }
-  };
+  const tabText = TAB_TEXT[activeTab];
+  const speakerLabel = (name: string | undefined, index: number) =>
+    name || t("setup.imports.speakerNumber", { number: index + 1 });
+  /** Empty-table message: a search with no hits, or nothing registered yet. */
+  const emptyMessage = (total: number, emptyKey: MessageKey) =>
+    total > 0 && searchQuery ? t("setup.imports.noMatches", { query: searchQuery }) : t(emptyKey);
+  const institutionOptions = institutions.map((inst) => (
+    <option key={inst.id} value={inst.id}>
+      {inst.name} ({inst.code})
+    </option>
+  ));
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            {activeTab === "institutions" ? (
-              <Building2 className="w-6 h-6 text-emerald-600" />
-            ) : activeTab === "teams" ? (
-              <Users className="w-6 h-6 text-blue-600" />
-            ) : (
-              <Users2 className="w-6 h-6 text-indigo-600" />
-            )}
-            <span>
-              {activeTab === "institutions"
-                ? "Institutions"
-                : activeTab === "teams"
-                ? "Teams"
-                : "Adjudicators"}
-            </span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            {activeTab === "institutions"
-              ? "Manage institutions and affiliations used by teams and adjudicators."
-              : activeTab === "teams"
-              ? "Manage debating teams, speakers, affiliations, and team imports."
-              : "Manage adjudicators, affiliations, scores, and adjudicator imports."}
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <Link
-            href={`/${tournamentSlug}/private-urls`}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-800 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-          >
-            <Key className="w-3.5 h-3.5 text-blue-600" />
-            <span>Private URLs</span>
-          </Link>
-
-          <button
-            onClick={() => setShowCsvModal(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-800 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-          >
-            <Upload className="w-3.5 h-3.5 text-gray-500" />
-            <span>Import CSV</span>
-          </button>
-
-          {activeTab === "institutions" ? (
-            <button
-              onClick={() => setShowAddInstModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs shadow-xs transition"
+      <PageHeader
+        title={t(tabText.title)}
+        description={t(tabText.description)}
+        actions={
+          <>
+            <Link href={`/${tournamentSlug}/private-urls`} className={buttonClasses({ variant: "secondary" })}>
+              <Key aria-hidden="true" />
+              {t("setup.imports.privateUrls")}
+            </Link>
+            <Button variant="secondary" onClick={() => setShowCsvModal(true)}>
+              <Upload aria-hidden="true" />
+              {t("setup.imports.importCsv")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() =>
+                activeTab === "institutions"
+                  ? setShowAddInstModal(true)
+                  : activeTab === "teams"
+                    ? setShowAddTeamModal(true)
+                    : setShowAddAdjModal(true)
+              }
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Institution</span>
-            </button>
-          ) : activeTab === "teams" ? (
-            <button
-              onClick={() => setShowAddTeamModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Team</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowAddAdjModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-xs shadow-xs transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Adjudicator</span>
-            </button>
-          )}
-        </div>
-      </div>
+              <Plus aria-hidden="true" />
+              {t(tabText.add)}
+            </Button>
+          </>
+        }
+      />
 
-      {/* Tabs & Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
-          <input
-            type="text"
-            placeholder={
-              activeTab === "institutions"
-                ? "Search institutions..."
-                : activeTab === "teams"
-                ? "Search teams..."
-                : "Search judges..."
-            }
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 w-60"
-          />
-        </div>
+      {/* Search */}
+      <div className="w-full sm:w-72">
+        <Input
+          type="search"
+          leadingIcon={<Search />}
+          aria-label={t(tabText.search)}
+          placeholder={t(tabText.search)}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {/* 1. Teams Table */}
       {activeTab === "teams" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Team Name</th>
-                  <th>Institution</th>
-                  <th>Speakers</th>
-                  <th>Categories</th>
-                  <th className="w-20 text-center">Status</th>
-                  <th className="w-24 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTeams.map((team, idx) => (
-                  <tr key={team.id} className="hover:bg-gray-50">
-                    <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
-                    <td className="font-bold text-gray-900 text-xs">{team.name}</td>
-                    <td>
-                      {team.institutionName ? (
-                        <span className="inline-flex items-center space-x-1 text-xs text-gray-800 font-medium">
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                          <span>{team.institutionName}</span>
-                        </span>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">Independent / Unaffiliated</span>
-                      )}
-                    </td>
-                    <td className="text-xs text-gray-700">
-                      {team.speakers?.map((s) => s.name).join(", ") || "—"}
-                    </td>
-                    <td>
-                      {team.speakerCategories?.map((c) => (
-                        <span
-                          key={c}
-                          className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold bg-blue-100 text-blue-800 uppercase mr-1"
-                        >
-                          {c}
-                        </span>
+        <TableContainer>
+          <Table>
+            <caption className="sr-only">{t("setup.imports.teamsCaption")}</caption>
+            <THead>
+              <TR>
+                <TH align="right" className="w-12">#</TH>
+                <TH>{t("setup.imports.colTeamName")}</TH>
+                <TH>{t("setup.imports.institution")}</TH>
+                <TH>{t("setup.imports.colSpeakers")}</TH>
+                <TH>{t("setup.imports.colCategories")}</TH>
+                <TH align="center" className="w-28">{t("setup.common.status")}</TH>
+                <TH align="right" className="w-28">{t("setup.common.actions")}</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {filteredTeams.map((team, idx) => (
+                <TR key={team.id}>
+                  <TD numeric className="text-fg-muted">{idx + 1}</TD>
+                  <TD className="font-medium">{team.name}</TD>
+                  <TD>
+                    {team.institutionName ? (
+                      <span className="text-xs">{team.institutionName}</span>
+                    ) : (
+                      <span className="text-xs italic text-fg-muted">{t("setup.imports.unaffiliated")}</span>
+                    )}
+                  </TD>
+                  <TD className="text-xs text-fg-muted">
+                    {team.speakers?.map((s) => s.name).join(", ") || "—"}
+                  </TD>
+                  <TD>
+                    <div className="flex flex-wrap gap-1">
+                      {speakerCategoryNames(
+                        team.speakers.flatMap((speaker) => speakerCategoryRefs(speaker, team)),
+                        speakerCategories
+                      ).map((name) => (
+                        <Badge key={name} tone="accent">
+                          {name}
+                        </Badge>
                       ))}
-                    </td>
-                    <td className="text-center">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase">
-                        Checked In
-                      </span>
-                    </td>
-                    <td className="text-right space-x-1">
+                    </div>
+                  </TD>
+                  <TD align="center">
+                    <StatusPill tone="success">{t("setup.imports.checkedIn")}</StatusPill>
+                  </TD>
+                  <TD align="right">
+                    <div className="flex justify-end gap-0.5">
                       {team.privateUrlKey && (
                         <Link
                           href={`/${tournamentSlug}/private/team/${team.privateUrlKey}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-1 text-gray-400 hover:text-emerald-600 rounded transition inline-block align-middle"
-                          title="Open Team Private Portal"
+                          className={iconButtonClasses({ size: "sm" })}
+                          aria-label={t("setup.imports.openTeamPortal", { name: team.name })}
+                          title={t("setup.imports.openTeamPortal", { name: team.name })}
                         >
-                          <Key className="w-3.5 h-3.5" />
+                          <Key aria-hidden="true" />
                         </Link>
                       )}
-                      <button
+                      <Link
+                        href={`/${tournamentSlug}/team/${team.id}`}
+                        className={iconButtonClasses({ size: "sm" })}
+                        aria-label={t("setup.imports.teamRecordNamed", { name: team.name })}
+                        title={t("setup.imports.teamRecordNamed", { name: team.name })}
+                      >
+                        <FileText aria-hidden="true" />
+                      </Link>
+                      <IconButton
+                        size="sm"
+                        icon={<Edit2 aria-hidden="true" />}
+                        label={t("setup.imports.editTeamNamed", { name: team.name })}
                         onClick={() => setEditingTeam(team)}
-                        className="p-1 text-gray-400 hover:text-blue-600 rounded transition"
-                        title="Edit Team"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete team "${team.name}"?`)) deleteTeam(team.id);
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Team"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredTeams.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-xs text-gray-400">
-                      No teams registered yet. Click &quot;Add Team&quot; or import via CSV.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                      />
+                      {isOwnerOrAdmin && (
+                        <IconButton
+                          size="sm"
+                          icon={<Trash2 aria-hidden="true" />}
+                          label={t("setup.imports.deleteTeamNamed", { name: team.name })}
+                          onClick={() => requestDelete({ kind: "team", id: team.id, name: team.name })}
+                          className="hover:text-danger"
+                        />
+                      )}
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+              {filteredTeams.length === 0 && (
+                <TableEmpty colSpan={7}>{emptyMessage(teams.length, "setup.imports.teamsEmpty")}</TableEmpty>
+              )}
+            </TBody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* 2. Adjudicators Table */}
       {activeTab === "adjs" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Judge Name</th>
-                  <th>Institution / Affiliation</th>
-                  <th className="text-center">Rating</th>
-                  <th className="text-center">Role</th>
-                  <th className="w-20 text-center">Status</th>
-                  <th className="w-24 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAdjs.map((adj, idx) => (
-                  <tr key={adj.id} className="hover:bg-gray-50">
-                    <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
-                    <td className="font-bold text-gray-900 text-xs">{adj.name}</td>
-                    <td>
-                      {adj.independent || !adj.institutionName ? (
-                        <span className="text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded border border-gray-200">
-                          Independent / Unaffiliated
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center space-x-1 text-xs text-gray-800 font-medium">
-                          <Building2 className="w-3 h-3 text-indigo-500" />
-                          <span>{adj.institutionName}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center font-mono font-bold text-xs bg-gray-50 text-indigo-700">
-                      {adj.baseScore?.toFixed(1) || "5.0"}
-                    </td>
-                    <td className="text-center">
-                      {adj.trainee ? (
-                        <span className="text-[10px] font-semibold bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded uppercase">
-                          Trainee
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded uppercase">
-                          Accredited
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase">
-                        Active
-                      </span>
-                    </td>
-                    <td className="text-right space-x-1">
+        <TableContainer>
+          <Table>
+            <caption className="sr-only">{t("setup.imports.adjudicatorsCaption")}</caption>
+            <THead>
+              <TR>
+                <TH align="right" className="w-12">#</TH>
+                <TH>{t("setup.imports.colJudgeName")}</TH>
+                <TH>{t("setup.imports.colAffiliation")}</TH>
+                <TH align="right">{t("setup.imports.colRating")}</TH>
+                <TH>{t("setup.imports.colGenderRegion")}</TH>
+                <TH align="right">{t("setup.imports.colConflicts")}</TH>
+                <TH align="center">{t("setup.imports.colRole")}</TH>
+                <TH align="center" className="w-24">{t("setup.common.status")}</TH>
+                <TH align="right" className="w-28">{t("setup.common.actions")}</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {filteredAdjs.map((adj, idx) => (
+                <TR key={adj.id}>
+                  <TD numeric className="text-fg-muted">{idx + 1}</TD>
+                  <TD className="font-medium">
+                    {canOpenAdjudicatorRecord ? (
+                      <Link
+                        href={`/${tournamentSlug}/feedback/adjudicator/${adj.id}`}
+                        className="rounded-sm text-accent-text hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        title={t("setup.imports.openAdjudicatorRecord", { name: adj.name })}
+                      >
+                        {adj.name}
+                      </Link>
+                    ) : (
+                      adj.name
+                    )}
+                  </TD>
+                  <TD>
+                    {adj.independent || !adj.institutionName ? (
+                      <Badge>{t("setup.imports.unaffiliated")}</Badge>
+                    ) : (
+                      <span className="text-xs">{adj.institutionName}</span>
+                    )}
+                  </TD>
+                  <TD numeric className="font-semibold">
+                    {formatDecimal(adj.baseScore ?? 5, 1)}
+                  </TD>
+                  <TD className="text-xs text-fg-muted">
+                    {adj.gender?.trim() || "—"} · {participantRegion(adj, institutionsById) || "—"}
+                  </TD>
+                  <TD numeric>
+                    {teamConflictIds(adj).length + adjudicatorConflictIds(adj, adjudicators).length +
+                      extraInstitutionConflictIds(adj).length}
+                  </TD>
+                  <TD align="center">
+                    {adj.trainee ? (
+                      <Badge tone="warning">{t("setup.imports.trainee")}</Badge>
+                    ) : (
+                      <Badge tone="info">{t("setup.imports.accredited")}</Badge>
+                    )}
+                  </TD>
+                  <TD align="center">
+                    <StatusPill tone="success">{t("setup.imports.active")}</StatusPill>
+                  </TD>
+                  <TD align="right">
+                    <div className="flex justify-end gap-0.5">
                       {adj.privateUrlKey && (
                         <Link
                           href={`/${tournamentSlug}/private/adjudicator/${adj.privateUrlKey}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-1 text-gray-400 hover:text-blue-600 rounded transition inline-block align-middle"
-                          title="Open Adjudicator Private Portal"
+                          className={iconButtonClasses({ size: "sm" })}
+                          aria-label={t("setup.imports.openAdjudicatorPortal", { name: adj.name })}
+                          title={t("setup.imports.openAdjudicatorPortal", { name: adj.name })}
                         >
-                          <Key className="w-3.5 h-3.5" />
+                          <Key aria-hidden="true" />
                         </Link>
                       )}
-                      <button
-                        onClick={() => setEditingAdj(adj)}
-                        className="p-1 text-gray-400 hover:text-indigo-600 rounded transition"
-                        title="Edit Judge"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete judge "${adj.name}"?`)) deleteAdjudicator(adj.id);
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Judge"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredAdjs.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-xs text-gray-400">
-                      No adjudicators registered yet. Click &quot;Add Adjudicator&quot; or import via CSV.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                      <IconButton
+                        size="sm"
+                        icon={<Edit2 aria-hidden="true" />}
+                        label={t("setup.imports.editAdjudicatorNamed", { name: adj.name })}
+                        onClick={() => openAdjEditor(adj)}
+                      />
+                      {isOwnerOrAdmin && (
+                        <IconButton
+                          size="sm"
+                          icon={<Trash2 aria-hidden="true" />}
+                          label={t("setup.imports.deleteAdjudicatorNamed", { name: adj.name })}
+                          onClick={() => requestDelete({ kind: "adjudicator", id: adj.id, name: adj.name })}
+                          className="hover:text-danger"
+                        />
+                      )}
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+              {filteredAdjs.length === 0 && (
+                <TableEmpty colSpan={9}>
+                  {emptyMessage(adjudicators.length, "setup.imports.adjudicatorsEmpty")}
+                </TableEmpty>
+              )}
+            </TBody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* 3. Institutions Table */}
       {activeTab === "institutions" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Institution Name</th>
-                  <th>Code / Abbr</th>
-                  <th>Region</th>
-                  <th className="text-center">Teams Count</th>
-                  <th className="text-center">Judges Count</th>
-                  <th className="w-24 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInstitutions.map((inst, idx) => (
-                  <tr key={inst.id} className="hover:bg-gray-50">
-                    <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
-                    <td className="font-bold text-gray-900 text-xs flex items-center space-x-1.5 py-2.5">
-                      <Building2 className="w-4 h-4 text-emerald-600" />
-                      <span>{inst.name}</span>
-                    </td>
-                    <td className="font-mono text-xs font-semibold text-gray-700">{inst.code}</td>
-                    <td className="text-xs text-gray-600">{inst.region || "—"}</td>
-                    <td className="text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                        {instTeamCount.get(inst.id) || 0} teams
-                      </span>
-                    </td>
-                    <td className="text-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
-                        {instAdjCount.get(inst.id) || 0} judges
-                      </span>
-                    </td>
-                    <td className="text-right space-x-1">
-                      <button
+        <TableContainer>
+          <Table>
+            <caption className="sr-only">{t("setup.imports.institutionsCaption")}</caption>
+            <THead>
+              <TR>
+                <TH align="right" className="w-12">#</TH>
+                <TH>{t("setup.imports.colInstitutionName")}</TH>
+                <TH>{t("setup.imports.colCodeAbbr")}</TH>
+                <TH>{t("setup.imports.region")}</TH>
+                <TH align="center">{t("setup.imports.colTeamsCount")}</TH>
+                <TH align="center">{t("setup.imports.colJudgesCount")}</TH>
+                <TH align="right" className="w-24">{t("setup.common.actions")}</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {filteredInstitutions.map((inst, idx) => (
+                <TR key={inst.id}>
+                  <TD numeric className="text-fg-muted">{idx + 1}</TD>
+                  <TD className="font-medium">{inst.name}</TD>
+                  <TD className="font-mono text-xs">{inst.code}</TD>
+                  <TD className="text-xs text-fg-muted">{inst.region || "—"}</TD>
+                  <TD align="center">
+                    <Badge>{plural("setup.imports.teamsCount", instTeamCount.get(inst.id) || 0)}</Badge>
+                  </TD>
+                  <TD align="center">
+                    <Badge>{plural("setup.imports.judgesCount", instAdjCount.get(inst.id) || 0)}</Badge>
+                  </TD>
+                  <TD align="right">
+                    <div className="flex justify-end gap-0.5">
+                      <IconButton
+                        size="sm"
+                        icon={<Edit2 aria-hidden="true" />}
+                        label={t("setup.imports.editInstitutionNamed", { name: inst.name })}
                         onClick={() => setEditingInst(inst)}
-                        className="p-1 text-gray-400 hover:text-emerald-600 rounded transition"
-                        title="Edit Institution"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete institution "${inst.name}"? This will unlink associated teams and judges.`)) {
-                            deleteInstitution(inst.id);
-                          }
-                        }}
-                        className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                        title="Delete Institution"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredInstitutions.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-xs text-gray-400">
-                      No institutions registered yet. Click &quot;Add Institution&quot; or import via CSV.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Add Institution Modal */}
-      {showAddInstModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Building2 className="w-5 h-5 text-emerald-600" />
-              <span>Add New Institution</span>
-            </h3>
-            <form onSubmit={handleCreateInstitution} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Institution Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Oxford Union Society"
-                  value={instName}
-                  onChange={(e) => setInstName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Code / Abbr</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Oxford"
-                    value={instCode}
-                    onChange={(e) => setInstCode(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Region (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. UK / Europe"
-                    value={instRegion}
-                    onChange={(e) => setInstRegion(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddInstModal(false)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs"
-                >
-                  Create Institution
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Institution Modal */}
-      {editingInst && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Edit2 className="w-5 h-5 text-emerald-600" />
-              <span>Edit Institution</span>
-            </h3>
-            <form onSubmit={handleUpdateInstitution} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Institution Name</label>
-                <input
-                  type="text"
-                  required
-                  value={editingInst.name}
-                  onChange={(e) => setEditingInst({ ...editingInst, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Code / Abbr</label>
-                  <input
-                    type="text"
-                    value={editingInst.code}
-                    onChange={(e) => setEditingInst({ ...editingInst, code: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Region</label>
-                  <input
-                    type="text"
-                    value={editingInst.region || ""}
-                    onChange={(e) => setEditingInst({ ...editingInst, region: e.target.value })}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingInst(null)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add Team Modal */}
-      {showAddTeamModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Plus className="w-5 h-5 text-blue-600" />
-              <span>Add New Team</span>
-            </h3>
-            <form onSubmit={handleCreateTeam} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Team Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Oxford A"
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Institution Dropbox & Unaffiliated Checkbox */}
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-800">Institution Affiliation</label>
-                  <label className="flex items-center space-x-1.5 text-xs text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newTeamUnaffiliated}
-                      onChange={(e) => setNewTeamUnaffiliated(e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="font-semibold text-gray-700">Unaffiliated / Independent</span>
-                  </label>
-                </div>
-
-                {!newTeamUnaffiliated ? (
-                  <div>
-                    <select
-                      value={newTeamInstId}
-                      onChange={(e) => setNewTeamInstId(e.target.value)}
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">-- Select Institution --</option>
-                      {institutions.map((inst) => (
-                        <option key={inst.id} value={inst.id}>
-                          {inst.name} ({inst.code})
-                        </option>
-                      ))}
-                    </select>
-                    {institutions.length === 0 && (
-                      <p className="text-[11px] text-amber-600 mt-1">
-                        No institutions registered yet. Create one in the Institutions tab or import via CSV.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-gray-500 italic">
-                    This team is registered as independent with no institutional clash constraints.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Speaker 1</label>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={newSpk1}
-                    onChange={(e) => setNewSpk1(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email (optional)"
-                    value={newSpk1Email}
-                    onChange={(e) => setNewSpk1Email(e.target.value)}
-                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Speaker 2</label>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={newSpk2}
-                    onChange={(e) => setNewSpk2(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email (optional)"
-                    value={newSpk2Email}
-                    onChange={(e) => setNewSpk2Email(e.target.value)}
-                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              {!isBP && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Speaker 3</label>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={newSpk3}
-                    onChange={(e) => setNewSpk3(e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                  <input
-                    type="email"
-                    placeholder="Email (optional)"
-                    value={newSpk3Email}
-                    onChange={(e) => setNewSpk3Email(e.target.value)}
-                    className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                  />
-                </div>
+                      />
+                      {isOwnerOrAdmin && (
+                        <IconButton
+                          size="sm"
+                          icon={<Trash2 aria-hidden="true" />}
+                          label={t("setup.imports.deleteInstitutionNamed", { name: inst.name })}
+                          onClick={() => requestDelete({ kind: "institution", id: inst.id, name: inst.name })}
+                          className="hover:text-danger"
+                        />
+                      )}
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+              {filteredInstitutions.length === 0 && (
+                <TableEmpty colSpan={7}>
+                  {emptyMessage(institutions.length, "setup.imports.institutionsEmpty")}
+                </TableEmpty>
               )}
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Speaker Category (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. ESL or Novice"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddTeamModal(false)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  Add Team
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            </TBody>
+          </Table>
+        </TableContainer>
       )}
 
-      {/* Edit Team Modal */}
-      {editingTeam && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Edit2 className="w-5 h-5 text-blue-600" />
-              <span>Edit Team</span>
-            </h3>
-            <form onSubmit={handleUpdateTeam} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Team Name</label>
-                <input
-                  type="text"
-                  required
-                  value={editingTeam.name}
-                  onChange={(e) => setEditingTeam({ ...editingTeam, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Institution Selection */}
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-800">Institution Affiliation</label>
-                  <label className="flex items-center space-x-1.5 text-xs text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!editingTeam.institutionId && !editingTeam.institutionName}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setEditingTeam({ ...editingTeam, institutionId: undefined, institutionName: undefined });
-                        } else {
-                          const firstInst = institutions[0];
-                          if (firstInst) {
-                            setEditingTeam({ ...editingTeam, institutionId: firstInst.id, institutionName: firstInst.name });
-                          }
-                        }
-                      }}
-                      className="rounded border-gray-300 text-blue-600"
-                    />
-                    <span className="font-semibold text-gray-700">Unaffiliated</span>
-                  </label>
-                </div>
-
-                {editingTeam.institutionId || editingTeam.institutionName ? (
-                  <select
-                    value={editingTeam.institutionId || ""}
-                    onChange={(e) => {
-                      const selected = institutions.find((i) => i.id === e.target.value);
-                      setEditingTeam({
-                        ...editingTeam,
-                        institutionId: selected?.id,
-                        institutionName: selected?.name,
-                      });
-                    }}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white"
-                  >
-                    <option value="">-- Select Institution --</option>
-                    {institutions.map((inst) => (
-                      <option key={inst.id} value={inst.id}>
-                        {inst.name} ({inst.code})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-[11px] text-gray-500 italic">Independent / Unaffiliated Team</p>
-                )}
-              </div>
-
-              {/* Speakers editing */}
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-700">Speakers</label>
-                {editingTeam.speakers?.map((spk, idx) => (
-                  <div key={spk.id || idx} className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={spk.name}
-                      onChange={(e) => {
-                        const newSpeakers = [...editingTeam.speakers];
-                        newSpeakers[idx] = { ...spk, name: e.target.value };
-                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
-                      }}
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                      placeholder={`Speaker ${idx + 1}`}
-                    />
-                    <input
-                      type="email"
-                      value={spk.email || ""}
-                      onChange={(e) => {
-                        const newSpeakers = [...editingTeam.speakers];
-                        newSpeakers[idx] = { ...spk, email: e.target.value.trim() || undefined };
-                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
-                      }}
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                      placeholder="Email (optional)"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingTeam(null)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
+      {/* Add Institution */}
+      <Dialog
+        open={showAddInstModal}
+        onClose={() => setShowAddInstModal(false)}
+        title={t("setup.imports.addInstitutionTitle")}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAddInstModal(false)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="add-institution-form" variant="primary">
+              {t("setup.imports.createInstitution")}
+            </Button>
+          </>
+        }
+      >
+        <form id="add-institution-form" onSubmit={handleCreateInstitution} className="space-y-3">
+          <Input
+            label={t("setup.imports.institutionName")}
+            required
+            placeholder={t("setup.imports.institutionNamePlaceholder")}
+            value={instName}
+            onChange={(e) => setInstName(e.target.value)}
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              label={t("setup.imports.codeAbbr")}
+              help={t("setup.imports.codeHelp")}
+              placeholder={t("setup.imports.codePlaceholder")}
+              value={instCode}
+              onChange={(e) => setInstCode(e.target.value)}
+            />
+            <Input
+              label={t("setup.imports.region")}
+              help={t("setup.common.optional")}
+              placeholder={t("setup.imports.regionPlaceholder")}
+              value={instRegion}
+              onChange={(e) => setInstRegion(e.target.value)}
+            />
           </div>
-        </div>
-      )}
+        </form>
+      </Dialog>
 
-      {/* Add Adj Modal */}
-      {showAddAdjModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Plus className="w-5 h-5 text-indigo-600" />
-              <span>Add Adjudicator</span>
-            </h3>
-            <form onSubmit={handleCreateAdj} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Judge Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Eleanor Vance"
-                  value={newAdjName}
-                  onChange={(e) => setNewAdjName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <input
-                  type="email"
-                  placeholder="Email (optional)"
-                  value={newAdjEmail}
-                  onChange={(e) => setNewAdjEmail(e.target.value)}
-                  className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {/* Institution Dropbox & Unaffiliated Checkbox */}
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-800">Institution Affiliation</label>
-                  <label className="flex items-center space-x-1.5 text-xs text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newAdjUnaffiliated}
-                      onChange={(e) => setNewAdjUnaffiliated(e.target.checked)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="font-semibold text-gray-700">Unaffiliated / Independent</span>
-                  </label>
-                </div>
-
-                {!newAdjUnaffiliated ? (
-                  <div>
-                    <select
-                      value={newAdjInstId}
-                      onChange={(e) => setNewAdjInstId(e.target.value)}
-                      className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">-- Select Institution --</option>
-                      {institutions.map((inst) => (
-                        <option key={inst.id} value={inst.id}>
-                          {inst.name} ({inst.code})
-                        </option>
-                      ))}
-                    </select>
-                    {institutions.length === 0 && (
-                      <p className="text-[11px] text-amber-600 mt-1">
-                        No institutions registered yet. Create one in the Institutions tab.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-gray-500 italic">
-                    This judge is independent and will have no automatic institutional clash restrictions.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Base Rating (1-10)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="1"
-                    max="10"
-                    value={newAdjScore}
-                    onChange={(e) => setNewAdjScore(parseFloat(e.target.value) || 5.0)}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                </div>
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center space-x-2 cursor-pointer text-xs font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={newAdjTrainee}
-                      onChange={(e) => setNewAdjTrainee(e.target.checked)}
-                      className="rounded border-gray-300 text-indigo-600"
-                    />
-                    <span>Trainee Judge</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddAdjModal(false)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-xs"
-                >
-                  Add Adjudicator
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Adj Modal */}
-      {editingAdj && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Edit2 className="w-5 h-5 text-indigo-600" />
-              <span>Edit Adjudicator</span>
-            </h3>
-            <form onSubmit={handleUpdateAdj} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Judge Name</label>
-                <input
-                  type="text"
-                  required
-                  value={editingAdj.name}
-                  onChange={(e) => setEditingAdj({ ...editingAdj, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <input
-                  type="email"
-                  value={editingAdj.email || ""}
-                  onChange={(e) =>
-                    setEditingAdj({ ...editingAdj, email: e.target.value.trim() || undefined })
-                  }
-                  placeholder="Email (optional)"
-                  className="mt-1 w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {/* Institution Selection */}
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-gray-800">Institution Affiliation</label>
-                  <label className="flex items-center space-x-1.5 text-xs text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editingAdj.independent}
-                      onChange={(e) => {
-                        const isIndep = e.target.checked;
-                        setEditingAdj({
-                          ...editingAdj,
-                          independent: isIndep,
-                          institutionId: isIndep ? undefined : editingAdj.institutionId || institutions[0]?.id,
-                          institutionName: isIndep ? undefined : editingAdj.institutionName || institutions[0]?.name,
-                          conflicts: isIndep ? [] : editingAdj.conflicts,
-                        });
-                      }}
-                      className="rounded border-gray-300 text-indigo-600"
-                    />
-                    <span className="font-semibold text-gray-700">Unaffiliated / Independent</span>
-                  </label>
-                </div>
-
-                {!editingAdj.independent ? (
-                  <select
-                    value={editingAdj.institutionId || ""}
-                    onChange={(e) => {
-                      const selected = institutions.find((i) => i.id === e.target.value);
-                      setEditingAdj({
-                        ...editingAdj,
-                        institutionId: selected?.id,
-                        institutionName: selected?.name,
-                        independent: !selected,
-                        conflicts: selected
-                          ? [{ institutionId: selected.id, type: "institution" }]
-                          : [],
-                      });
-                    }}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs bg-white"
-                  >
-                    <option value="">-- Select Institution --</option>
-                    {institutions.map((inst) => (
-                      <option key={inst.id} value={inst.id}>
-                        {inst.name} ({inst.code})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-[11px] text-gray-500 italic">Independent / Unaffiliated Adjudicator</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Base Rating (1-10)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="1"
-                    max="10"
-                    value={editingAdj.baseScore}
-                    onChange={(e) => setEditingAdj({ ...editingAdj, baseScore: parseFloat(e.target.value) || 5.0 })}
-                    className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                  />
-                </div>
-                <div className="flex items-center pt-5">
-                  <label className="flex items-center space-x-2 cursor-pointer text-xs font-semibold">
-                    <input
-                      type="checkbox"
-                      checked={editingAdj.trainee}
-                      onChange={(e) => setEditingAdj({ ...editingAdj, trainee: e.target.checked })}
-                      className="rounded border-gray-300 text-indigo-600"
-                    />
-                    <span>Trainee Judge</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setEditingAdj(null)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-xs"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CSV Import Modal */}
-      {showCsvModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-lg w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-2 flex items-center space-x-2">
-              <Upload className="w-5 h-5 text-blue-600" />
-              <span>
-                Import{" "}
-                {activeTab === "institutions"
-                  ? "Institutions"
-                  : activeTab === "teams"
-                  ? "Teams"
-                  : "Adjudicators"}{" "}
-                from CSV
-              </span>
-            </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              {activeTab === "institutions"
-                ? "Upload a Google Sheets .csv file or paste CSV text with columns: name, code, region. Commas in institution names are supported."
-                : activeTab === "teams"
-                ? "Paste CSV text formatted with columns: name, institution, speaker1, speaker2"
-                : "Paste CSV text formatted with columns: name, institution, score, trainee"}
-            </p>
-
-            <div className="mb-3">
-              <label className="inline-flex cursor-pointer items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 rounded text-xs font-semibold text-gray-800 shadow-2xs">
-                <Upload className="w-3.5 h-3.5 text-blue-600" />
-                <span>Choose CSV File</span>
-                <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} className="sr-only" />
-              </label>
-              {csvText && <span className="ml-2 text-xs text-gray-500">CSV loaded</span>}
+      {/* Edit Institution */}
+      <Dialog
+        open={editingInst !== null}
+        onClose={() => setEditingInst(null)}
+        title={t("setup.imports.editInstitutionTitle")}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditingInst(null)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="edit-institution-form" variant="primary">
+              {t("setup.common.saveChanges")}
+            </Button>
+          </>
+        }
+      >
+        {editingInst && (
+          <form id="edit-institution-form" onSubmit={handleUpdateInstitution} className="space-y-3">
+            <Input
+              label={t("setup.imports.institutionName")}
+              required
+              value={editingInst.name}
+              onChange={(e) => setEditingInst({ ...editingInst, name: e.target.value })}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label={t("setup.imports.codeAbbr")}
+                value={editingInst.code}
+                onChange={(e) => setEditingInst({ ...editingInst, code: e.target.value })}
+              />
+              <Input
+                label={t("setup.imports.region")}
+                value={editingInst.region || ""}
+                onChange={(e) => setEditingInst({ ...editingInst, region: e.target.value })}
+              />
             </div>
+            <InstitutionCoachesField institution={editingInst} onChange={setEditingInst} />
+          </form>
+        )}
+      </Dialog>
 
-            <textarea
-              rows={8}
-              placeholder={
-                activeTab === "institutions"
-                  ? "name,code,region\nOxford Union Society,Oxford,UK\nHarvard Debating Union,Harvard,USA"
-                  : activeTab === "teams"
-                  ? "name,institution,speaker1,speaker2\nOxford A,Oxford,Jane Doe,John Smith\nCambridge B,Cambridge,Alice,Bob"
-                  : "name,institution,score,trainee\nEleanor Vance,Oxford,8.5,false\nDavid Kim,Independent,6.0,true"
-              }
-              value={csvText}
-              onChange={(e) => {
-                setCsvText(e.target.value);
-                setCsvImportError("");
-              }}
-              className="w-full border border-gray-300 rounded p-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+      {/* Add Team */}
+      <Dialog
+        open={showAddTeamModal}
+        onClose={() => setShowAddTeamModal(false)}
+        title={t("setup.imports.addTeamTitle")}
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAddTeamModal(false)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="add-team-form" variant="primary">
+              {t("setup.imports.addTeam")}
+            </Button>
+          </>
+        }
+      >
+        <form id="add-team-form" onSubmit={handleCreateTeam} className="space-y-3">
+          <Input
+            label={t("setup.imports.teamName")}
+            required
+            placeholder={t("setup.imports.teamNamePlaceholder")}
+            value={newTeamName}
+            onChange={(e) => setNewTeamName(e.target.value)}
+          />
+
+          <fieldset className={groupBox}>
+            <legend className={groupLegend}>{t("setup.imports.affiliation")}</legend>
+            <Checkbox
+              label={t("setup.imports.unaffiliatedIndependent")}
+              checked={newTeamUnaffiliated}
+              onChange={(e) => setNewTeamUnaffiliated(e.target.checked)}
+            />
+            {!newTeamUnaffiliated ? (
+              <div className="space-y-1">
+                <Select
+                  aria-label={t("setup.imports.institution")}
+                  value={newTeamInstId}
+                  onChange={(e) => setNewTeamInstId(e.target.value)}
+                >
+                  <option value="">{t("setup.imports.selectInstitution")}</option>
+                  {institutionOptions}
+                </Select>
+                {institutions.length === 0 && (
+                  <p className="text-xs text-warning">{t("setup.imports.noInstitutionsTeam")}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs italic text-fg-muted">{t("setup.imports.teamIndependentHelp")}</p>
+            )}
+          </fieldset>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(
+              [
+                [newSpk1, setNewSpk1, newSpk1Email, setNewSpk1Email],
+                [newSpk2, setNewSpk2, newSpk2Email, setNewSpk2Email],
+                ...(!isBP ? [[newSpk3, setNewSpk3, newSpk3Email, setNewSpk3Email] as const] : []),
+              ] as const
+            ).map(([name, setName, email, setEmail], index) => (
+              <div key={index} className="space-y-1.5">
+                <Input
+                  label={t("setup.imports.speakerNumber", { number: index + 1 })}
+                  placeholder={t("setup.imports.speakerNamePlaceholder")}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <Input
+                  type="email"
+                  aria-label={t("setup.imports.speakerEmailLabel", { number: index + 1 })}
+                  placeholder={t("setup.imports.emailOptional")}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <SpeakerCategoriesInput
+                  id={`new-speaker-${index + 1}-categories`}
+                  label={t("setup.imports.speakerCategoriesLabel", { number: index + 1 })}
+                  categories={speakerCategories}
+                  value={newSpeakerCategories[index]}
+                  onChange={(categories) => setNewSpeakerCategoriesAt(index, categories)}
+                />
+              </div>
+            ))}
+          </div>
+
+          <BreakEligibilityField
+            categories={breakCategories}
+            value={newBreakCategories}
+            onChange={setNewBreakCategories}
+          />
+        </form>
+      </Dialog>
+
+      {/* Edit Team */}
+      <Dialog
+        open={editingTeam !== null}
+        onClose={() => setEditingTeam(null)}
+        title={t("setup.imports.editTeamTitle")}
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditingTeam(null)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="edit-team-form" variant="primary">
+              {t("setup.common.saveChanges")}
+            </Button>
+          </>
+        }
+      >
+        {editingTeam && (
+          <form id="edit-team-form" onSubmit={handleUpdateTeam} className="space-y-3">
+            <Input
+              label={t("setup.imports.teamName")}
+              required
+              value={editingTeam.name}
+              onChange={(e) => setEditingTeam({ ...editingTeam, name: e.target.value })}
             />
 
-            {csvImportError && <p role="alert" className="text-xs text-red-700 mb-3">{csvImportError}</p>}
+            <TeamIdentityFields
+              team={editingTeam}
+              institutions={institutions}
+              display={tournament?.preferences?.teamNameDisplay}
+              onChange={setEditingTeam}
+            />
 
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCsvModal(false);
-                  setCsvImportError("");
-                }}
-                className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCsvImport}
-                disabled={!csvText.trim() || isImportingCsv}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs disabled:opacity-50"
-              >
-                {isImportingCsv ? "Importing..." : "Import CSV Data"}
-              </button>
+            {/* Public identity (Tabbycat code names and emoji) */}
+            <div className="grid grid-cols-[1fr_6rem] gap-2">
+              <Input
+                label={t("setup.imports.codeName")}
+                value={hasCodeName(editingTeam) ? editingTeam.codeName ?? "" : ""}
+                onChange={(e) => setEditingTeam({ ...editingTeam, codeName: e.target.value || undefined })}
+                placeholder={t("setup.imports.teamCodeNamePlaceholder")}
+              />
+              <Input
+                label={t("setup.imports.emoji")}
+                value={editingTeam.emoji ?? ""}
+                onChange={(e) => setEditingTeam({ ...editingTeam, emoji: e.target.value.trim() || undefined })}
+                maxLength={8}
+              />
             </div>
+
+            <fieldset className={groupBox}>
+              <legend className={groupLegend}>{t("setup.imports.affiliation")}</legend>
+              <Checkbox
+                label={t("setup.imports.unaffiliatedShort")}
+                checked={!editingTeam.institutionId && !editingTeam.institutionName}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setEditingTeam({ ...editingTeam, institutionId: undefined, institutionName: undefined });
+                  } else {
+                    const firstInst = institutions[0];
+                    if (firstInst) {
+                      setEditingTeam({ ...editingTeam, institutionId: firstInst.id, institutionName: firstInst.name });
+                    }
+                  }
+                }}
+              />
+              {editingTeam.institutionId || editingTeam.institutionName ? (
+                <Select
+                  aria-label={t("setup.imports.institution")}
+                  value={editingTeam.institutionId || ""}
+                  onChange={(e) => {
+                    const selected = institutions.find((i) => i.id === e.target.value);
+                    setEditingTeam({
+                      ...editingTeam,
+                      institutionId: selected?.id,
+                      institutionName: selected?.name,
+                    });
+                  }}
+                >
+                  <option value="">{t("setup.imports.selectInstitution")}</option>
+                  {institutionOptions}
+                </Select>
+              ) : (
+                <p className="text-xs italic text-fg-muted">{t("setup.imports.teamIndependentShort")}</p>
+              )}
+            </fieldset>
+
+            <fieldset className="space-y-2">
+              <legend className="mb-1.5 text-xs font-medium text-fg">{t("setup.imports.speakers")}</legend>
+              {editingTeam.speakers?.map((spk, idx) => (
+                <div
+                  key={spk.id || idx}
+                  role="group"
+                  aria-label={speakerLabel(spk.name, idx)}
+                  className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-2"
+                >
+                  <Input
+                    value={spk.name}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, name: e.target.value };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.speakerNameLabel", { number: idx + 1 })}
+                    placeholder={t("setup.imports.speakerNumber", { number: idx + 1 })}
+                  />
+                  <Input
+                    type="email"
+                    value={spk.email || ""}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, email: e.target.value.trim() || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.speakerEmailLabel", { number: idx + 1 })}
+                    placeholder={t("setup.imports.emailOptional")}
+                  />
+                  <Input
+                    value={spk.codeName || ""}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, codeName: e.target.value || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    placeholder={t("setup.imports.codeNameOptional")}
+                    aria-label={t("setup.imports.namedSpeakerCodeName", { name: speakerLabel(spk.name, idx) })}
+                  />
+                  <Checkbox
+                    className="self-center"
+                    label={t("setup.imports.anonymousPublic")}
+                    checked={spk.anonymous === true}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, anonymous: e.target.checked || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                  />
+                  <Input
+                    value={spk.lastName || ""}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, lastName: e.target.value.trimStart() || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.namedLastName", { name: speakerLabel(spk.name, idx) })}
+                    placeholder={t("setup.imports.lastNamePlaceholder")}
+                  />
+                  <Input
+                    value={spk.pronoun || ""}
+                    maxLength={20}
+                    onChange={(e) => {
+                      const newSpeakers = [...editingTeam.speakers];
+                      newSpeakers[idx] = { ...spk, pronoun: e.target.value.trimStart() || undefined };
+                      setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                    }}
+                    aria-label={t("setup.imports.namedPronoun", { name: speakerLabel(spk.name, idx) })}
+                    placeholder={t("setup.imports.pronounPlaceholder")}
+                  />
+                  <div className="sm:col-span-2">
+                    <SpeakerCategoriesInput
+                      id={`edit-speaker-${idx}-categories`}
+                      label={t("setup.imports.namedSpeakerCategories", { name: speakerLabel(spk.name, idx) })}
+                      categories={speakerCategories}
+                      value={speakerCategoryRefs(spk, editingTeam)}
+                      onChange={(categories) => {
+                        const newSpeakers = [...editingTeam.speakers];
+                        newSpeakers[idx] = { ...spk, categories: categories.length > 0 ? categories : undefined };
+                        setEditingTeam({ ...editingTeam, speakers: newSpeakers });
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 sm:col-span-2">
+                    {speakerBallotCount(spk.id) > 0 ? (
+                      <p className="text-xs text-fg-muted">
+                        {plural("setup.imports.speakerHasResults", speakerBallotCount(spk.id))}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={speakerBallotCount(spk.id) > 0}
+                      onClick={() => removeSpeakerFromEditingTeam(spk.id)}
+                      className="hover:text-danger"
+                    >
+                      <UserMinus aria-hidden="true" />
+                      {t("setup.imports.removeSpeakerNamed", { name: speakerLabel(spk.name, idx) })}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              <Button type="button" variant="secondary" size="sm" onClick={addSpeakerToEditingTeam}>
+                <UserPlus aria-hidden="true" />
+                {t("setup.imports.addSpeaker")}
+              </Button>
+              <p className="text-xs text-fg-muted">{t("setup.imports.speakerChangesHelp")}</p>
+            </fieldset>
+
+            <BreakEligibilityField
+              categories={breakCategories}
+              value={editingTeam.breakCategories ?? []}
+              onChange={(categoryIds) => setEditingTeam({ ...editingTeam, breakCategories: categoryIds })}
+            />
+
+            {teamSaveError && (
+              <Alert tone="danger" role="alert">
+                {teamSaveError}
+              </Alert>
+            )}
+          </form>
+        )}
+      </Dialog>
+
+      {/* Add Adjudicator */}
+      <Dialog
+        open={showAddAdjModal}
+        onClose={() => setShowAddAdjModal(false)}
+        title={t("setup.imports.addAdjudicatorTitle")}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowAddAdjModal(false)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="add-adjudicator-form" variant="primary">
+              {t("setup.imports.addAdjudicator")}
+            </Button>
+          </>
+        }
+      >
+        <form id="add-adjudicator-form" onSubmit={handleCreateAdj} className="space-y-3">
+          <Input
+            label={t("setup.imports.judgeName")}
+            required
+            placeholder={t("setup.imports.judgeNamePlaceholder")}
+            value={newAdjName}
+            onChange={(e) => setNewAdjName(e.target.value)}
+          />
+          <Input
+            type="email"
+            label={t("setup.common.email")}
+            placeholder={t("setup.imports.emailOptional")}
+            value={newAdjEmail}
+            onChange={(e) => setNewAdjEmail(e.target.value)}
+          />
+
+          <fieldset className={groupBox}>
+            <legend className={groupLegend}>{t("setup.imports.affiliation")}</legend>
+            <Checkbox
+              label={t("setup.imports.unaffiliatedIndependent")}
+              checked={newAdjUnaffiliated}
+              onChange={(e) => setNewAdjUnaffiliated(e.target.checked)}
+            />
+            {!newAdjUnaffiliated ? (
+              <div className="space-y-1">
+                <Select
+                  aria-label={t("setup.imports.institution")}
+                  value={newAdjInstId}
+                  onChange={(e) => setNewAdjInstId(e.target.value)}
+                >
+                  <option value="">{t("setup.imports.selectInstitution")}</option>
+                  {institutionOptions}
+                </Select>
+                {institutions.length === 0 && (
+                  <p className="text-xs text-warning">{t("setup.imports.noInstitutionsAdjudicator")}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs italic text-fg-muted">{t("setup.imports.adjudicatorIndependentHelp")}</p>
+            )}
+          </fieldset>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              type="number"
+              step="0.5"
+              min="1"
+              max="10"
+              label={t("setup.imports.baseRating")}
+              value={newAdjScore}
+              onChange={(e) => setNewAdjScore(parseFloat(e.target.value) || 5.0)}
+              className="font-mono"
+            />
+            <Checkbox
+              className="sm:pt-6"
+              label={t("setup.imports.traineeJudge")}
+              checked={newAdjTrainee}
+              onChange={(e) => setNewAdjTrainee(e.target.checked)}
+            />
           </div>
-        </div>
+        </form>
+      </Dialog>
+
+      {/* Edit Adjudicator */}
+      <Dialog
+        open={editingAdj !== null}
+        onClose={() => setEditingAdj(null)}
+        title={t("setup.imports.editAdjudicatorTitle")}
+        size="lg"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditingAdj(null)}>
+              {t("setup.common.cancel")}
+            </Button>
+            <Button type="submit" form="edit-adjudicator-form" variant="primary">
+              {t("setup.common.saveChanges")}
+            </Button>
+          </>
+        }
+      >
+        {editingAdj && (
+          <form id="edit-adjudicator-form" onSubmit={handleUpdateAdj} className="space-y-3">
+            <Input
+              label={t("setup.imports.judgeName")}
+              required
+              value={editingAdj.name}
+              onChange={(e) => setEditingAdj({ ...editingAdj, name: e.target.value })}
+            />
+            <Input
+              type="email"
+              label={t("setup.common.email")}
+              value={editingAdj.email || ""}
+              onChange={(e) => setEditingAdj({ ...editingAdj, email: e.target.value.trim() || undefined })}
+              placeholder={t("setup.imports.emailOptional")}
+            />
+
+            <fieldset className={groupBox}>
+              <legend className={groupLegend}>{t("setup.imports.affiliation")}</legend>
+              <Checkbox
+                label={t("setup.imports.unaffiliatedIndependent")}
+                checked={editingAdj.independent}
+                onChange={(e) => {
+                  const isIndep = e.target.checked;
+                  const institution = isIndep
+                    ? undefined
+                    : institutions.find((item) => item.id === editingAdj.institutionId) ?? institutions[0];
+                  setEditingAdj(changeAdjudicatorInstitution(editingAdj, institution));
+                }}
+              />
+              {!editingAdj.independent ? (
+                <Select
+                  aria-label={t("setup.imports.institution")}
+                  value={editingAdj.institutionId || ""}
+                  onChange={(e) => {
+                    const selected = institutions.find((i) => i.id === e.target.value);
+                    setEditingAdj(changeAdjudicatorInstitution(editingAdj, selected));
+                    setEditingAdjConflicts((current) => ({
+                      ...current,
+                      institutionIds: current.institutionIds.filter((id) => id !== selected?.id),
+                    }));
+                  }}
+                >
+                  <option value="">{t("setup.imports.selectInstitution")}</option>
+                  {institutionOptions}
+                </Select>
+              ) : (
+                <p className="text-xs italic text-fg-muted">{t("setup.imports.adjudicatorIndependentShort")}</p>
+              )}
+            </fieldset>
+
+            <fieldset className="flex flex-wrap gap-x-4 gap-y-2">
+              <legend className="sr-only">{t("setup.imports.publicLists")}</legend>
+              <Checkbox
+                label={t("setup.imports.adjCore")}
+                checked={editingAdj.adjCore === true}
+                onChange={(e) => setEditingAdj({ ...editingAdj, adjCore: e.target.checked || undefined })}
+              />
+              <Checkbox
+                label={t("setup.imports.breakingAdjudicator")}
+                checked={editingAdj.breaking === true}
+                onChange={(e) => setEditingAdj({ ...editingAdj, breaking: e.target.checked || undefined })}
+              />
+              <Checkbox
+                label={t("setup.imports.testerAdjudicator")}
+                description={editingAdj.adjCore ? t("setup.imports.testerCoreHelp") : undefined}
+                checked={editingAdj.isTester === true || editingAdj.adjCore === true}
+                disabled={editingAdj.adjCore === true}
+                onChange={(e) => setEditingAdj({ ...editingAdj, isTester: e.target.checked || undefined })}
+              />
+              <Checkbox
+                label={t("setup.imports.anonymousPublic")}
+                checked={editingAdj.anonymous === true}
+                onChange={(e) => setEditingAdj({ ...editingAdj, anonymous: e.target.checked || undefined })}
+              />
+            </fieldset>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label={t("setup.imports.lastName")}
+                help={t("setup.imports.lastNameHelp")}
+                value={editingAdj.lastName || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, lastName: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, lastName: e.target.value.trim() || undefined })}
+              />
+              <Input
+                label={t("setup.imports.pronoun")}
+                help={t("setup.imports.pronounHelp")}
+                maxLength={20}
+                value={editingAdj.pronoun || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, pronoun: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, pronoun: e.target.value.trim() || undefined })}
+                placeholder={t("setup.imports.pronounPlaceholder")}
+              />
+            </div>
+
+            <Input
+              label={t("setup.imports.codeName")}
+              value={editingAdj.codeName ?? ""}
+              onChange={(e) => setEditingAdj({ ...editingAdj, codeName: e.target.value || undefined })}
+              placeholder={t("setup.imports.adjudicatorCodeNamePlaceholder")}
+            />
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                type="number"
+                step="0.5"
+                min="1"
+                max="10"
+                label={t("setup.imports.baseRating")}
+                value={editingAdj.baseScore}
+                onChange={(e) => setEditingAdj({ ...editingAdj, baseScore: parseFloat(e.target.value) || 5.0 })}
+                className="font-mono"
+              />
+              <Checkbox
+                className="sm:pt-6"
+                label={t("setup.imports.traineeJudge")}
+                checked={editingAdj.trainee}
+                onChange={(e) => setEditingAdj({ ...editingAdj, trainee: e.target.checked })}
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label={t("setup.imports.gender")}
+                value={editingAdj.gender || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, gender: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, gender: e.target.value.trim() || undefined })}
+                placeholder={t("setup.imports.genderPlaceholder")}
+              />
+              <Input
+                label={t("setup.imports.region")}
+                help={t("setup.imports.regionHelp")}
+                value={editingAdj.region || ""}
+                onChange={(e) => setEditingAdj({ ...editingAdj, region: e.target.value || undefined })}
+                onBlur={(e) => setEditingAdj({ ...editingAdj, region: e.target.value.trim() || undefined })}
+                placeholder={
+                  participantRegion({ institutionId: editingAdj.institutionId }, institutionsById) ||
+                  t("setup.common.optional")
+                }
+              />
+            </div>
+
+            <AdjudicatorConflictsEditor
+              adjudicator={editingAdj}
+              selection={editingAdjConflicts}
+              teams={teams}
+              adjudicators={adjudicators}
+              institutions={institutions}
+              onChange={setEditingAdjConflicts}
+            />
+
+            {adjSaveError && (
+              <Alert tone="danger" role="alert">
+                {adjSaveError}
+              </Alert>
+            )}
+          </form>
+        )}
+      </Dialog>
+
+      {pendingDelete && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t(DELETE_TEXT[pendingDelete.kind].title, { name: pendingDelete.name })}
+          description={t(DELETE_TEXT[pendingDelete.kind].description)}
+          confirmLabel={t(DELETE_TEXT[pendingDelete.kind].confirm)}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setPendingDelete(null)}
+          isBusy={deleting}
+          error={deleteError || undefined}
+        />
       )}
+
+      <CsvImportDialog
+        kind={activeTab === "adjs" ? "adjudicators" : activeTab}
+        open={showCsvModal}
+        onClose={() => setShowCsvModal(false)}
+      />
     </div>
   );
 }

@@ -1,26 +1,117 @@
 "use client";
 
+import { sideLabel, translatedSideName } from "@/lib/sideNames";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
-import { SideBadge } from "@/components/ui/SideBadge";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFormatScore } from "@/features/tournament/components/results/useFormatScore";
 import {
-  FileCheck2,
-  CheckCircle2,
-  Clock,
-  Edit,
-  ArrowRight,
-  Eye,
-  AlertCircle,
-  FileText,
-  Search,
-  Lock,
-  ArrowUp,
   ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  Edit,
+  Eye,
+  FileText,
+  Inbox,
+  Lock,
+  Printer,
 } from "lucide-react";
-import { DebateSide } from "@/types";
+import { BallotSubmission, DebateSide, Team, TeamScoreEntry } from "@/types";
+import { TabroomTeamName } from "@/features/tournament/components/TabroomTeamName";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { StatusPill } from "@/components/ui/Badge";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Checkbox } from "@/components/ui/Field";
+import { EmptyState, ProgressBar } from "@/components/ui/Feedback";
+import { Table, TableContainer, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 import { getPanelistNamesByScore } from "@/lib/adjudicators";
+import { checkResultsRelease } from "@/features/tournament/application/stateGuards";
+import { INTAKE_STATUS_ORDER } from "@/features/tournament/application/ballotIntake";
+import { INTAKE_STATUS_KEYS, INTAKE_STATUS_TONES, useRoundIntake } from "@/features/tournament/components/ballot/useRoundIntake";
+import {
+  getRoundCompletionBlockers,
+  setRoundCompletion,
+} from "@/features/tournament/application/roundAdministration";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
+
+const BP_SIDES: readonly DebateSide[] = ["OG", "OO", "CG", "CO"];
+const TWO_TEAM_SIDES: readonly DebateSide[] = ["AFF", "NEG"];
+
+/** Team name with its result. BP marks first place as the winner; two-team formats use `win`. */
+function TeamResultCell({ team, teamName, score, isBP, poly = false }: { team?: Team; teamName?: string; score?: TeamScoreEntry; isBP: boolean; poly?: boolean }) {
+  const { t, plural } = useI18n();
+  const formatScore = useFormatScore();
+  const won = score ? (isBP ? score.rank === 1 : poly ? score.rank === 1 || score.win === true : Boolean(score.win)) : false;
+  // Poly voting ballots record scores only: no rank, no winner.
+  const decided = Boolean(score) && (!poly || score?.rank !== undefined || score?.win !== undefined);
+  return (
+    <TD>
+      <div className="flex items-center gap-1 font-medium">
+        {score && decided &&
+          (won ? (
+            <>
+              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
+              <span className="sr-only">{t("results.overview.winningTeam")}</span>
+            </>
+          ) : (
+            <>
+              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />
+              <span className="sr-only">{t("results.overview.losingTeam")}</span>
+            </>
+          ))}
+        <span><TabroomTeamName team={team} name={teamName} /></span>
+      </div>
+      {score && (
+        <div className="font-mono text-[11px] text-fg-muted">
+          {isBP || (poly && score.rank !== undefined)
+            ? plural("results.overview.points", score.points)
+            : poly
+              ? score.win ? t("results.ballot.advances") : "—"
+            : score.win
+              ? t("results.overview.win")
+              : t("results.overview.loss")}{" "}
+          · {t("results.overview.speaksValue", { score: formatScore(score.totalSpeakerScore) })}
+        </div>
+      )}
+    </TD>
+  );
+}
+
+/** One publication/lifecycle control: description on the left, action on the right. */
+function ControlRow({
+  title,
+  status,
+  action,
+  error,
+}: {
+  title: string;
+  status: React.ReactNode;
+  action: React.ReactNode;
+  error?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-fg">{title}</p>
+        <p className="text-xs text-fg-muted">{status}</p>
+        {error && (
+          <p role="alert" className="mt-0.5 text-xs text-danger">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">{action}</div>
+    </div>
+  );
+}
 
 export default function ResultsOverviewPage() {
   const {
@@ -31,58 +122,67 @@ export default function ResultsOverviewPage() {
     debates,
     ballots,
     adjudicators,
-    confirmBallot,
+    teams,
     updateRound,
     proceedToNextEliminationRound,
+    isOwnerOrAdmin,
   } = useTournament();
+  const { t, plural, formatList } = useI18n();
 
   const isBP = tournament?.format === "bp";
+  const teamsById = new Map(teams.map((team) => [team.id, team]));
+  // [side, full name] in the tournament's side names (sideNames).
+  const poly = isPolyFormat(tournament?.format);
+  const sides = (tournament && poly ? tournamentSides(tournament) : isBP ? BP_SIDES : TWO_TEAM_SIDES)
+    .map((side) => [side, translatedSideName(t, side, tournament?.preferences)] as const);
+  const { summary: intakeSummary } = useRoundIntake(activeRound?.id);
   const roundDebates = activeRound ? debates.filter((d) => d.roundId === activeRound.id) : [];
 
-  const ballotMap = new Map<string, any>();
+  // The confirmed version is the debate's result; otherwise show the newest pending version.
+  const ballotMap = new Map<string, BallotSubmission>();
+  const pendingDebateIds = new Set<string>();
   ballots.forEach((b) => {
-    if (!b.discarded) ballotMap.set(b.debateId, b);
+    if (b.discarded) return;
+    if (!b.confirmed) pendingDebateIds.add(b.debateId);
+    const current = ballotMap.get(b.debateId);
+    if (!current || (b.confirmed && !current.confirmed) || (b.confirmed === current.confirmed && b.version > current.version)) {
+      ballotMap.set(b.debateId, b);
+    }
   });
+  const doubleEntry = Boolean(tournament?.preferences?.ballotDoubleEntry);
+  const needsCheckLabel = doubleEntry ? t("results.overview.status.awaitingCheck") : t("results.overview.status.draft");
 
   const confirmedCount = roundDebates.filter(
     (d) => d.byeTeamId || ballotMap.get(d.id)?.confirmed
   ).length;
   const allBallotsConfirmed = roundDebates.length > 0 && confirmedCount === roundDebates.length;
+  // Hard rules disable publishing; overridable ones (unchecked ballot versions) ask for a reason.
+  const releaseBlocker = activeRound
+    ? checkResultsRelease(activeRound, { rounds, debates, ballots }).find((violation) => !violation.overridable)
+    : undefined;
   const [pendingPublication, setPendingPublication] = useState<boolean | null>(null);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publicationError, setPublicationError] = useState("");
   const [pendingTeamSpeaksPublication, setPendingTeamSpeaksPublication] = useState<boolean | null>(null);
-  const [isPublishingTeamSpeaks, setIsPublishingTeamSpeaks] = useState(false);
-  const [teamSpeaksPublicationError, setTeamSpeaksPublicationError] = useState("");
   const [isAdvancingRound, setIsAdvancingRound] = useState(false);
   const [advancementError, setAdvancementError] = useState("");
   const [pendingAdvancement, setPendingAdvancement] = useState(false);
+  const [pendingCompletion, setPendingCompletion] = useState<boolean | null>(null);
+  const [isSavingCompletion, setIsSavingCompletion] = useState(false);
+  const [completionError, setCompletionError] = useState("");
+  const completionBlockers = activeRound?.stage === "preliminary"
+    ? getRoundCompletionBlockers(activeRound, debates, ballots)
+    : [];
 
-  const confirmPublication = async () => {
-    if (!activeRound || pendingPublication === null) return;
-    setIsPublishing(true);
-    setPublicationError("");
+  const confirmCompletion = async () => {
+    if (!activeRound || pendingCompletion === null) return;
+    setIsSavingCompletion(true);
+    setCompletionError("");
     try {
-      await updateRound({ ...activeRound, resultsReleased: pendingPublication });
-      setPendingPublication(null);
-    } catch {
-      setPublicationError("The round publication could not be saved. Please try again.");
+      await updateRound(setRoundCompletion(activeRound, pendingCompletion, debates, ballots));
+      setPendingCompletion(null);
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : t("results.overview.completionSaveFailed"));
     } finally {
-      setIsPublishing(false);
-    }
-  };
-
-  const confirmTeamSpeaksPublication = async () => {
-    if (!activeRound || pendingTeamSpeaksPublication === null) return;
-    setIsPublishingTeamSpeaks(true);
-    setTeamSpeaksPublicationError("");
-    try {
-      await updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication });
-      setPendingTeamSpeaksPublication(null);
-    } catch {
-      setTeamSpeaksPublicationError("Team-speaks publication could not be saved. Please try again.");
-    } finally {
-      setIsPublishingTeamSpeaks(false);
+      setIsSavingCompletion(false);
     }
   };
 
@@ -94,7 +194,7 @@ export default function ResultsOverviewPage() {
       await proceedToNextEliminationRound(activeRound.id);
       setPendingAdvancement(false);
     } catch (error) {
-      setAdvancementError(error instanceof Error ? error.message : "Could not advance this elimination round.");
+      setAdvancementError(error instanceof Error ? error.message : t("results.overview.advanceFailed"));
     } finally {
       setIsAdvancingRound(false);
     }
@@ -102,393 +202,367 @@ export default function ResultsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <FileCheck2 className="w-6 h-6 text-blue-600" />
-            <span>Results & Ballot Entry</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Enter and verify speaker scores, team rankings, and paperless e-ballots.
-          </p>
+      <PageHeader
+        title={t("results.overview.title")}
+        description={t("results.overview.description")}
+        actions={
+          <Link href={`/${tournament?.slug}/print/ballots`} className={buttonClasses({ variant: "secondary" })}>
+            <Printer aria-hidden="true" />
+            {t("results.overview.printBallots")}
+          </Link>
+        }
+      />
+      <CurrentRoundsBar what="results" />
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div role="group" aria-label={t("results.overview.selectRound")} className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1">
+          {rounds.map((r) => {
+            const rDebates = debates.filter((d) => d.roundId === r.id);
+            const rConfirmed = rDebates.filter((d) => ballotMap.get(d.id)?.confirmed).length;
+            const isComplete = rConfirmed === rDebates.length && rDebates.length > 0;
+            const isActive = activeRound?.id === r.id;
+
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setActiveRound(r)}
+                aria-pressed={isActive}
+                className={cn(
+                  "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                  isActive
+                    ? "border-fg bg-fg text-background"
+                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                  focusRing
+                )}
+              >
+                {r.name}
+                {isComplete && (
+                  <>
+                    <CheckCircle2 className={cn("h-3 w-3", isActive ? "text-background" : "text-success")} aria-hidden="true" />
+                    <span className="sr-only">{t("results.overview.allConfirmedSr")}</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Progress Badge */}
-        <div className="flex items-center space-x-3">
-          <span className="text-xs font-semibold text-gray-700">
-            {confirmedCount} of {roundDebates.length} Confirmed
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="text-xs font-medium tabular-nums text-fg">
+            {t("results.overview.confirmedCount", { confirmed: confirmedCount, total: roundDebates.length })}
           </span>
-          <div className="w-36 h-2.5 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 transition-all duration-300"
-              style={{
-                width: `${(confirmedCount / Math.max(1, roundDebates.length)) * 100}%`,
-              }}
-            />
-          </div>
+          <ProgressBar value={confirmedCount} max={roundDebates.length} label={t("results.overview.confirmedBallots")} className="w-36" />
         </div>
       </div>
 
-      {/* Round Selector Bar */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">
-          Select Round:
-        </span>
-        {rounds.map((r) => {
-          const rDebates = debates.filter((d) => d.roundId === r.id);
-          const rConfirmed = rDebates.filter((d) => ballotMap.get(d.id)?.confirmed).length;
-          const isComplete = rConfirmed === rDebates.length && rDebates.length > 0;
-
-          return (
-            <button
-              key={r.id}
-              onClick={() => setActiveRound(r)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md border flex items-center space-x-1.5 transition ${
-                activeRound?.id === r.id
-                  ? "bg-blue-600 text-white border-blue-700 shadow-xs"
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              <span>{r.name}</span>
-              {isComplete && <CheckCircle2 className="w-3 h-3 text-emerald-300" />}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Ballots Table */}
-      {roundDebates.length === 0 ? (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-10 text-center">
-          <FileText className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-gray-800 mb-1">No Debates in {activeRound?.name}</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-            Generate the draw before entering ballots and results for this round.
-          </p>
-          <Link
-            href={`/${tournament?.slug}/draw`}
-            className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
-          >
-            <span>Go to Draw Generation</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+      {intakeSummary.debates > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+          <span className="font-medium text-fg">{t("results.overview.paperBallots")}</span>
+          <span className="tabular-nums">
+            {t("results.overview.sheetsReceived", {
+              received: intakeSummary.sheetsReceived,
+              expected: intakeSummary.sheetsExpected,
+            })}
+          </span>
+          {INTAKE_STATUS_ORDER.filter((status) => intakeSummary.counts[status] > 0).map((status) => (
+            <StatusPill key={status} tone={INTAKE_STATUS_TONES[status]}>
+              {t(INTAKE_STATUS_KEYS[status])} <span className="tabular-nums">{intakeSummary.counts[status]}</span>
+            </StatusPill>
+          ))}
+          <Link href={`/${tournament?.slug}/results/intake`} className={buttonClasses({ variant: "ghost", size: "sm" })}>
+            <Inbox aria-hidden="true" />
+            {t("results.overview.ballotIntake")}
           </Link>
         </div>
-      ) : (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-28">Venue</th>
-                  {isBP ? (
-                    <>
-                      <th>Opening Gov (OG)</th>
-                      <th>Opening Opp (OO)</th>
-                      <th>Closing Gov (CG)</th>
-                      <th>Closing Opp (CO)</th>
-                    </>
-                  ) : (
-                    <>
-                      <th>Affirmative</th>
-                      <th>Negative</th>
-                    </>
-                  )}
-                  <th>Adjudicators</th>
-                  <th className="w-28 text-center">Status</th>
-                  <th className="w-32 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {roundDebates.map((debate) => {
-                  const ballot = ballotMap.get(debate.id);
-                  const isConfirmed = ballot?.confirmed;
-                  const isDraft = ballot && !ballot.confirmed;
-                  const panelistNames = getPanelistNamesByScore(debate.adjudicators, adjudicators);
-
-                  if (debate.byeTeamId) {
-                    const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
-                    return (
-                      <tr key={debate.id} className="bg-gray-50">
-                        <td className="font-bold text-gray-700 text-xs">Bye</td>
-                        <td colSpan={isBP ? 4 : 2} className="text-xs font-semibold text-gray-900">
-                          {byeTeam?.teamName || "Team"}
-                        </td>
-                        <td className="text-xs text-gray-500">No adjudicator</td>
-                        <td className="text-center">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-100 text-blue-800 border border-blue-200">
-                            Bye · {debate.byeResult === "win" ? "Win" : "Absent"}
-                          </span>
-                        </td>
-                        <td className="text-right text-[11px] text-gray-500">No ballot required</td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={debate.id} className="hover:bg-gray-50">
-                      <td className="font-bold text-gray-900 text-xs">
-                        {debate.venueName || "Unassigned"}
-                      </td>
-
-                      {isBP ? (
-                        <>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.OG && (
-                                ballot.teamScores.OG.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.OG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.OG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.OG.points} pts &bull;{" "}
-                                {ballot.teamScores.OG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.OO && (
-                                ballot.teamScores.OO.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.OO?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.OO && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.OO.points} pts &bull;{" "}
-                                {ballot.teamScores.OO.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.CG && (
-                                ballot.teamScores.CG.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.CG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.CG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.CG.points} pts &bull;{" "}
-                                {ballot.teamScores.CG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.CO && (
-                                ballot.teamScores.CO.rank === 1
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.CO?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.CO && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.CO.points} pts &bull;{" "}
-                                {ballot.teamScores.CO.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.AFF && (
-                                ballot.teamScores.AFF.win
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.AFF?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.AFF && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.AFF.win ? "WIN" : "LOSS"} &bull;{" "}
-                                {ballot.teamScores.AFF.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-xs">
-                            <div className="font-semibold text-gray-900">
-                              {ballot?.teamScores?.NEG && (
-                                ballot.teamScores.NEG.win
-                                  ? <ArrowUp className="inline w-3.5 h-3.5 mr-1 text-emerald-600" aria-label="Winning team" />
-                                  : <ArrowDown className="inline w-3.5 h-3.5 mr-1 text-red-600" aria-label="Losing team" />
-                              )}
-                              {debate.teams?.NEG?.teamName || "—"}
-                            </div>
-                            {ballot?.teamScores?.NEG && (
-                              <div className="text-[11px] text-gray-500 font-mono">
-                                {ballot.teamScores.NEG.win ? "WIN" : "LOSS"} &bull;{" "}
-                                {ballot.teamScores.NEG.totalSpeakerScore} spks
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      )}
-
-                      <td className="text-xs text-gray-700">
-                        <span className="font-medium text-gray-900">
-                          Chair: {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
-                        </span>
-                        <span className="mx-1.5 text-gray-300">|</span>
-                        <span>Panellists: {panelistNames.join(", ") || "—"}</span>
-                      </td>
-
-                      <td className="text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                            isConfirmed
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : isDraft
-                              ? "bg-amber-100 text-amber-800 border border-amber-300"
-                              : "bg-gray-100 text-gray-500 border border-gray-200"
-                          }`}
-                        >
-                          {isConfirmed ? "Confirmed" : isDraft ? "Draft" : "Unsubmitted"}
-                        </span>
-                      </td>
-
-                      <td className="text-right">
-                        <Link
-                          href={`/${tournament?.slug}/results/${activeRound?.seq}/${debate.id}`}
-                          className="inline-flex items-center space-x-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold rounded text-xs border border-blue-200 transition"
-                        >
-                          <Edit className="w-3 h-3" />
-                          <span>{ballot ? "Edit Ballot" : "Enter Ballot"}</span>
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
 
-      {activeRound && (
-        <div className="border-t border-[#d0d7de] pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <label className="flex items-start gap-2.5 text-xs text-gray-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={Boolean(activeRound.silent)}
-              onChange={(event) =>
-                updateRound({
-                  ...activeRound,
-                  silent: event.target.checked,
-                  resultsReleased: false,
-                  teamSpeaksReleased: false,
-                })
-              }
-              className="mt-0.5 rounded border-gray-300 text-blue-600"
-            />
-            <span>
-              <strong className="block text-gray-900">Silent round</strong>
-              Hide this round&apos;s results and team outcomes from the public tab.
-            </span>
-          </label>
-          <div className="flex flex-col items-start sm:items-end gap-1.5">
-            <button
-              type="button"
-              onClick={() => setPendingPublication(!activeRound.resultsReleased)}
-              disabled={!activeRound.resultsReleased && !allBallotsConfirmed}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+      {roundDebates.length === 0 ? (
+        <EmptyState
+          icon={<FileText />}
+          title={
+            activeRound
+              ? t("results.overview.empty.title", { round: activeRound.name })
+              : t("results.overview.empty.titleNoRound")
+          }
+          description={t("results.overview.empty.description")}
+          action={
+            <Link href={`/${tournament?.slug}/draw`} className={buttonClasses({ variant: "primary" })}>
+              {t("results.overview.empty.action")}
+              <ArrowRight className="rtl:-scale-x-100" aria-hidden="true" />
+            </Link>
+          }
+        />
+      ) : (
+        <TableContainer>
+          <Table>
+            <THead>
+              <TR>
+                <TH className="w-28">{t("results.overview.col.venue")}</TH>
+                {sides.map(([side, label]) => (
+                  <TH key={side}>
+                    {label} <span className="text-fg-subtle">({sideLabel(side, tournament?.preferences)})</span>
+                  </TH>
+                ))}
+                <TH>{t("results.overview.col.adjudicators")}</TH>
+                <TH className="w-36">{t("results.overview.col.status")}</TH>
+                <TH align="right" className="w-32">
+                  <span className="sr-only">{t("results.overview.col.actions")}</span>
+                </TH>
+              </TR>
+            </THead>
+            <TBody>
+              {roundDebates.map((debate) => {
+                const ballot = ballotMap.get(debate.id);
+                const isConfirmed = ballot?.confirmed;
+                const isDraft = ballot && !ballot.confirmed;
+                const panelistNames = getPanelistNamesByScore(debate.adjudicators, adjudicators);
+
+                if (debate.byeTeamId) {
+                  const byeTeam = Object.values(debate.teams).find((slot) => slot?.teamId === debate.byeTeamId);
+                  return (
+                    <TR key={debate.id}>
+                      <TD className="font-medium text-fg-muted">{t("results.overview.bye")}</TD>
+                      <TD colSpan={sides.length} className="font-medium">
+                        <TabroomTeamName
+                          team={byeTeam?.teamId ? teamsById.get(byeTeam.teamId) : undefined}
+                          name={byeTeam?.teamName}
+                          fallback={t("results.overview.byeTeamFallback")}
+                        />
+                      </TD>
+                      <TD className="text-fg-muted">{t("results.overview.noAdjudicator")}</TD>
+                      <TD>
+                        <StatusPill tone="info">
+                          {debate.byeResult === "win" ? t("results.overview.byeWin") : t("results.overview.byeAbsent")}
+                        </StatusPill>
+                      </TD>
+                      <TD align="right" className="text-xs text-fg-muted">{t("results.overview.noBallotRequired")}</TD>
+                    </TR>
+                  );
+                }
+
+                return (
+                  <TR key={debate.id}>
+                    <TD className="font-medium">{debate.venueName || t("results.overview.unassignedVenue")}</TD>
+                    {sides.map(([side]) => (
+                      <TeamResultCell
+                        key={side}
+                        team={debate.teams?.[side]?.teamId ? teamsById.get(debate.teams[side]!.teamId) : undefined}
+                        teamName={debate.teams?.[side]?.teamName}
+                        score={ballot?.teamScores?.[side]}
+                        isBP={isBP}
+                        poly={poly}
+                      />
+                    ))}
+                    <TD className="text-xs">
+                      <div>
+                        <span className="text-fg-muted">{t("results.overview.chairLabel")} </span>
+                        {debate.adjudicators?.chairName ? `© ${debate.adjudicators.chairName}` : "—"}
+                      </div>
+                      <div className="text-fg-muted">
+                        {t("results.overview.panellists", { names: panelistNames.length ? formatList(panelistNames) : "—" })}
+                      </div>
+                    </TD>
+                    <TD>
+                      <StatusPill tone={isConfirmed ? "success" : isDraft ? "warning" : "neutral"}>
+                        {isConfirmed
+                          ? t("results.overview.status.confirmed")
+                          : isDraft
+                            ? needsCheckLabel
+                            : t("results.overview.status.unsubmitted")}
+                      </StatusPill>
+                      {isConfirmed && pendingDebateIds.has(debate.id) && (
+                        <span className="mt-1 block text-[11px] font-medium text-warning">
+                          {doubleEntry ? t("results.overview.newVersionAwaitingCheck") : t("results.overview.newVersionDraft")}
+                        </span>
+                      )}
+                    </TD>
+                    <TD align="right">
+                      <Link
+                        href={`/${tournament?.slug}/results/${activeRound?.seq}/${debate.id}`}
+                        className={buttonClasses({ variant: ballot ? "secondary" : "primary", size: "sm" })}
+                      >
+                        <Edit aria-hidden="true" />
+                        {ballot ? t("results.overview.editBallot") : t("results.overview.enterBallot")}
+                      </Link>
+                    </TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {activeRound && isOwnerOrAdmin && (
+        <Card>
+          <CardHeader
+            title={t("results.overview.publication.title")}
+            description={t("results.overview.publication.description", { round: activeRound.name })}
+          />
+          <div className="divide-y divide-border">
+            <div className="px-4 py-3">
+              <Checkbox
+                label={t("results.overview.silent.label")}
+                description={t("results.overview.silent.description")}
+                checked={Boolean(activeRound.silent)}
+                onChange={(event) =>
+                  updateRound({
+                    ...activeRound,
+                    silent: event.target.checked,
+                    resultsReleased: false,
+                    teamSpeaksReleased: false,
+                  })
+                }
+              />
+            </div>
+
+            <ControlRow
+              title={t("results.overview.results.title")}
+              status={
                 activeRound.resultsReleased
-                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  : "bg-emerald-600 text-white hover:bg-emerald-700"
-              }`}
-            >
-              {activeRound.resultsReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {activeRound.resultsReleased ? "Unpublish Round Results" : "Publish Round Results"}
-            </button>
-            <span className="text-[11px] text-gray-500">
-              {activeRound.resultsReleased
-                ? "Round results are published."
-                : allBallotsConfirmed
-                ? "Ballots are saved; publish when ready."
-                : "Confirm every ballot or record a bye before publishing."}
-            </span>
-            {publicationError && <span className="text-[11px] text-red-600">{publicationError}</span>}
-            <button
-              type="button"
-              onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
-              disabled={!activeRound.teamSpeaksReleased && !allBallotsConfirmed}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold disabled:opacity-50 ${
+                  ? t("results.overview.results.published")
+                  : !releaseBlocker
+                  ? t("results.overview.results.ready")
+                  : t("results.overview.results.blocked")
+              }
+              action={
+                <Button
+                  variant={activeRound.resultsReleased ? "secondary" : "primary"}
+                  onClick={() => setPendingPublication(!activeRound.resultsReleased)}
+                  disabled={!activeRound.resultsReleased && Boolean(releaseBlocker)}
+                >
+                  {activeRound.resultsReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  {activeRound.resultsReleased ? t("results.overview.results.unpublish") : t("results.overview.results.publish")}
+                </Button>
+              }
+            />
+
+            <ControlRow
+              title={t("results.overview.speaks.title")}
+              status={
                 activeRound.teamSpeaksReleased
-                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
-              }`}
-            >
-              {activeRound.teamSpeaksReleased ? <Lock className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              {activeRound.teamSpeaksReleased ? "Unpublish Team Speaks" : "Publish Team Speaks"}
-            </button>
-            <span className="text-[11px] text-gray-500">
-              {activeRound.teamSpeaksReleased
-                ? "Team scores are published for this round."
-                : allBallotsConfirmed
-                ? "Publish team scores separately when ready."
-                : "Confirm every ballot or record a bye before publishing team scores."}
-            </span>
-            {teamSpeaksPublicationError && <span className="text-[11px] text-red-600">{teamSpeaksPublicationError}</span>}
-            {activeRound.stage === "elimination" && !activeRound.eliminationAdvanced && (
-              <button
-                type="button"
-                onClick={() => setPendingAdvancement(true)}
-                disabled={!allBallotsConfirmed || isAdvancingRound}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                {isAdvancingRound ? "Advancing..." : "Proceed to Next Round"}
-              </button>
+                  ? t("results.overview.speaks.published")
+                  : !releaseBlocker
+                  ? t("results.overview.speaks.ready")
+                  : t("results.overview.speaks.blocked")
+              }
+              action={
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingTeamSpeaksPublication(!activeRound.teamSpeaksReleased)}
+                  disabled={!activeRound.teamSpeaksReleased && Boolean(releaseBlocker)}
+                >
+                  {activeRound.teamSpeaksReleased ? <Lock aria-hidden="true" /> : <Eye aria-hidden="true" />}
+                  {activeRound.teamSpeaksReleased ? t("results.overview.speaks.unpublish") : t("results.overview.speaks.publish")}
+                </Button>
+              }
+            />
+
+            {activeRound.stage === "preliminary" && !activeRound.cancelled && (
+              <ControlRow
+                title={t("results.overview.completion.title")}
+                status={
+                  activeRound.completed
+                    ? t("results.overview.completion.done")
+                    : completionBlockers.length === 0
+                    ? t("results.overview.completion.ready")
+                    : plural("results.overview.completion.blocked", completionBlockers.length, {
+                        details: `${completionBlockers
+                          .slice(0, 3)
+                          .map((blocker) => blocker.message)
+                          .join(" ")}${completionBlockers.length > 3 ? " …" : ""}`,
+                      })
+                }
+                error={pendingCompletion === null ? completionError : undefined}
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPendingCompletion(!activeRound.completed)}
+                    disabled={!activeRound.completed && completionBlockers.length > 0}
+                  >
+                    <CheckCircle2 aria-hidden="true" />
+                    {activeRound.completed ? t("results.overview.completion.reopen") : t("results.overview.completion.complete")}
+                  </Button>
+                }
+              />
             )}
-            {activeRound.stage === "elimination" && activeRound.eliminationAdvanced && (
-              <span className="text-[11px] font-semibold text-emerald-700">
-                This round is complete; losing teams have been eliminated.
-              </span>
+
+            {activeRound.stage === "elimination" && (
+              <ControlRow
+                title={t("results.overview.elimination.title")}
+                status={
+                  activeRound.eliminationAdvanced
+                    ? t("results.overview.elimination.done")
+                    : t("results.overview.elimination.ready")
+                }
+                error={advancementError}
+                action={
+                  activeRound.eliminationAdvanced ? (
+                    <StatusPill tone="success">{t("results.overview.elimination.advanced")}</StatusPill>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      onClick={() => setPendingAdvancement(true)}
+                      disabled={!allBallotsConfirmed}
+                      loading={isAdvancingRound}
+                      loadingText={t("results.overview.elimination.advancing")}
+                    >
+                      <ArrowRight className="rtl:-scale-x-100" aria-hidden="true" />
+                      {t("results.overview.elimination.proceed")}
+                    </Button>
+                  )
+                }
+              />
             )}
-            {advancementError && <span role="alert" className="text-[11px] text-red-600">{advancementError}</span>}
           </div>
-        </div>
+        </Card>
       )}
       {pendingPublication !== null && activeRound && (
-        <ConfirmActionDialog
-          title={pendingPublication ? "Publish round results?" : "Unpublish round results?"}
+        <ReleaseActionDialog
+          title={pendingPublication ? t("results.overview.results.publishTitle") : t("results.overview.results.unpublishTitle")}
           description={pendingPublication
-            ? `Publishing ${activeRound.name} makes its team outcomes visible on the public tab. Team scores are controlled separately.`
-            : `Unpublishing ${activeRound.name} immediately hides its outcomes from the public tab.`}
-          confirmLabel={pendingPublication ? "Yes, publish results" : "Yes, unpublish results"}
-          onConfirm={confirmPublication}
-          onCancel={() => setPendingPublication(null)}
-          isBusy={isPublishing}
-          error={publicationError}
+            ? t("results.overview.results.publishDescription", { round: activeRound.name })
+            : t("results.overview.results.unpublishDescription", { round: activeRound.name })}
+          confirmLabel={pendingPublication ? t("results.overview.results.publishConfirm") : t("results.overview.results.unpublishConfirm")}
+          apply={() => updateRound({ ...activeRound, resultsReleased: pendingPublication })}
+          onClose={() => setPendingPublication(null)}
         />
       )}
       {pendingTeamSpeaksPublication !== null && activeRound && (
-        <ConfirmActionDialog
-          title={pendingTeamSpeaksPublication ? "Publish team speaks?" : "Unpublish team speaks?"}
+        <ReleaseActionDialog
+          title={pendingTeamSpeaksPublication ? t("results.overview.speaks.publishTitle") : t("results.overview.speaks.unpublishTitle")}
           description={pendingTeamSpeaksPublication
-            ? `Publishing team speaks for ${activeRound.name} makes team score values available on the public tab.`
-            : `Unpublishing team speaks for ${activeRound.name} hides its team score values from the public tab.`}
-          confirmLabel={pendingTeamSpeaksPublication ? "Yes, publish team speaks" : "Yes, unpublish team speaks"}
-          onConfirm={confirmTeamSpeaksPublication}
-          onCancel={() => setPendingTeamSpeaksPublication(null)}
-          isBusy={isPublishingTeamSpeaks}
-          error={teamSpeaksPublicationError}
+            ? t("results.overview.speaks.publishDescription", { round: activeRound.name })
+            : t("results.overview.speaks.unpublishDescription", { round: activeRound.name })}
+          confirmLabel={pendingTeamSpeaksPublication ? t("results.overview.speaks.publish") : t("results.overview.speaks.unpublish")}
+          apply={() => updateRound({ ...activeRound, teamSpeaksReleased: pendingTeamSpeaksPublication })}
+          onClose={() => setPendingTeamSpeaksPublication(null)}
+        />
+      )}
+      {pendingCompletion !== null && activeRound && (
+        <ConfirmActionDialog
+          title={pendingCompletion
+            ? t("results.overview.completion.completeTitle", { round: activeRound.name })
+            : t("results.overview.completion.reopenTitle", { round: activeRound.name })}
+          description={pendingCompletion
+            ? t("results.overview.completion.completeDescription")
+            : t("results.overview.completion.reopenDescription")}
+          confirmLabel={pendingCompletion ? t("results.overview.completion.completeConfirm") : t("results.overview.completion.reopenConfirm")}
+          onConfirm={confirmCompletion}
+          onCancel={() => {
+            setPendingCompletion(null);
+            setCompletionError("");
+          }}
+          isBusy={isSavingCompletion}
+          error={completionError}
         />
       )}
       {pendingAdvancement && activeRound?.stage === "elimination" && (
         <ConfirmActionDialog
-          title="Proceed with elimination results?"
-          description={`Advancing ${activeRound.name} marks every non-advancing team eliminated and activates the next pre-created elimination round.`}
-          confirmLabel="Proceed to next round"
+          title={t("results.overview.elimination.confirmTitle")}
+          description={t("results.overview.elimination.confirmDescription", { round: activeRound.name })}
+          confirmLabel={t("results.overview.elimination.proceed")}
           onConfirm={handleProceedToNextRound}
           onCancel={() => setPendingAdvancement(false)}
           isBusy={isAdvancingRound}

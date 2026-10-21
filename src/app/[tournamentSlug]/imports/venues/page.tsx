@@ -1,24 +1,45 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { parseVenuesCsv } from "@/lib/csv/importer";
-import {
-  MapPin,
-  Plus,
-  Trash2,
-  Upload,
-  CheckCircle2,
-  XCircle,
-  Search,
-  FileSpreadsheet,
-  X,
-  Pencil,
-} from "lucide-react";
+import { CheckCircle2, ExternalLink, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { Venue } from "@/types";
+import {
+  isVenueAvailableForRound,
+  parseVenueCategoryList,
+  safeVenueUrl,
+  setVenueRoundAvailability,
+  venueCategoryNames,
+  venueTooltip,
+  withVenueCategories,
+} from "@/lib/venues/venues";
+import { VenueCategoriesEditor } from "@/features/tournament/components/VenueCategoriesEditor";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Checkbox, Input, Label, Textarea } from "@/components/ui/Field";
+import { StatusPill } from "@/components/ui/Badge";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+
+/** CSV template shown as the placeholder; column names are parsed back, so they stay in English. */
+const CSV_EXAMPLE =
+  "name,priority,category,capacity,accessible,online\nLecture Theatre 1,20,Main,200,yes,no\nSeminar Room A,10,General,30,no,no\nOnline Room 1,5,Online,50,yes,yes";
+
+const VENUE_FORM_ID = "venue-form";
 
 export default function VenuesPage() {
-  const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue } = useTournament();
+  const { t, plural, rich } = useI18n();
+  const { tournament, venues, addVenue, addVenues, updateVenue, deleteVenue, activeRound, saveTournament } = useTournament();
+  const [newUrl, setNewUrl] = useState("");
+  const [urlError, setUrlError] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingVenue, setEditingVenue] = useState<Venue | null>(null);
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -33,24 +54,35 @@ export default function VenuesPage() {
   const [csvPreview, setCsvPreview] = useState<Venue[]>([]);
   const [csvError, setCsvError] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [venuePendingDelete, setVenuePendingDelete] = useState<Venue | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredVenues = venues.filter((v) =>
     v.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const roundLabel = activeRound ? activeRound.abbreviation || activeRound.name : "";
+  const columnCount = activeRound ? 9 : 8;
 
   const handleCreateVenue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    const url = safeVenueUrl(newUrl);
+    if (newUrl.trim() && !url) {
+      setUrlError(t("setup.importsExtra.venues.urlError"));
+      return;
+    }
+    setUrlError("");
 
-    const venueFields = {
+    const venueFields = withVenueCategories({
       name: newName.trim(),
       priority: newPriority,
-      category: newCategory.trim() || undefined,
       capacity: newCapacity ? Number(newCapacity) : undefined,
       accessible: newAccessible,
       online: newOnline,
-    };
+      url,
+    }, parseVenueCategoryList(newCategory));
     if (editingVenue) {
       await updateVenue({ ...editingVenue, ...venueFields });
     } else {
@@ -71,10 +103,12 @@ export default function VenuesPage() {
     setEditingVenue(venue);
     setNewName(venue.name);
     setNewPriority(venue.priority || 10);
-    setNewCategory(venue.category || "");
+    setNewCategory(venueCategoryNames(venue).join(", "));
     setNewCapacity(venue.capacity === undefined ? "" : String(venue.capacity));
     setNewAccessible(venue.accessible === true);
     setNewOnline(venue.online === true);
+    setNewUrl(venue.url ?? "");
+    setUrlError("");
     setShowAddModal(true);
   };
 
@@ -86,11 +120,33 @@ export default function VenuesPage() {
     setNewCapacity("");
     setNewAccessible(false);
     setNewOnline(false);
+    setNewUrl("");
+    setUrlError("");
     setShowAddModal(true);
   };
 
   const toggleAvailability = async (venue: Venue) => {
     await updateVenue({ ...venue, available: venue.available === false });
+  };
+
+  /** Availability in the selected round only (Tabbycat round availability for rooms). */
+  const toggleRoundAvailability = async (venue: Venue) => {
+    if (!activeRound) return;
+    await updateVenue(setVenueRoundAvailability(venue, activeRound.id, !isVenueAvailableForRound(venue, activeRound.id)));
+  };
+
+  const confirmDelete = async () => {
+    if (!venuePendingDelete) return;
+    setIsDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteVenue(venuePendingDelete.id);
+      setVenuePendingDelete(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : t("setup.importsExtra.venues.deleteError"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // ─── CSV Import Handlers ───
@@ -116,11 +172,12 @@ export default function VenuesPage() {
     try {
       const parsed = parseVenuesCsv(text, tournament?.id || "");
       if (parsed.length === 0) {
-        setCsvError("No venues found in CSV. Ensure headers include: name, priority, category");
+        setCsvError(t("setup.importsExtra.venues.csvNoVenues"));
       }
       setCsvPreview(parsed);
-    } catch (err: any) {
-      setCsvError(err.message || "Failed to parse CSV");
+    } catch (err: unknown) {
+      // Parser messages are shown as they are (English).
+      setCsvError((err instanceof Error && err.message) || t("setup.importsExtra.venues.csvParseError"));
       setCsvPreview([]);
     }
   };
@@ -128,6 +185,13 @@ export default function VenuesPage() {
   const handleCsvTextChange = (text: string) => {
     setCsvText(text);
     parseCsvPreview(text);
+  };
+
+  const closeCsvModal = () => {
+    setShowCsvModal(false);
+    setCsvText("");
+    setCsvPreview([]);
+    setCsvError("");
   };
 
   const handleCsvImport = async () => {
@@ -146,391 +210,427 @@ export default function VenuesPage() {
     }
   };
 
+  const csvColumns: Array<{ column: string; key: Parameters<typeof t>[0] }> = [
+    { column: "name", key: "setup.importsExtra.venues.csvColName" },
+    { column: "priority", key: "setup.importsExtra.venues.csvColPriority" },
+    { column: "category", key: "setup.importsExtra.venues.csvColCategory" },
+    { column: "capacity", key: "setup.importsExtra.venues.csvColCapacity" },
+    { column: "accessible", key: "setup.importsExtra.venues.csvColAccessible" },
+    { column: "online", key: "setup.importsExtra.venues.csvColOnline" },
+    { column: "url", key: "setup.importsExtra.venues.csvColUrl" },
+  ];
+
+  const pillButtonClasses = cn("inline-flex rounded-sm", focusRing);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <MapPin className="w-6 h-6 text-emerald-600" />
-            <span>Venues</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Manage physical and online debate rooms, priority weights, and availability status.
-          </p>
-        </div>
+      <PageHeader
+        title={t("setup.importsExtra.venues.title")}
+        description={rich("setup.importsExtra.venues.description", {
+          link: (label) => (
+            <Link href={`/${tournament?.slug}/imports/venue-constraints`} className="text-accent-text underline">
+              {label}
+            </Link>
+          ),
+        })}
+        actions={
+          <>
+            <Button onClick={() => setShowCsvModal(true)}>
+              <Upload aria-hidden="true" />
+              {t("setup.importsExtra.venues.importCsv")}
+            </Button>
+            <Button variant="primary" onClick={openAddVenue}>
+              <Plus aria-hidden="true" />
+              {t("setup.importsExtra.venues.addVenue")}
+            </Button>
+          </>
+        }
+      />
 
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowCsvModal(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-          >
-            <Upload className="w-3.5 h-3.5 text-gray-500" />
-            <span>Import CSV</span>
-          </button>
-          <button
-            onClick={openAddVenue}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs shadow-xs transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Venue</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Venues Table */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-        <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] flex items-center justify-between">
-          <div className="relative w-64">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search venues..."
+      {venues.length === 0 ? (
+        <EmptyState
+          icon={<MapPin />}
+          title={t("setup.importsExtra.venues.emptyTitle")}
+          description={t("setup.importsExtra.venues.emptyDescription")}
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button variant="primary" onClick={openAddVenue}>
+                <Plus aria-hidden="true" />
+                {t("setup.importsExtra.venues.addVenue")}
+              </Button>
+              <Button onClick={() => setShowCsvModal(true)}>
+                <Upload aria-hidden="true" />
+                {t("setup.importsExtra.venues.importCsv")}
+              </Button>
+            </div>
+          }
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 p-3">
+            <Input
+              type="search"
+              aria-label={t("setup.importsExtra.venues.search")}
+              placeholder={t("setup.importsExtra.venues.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+              leadingIcon={<Search />}
+              wrapperClassName="w-full sm:w-64"
             />
+            <span className="text-xs font-medium text-fg-muted">
+              {t("setup.importsExtra.venues.activeOfTotal", {
+                active: venues.filter((v) => v.available !== false).length,
+                total: venues.length,
+              })}
+            </span>
           </div>
-          <span className="text-xs text-gray-500 font-medium">
-            {venues.filter((v) => v.available !== false).length} Active of {venues.length} Total
-          </span>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left tabby-table">
-            <thead>
-              <tr>
-                <th className="w-12 text-center">#</th>
-                <th>Venue / Room Name</th>
-                <th>Category</th>
-                <th className="w-24 text-center">Capacity</th>
-                <th className="w-24 text-center">Capabilities</th>
-                <th className="w-24 text-center">Priority</th>
-                <th className="w-28 text-center">Availability</th>
-                <th className="w-20 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVenues.map((venue, idx) => (
-                <tr key={venue.id} className="hover:bg-gray-50">
-                  <td className="text-center font-mono text-xs text-gray-500">{idx + 1}</td>
-                  <td className="font-bold text-gray-900 text-xs">{venue.name}</td>
-                  <td className="text-xs text-gray-500">
-                    <input
-                      aria-label={`${venue.name} category`}
-                      defaultValue={venue.category || ""}
-                      placeholder="General"
-                      onBlur={(e) => {
-                        const category = e.currentTarget.value.trim() || undefined;
-                        if (category !== venue.category) void updateVenue({ ...venue, category });
-                      }}
-                      className="w-full min-w-24 border border-transparent hover:border-gray-300 focus:border-blue-400 rounded px-1 py-0.5 text-xs"
-                    />
-                  </td>
-                  <td className="text-center">
-                    <input
-                      aria-label={`${venue.name} capacity`}
-                      type="number"
-                      min="0"
-                      defaultValue={venue.capacity ?? ""}
-                      placeholder="—"
-                      onBlur={(e) => {
-                        const value = e.currentTarget.value.trim();
-                        const capacity = value ? Number(value) : undefined;
-                        if (capacity !== undefined && (!Number.isFinite(capacity) || capacity < 0)) {
-                          e.currentTarget.reportValidity();
-                          return;
-                        }
-                        if (capacity !== venue.capacity) void updateVenue({ ...venue, capacity });
-                      }}
-                      className="w-16 border border-gray-200 rounded px-1 py-0.5 text-center text-xs"
-                    />
-                  </td>
-                  <td className="text-center text-[10px]">
-                    <div className="flex flex-col items-start gap-1">
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={venue.accessible === true}
-                          onChange={(e) => void updateVenue({ ...venue, accessible: e.target.checked })}
+          <TableContainer className="rounded-none border-0">
+            <Table>
+              <THead>
+                <TR>
+                  <TH align="center" className="w-12">{t("setup.importsExtra.venues.number")}</TH>
+                  <TH>{t("setup.importsExtra.venues.roomName")}</TH>
+                  <TH>{t("setup.importsExtra.venues.category")}</TH>
+                  <TH align="center" className="w-24">{t("setup.importsExtra.venues.capacity")}</TH>
+                  <TH className="w-24">{t("setup.importsExtra.venues.capabilities")}</TH>
+                  <TH align="center" className="w-24">{t("setup.importsExtra.venues.priority")}</TH>
+                  <TH align="center" className="w-28">{t("setup.importsExtra.venues.availability")}</TH>
+                  {activeRound && (
+                    <TH align="center" className="w-28">{t("setup.importsExtra.venues.inRound", { round: roundLabel })}</TH>
+                  )}
+                  <TH align="right" className="w-20">{t("setup.common.actions")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredVenues.length === 0 && (
+                  <TableEmpty colSpan={columnCount}>{t("setup.importsExtra.venues.noMatches")}</TableEmpty>
+                )}
+                {filteredVenues.map((venue, idx) => {
+                  const link = safeVenueUrl(venue.url);
+                  const available = venue.available !== false;
+                  const inRound = activeRound ? isVenueAvailableForRound(venue, activeRound.id) : false;
+                  const roundDefault = activeRound ? venue.roundAvailability?.[activeRound.id] === undefined : true;
+                  return (
+                    <TR key={venue.id}>
+                      <TD align="center" className="font-mono text-xs text-fg-muted">{idx + 1}</TD>
+                      <TD
+                        className="text-xs font-semibold"
+                        title={venueTooltip(venue, tournament?.preferences?.venueCategories, "admin")}
+                      >
+                        {venue.name}
+                        {link && (
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={cn("ms-1.5 inline-flex items-center rounded-sm text-accent-text hover:text-accent-hover", focusRing)}
+                            aria-label={t("setup.importsExtra.venues.openLink", { name: venue.name })}
+                          >
+                            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </a>
+                        )}
+                      </TD>
+                      <TD>
+                        <Input
+                          aria-label={t("setup.importsExtra.venues.categoryOf", { name: venue.name })}
+                          defaultValue={venueCategoryNames(venue).join(", ")}
+                          placeholder={t("setup.importsExtra.venues.generalCategory")}
+                          onBlur={(e) => {
+                            const next = parseVenueCategoryList(e.currentTarget.value);
+                            if (next.join("|") !== venueCategoryNames(venue).join("|")) {
+                              void updateVenue(withVenueCategories(venue, next));
+                            }
+                          }}
+                          className="h-7 min-w-24 text-xs"
                         />
-                        Accessible
-                      </label>
-                      <label className="inline-flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={venue.online === true}
-                          onChange={(e) => void updateVenue({ ...venue, online: e.target.checked })}
+                      </TD>
+                      <TD align="center">
+                        <Input
+                          aria-label={t("setup.importsExtra.venues.capacityOf", { name: venue.name })}
+                          type="number"
+                          min="0"
+                          defaultValue={venue.capacity ?? ""}
+                          placeholder="—"
+                          onBlur={(e) => {
+                            const value = e.currentTarget.value.trim();
+                            const capacity = value ? Number(value) : undefined;
+                            if (capacity !== undefined && (!Number.isFinite(capacity) || capacity < 0)) {
+                              e.currentTarget.reportValidity();
+                              return;
+                            }
+                            if (capacity !== venue.capacity) void updateVenue({ ...venue, capacity });
+                          }}
+                          className="h-7 w-16 text-center text-xs"
                         />
-                        Online
-                      </label>
-                    </div>
-                  </td>
-                  <td className="text-center font-mono font-bold text-xs text-blue-600">
-                    {venue.priority || 10}
-                  </td>
-                  <td className="text-center">
-                    <button
-                      onClick={() => toggleAvailability(venue)}
-                      className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase transition ${
-                        venue.available !== false
-                          ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-                          : "bg-red-100 text-red-800 hover:bg-red-200"
-                      }`}
-                    >
-                      {venue.available !== false ? "Available" : "Unavailable"}
-                    </button>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      type="button"
-                      onClick={() => openEditVenue(venue)}
-                      className="p-1 text-gray-400 hover:text-blue-600 rounded transition"
-                      title={`Edit ${venue.name}`}
-                      aria-label={`Edit ${venue.name}`}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Delete venue ${venue.name}?`)) deleteVenue(venue.id);
-                      }}
-                      className="p-1 text-gray-400 hover:text-red-600 rounded transition"
-                      title="Delete Venue"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Add Venue Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <MapPin className="w-5 h-5 text-emerald-600" />
-              <span>{editingVenue ? "Edit Venue" : "Add New Venue"}</span>
-            </h3>
-            <form onSubmit={handleCreateVenue} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Room Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Lecture Theatre 1"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Priority Rank (Higher = Better room used for top bracket debates)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={newPriority}
-                  onChange={(e) => setNewPriority(parseInt(e.target.value, 10))}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs font-mono font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Category (e.g. Accessible, Online, Main Hall)
-                </label>
-                <input
-                  type="text"
-                  placeholder="General"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Capacity (seats)</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="No capacity limit"
-                  value={newCapacity}
-                  onChange={(e) => setNewCapacity(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-xs"
-                />
-              </div>
-
-              <div className="flex gap-4 text-xs">
-                <label className="inline-flex items-center gap-1.5">
-                  <input type="checkbox" checked={newAccessible} onChange={(e) => setNewAccessible(e.target.checked)} />
-                  Accessible
-                </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <input type="checkbox" checked={newOnline} onChange={(e) => setNewOnline(e.target.checked)} />
-                  Online-capable
-                </label>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded shadow-xs"
-                >
-                  {editingVenue ? "Save Changes" : "Add Room"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+                      </TD>
+                      <TD>
+                        <div className="flex flex-col items-start gap-1">
+                          <Checkbox
+                            label={t("setup.importsExtra.venues.accessible")}
+                            checked={venue.accessible === true}
+                            onChange={(e) => void updateVenue({ ...venue, accessible: e.target.checked })}
+                          />
+                          <Checkbox
+                            label={t("setup.importsExtra.venues.online")}
+                            checked={venue.online === true}
+                            onChange={(e) => void updateVenue({ ...venue, online: e.target.checked })}
+                          />
+                        </div>
+                      </TD>
+                      <TD numeric align="center">{venue.priority || 10}</TD>
+                      <TD align="center">
+                        <button
+                          type="button"
+                          onClick={() => toggleAvailability(venue)}
+                          title={t("setup.importsExtra.venues.toggleAvailability", { name: venue.name })}
+                          className={pillButtonClasses}
+                        >
+                          <StatusPill tone={available ? "success" : "danger"}>
+                            {available ? t("setup.importsExtra.venues.available") : t("setup.importsExtra.venues.unavailable")}
+                          </StatusPill>
+                        </button>
+                      </TD>
+                      {activeRound && (
+                        <TD align="center">
+                          <button
+                            type="button"
+                            onClick={() => toggleRoundAvailability(venue)}
+                            aria-pressed={inRound}
+                            aria-label={t("setup.importsExtra.venues.toggleRound", { name: venue.name, round: roundLabel })}
+                            title={roundDefault ? t("setup.importsExtra.venues.roundDefault") : t("setup.importsExtra.venues.roundOverride")}
+                            className={pillButtonClasses}
+                          >
+                            <StatusPill tone={inRound ? "success" : "danger"}>
+                              {inRound ? t("setup.importsExtra.venues.inUse") : t("setup.importsExtra.venues.notInUse")}
+                              {roundDefault ? "" : " *"}
+                            </StatusPill>
+                          </button>
+                        </TD>
+                      )}
+                      <TD align="right" className="whitespace-nowrap">
+                        <IconButton
+                          size="sm"
+                          label={t("setup.importsExtra.venues.editVenue", { name: venue.name })}
+                          icon={<Pencil />}
+                          onClick={() => openEditVenue(venue)}
+                        />
+                        <IconButton
+                          size="sm"
+                          label={t("setup.importsExtra.venues.deleteVenue", { name: venue.name })}
+                          icon={<Trash2 />}
+                          onClick={() => {
+                            setDeleteError("");
+                            setVenuePendingDelete(venue);
+                          }}
+                        />
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </Table>
+          </TableContainer>
+        </Card>
       )}
 
-      {/* CSV Import Modal */}
-      {showCsvModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-2xl w-full p-6 border border-gray-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                <span>Import Venues from CSV</span>
-              </h3>
-              <button
-                onClick={() => {
-                  setShowCsvModal(false);
-                  setCsvText("");
-                  setCsvPreview([]);
-                  setCsvError("");
-                }}
-                className="p-1 hover:bg-gray-100 rounded"
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
+      {tournament && (
+        <VenueCategoriesEditor
+          venues={venues}
+          categories={tournament.preferences?.venueCategories}
+          onSave={(venueCategories) =>
+            saveTournament({ ...tournament, preferences: { ...tournament.preferences, venueCategories } })
+          }
+        />
+      )}
 
-            <div className="space-y-4">
-              {/* File picker */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Upload CSV File
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.txt,.tsv"
-                  onChange={handleFileUpload}
-                  className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-gray-300 rounded cursor-pointer"
-                />
-              </div>
-
-              <div className="text-xs text-gray-400 text-center">— or paste CSV text —</div>
-
-              {/* Paste area */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  CSV Content
-                </label>
-                <textarea
-                  rows={6}
-                  placeholder={`name,priority,category,capacity,accessible,online\nLecture Theatre 1,20,Main,200,yes,no\nSeminar Room A,10,General,30,no,no\nOnline Room 1,5,Online,50,yes,yes`}
-                  value={csvText}
-                  onChange={(e) => handleCsvTextChange(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                />
-              </div>
-
-              {/* CSV format help */}
-              <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                <p className="text-[11px] font-semibold text-gray-700 mb-1">Expected CSV Columns:</p>
-                <ul className="text-[10px] text-gray-500 space-y-0.5">
-                  <li><strong>name</strong> (required) — Venue/room name. Aliases: Name, room, Room, venue, Venue</li>
-                  <li><strong>priority</strong> — Priority weight (1-100, default 10). Higher = more important room</li>
-                  <li><strong>category</strong> — Category label (e.g. Main, Online, Accessible)</li>
-                  <li><strong>capacity</strong> — Maximum seating capacity</li>
-                  <li><strong>accessible</strong> — Whether the venue is accessible (yes/no)</li>
-                  <li><strong>online</strong> — Whether the venue supports online debates (yes/no)</li>
-                </ul>
-              </div>
-
-              {/* Error */}
-              {csvError && (
-                <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
-                  <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                  <span>{csvError}</span>
-                </div>
-              )}
-
-              {/* Preview */}
-              {csvPreview.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center space-x-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Preview: {csvPreview.length} venues found</span>
-                  </p>
-                  <div className="overflow-x-auto max-h-48 overflow-y-auto border border-gray-200 rounded">
-                    <table className="w-full text-left">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">#</th>
-                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Name</th>
-                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Priority</th>
-                          <th className="px-3 py-1.5 text-[10px] font-bold text-gray-600 uppercase">Category</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {csvPreview.map((v, idx) => (
-                          <tr key={idx} className="text-xs hover:bg-gray-50">
-                            <td className="px-3 py-1 font-mono text-gray-400">{idx + 1}</td>
-                            <td className="px-3 py-1 font-semibold text-gray-900">{v.name}</td>
-                            <td className="px-3 py-1 font-mono text-blue-600">{v.priority}</td>
-                            <td className="px-3 py-1 text-gray-500">{v.category || "General"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCsvModal(false);
-                    setCsvText("");
-                    setCsvPreview([]);
-                    setCsvError("");
-                  }}
-                  className="px-4 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCsvImport}
-                  disabled={csvPreview.length === 0 || isImporting}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs disabled:opacity-50 transition inline-flex items-center space-x-1.5"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{isImporting ? "Importing..." : `Import ${csvPreview.length} Venues`}</span>
-                </button>
-              </div>
-            </div>
+      {/* Add / edit venue */}
+      <Dialog
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title={editingVenue ? t("setup.importsExtra.venues.editTitle") : t("setup.importsExtra.venues.addTitle")}
+        icon={<MapPin className="text-fg-subtle" aria-hidden="true" />}
+        footer={
+          <>
+            <Button onClick={() => setShowAddModal(false)}>{t("setup.common.cancel")}</Button>
+            <Button type="submit" form={VENUE_FORM_ID} variant="primary">
+              {editingVenue ? t("setup.common.saveChanges") : t("setup.importsExtra.venues.addRoom")}
+            </Button>
+          </>
+        }
+      >
+        <form id={VENUE_FORM_ID} onSubmit={handleCreateVenue} className="space-y-3">
+          <Input
+            label={t("setup.importsExtra.venues.roomNameLabel")}
+            type="text"
+            required
+            placeholder={t("setup.importsExtra.venues.roomNamePlaceholder")}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <Input
+            label={t("setup.importsExtra.venues.priorityLabel")}
+            help={t("setup.importsExtra.venues.priorityHelp")}
+            type="number"
+            min="1"
+            max="100"
+            value={newPriority}
+            onChange={(e) => setNewPriority(parseInt(e.target.value, 10))}
+            className="font-mono"
+          />
+          <Input
+            label={t("setup.importsExtra.venues.categoryLabel")}
+            help={`${t("setup.importsExtra.venues.categoryHelp")} ${t("setup.importsExtra.venues.categoryMultipleHelp")}`}
+            type="text"
+            placeholder={t("setup.importsExtra.venues.generalCategory")}
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+          />
+          <Input
+            label={t("setup.importsExtra.venues.capacityLabel")}
+            type="number"
+            min="0"
+            placeholder={t("setup.importsExtra.venues.capacityPlaceholder")}
+            value={newCapacity}
+            onChange={(e) => setNewCapacity(e.target.value)}
+          />
+          <Input
+            id="venue-url"
+            label={t("setup.importsExtra.venues.urlLabel")}
+            help={t("setup.importsExtra.venues.urlHelp")}
+            error={urlError || undefined}
+            type="url"
+            placeholder="https://"
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+          />
+          <div className="flex flex-wrap gap-4">
+            <Checkbox
+              label={t("setup.importsExtra.venues.accessible")}
+              checked={newAccessible}
+              onChange={(e) => setNewAccessible(e.target.checked)}
+            />
+            <Checkbox
+              label={t("setup.importsExtra.venues.onlineCapable")}
+              checked={newOnline}
+              onChange={(e) => setNewOnline(e.target.checked)}
+            />
           </div>
+        </form>
+      </Dialog>
+
+      {/* CSV import */}
+      <Dialog
+        open={showCsvModal}
+        onClose={closeCsvModal}
+        size="lg"
+        title={t("setup.importsExtra.venues.csvTitle")}
+        icon={<Upload className="text-fg-subtle" aria-hidden="true" />}
+        footer={
+          <>
+            <Button onClick={closeCsvModal}>{t("setup.common.cancel")}</Button>
+            <Button
+              variant="primary"
+              onClick={handleCsvImport}
+              disabled={csvPreview.length === 0}
+              loading={isImporting}
+              loadingText={t("setup.importsExtra.csv.importing")}
+            >
+              <Upload aria-hidden="true" />
+              {plural("setup.importsExtra.venues.csvImport", csvPreview.length)}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="venues-csv-file">{t("setup.importsExtra.venues.csvUpload")}</Label>
+            <input
+              id="venues-csv-file"
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.txt,.tsv"
+              onChange={handleFileUpload}
+              className={cn(
+                "block w-full cursor-pointer rounded-md border border-border-strong bg-surface text-xs text-fg-muted",
+                "file:me-3 file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-fg hover:file:bg-border",
+                focusRing
+              )}
+            />
+          </div>
+
+          <p className="text-center text-xs text-fg-muted">— {t("setup.importsExtra.venues.csvOr")} —</p>
+
+          <Textarea
+            label={t("setup.importsExtra.venues.csvContent")}
+            rows={6}
+            placeholder={CSV_EXAMPLE}
+            value={csvText}
+            onChange={(e) => handleCsvTextChange(e.target.value)}
+            className="resize-y font-mono text-xs"
+          />
+
+          <div className="rounded-md border border-border bg-muted/40 p-3">
+            <p className="mb-1 text-xs font-semibold text-fg">{t("setup.importsExtra.venues.csvColumnsTitle")}</p>
+            <ul className="space-y-0.5 text-xs text-fg-muted">
+              {csvColumns.map(({ column, key }) => (
+                <li key={column}>
+                  <code className="font-mono font-semibold text-fg">{column}</code> — {t(key)}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {csvError && (
+            <Alert tone="danger" role="alert">
+              {csvError}
+            </Alert>
+          )}
+
+          {csvPreview.length > 0 && (
+            <div className="space-y-2">
+              <p role="status" className="flex items-center gap-1.5 text-xs font-semibold text-fg">
+                <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
+                {plural("setup.importsExtra.venues.csvPreview", csvPreview.length)}
+              </p>
+              <TableContainer className="max-h-48">
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>{t("setup.importsExtra.venues.number")}</TH>
+                      <TH>{t("setup.common.name")}</TH>
+                      <TH align="right">{t("setup.importsExtra.venues.priority")}</TH>
+                      <TH>{t("setup.importsExtra.venues.category")}</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {csvPreview.map((v, idx) => (
+                      <TR key={idx}>
+                        <TD className="font-mono text-xs text-fg-muted">{idx + 1}</TD>
+                        <TD className="font-semibold">{v.name}</TD>
+                        <TD numeric>{v.priority}</TD>
+                        <TD className="text-fg-muted">{venueCategoryNames(v).join(", ") || t("setup.importsExtra.venues.generalCategory")}</TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </TableContainer>
+            </div>
+          )}
         </div>
+      </Dialog>
+
+      {venuePendingDelete && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.importsExtra.venues.deleteTitle", { name: venuePendingDelete.name })}
+          description={t("setup.importsExtra.venues.deleteDescription")}
+          confirmLabel={t("setup.common.delete")}
+          isBusy={isDeleting}
+          error={deleteError || undefined}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setVenuePendingDelete(null)}
+        />
       )}
     </div>
   );

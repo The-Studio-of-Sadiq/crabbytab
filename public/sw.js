@@ -39,8 +39,13 @@ self.addEventListener("fetch", (event) => {
       caches.open(CACHE_NAME).then(async (cache) => {
         try {
           const response = await fetch(request);
-          if (response.ok) await cache.put(request, response.clone());
-          return response;
+          if (response.ok) {
+            await cache.put(request, response.clone());
+            return response;
+          }
+          // After a deploy the server no longer has the previous build's chunks (404); a page
+          // still running that build can keep working from the cached copy.
+          return (await cache.match(request)) || response;
         } catch (error) {
           const cached = await cache.match(request);
           if (cached) return cached;

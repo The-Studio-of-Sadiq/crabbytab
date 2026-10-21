@@ -3,16 +3,18 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OfflineSupport } from "@/components/OfflineSupport";
+import { themeInitScript } from "@/lib/theme";
+import { localeInitScript } from "@/lib/i18n/config";
+import { I18nProvider } from "@/components/i18n/I18nProvider";
+import { resolveSiteUrl, SITE_DESCRIPTION, SITE_NAME, SITE_OG_IMAGE } from "@/lib/seo/site";
 
 const inter = Inter({ subsets: ["latin"] });
-const siteUrl =
-  process.env.NEXT_PUBLIC_APP_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
 export const metadata: Metadata = {
-  title: "CrabbyTab",
-  description: "Next.js serverless clone of Tabbycat for British Parliamentary and parliamentary debate tournament tabulation.",
-  metadataBase: new URL(siteUrl),
+  title: SITE_NAME,
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  metadataBase: new URL(resolveSiteUrl()),
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
@@ -22,15 +24,17 @@ export const metadata: Metadata = {
     apple: [{ url: "/crabbytab.png", sizes: "512x512" }],
   },
   openGraph: {
-    title: "CrabbyTab",
-    description: "Next.js serverless clone of Tabbycat for British Parliamentary and parliamentary debate tournament tabulation.",
-    images: [{ url: "/og-image.png", width: 1254, height: 834, alt: "CrabbyTab" }],
+    type: "website",
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [SITE_OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: "CrabbyTab",
-    description: "Offline-first parliamentary debate tournament tabulation.",
-    images: ["/og-image.png"],
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: [SITE_OG_IMAGE.url],
   },
 };
 
@@ -46,12 +50,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // data-theme, lang and dir are set by the inline scripts before hydration.
+    <html lang="en" dir="ltr" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script dangerouslySetInnerHTML={{ __html: localeInitScript }} />
+      </head>
       <body className={inter.className}>
-        <AuthProvider>
-          <OfflineSupport />
-          {children}
-        </AuthProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <OfflineSupport />
+            {children}
+          </AuthProvider>
+        </I18nProvider>
       </body>
     </html>
   );

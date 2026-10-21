@@ -24,6 +24,7 @@ export interface NewEmailCampaign {
   bodyTemplate: string;
   recipients: EmailRecipient[];
   retryOf?: string;
+  notificationKey?: string;
 }
 
 function withoutPrivateCredentials(recipient: EmailRecipient): EmailRecipient {
@@ -64,6 +65,7 @@ export async function createEmailCampaign(
     results: [],
     failedRecipients: campaign.recipients.map(withoutPrivateCredentials),
     ...(campaign.retryOf !== undefined ? { retryOf: campaign.retryOf } : {}),
+    ...(campaign.notificationKey !== undefined ? { notificationKey: campaign.notificationKey } : {}),
   };
 
   await reference.create(record);

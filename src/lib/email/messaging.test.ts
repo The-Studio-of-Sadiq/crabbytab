@@ -3,6 +3,7 @@ import { Adjudicator, Debate, Round, Team } from "@/types";
 import {
   EmailCampaignInputError,
   EmailRecipient,
+  findCredentialEmailConflict,
   prepareEmailMessages,
   renderEmailTemplate,
   resolveEmailRecipients,
@@ -68,7 +69,7 @@ const debate: Debate = {
   teams: {
     AFF: { teamId: team.id, teamName: team.name, side: "AFF" },
     NEG: { teamId: "team-2", teamName: "Team Two", side: "NEG" },
-  },
+  } as Debate["teams"],
   adjudicators: {
     chairId: adjudicator.id,
     chairName: adjudicator.name,
@@ -152,7 +153,7 @@ describe("email recipient resolution", () => {
       [],
       undefined,
       {
-        includeAdjudicatorCredentials: true,
+        includePrivateCredentials: true,
         privateUrlOrigin: "https://crabbytab.example",
         tournamentSlug: "cup-2026",
         preserveDuplicateEmails: true,
@@ -174,6 +175,54 @@ describe("email recipient resolution", () => {
       "https://crabbytab.example/cup-2026/private/adjudicator/adj_one\npass-one",
       "https://crabbytab.example/cup-2026/private/adjudicator/adj_two\npass-two",
     ]);
+  });
+
+  it("resolves a team's private portal link for each of its speakers", () => {
+    const teams: Team[] = [
+      {
+        id: "team-1",
+        tournamentId: "t1",
+        name: "Alpha",
+        speakers: [
+          { id: "s1", name: "Ann", email: "ann@example.com" },
+          { id: "s2", name: "Bo", email: "bo@example.com" },
+        ],
+        breakCategories: [],
+        speakerCategories: [],
+        privateUrlKey: "team_key",
+        privatePasscode: "team-pass",
+      },
+    ];
+    const recipients = resolveEmailRecipients("all_teams", teams, [], [], undefined, {
+      includePrivateCredentials: true,
+      privateUrlOrigin: "https://crabbytab.example",
+      tournamentSlug: "cup-2026",
+      preserveDuplicateEmails: true,
+    });
+    expect(recipients.map((recipient) => [recipient.teamId, recipient.privateUrl, recipient.passcode])).toEqual([
+      ["team-1", "https://crabbytab.example/cup-2026/private/team/team_key", "team-pass"],
+      ["team-1", "https://crabbytab.example/cup-2026/private/team/team_key", "team-pass"],
+    ]);
+    expect(findCredentialEmailConflict(recipients)).toBeNull();
+  });
+
+  it("flags an address that would receive two different private links", () => {
+    expect(findCredentialEmailConflict([
+      { email: "same@example.com", name: "A", privateUrl: "https://x/one" },
+      { email: "SAME@example.com", name: "B", privateUrl: "https://x/two" },
+    ])).toBe("SAME@example.com");
+    expect(findCredentialEmailConflict([
+      { email: "same@example.com", name: "A", privateUrl: "https://x/one" },
+      { email: "same@example.com", name: "A", privateUrl: "https://x/one" },
+    ])).toBeNull();
+  });
+
+  it("renders the notification variables", () => {
+    expect(renderEmailTemplate(
+      "{{side}} {{result}} {{points}} {{ballot}}",
+      { email: "a@example.com", name: "A", side: "AFF", result: "Win", points: "3", ballot: "AFF won" },
+      "Cup"
+    )).toBe("AFF Win 3 AFF won");
   });
 
   it("rejects private portal messages when an adjudicator credential is missing", () => {

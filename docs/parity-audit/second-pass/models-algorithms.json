@@ -1,0 +1,2256 @@
+[
+  {
+    "item": "[models] Model actionlog.ActionLogEntry",
+    "tabbycat": "actionlog/models.py:20",
+    "status": "HAVE",
+    "crabbytab": "src/types/index.ts:664 AuditEvent (hash-chained, sequence); firestore.rules:145-155 auditEvents create-only by admin, update/delete false; public release via src/app/api/tournaments/[tournamentId]/audit/release/route.ts",
+    "note": "No IP address field (Tabbycat clean() requires user or IP); actorType public/system instead. Typed category+action strings replace the ActionType enum."
+  },
+  {
+    "item": "[models] Model adjallocation.DebateAdjudicator (unique debate+adjudicator)",
+    "tabbycat": "adjallocation/models.py:14,36",
+    "status": "HAVE",
+    "crabbytab": "Debate.adjudicators (src/types/index.ts:1029 DebateAdjudicatorSlot); API PATCH pairing src/lib/api/v1/routes/write/rounds.ts:359-369 rejects an adjudicator twice on the panel (422) and on another debate in the round (409)",
+    "note": "UI/Firestore client writes not server-validated (firestore.rules:60-69 only checks admin), so the invariant rests on client code."
+  },
+  {
+    "item": "[models] Model adjallocation.AdjudicatorTeamConflict / AdjudicatorAdjudicatorConflict / AdjudicatorInstitutionConflict (unique pairs)",
+    "tabbycat": "adjallocation/models.py:48,63,80",
+    "status": "PARTIAL",
+    "crabbytab": "Adjudicator.conflicts: AdjudicatorConflict[] (src/types/index.ts:928) set via UI, CSV, API conflictSchema (write/entities.ts:64-69)",
+    "note": "No uniqueness of conflict entries (array, no dedupe in API schema); adjudicator-adjudicator conflict stored one-directionally on one record (Tabbycat stores the pair once, symmetric query). Extra 'history' type not in Tabbycat."
+  },
+  {
+    "item": "[models] Model adjallocation.TeamInstitutionConflict",
+    "tabbycat": "adjallocation/models.py:95",
+    "status": "HAVE",
+    "crabbytab": "Team.institutionConflictIds (src/types/index.ts:877); API teamShape.institutionConflictIds with existence check (write/entities.ts:287)",
+    "note": "Array uniqueness enforced by API schema (unique:true)."
+  },
+  {
+    "item": "[models] Model adjallocation.PreformedPanel / PreformedPanelAdjudicator",
+    "tabbycat": "adjallocation/models.py:114,167",
+    "status": "HAVE",
+    "crabbytab": "Round.preformedPanels (src/types/index.ts:763) incl. roomRank, bracketMin/Max, liveness, importance; application/preformedPanels.ts; API write/pairings.ts:267-386",
+    "note": "Stored inside the Round doc rather than separate records; importance 0-10 not Tabbycat -2..2."
+  },
+  {
+    "item": "[models] Model adjfeedback.AdjudicatorBaseScoreHistory",
+    "tabbycat": "adjfeedback/models.py:14",
+    "status": "HAVE",
+    "crabbytab": "Adjudicator.scoreHistory: AdjudicatorScoreChange[] (src/types/index.ts:219) with roundId, previous/value, actor",
+    "note": "Also logs testScore changes."
+  },
+  {
+    "item": "[models] Model adjfeedback.AdjudicatorFeedbackQuestion (seq, reference, name, text, help_text, answer_type, required, min/max, choices, from_adj, from_team)",
+    "tabbycat": "adjfeedback/models.py:31; registration/models.py:58-127",
+    "status": "PARTIAL",
+    "crabbytab": "FeedbackQuestion (src/types/index.ts:207): id,label,type,required,options,min,max; sources via preferences; API write/settingsItems.ts:30-90",
+    "note": "No help_text field and no separate short name vs text; order is array order (no seq). All 9 Tabbycat answer types present (+legacy 'scale')."
+  },
+  {
+    "item": "[models] Model adjfeedback.AdjudicatorFeedback (versioned per adjudicator+source, confirmed, ignored, clean(): one source, target saw debate)",
+    "tabbycat": "adjfeedback/models.py:64-146; results/models.py:25-76 Submission.save unconfirms older versions",
+    "status": "PARTIAL",
+    "crabbytab": "FeedbackSubmission (src/types/index.ts:1203); src/lib/participantSubmissions.ts:39-145 checkParticipantFeedback validates source/target in debate, always sets confirmed:true",
+    "note": "No version field and no superseding: a second submission from the same source on the same adjudicator in the same debate (new id) is stored confirmed alongside the first and both count in calculateFeedbackSummaries (src/lib/feedback/scores.ts:146-165). Only a manual duplicates page (src/app/[tournamentSlug]/feedback/duplicates/page.tsx) mitigates. Contradicts the comment in write/participant.ts:23 claiming 'same superseding' for feedback."
+  },
+  {
+    "item": "[models] Model availability.RoundAvailability (unique round+object)",
+    "tabbycat": "availability/models.py:9,26",
+    "status": "HAVE",
+    "crabbytab": "roundAvailability Record<roundId,boolean> on Team/Speaker/Adjudicator/Venue (src/types/index.ts); API availabilities routes write/rounds.ts:858-930",
+    "note": "Map keyed by round id gives uniqueness by construction."
+  },
+  {
+    "item": "[models] Model breakqual.BreakCategory (unique tournament+seq, tournament+slug, break_size>=2, reserve, is_general, priority, limit, rule)",
+    "tabbycat": "breakqual/models.py:10-60",
+    "status": "HAVE",
+    "crabbytab": "BreakCategory (src/types/index.ts:1226); validateBreakCategoryDraft + upsertBreakCategory (src/features/tournament/application/breaks.ts:380-440) unique name, unique slug, seq=max+1; API write/rounds.ts:548-640",
+    "note": "Slug is auto-derived and not editable (Tabbycat lets admin set it). Extra maxPerInstitution, speakerCategoryRule."
+  },
+  {
+    "item": "[models] Model breakqual.BreakingTeam (rank, break_rank, remark; unique category+team)",
+    "tabbycat": "breakqual/models.py:80-105",
+    "status": "PARTIAL",
+    "crabbytab": "BreakCategory.generatedBreak {breakingTeamIds, reserveTeamIds} + teamOverrides Record<teamId, BreakTeamOverride> (src/types/index.ts:1262-1275)",
+    "note": "Ranks are implied by array order; team's standings rank at break time not stored separately from break_rank. Remark choices match (include/ineligible/withdrawn/different_break/disqualified/lost_coin_toss)."
+  },
+  {
+    "item": "[models] Model checkins.Identifier/PersonIdentifier/DebateIdentifier/VenueIdentifier (unique alphanumeric barcode)",
+    "tabbycat": "checkins/models.py:22-80",
+    "status": "PARTIAL",
+    "crabbytab": "Barcodes encode record ids (src/lib/checkins/code39.ts); API identifier routes write/rounds.ts:805-828 return the id",
+    "note": "No separate random barcode: identifiers are the Firestore record ids, so they cannot be regenerated/revoked independently and must be Code39-safe (supportsCode39)."
+  },
+  {
+    "item": "[models] Model checkins.Event (identifier, time, tournament)",
+    "tabbycat": "checkins/models.py:83",
+    "status": "HAVE",
+    "crabbytab": "CheckInEvent[] checkInHistory on Team/Speaker/Adjudicator/Venue (src/types/index.ts:784), appendCheckInEvent src/lib/checkins/history.ts:16; checkedInAt + expiry",
+    "note": "Debate check-in stored on debate (write/rounds.ts:983-1070)."
+  },
+  {
+    "item": "[models] Model draw.Debate (venue, scheduled_at, bracket, room_rank, flags, importance -2..2, result_status incl. postponed, sides_confirmed)",
+    "tabbycat": "draw/models.py:29-70",
+    "status": "HAVE",
+    "crabbytab": "Debate (src/types/index.ts:1040): bracket, roomRank, flags, importance, resultStatus, postponed+postponedReason, sidesConfirmed, scheduledTime",
+    "note": "importance is 0-10 internally (liveness.ts:145 maps), API accepts -2..10 (write/pairings.ts:123) — a mixed scale. Postponed is a separate boolean, not a result_status value."
+  },
+  {
+    "item": "[models] Model draw.DebateTeam (side, flags) — side uniqueness",
+    "tabbycat": "draw/models.py:251-261",
+    "status": "BETTER",
+    "crabbytab": "Debate.teams: Record<DebateSide, DebateTeamSlot> (src/types/index.ts:1017,1055)",
+    "note": "Tabbycat has no DB constraint on (debate, side); CrabbyTab's side-keyed record makes duplicate sides impossible. Per-team draw flags are not stored per slot (only Debate.flags and slot.pulledUp)."
+  },
+  {
+    "item": "[models] Model draw.TeamSideAllocation (unique round+team)",
+    "tabbycat": "draw/models.py:357-370",
+    "status": "HAVE",
+    "crabbytab": "Round.preallocatedSides Record<teamId, TwoTeamSide> (src/types/index.ts:752); UI SidePreallocationGrid.tsx; API PATCH round preallocatedSides (write/rounds.ts:87); command generatesideallocations equivalent",
+    "note": "Two-team only (BP preallocated sides not supported, generator.ts:321)."
+  },
+  {
+    "item": "[models] Model motions.Motion (text<=500, reference, info_slide, rounds via RoundMotion)",
+    "tabbycat": "motions/models.py:8-40",
+    "status": "HAVE",
+    "crabbytab": "Motion (src/types/index.ts:1172); API write/entities.ts:635-700 (refuses delete if a ballot records it)",
+    "note": "Text limit 2000 in API."
+  },
+  {
+    "item": "[models] Model motions.RoundMotion (seq, unique round+seq)",
+    "tabbycat": "motions/models.py:72-85",
+    "status": "PARTIAL",
+    "crabbytab": "Motion.roundSeq Record<roundId, number> (src/types/index.ts:1181)",
+    "note": "No uniqueness of seq within a round enforced (map per motion, not per round)."
+  },
+  {
+    "item": "[models] Model motions.DebateTeamMotionPreference (preference 1=first..., 3=veto; unique debate_team+preference+ballot)",
+    "tabbycat": "motions/models.py:45-58",
+    "status": "HAVE",
+    "crabbytab": "BallotSubmission.vetoes and motionPreferences (src/types/index.ts:1143-1146)",
+    "note": "Stored per side on the ballot; uniqueness by construction."
+  },
+  {
+    "item": "[models] Model notifications.SentMessage / BulkNotification",
+    "tabbycat": "notifications/models.py:8-80",
+    "status": "HAVE",
+    "crabbytab": "emailCampaigns subcollection (src/lib/email/history.ts, StoredEmailCampaign src/lib/email/messaging.ts:132); history page via src/app/api/email/history/route.ts; retry route",
+    "note": "Per-recipient context JSON not stored in the same shape."
+  },
+  {
+    "item": "[models] Model notifications.EmailStatus (event history per message)",
+    "tabbycat": "notifications/models.py:92-116",
+    "status": "PARTIAL",
+    "crabbytab": "src/app/api/email/webhook/route.ts stores campaign.delivery[address] = latest StoredDeliveryStatus",
+    "note": "Only the latest status per address is kept (supersedesStatus), not the event history; generic HMAC webhook instead of SendGrid."
+  },
+  {
+    "item": "[models] Model notifications.ParticipantWebPushDevice",
+    "tabbycat": "notifications/models.py:126",
+    "status": "MISSING",
+    "crabbytab": "grep -ri 'webpush|web-push|pushManager|PushSubscription' src: no hits",
+    "note": "No web push notifications to participants."
+  },
+  {
+    "item": "[models] Model options.TournamentPreferenceModel",
+    "tabbycat": "options/models.py:10",
+    "status": "HAVE",
+    "crabbytab": "Tournament.preferences: TournamentPreferences (src/types/index.ts:232); API PATCH /preferences (write/tournament.ts:40-70,168)",
+    "note": "Detailed per-preference coverage is in preferences.json."
+  },
+  {
+    "item": "[models] Model participants.Region",
+    "tabbycat": "participants/models.py:28",
+    "status": "PARTIAL",
+    "crabbytab": "Institution.region / Speaker.region / Adjudicator.region as free strings (src/types/index.ts:798,834,951)",
+    "note": "No Region entity: no rename-once, regions can diverge by spelling."
+  },
+  {
+    "item": "[models] Model participants.Institution (unique name+code)",
+    "tabbycat": "participants/models.py:44-63",
+    "status": "HAVE",
+    "crabbytab": "Institution (src/types/index.ts:794) per tournament; API write/entities.ts:211-255 unique name and code (case-insensitive)",
+    "note": "Tournament-scoped rather than global (Tabbycat institutions are shared across tournaments)."
+  },
+  {
+    "item": "[models] Model participants.TournamentInstitution (teams/adjudicators requested & allocated)",
+    "tabbycat": "participants/models.py:73-98",
+    "status": "PARTIAL",
+    "crabbytab": "InstitutionRegistrationData.teamsRequested/adjudicatorsRequested and RegistrationSubmission.teamsAllocated/adjudicatorsAllocated (src/lib/registration/types.ts:122-170); RegistrationRepresentative.teamQuota",
+    "note": "Held on the registration submission/representative, not on Institution; an institution added by hand/CSV has no allocation record."
+  },
+  {
+    "item": "[models] Model participants.SpeakerCategory (unique tournament+seq, tournament+slug, limit, public)",
+    "tabbycat": "participants/models.py:107-131",
+    "status": "PARTIAL",
+    "crabbytab": "SpeakerCategory in preferences (src/types/index.ts:623); validateSpeakerCategories (src/lib/speakerCategories.ts:152) unique name & slug",
+    "note": "seq uniqueness not enforced (API accepts any seq, write/tournament.ts:114,229)."
+  },
+  {
+    "item": "[models] Model participants.Person (name, last_name, email, phone, anonymous, code_name, url_key unique, gender M/F/O, pronoun<=10)",
+    "tabbycat": "participants/models.py:141-175",
+    "status": "PARTIAL",
+    "crabbytab": "Speaker/Adjudicator fields (src/types/index.ts:825,935); UI ImportDirectory + team page; API speakerShape/adjudicatorShape (write/entities.ts:42-90)",
+    "note": "gender is free text (API optionalText(40), CSV importer.ts:243) instead of M/F/O choices; API cannot set anonymous, codeName or phone for speakers/adjudicators; speaker privateUrlKey uniqueness relies on generator randomness (no unique index)."
+  },
+  {
+    "item": "[models] Model participants.Coach",
+    "tabbycat": "participants/models.py:194",
+    "status": "HAVE",
+    "crabbytab": "Institution.coaches: Coach[] (src/types/index.ts:807-815); InstitutionCoachesField.tsx; email group",
+    "note": "Coaches have no private URL/url_key (Tabbycat Coach is a Person with url_key)."
+  },
+  {
+    "item": "[models] Model participants.Team (reference, short_reference, code_name, short/long name, institution, use_institution_prefix, break_categories, seed, institution_conflicts, type N/S/C/B, emoji unique, registration_status; unique reference+institution+tournament; clean())",
+    "tabbycat": "participants/models.py:231-430",
+    "status": "PARTIAL",
+    "crabbytab": "Team (src/types/index.ts:862) has reference/shortReference/useInstitutionPrefix/longName/shortName/isSwing/isComposite/emoji/seed; UI TeamIdentityFields.tsx; API write/entities.ts:53-62,309-370",
+    "note": "API: unique by full name only (assertUniqueName), cannot set reference/useInstitutionPrefix/isComposite; emoji is any text<=16 with no per-tournament uniqueness (Tabbycat: choices + UniqueConstraint emoji+tournament); clean() 'prefix requires institution' not enforced server-side; bye type modelled as Debate.byeTeamId; registration_status lives on submissions."
+  },
+  {
+    "item": "[models] Model participants.Speaker (team, categories)",
+    "tabbycat": "participants/models.py:433-448",
+    "status": "HAVE",
+    "crabbytab": "Team.speakers[] with categories (src/types/index.ts:825-861); API speakers routes write/entities.ts:378-470 (refuses removal with recorded speeches)",
+    "note": "Embedded in team doc."
+  },
+  {
+    "item": "[models] Model participants.Adjudicator (base_score, conflicts, trainee, breaking, independent, adj_core, is_tester, registration_status)",
+    "tabbycat": "participants/models.py:465-510",
+    "status": "HAVE",
+    "crabbytab": "Adjudicator (src/types/index.ts:935) all flags; UI AdjudicatorFlagToggle.tsx; API adjudicatorShape write/entities.ts:71-90 incl. adjCore/breaking/isTester",
+    "note": "API cannot set anonymous/codeName; base_score bounds 0-100 in API."
+  },
+  {
+    "item": "[models] Model registration.Answer (generic: question+object unique)",
+    "tabbycat": "registration/models.py:27-47",
+    "status": "PARTIAL",
+    "crabbytab": "RegistrationEntry.answers / RegisteredSpeaker.answers (src/lib/registration/types.ts:90-145)",
+    "note": "Answers stay on the registration submission; approved Team/Adjudicator/Institution records carry no answers (grep 'answers' in registrationApproval.ts: none)."
+  },
+  {
+    "item": "[models] Model registration.Question (for team/adj/speaker/institution, unique tournament+type+seq)",
+    "tabbycat": "registration/models.py:58-127",
+    "status": "HAVE",
+    "crabbytab": "RegistrationSettings.teamQuestions/adjudicatorQuestions/institutionQuestions/speakerQuestions (src/lib/registration/types.ts:46-66)",
+    "note": "Same FeedbackQuestion shape (no help_text)."
+  },
+  {
+    "item": "[models] Model registration.Invitation (unique tournament+url_key)",
+    "tabbycat": "registration/models.py:149-163",
+    "status": "HAVE",
+    "crabbytab": "RegistrationRepresentative (tokenHash) and TeamInvitation (src/lib/registration/teamInvitations.ts:17); routes registration/representatives and team-invitations",
+    "note": "Tokens stored hashed (BETTER on secrecy)."
+  },
+  {
+    "item": "[models] Model registration.SlotTransferRequest",
+    "tabbycat": "registration/models.py:169-200",
+    "status": "PARTIAL",
+    "crabbytab": "SlotTransfer (src/lib/registration/types.ts:177); src/app/api/tournaments/[tournamentId]/registration/transfers/route.ts",
+    "note": "Requires an existing receiving representative (toRepresentativeId); Tabbycat also allows a not-yet-registered receiving institution by name+email."
+  },
+  {
+    "item": "[models] Model results.BallotSubmission (version unique per debate, submitter_type, confirmed/discarded clean(), motion in round, private_url, ip)",
+    "tabbycat": "results/models.py:25-160",
+    "status": "HAVE",
+    "crabbytab": "BallotSubmission (src/types/index.ts:1123) version/confirmed/discarded/submitterType/motionId; private sync supersede src/app/api/private/sync/route.ts:299",
+    "note": "No IP address; 'confirmed and discarded' and 'motion belongs to round' rules live in application code, not in firestore.rules."
+  },
+  {
+    "item": "[models] Model results.TeamScoreByAdj / SpeakerScoreByAdj / SpeakerCriterionScoreByAdj",
+    "tabbycat": "results/models.py:232-320,471",
+    "status": "HAVE",
+    "crabbytab": "BallotSubmission.sheets: AdjudicatorSheet[] (src/types/index.ts:1115) with speakerScores incl. criteria and declaredWinner",
+    "note": "Per-adjudicator team margin/win stored only via declaredWinner + speaker totals."
+  },
+  {
+    "item": "[models] Model results.TeamScore / SpeakerScore (ghost, rank) / SpeakerCriterionScore",
+    "tabbycat": "results/models.py:322-470",
+    "status": "HAVE",
+    "crabbytab": "TeamScoreEntry, SpeakerScoreEntry (ghost, rank, criteria) (src/types/index.ts:1076-1101)",
+    "note": ""
+  },
+  {
+    "item": "[models] Model results.ScoreCriterion (unique tournament+seq, weight, min/max/step, required)",
+    "tabbycat": "results/models.py:412-434",
+    "status": "HAVE",
+    "crabbytab": "ScoreCriterion (src/types/index.ts:117) + speechType; ballotRules.ts:176 validation; API write/settingsItems.ts:136-215",
+    "note": "seq uniqueness not checked."
+  },
+  {
+    "item": "[models] Model tournaments.Tournament (name, short_name, seq, slug unique + reserved list, active)",
+    "tabbycat": "tournaments/models.py:20-48",
+    "status": "PARTIAL",
+    "crabbytab": "Tournament (src/types/index.ts:634); validateSlug + RESERVED_SLUGS (src/lib/setup/presets.ts:530-557); tournamentSlugs collection (firestore.rules:186-204)",
+    "note": "seq is stored/projected but never set or used for ordering (hub sorts by createdAt, src/app/tournaments/page.tsx:128). active is settable by API but not read anywhere (no hiding/archiving of inactive tournaments). RESERVED_SLUGS lacks 'invite' (src/app/invite exists) — see bugs."
+  },
+  {
+    "item": "[models] Model tournaments.Round (seq unique, schedule_group, completed, stage, draw_type, break_category, draw_status, feedback_weight, silent, motions_status, starts_at, weight; clean(): elimination<->draw_type, elimination needs break category)",
+    "tabbycat": "tournaments/models.py:302-401",
+    "status": "PARTIAL",
+    "crabbytab": "Round (src/types/index.ts:711) has every field; createRoundRecord/updateRoundCommand (src/features/tournament/application/rounds.ts:43-140); API write/rounds.ts:68-170",
+    "note": "Round.clean() not replicated: createRound (API body stage+drawType, UI default drawRule) can create an elimination round with drawType power_paired or a preliminary round with drawType 'elimination'; PATCH accepts any drawType; no requirement that elimination rounds have breakCategoryIds (grep in stateGuards.checkRoundUpdate: none). API PATCH cannot set weight/startsAt/scheduleGroup (UI only). Round ids derive from seq -> collision bug after deleting a middle round (see bugs)."
+  },
+  {
+    "item": "[models] Model tournaments.ScheduleEvent",
+    "tabbycat": "tournaments/models.py:640-670",
+    "status": "HAVE",
+    "crabbytab": "ScheduleEvent (src/types/index.ts:584) with same type set + 'debate','adjudication'; schedule routes and iCal export src/app/api/public/tournaments/[slug]/schedule/ical/route.ts",
+    "note": ""
+  },
+  {
+    "item": "[models] Model users.UserPermission / Group (unique name+tournament) / Membership",
+    "tabbycat": "users/models.py:12-60",
+    "status": "HAVE",
+    "crabbytab": "staff docs with permissions/groups/extraPermissions; validateCustomGroups (src/lib/staffPermissions.ts:221-232) unique names; src/app/api/tournaments/[tournamentId]/staff/groups/route.ts transaction; firestore.rules:37-42 assistantMay",
+    "note": ""
+  },
+  {
+    "item": "[models] Model utils.UniqueConstraint",
+    "tabbycat": "utils/models.py:4",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "Django helper base class, not a domain model."
+  },
+  {
+    "item": "[models] Model venues.Venue (name, priority, url)",
+    "tabbycat": "venues/models.py:9-20",
+    "status": "HAVE",
+    "crabbytab": "Venue (src/types/index.ts:984) + capacity/accessibility; API write/entities.ts:562-630",
+    "note": "API venueShape omits url (UI sets it); names forced unique (Tabbycat does not)."
+  },
+  {
+    "item": "[models] Model venues.VenueCategory (name, description, venues M2M, display_in_venue_name, display_in_public_tooltip)",
+    "tabbycat": "venues/models.py:56-90",
+    "status": "HAVE",
+    "crabbytab": "VenueCategoryInfo (src/types/index.ts:596) + Venue.categories; VenueCategoriesEditor.tsx; API write/settingsItems.ts:248-380",
+    "note": ""
+  },
+  {
+    "item": "[models] Model venues.VenueConstraint (category, priority, subject team/adj/institution/division)",
+    "tabbycat": "venues/models.py:114-130",
+    "status": "PARTIAL",
+    "crabbytab": "venueConstraints on Team/Adjudicator/Institution (src/types/index.ts:611); page src/app/[tournamentSlug]/imports/venue-constraints/page.tsx",
+    "note": "No API write path (venueConstraints absent from write/entities.ts shapes); division subjects n/a."
+  },
+  {
+    "item": "[models] Server-side enforcement of model constraints generally",
+    "tabbycat": "*/models.py UniqueConstraint/clean()",
+    "status": "PARTIAL",
+    "crabbytab": "firestore.rules:60-69 allow any admin create/update/delete in every tournament subcollection with no field validation",
+    "note": "Every Tabbycat DB constraint above is enforced only in client/application code or the v1 API; a tournament admin's direct Firestore writes (or a buggy client) can violate all of them."
+  },
+  {
+    "item": "[models] Bug: round id collision after deleting a middle round",
+    "tabbycat": "tournaments/models.py:376 UniqueConstraint(tournament, seq) with auto PKs",
+    "status": "PARTIAL",
+    "crabbytab": "src/features/tournament/application/rounds.ts:58 id = `round-${tournamentId}-${roundSeq}`; roundAdministration.ts:177-205 deleteRoundCommand renumbers seq but keeps ids; TournamentContext.tsx:1945 roundSeq = rounds.length+1; tabRoom.ts:170 max(seq)+1",
+    "note": "Rounds R1..R3, delete R2 -> old R3 keeps id ...-3 with seq 2; creating a round gives seq 3 and id ...-3 again, so two rounds share an id (local array) and the Firestore doc of the old R3 is overwritten. Same with presets.ts:674."
+  },
+  {
+    "item": "[models] Command keytimes (per-round key action-log times)",
+    "tabbycat": "actionlog/management/commands/keytimes.py:12-84",
+    "status": "PARTIAL",
+    "crabbytab": "src/app/[tournamentSlug]/audit/page.tsx lists timestamped AuditEvents per round",
+    "note": "No summary of draw created / adj auto / venues / first-last ballot in / confirmed per round; grep 'keytimes|keyTimes|key times' in src: none."
+  },
+  {
+    "item": "[models] Command printactionlog",
+    "tabbycat": "actionlog/management/commands/printactionlog.py:8",
+    "status": "HAVE",
+    "crabbytab": "src/app/[tournamentSlug]/audit/page.tsx (admin audit log) + public verifiable log src/app/[tournamentSlug]/audit/public",
+    "note": "Per tournament only; Tabbycat prints all tournaments (cross-tournament is not meaningful per-tenant)."
+  },
+  {
+    "item": "[models] Command addowninstitutionconflicts",
+    "tabbycat": "adjallocation/management/commands/addowninstitutionconflicts.py:8",
+    "status": "HAVE",
+    "crabbytab": "Implicit: src/lib/draw/allocator.ts:142-160 sharesInstitution treats an adjudicator's own institution (and composite teams' institutions) as a conflict; own-institution conflicts preserved in src/lib/adjudicators/conflicts.ts:88",
+    "note": "No need to materialise; no 'teams-only/adjudicators-only' toggle."
+  },
+  {
+    "item": "[models] Command allocateadjudicators (hungarian/consensus/voting, --preformed, --force, --dry-run)",
+    "tabbycat": "adjallocation/management/commands/allocateadjudicators.py:10-73",
+    "status": "HAVE",
+    "crabbytab": "src/app/[tournamentSlug]/allocation/page.tsx; API POST /rounds/{seq}/pairings/allocate-adjudicators (src/lib/api/v1/routes/write/rounds.ts:290)",
+    "note": "No dry-run preview distinct from just not saving; allocator choice via adjudicatorPanelStrategy preference."
+  },
+  {
+    "item": "[models] Command allocatepreformedpanels",
+    "tabbycat": "adjallocation/management/commands/allocatepreformedpanels.py:9",
+    "status": "HAVE",
+    "crabbytab": "src/features/tournament/application/preformedPanels.ts (preformedPanelPlacement optimise/direct); API write/pairings.ts:267-400",
+    "note": ""
+  },
+  {
+    "item": "[models] Command conflictscsv",
+    "tabbycat": "adjallocation/management/commands/conflictscsv.py:10",
+    "status": "HAVE",
+    "crabbytab": "conflictsCsv (src/lib/csv/participantExports.ts:199) on src/app/[tournamentSlug]/exports/page.tsx; also lib/csv/conflictsExport.ts",
+    "note": "Own-institution option not offered (history conflicts skipped)."
+  },
+  {
+    "item": "[models] Command generatefeedback",
+    "tabbycat": "adjfeedback/management/commands/generatefeedback.py:22",
+    "status": "HAVE",
+    "crabbytab": "planSimulatedFeedback/addFeedbackInSequence (src/features/tournament/application/rehearsal.ts:337-420) via src/app/[tournamentSlug]/rehearsal/page.tsx",
+    "note": "Always confirmed; no probability/discarded/submitter-type options."
+  },
+  {
+    "item": "[models] Command printmultiplefeedback",
+    "tabbycat": "adjfeedback/management/commands/printmultiplefeedback.py:6",
+    "status": "HAVE",
+    "crabbytab": "duplicateFeedbackGroups (src/lib/participants/reports.ts:241) on src/app/[tournamentSlug]/feedback/duplicates/page.tsx with minimum count",
+    "note": "Groups by source/target/debate since CrabbyTab has no versions."
+  },
+  {
+    "item": "[models] Command availabilitydump",
+    "tabbycat": "availability/management/commands/availabilitydump.py:9",
+    "status": "HAVE",
+    "crabbytab": "availabilityCsv (src/lib/csv/participantExports.ts:132) on exports page",
+    "note": "Covers teams, adjudicators and venues."
+  },
+  {
+    "item": "[models] Command breakcategoryteamsdump (eligible teams, code name, points)",
+    "tabbycat": "breakqual/management/commands/breakcategoryteamsdump.py:12-36",
+    "status": "PARTIAL",
+    "crabbytab": "breakEligibilityCsv (src/lib/csv/participantExports.ts:167) on exports page",
+    "note": "Columns team_id, team, break_category, eligible, override, rule, broke — no code name or points."
+  },
+  {
+    "item": "[models] Command fixbreakeligibility (eligibility from speaker categories)",
+    "tabbycat": "breakqual/management/commands/fixbreakeligibility.py:11-75",
+    "status": "HAVE",
+    "crabbytab": "BreakCategory.speakerCategoryRule applied from SpeakerCategoryEligibilityPanel.tsx / src/app/[tournamentSlug]/break/eligibility/page.tsx; API POST /break-categories/{id}/eligibility (write/breaksAndFeedback.ts:100)",
+    "note": ""
+  },
+  {
+    "item": "[models] Command manageidentifiers (generate/delete barcodes)",
+    "tabbycat": "checkins/management/commands/manageidentifiers.py:14",
+    "status": "NA",
+    "crabbytab": "Barcodes are record ids (src/lib/checkins/code39.ts); API identifier routes write/rounds.ts:805-828",
+    "note": "Identifiers always exist, so generation is moot; but they cannot be revoked/regenerated (see Identifier model row)."
+  },
+  {
+    "item": "[models] Command deletedraw (delete all debates in round)",
+    "tabbycat": "draw/management/commands/deletedraw.py:8",
+    "status": "PARTIAL",
+    "crabbytab": "API DELETE /rounds/{seq}/pairings deleteRoundDraw (src/lib/api/v1/routes/write/pairings.ts:183); UI draw page only deletes single rooms or regenerates",
+    "note": "No whole-draw delete button in UI (i18n draw.en.ts has only per-room delete / discard-and-regenerate)."
+  },
+  {
+    "item": "[models] Command generatesideallocations",
+    "tabbycat": "draw/management/commands/generatesideallocations.py:9",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/sidePreallocation.ts via SidePreallocationGrid.tsx (DrawSetupPanel)",
+    "note": "Two-team only."
+  },
+  {
+    "item": "[models] Command importarchive (DebateXML)",
+    "tabbycat": "importer/management/commands/importarchive.py:11",
+    "status": "HAVE",
+    "crabbytab": "src/features/tournament/application/debateXmlImport.ts via src/components/setup/DebateXmlImportForm.tsx",
+    "note": "Detail in DebateXML slice."
+  },
+  {
+    "item": "[models] Command importtournament (wipe + import CSV directory: rounds, regions, institutions, categories, questions, venues, teams, adjs, motions, sides, conflicts...)",
+    "tabbycat": "importer/management/commands/importtournament.py:18-263",
+    "status": "PARTIAL",
+    "crabbytab": "CSV parsers src/lib/csv/importer.ts (teams, adjudicators, venues, institutions, motions), conflictsImport.ts, teamSeedImport.ts; ImportDirectory.tsx; whole-tournament restore via tournamentBackup.ts",
+    "note": "No CSV import of rounds, break categories, feedback questions, venue categories or side allocations (grep 'rounds' in src/lib/csv importer: export only); config JSON import covers questions/categories instead."
+  },
+  {
+    "item": "[models] Command applypreset",
+    "tabbycat": "options/management/commands/applypreset.py:10",
+    "status": "HAVE",
+    "crabbytab": "planPresetApply (src/lib/setup/configTransfer.ts:284) from ConfigTransferCard.tsx with preview; presets at creation in TournamentWizard.tsx",
+    "note": ""
+  },
+  {
+    "item": "[models] Command exportconfig",
+    "tabbycat": "options/management/commands/exportconfig.py:8",
+    "status": "HAVE",
+    "crabbytab": "buildConfigFile (src/lib/setup/configTransfer.ts:91) via ConfigTransferCard.tsx",
+    "note": "CrabbyTab-specific JSON format, not Tabbycat's."
+  },
+  {
+    "item": "[models] Command importconfig",
+    "tabbycat": "options/management/commands/importconfig.py:9",
+    "status": "HAVE",
+    "crabbytab": "parseConfigFile + planConfigApply (src/lib/setup/configTransfer.ts:122,230) via ConfigTransferCard.tsx",
+    "note": "Cannot read a Tabbycat exportconfig file."
+  },
+  {
+    "item": "[models] Command convertteamnames",
+    "tabbycat": "participants/management/commands/convertteamnames.py:6",
+    "status": "HAVE",
+    "crabbytab": "convertTeamNames (src/lib/teamNames.ts:86) via TeamNamingCard.tsx",
+    "note": ""
+  },
+  {
+    "item": "[models] Command generateemoji (regenerate ALL emoji, unique)",
+    "tabbycat": "participants/management/commands/generateemoji.py:8-15; participants/emoji.py:9-25",
+    "status": "PARTIAL",
+    "crabbytab": "assignTeamEmoji (src/lib/codeNames.ts:47-62) via PublicSiteSettingsFields.tsx:235",
+    "note": "Only fills missing emoji (no regenerate-all), and when the pool runs out it reuses emoji, whereas Tabbycat leaves the extra teams without one (emoji unique per tournament). Comment at codeNames.ts:47-48 says Tabbycat does the same; it does not."
+  },
+  {
+    "item": "[models] Command participantscsv",
+    "tabbycat": "participants/management/commands/participantscsv.py:10",
+    "status": "HAVE",
+    "crabbytab": "teamsCsv/speakersCsv/adjudicatorsCsv/institutionsCsv (src/lib/csv/participantExports.ts:39-130) on exports page",
+    "note": ""
+  },
+  {
+    "item": "[models] Command populatecodenames (--overwrite)",
+    "tabbycat": "participants/management/commands/populatecodenames.py:8",
+    "status": "PARTIAL",
+    "crabbytab": "generateTeamCodeNames (src/lib/codeNames.ts:77-100) via PublicSiteSettingsFields.tsx 'Generate missing code names'; list at src/app/[tournamentSlug]/imports/code-names/page.tsx",
+    "note": "No overwrite option; only teams without a code name."
+  },
+  {
+    "item": "[models] Command resaveteams (recompute short/long names)",
+    "tabbycat": "participants/management/commands/resaveteams.py:6",
+    "status": "HAVE",
+    "crabbytab": "teamsNeedingNames/withTeamNames (src/lib/teamNames.ts:42-62) applied on institution rename / display change",
+    "note": "Derived names recomputed in-app."
+  },
+  {
+    "item": "[models] Command privateurls (generate/delete, teams/adjs only, length, overwrite)",
+    "tabbycat": "privateurls/management/commands/privateurls.py:11-60",
+    "status": "PARTIAL",
+    "crabbytab": "generatePrivateUrlKeys(forceRegenerate) (src/contexts/TournamentContext.tsx:2562) from src/app/[tournamentSlug]/private-urls/page.tsx:101,474",
+    "note": "No delete-all and no teams-only/adjs-only scope or key length option."
+  },
+  {
+    "item": "[models] Command compareballots (compare to check tournament)",
+    "tabbycat": "results/management/commands/compareballots.py:9-86",
+    "status": "MISSING",
+    "crabbytab": "grep 'compareballots|compare.*tournament' in src: none",
+    "note": "Tabbycat marks it advanced/not for general use; CrabbyTab's blind double entry (checksVersion) covers in-tournament checking."
+  },
+  {
+    "item": "[models] Command fixballotstatuses",
+    "tabbycat": "results/management/commands/fixballotstatuses.py:9",
+    "status": "NA",
+    "crabbytab": "Debate.resultStatus recomputed whenever ballots change (src/features/tournament/application/ballots.ts:104,235,296)",
+    "note": "Repair tool for Django data drift; status is derived on every ballot write here."
+  },
+  {
+    "item": "[models] Command generateresults",
+    "tabbycat": "results/management/commands/generateresults.py",
+    "status": "HAVE",
+    "crabbytab": "planSimulatedBallots/submitBallotsInSequence (src/features/tournament/application/rehearsal.ts:139-330) via rehearsal page",
+    "note": "Always confirmed; no draft/discarded option."
+  },
+  {
+    "item": "[models] Command removeblankballots",
+    "tabbycat": "results/management/commands/removeblankballots.py:10",
+    "status": "MISSING",
+    "crabbytab": "grep -i 'blank ballot|removeBlank|emptyBallot' in src: none (only UI form wording)",
+    "note": "Low value: ballots go through validateBallotEntry (src/lib/ballots/result.ts:823); results-only ballots (noSpeakerScores) are intentional."
+  },
+  {
+    "item": "[models] Command resaveballots",
+    "tabbycat": "results/management/commands/resaveballots.py:9",
+    "status": "NA",
+    "crabbytab": "Standings computed from ballots on demand (src/lib/standings/calculator.ts)",
+    "note": "No denormalised TeamScore table to refresh."
+  },
+  {
+    "item": "[models] Command clearcache",
+    "tabbycat": "utils/management/commands/clearcache.py:7",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "Django cache maintenance; public views are versioned projections."
+  },
+  {
+    "item": "[models] Command simulaterounds (draw + allocate + results for many rounds)",
+    "tabbycat": "utils/management/commands/simulaterounds.py:18-59",
+    "status": "PARTIAL",
+    "crabbytab": "src/app/[tournamentSlug]/rehearsal/page.tsx (results/feedback for one selected round)",
+    "note": "Draw generation and allocation must be run manually per round; no one-shot multi-round simulation."
+  },
+  {
+    "item": "[models] Command allocatevenues",
+    "tabbycat": "venues/management/commands/allocatevenues.py:8",
+    "status": "HAVE",
+    "crabbytab": "Draw page 'Allocate venues' button handleAutoAllocateVenues (src/app/[tournamentSlug]/draw/page.tsx:533) using src/lib/draw/venueAllocator.ts",
+    "note": ""
+  },
+  {
+    "item": "[draw] Draw type dispatch (random / power_paired / round_robin / manual / seeded / elimination, 2-team and BP)",
+    "tabbycat": "draw/generator/__init__.py:31-106; draw/manager.py:455-470",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/generator.ts:generateRoundDraw 342-523; called from src/features/tournament/application/draws.ts:generateDrawCommand, reached from TournamentContext.generateDraw (UI) and src/lib/api/v1/tabRoom.ts:generateDraw (API)",
+    "note": "Power-paired rounds with seq 1 or all-zero standings fall back to the random generator (generator.ts:489-495); Tabbycat would run its power-paired generator on one zero bracket. Equivalent in spirit but BP round 1 then uses institution-avoiding random rooms, not the Hungarian."
+  },
+  {
+    "item": "[draw] Manual draw (empty rooms)",
+    "tabbycat": "draw/generator/common.py:227-237",
+    "status": "BETTER",
+    "crabbytab": "generator.ts:343-387 creates ceil(teams/size) empty, venue-assigned rooms",
+    "note": "Tabbycat returns no debates; CrabbyTab pre-creates empty rooms to fill in the editor."
+  },
+  {
+    "item": "[draw] Random two-team draw with conflict avoidance (one_up_one_down -> swap-random)",
+    "tabbycat": "draw/generator/random.py:67-101,111",
+    "status": "PARTIAL",
+    "crabbytab": "twoTeamDraw.ts:generateRandomTwoTeamDraw 410-445 always uses a min-cost perfect matching on a shuffled field unless conflictAvoidance is off",
+    "note": "Tabbycat's default (avoid_conflicts=one_up_one_down) uses the swap heuristic with max 20 attempts and a max_swapped flag; CrabbyTab uses Tabbycat's graph-random behaviour for every non-off setting, with history as a soft penalty. No max_swapped flag."
+  },
+  {
+    "item": "[draw] Random two-team draw with graph / graph_one",
+    "tabbycat": "draw/generator/random.py:62-64,104-108",
+    "status": "PARTIAL",
+    "crabbytab": "twoTeamDraw.ts:410-445",
+    "note": "Tabbycat graph forbids rematches (hard) and applies side_penalty; CrabbyTab random draw uses a soft history penalty and zeroes side/pairing/pull-up penalties."
+  },
+  {
+    "item": "[draw] Random draw with preallocated sides",
+    "tabbycat": "random.py:115-152",
+    "status": "HAVE",
+    "crabbytab": "twoTeamDraw.ts:433-439 (minCostPairAllocatedSides or zip), preallocatedSideOf validates missing/unbalanced sides",
+    "note": "Error texts differ; same refusals (unbalanced aff/neg)."
+  },
+  {
+    "item": "[draw] Random BP draw",
+    "tabbycat": "random.py:155-165",
+    "status": "BETTER",
+    "crabbytab": "generator.ts:groupRandomTeams 104-154 + allocateSidesForDebate per room",
+    "note": "Tabbycat shuffles teams and positions with no institution avoidance or position balance; CrabbyTab spreads institutions across rooms (avoidSameInstitution) and balances positions in each room. Different, deliberate."
+  },
+  {
+    "item": "[draw] Round robin two-team (Berger, seed order, rrseq by schedule group)",
+    "tabbycat": "generator/roundrobin.py:10-53; manager.py:347-400",
+    "status": "HAVE",
+    "crabbytab": "roundRobin.ts:bergerPairings/orderForRoundRobin/generateRoundRobinDraw; schedule.ts:roundRobinIndex",
+    "note": "Check: bergerPairings equals Tabbycat berger_pairings_for_round for n=4..12, every round. Also keeps a legacy rotation for cycles already begun (extra)."
+  },
+  {
+    "item": "[draw] Round robin BP (preset tables 16/28, seeds 1..N)",
+    "tabbycat": "roundrobin.py:56-88; data/bp_round_robin.py",
+    "status": "HAVE",
+    "crabbytab": "roundRobin.ts:BP_ROUND_ROBIN_TABLES, generateBPRoundRobinDraw",
+    "note": "Check: tables identical to Tabbycat's. CrabbyTab additionally refuses seats breaking side limits (Tabbycat has none)."
+  },
+  {
+    "item": "[draw] Seeded draw (two-team and BP)",
+    "tabbycat": "manager.py:314-344",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:471-488; twoTeamDraw.ts:orderBySeed",
+    "note": "BP seeded uses the tournament's position-cost settings; Tabbycat passes only assignment_method (position cost etc. at generator defaults). Minor."
+  },
+  {
+    "item": "[draw] Power-paired brackets on first standings metric",
+    "tabbycat": "manager.py:257-311; powerpair.py:121-133",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:310 bracketMetric = resolveTeamPrecedence[0]; brackets.ts:bracketValue; rankForDraw shuffles tied ranks",
+    "note": ""
+  },
+  {
+    "item": "[draw] Odd bracket pullup_top / pullup_bottom",
+    "tabbycat": "powerpair.py:170-202",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:resolveOddBrackets/pullupIndex",
+    "note": "Check: identical rooms and brackets to Tabbycat Australs generator with slide/fold/adjacent/fold_top_adjacent_rest."
+  },
+  {
+    "item": "[draw] Odd bracket pullup_middle",
+    "tabbycat": "powerpair.py:176-177",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:59-60",
+    "note": "Check: matches for odd candidate count; even count random as Tabbycat."
+  },
+  {
+    "item": "[draw] Odd bracket pullup_random",
+    "tabbycat": "powerpair.py:182-183",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:61-62 (seeded rng)",
+    "note": ""
+  },
+  {
+    "item": "[draw] Odd bracket intermediate",
+    "tabbycat": "powerpair.py:204-220",
+    "status": "PARTIAL",
+    "crabbytab": "oddBrackets.ts:resolveIntermediate 129-185",
+    "note": "Same rooms on consecutive brackets (check). Bracket label is (upper+lower)/2 vs Tabbycat lower+0.5: differs when a points level is empty (e.g. 3 and 1 -> 2 vs 1.5)."
+  },
+  {
+    "item": "[draw] Odd bracket intermediate_bubble_up_down",
+    "tabbycat": "powerpair.py:222-273",
+    "status": "PARTIAL",
+    "crabbytab": "oddBrackets.ts:156-182",
+    "note": "Check: same on consecutive brackets. DIVERGES when brackets are non-consecutive: Tabbycat looks up points+-0.5 (bubble up impossible, bubbles down: C v E), CrabbyTab uses the source brackets (bubbles up: B v D). CrabbyTab respects avoid toggles and ignores null institutions (Tabbycat treats None==None as a clash). No bub_* / no_bub_updn flags recorded."
+  },
+  {
+    "item": "[draw] Intermediate brackets require integer first metric (DrawUserError)",
+    "tabbycat": "powerpair.py:92-99",
+    "status": "MISSING",
+    "crabbytab": "grep 'integer|noninteger' in oddBrackets.ts/twoTeamDraw.ts: none",
+    "note": "Check: Tabbycat refuses points 1.5 with intermediate; CrabbyTab draws (brackets labelled with fractional midpoints)."
+  },
+  {
+    "item": "[draw] Odd bracket intermediate1 / intermediate2 (preallocated)",
+    "tabbycat": "powerpair.py:688-813",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:intermediateWithSides; twoTeamDraw.ts:343-366",
+    "note": "Check: identical groups/brackets to Tabbycat on a 14-team fixture. Refused with non-preallocated sides (clear error)."
+  },
+  {
+    "item": "[draw] Pull-ups with preallocated sides (top/bottom/random)",
+    "tabbycat": "powerpair.py:608-686",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:pullupWithSides",
+    "note": "Check: matches pullup_top/bottom. Extra: pull-up restriction also applied here (Tabbycat ignores it)."
+  },
+  {
+    "item": "[draw] Odd bracket pullup_lowest_ds_rank / _npulls (graph_one only)",
+    "tabbycat": "powerpair.py:490-583, 375-378",
+    "status": "HAVE",
+    "crabbytab": "singleGraphPairing.ts:pullupSortKey; twoTeamDraw.ts:316-323 refuses outside graph_one; standings calculator.ts:330-339 computes draw_strength_rank",
+    "note": "Not solver-checked against Tabbycat (no networkx); sort keys read equal."
+  },
+  {
+    "item": "[draw] Pullup restriction least_to_date / lowest_ds_wins / lowest_ds_speaks",
+    "tabbycat": "powerpair.py:135-158",
+    "status": "HAVE",
+    "crabbytab": "oddBrackets.ts:applyPullupRestriction; twoTeamDraw.ts:statsFor reads history.pullups, draw_strength, draw_strength_speaks",
+    "note": "Check: all three match Tabbycat with pullup_top and pullup_bottom."
+  },
+  {
+    "item": "[draw] Pairing methods slide / fold / adjacent / fold_top_adjacent_rest / random",
+    "tabbycat": "powerpair.py:378-442",
+    "status": "HAVE",
+    "crabbytab": "pairing.ts:pairTeams, pairAllocatedSides",
+    "note": "Check: slide/fold/adjacent/fold_top_adjacent_rest identical. Default when unsaved is fold (Tabbycat slide); presets set slide for Australs family."
+  },
+  {
+    "item": "[draw] Conflict avoidance one_up_one_down",
+    "tabbycat": "one_up_one_down.py; powerpair.py:462-484",
+    "status": "HAVE",
+    "crabbytab": "conflictAvoidance.ts:oneUpOneDown/bestSwapSet, applied per bracket",
+    "note": "Check: identical results to OneUpOneDownSwapper on 60 random brackets with meeting counts. 1u1d_hist/1u1d_inst/1u1d_other flags not recorded."
+  },
+  {
+    "item": "[draw] Conflict avoidance graph (min-cost per bracket)",
+    "tabbycat": "graph.py:21-89; powerpair.py:276-334",
+    "status": "PARTIAL",
+    "crabbytab": "minCostPairing.ts:minCostPairBracket; twoTeamDraw.ts:380-386",
+    "note": "History is a weighted penalty, not forbidden (Tabbycat: rematch edge removed). Check: when every pairing is a rematch Tabbycat's graph drops all teams silently; CrabbyTab draws them. Pairing method breaks ties even with pairing_penalty 0."
+  },
+  {
+    "item": "[draw] Conflict avoidance graph_one (single graph incl. pull-ups, pullup_penalty magnitude)",
+    "tabbycat": "powerpair.py:490-589",
+    "status": "HAVE",
+    "crabbytab": "singleGraphPairing.ts:singleGraphPair; twoTeamDraw.ts:325-341",
+    "note": "Code read only (no solver to compare). Same constraints: adjacent brackets only, intermediate methods refused, fold_top_adjacent_rest scored as adjacent. Soft history as graph."
+  },
+  {
+    "item": "[draw] Conflict avoidance off",
+    "tabbycat": "powerpair.py:453-460",
+    "status": "HAVE",
+    "crabbytab": "conflictAvoidance.ts:avoidConflicts",
+    "note": ""
+  },
+  {
+    "item": "[draw] Graph + preallocated sides (bipartite Hungarian)",
+    "tabbycat": "graph.py:92-117",
+    "status": "HAVE",
+    "crabbytab": "minCostPairing.ts:minCostPairAllocatedSides",
+    "note": "graph_one with preallocated falls back to per-bracket, as Tabbycat."
+  },
+  {
+    "item": "[draw] avoid_same_institution / avoid_team_history toggles",
+    "tabbycat": "common.py:163-175; manager.py:27-28",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:319-326 zero the penalties; ConfigForm checkboxes",
+    "note": ""
+  },
+  {
+    "item": "[draw] team_history_penalty / team_institution_penalty",
+    "tabbycat": "preferences.py:173-189",
+    "status": "PARTIAL",
+    "crabbytab": "generator.ts:320-326; ConfigForm.tsx:154-155,494-495",
+    "note": "Unsaved institution penalty defaults to 200 (Tabbycat 1); with history penalty 0 and avoid on, CrabbyTab treats history as off entirely."
+  },
+  {
+    "item": "[draw] pullup_debates_penalty",
+    "tabbycat": "powerpair.py:283-285",
+    "status": "HAVE",
+    "crabbytab": "minCostPairing.ts:conflictCost 56-59; history.pullupDebates",
+    "note": ""
+  },
+  {
+    "item": "[draw] side_penalty (graph)",
+    "tabbycat": "graph.py:37-56",
+    "status": "HAVE",
+    "crabbytab": "minCostPairing.ts:sideImbalanceCost",
+    "note": "Same formula; applied only with balanced sides."
+  },
+  {
+    "item": "[draw] pairing_penalty (graph)",
+    "tabbycat": "powerpair.py:290-330",
+    "status": "HAVE",
+    "crabbytab": "minCostPairing.ts:pairingDeviation",
+    "note": "Same deviation formulas; random gives 0 (Tabbycat tiny noise)."
+  },
+  {
+    "item": "[draw] max_times_per_side / max_times_on_one_side",
+    "tabbycat": "manager.py:39,45; graph.py:41-43; preferences.py:237-246,478-488",
+    "status": "PARTIAL",
+    "crabbytab": "sideAllocator.ts:violatesSideLimits (default 5 always), twoTeamDraw.ts:repairSideLimits, powerPaired.ts:175",
+    "note": "Tabbycat applies the cap (read from max_times_per_side; the max_times_on_one_side pref is never read; bug checks t1_negs twice) only in graph with balance and side_penalty>0. CrabbyTab enforces it as a hard limit in every draw type incl. BP and random (check: two teams with 5 AFFs each -> draw fails), and maps maxAllowedSideImbalance to a max-min imbalance rule Tabbycat does not have. maxTimesPerSide 0 (API allows) makes every draw fail; Tabbycat 0 = off."
+  },
+  {
+    "item": "[draw] Side allocation balance",
+    "tabbycat": "pairing.py:106-120; common.py:195-203",
+    "status": "HAVE",
+    "crabbytab": "sideAllocator.ts:balanceTwoTeamSides",
+    "note": "Same rule; then side limits may flip the orientation."
+  },
+  {
+    "item": "[draw] Side allocation random",
+    "tabbycat": "pairing.py:88-90",
+    "status": "HAVE",
+    "crabbytab": "sideAllocator.ts:127-128",
+    "note": ""
+  },
+  {
+    "item": "[draw] Side allocation preallocated (+ side pre-allocation page, locks once drawn)",
+    "tabbycat": "manager.py:133-139,207-208; views.py:1028-1056",
+    "status": "HAVE",
+    "crabbytab": "Round.preallocatedSides; SidePreallocationGrid.tsx (isOpen: drawStatus none and no debates); twoTeamDraw.ts:preallocatedSideOf",
+    "note": "BP + preallocated is refused (Tabbycat silently ignores). API PATCH preallocatedSides has no draw-status guard (rounds.ts:87)."
+  },
+  {
+    "item": "[draw] Bulk apply sides from a previous round (same/opposite)",
+    "tabbycat": "views.py:1058-1104",
+    "status": "PARTIAL",
+    "crabbytab": "sidePreallocation.ts:sidesFromRound; SidePreallocationGrid.tsx:57",
+    "note": "Source rounds limited to drawStatus confirmed/released; Tabbycat also allows its confirmed (CrabbyTab 'locked') and teams_released."
+  },
+  {
+    "item": "[draw] generatesideallocations command",
+    "tabbycat": "management/commands/generatesideallocations.py",
+    "status": "BETTER",
+    "crabbytab": "sidePreallocation.ts:generateSidePreallocations via SidePreallocationGrid",
+    "note": "Seeded, balances aff counts across rounds; Tabbycat shuffles each round independently."
+  },
+  {
+    "item": "[draw] Side allocation manual-ballot",
+    "tabbycat": "manager.py:149-151,199-200",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:292-340 (MANUAL_SIDES_FLAG, sidesConfirmed false); manualSides.ts",
+    "note": "Refused for BP. Side limits disabled for these draws (Tabbycat pairs with balance)."
+  },
+  {
+    "item": "[draw] BP power-paired: rooms 'anywhere'",
+    "tabbycat": "bphungarian.py:118-151",
+    "status": "HAVE",
+    "crabbytab": "powerPaired.ts:defineBrackets/defineBPRooms",
+    "note": "Check: identical to _define_rooms_anywhere on 300 random fields."
+  },
+  {
+    "item": "[draw] BP pullup distribution one_room",
+    "tabbycat": "bphungarian.py:153-158",
+    "status": "HAVE",
+    "crabbytab": "powerPaired.ts:defineBPRooms 'bottom' (+ extra 'top')",
+    "note": "Check: 'bottom' identical to one_room on 300 random fields. Renamed value."
+  },
+  {
+    "item": "[draw] BP position cost simple / entropy (Renyi order incl. 0 and 1)",
+    "tabbycat": "bphungarian.py:162-226",
+    "status": "HAVE",
+    "crabbytab": "sideAllocator.ts:bpPositionBaseCost/computeBPSideCost",
+    "note": "Check: equal for alpha 1, 0, 2, 0.5 and simple. Negative alpha refused as Tabbycat. ConfigForm cannot save renyiOrder 0 (parseFloat||1.0)."
+  },
+  {
+    "item": "[draw] BP position cost variance",
+    "tabbycat": "bphungarian.py:201-204",
+    "status": "PARTIAL",
+    "crabbytab": "sideAllocator.ts:50-53 'sum_squared_deviations'",
+    "note": "4x Tabbycat's pvariance (check); after the exponent this re-weights position cost against the pull-up penalty by 4^exponent. Same optimum on the tested fixture."
+  },
+  {
+    "item": "[draw] BP position cost exponent",
+    "tabbycat": "bphungarian.py:249,260",
+    "status": "PARTIAL",
+    "crabbytab": "sideAllocator.ts:78; ConfigForm.tsx:669",
+    "note": "Read by generator; UI cannot store 0 (parseFloat||4.0)."
+  },
+  {
+    "item": "[draw] BP assignment method hungarian vs hungarian_preshuffled",
+    "tabbycat": "bphungarian.py:270-297",
+    "status": "HAVE",
+    "crabbytab": "powerPaired.ts:153-198 ('hungarian' = preshuffled with draw seed, 'hungarian_unshuffled' = Tabbycat hungarian, extra 'random')",
+    "note": "Check: entropy + pullup_penalty assignment has Tabbycat-optimal cost. Value names swapped vs Tabbycat (CrabbyTab 'hungarian' means preshuffled)."
+  },
+  {
+    "item": "[draw] BP pullup_penalty (draw_pullup_penalty x npullups)",
+    "tabbycat": "bphungarian.py:228-232",
+    "status": "HAVE",
+    "crabbytab": "powerPaired.ts:182",
+    "note": ""
+  },
+  {
+    "item": "[draw] BP pull-up flag",
+    "tabbycat": "bphungarian.py:315-317",
+    "status": "HAVE",
+    "crabbytab": "powerPaired.ts:223 pulledUpTeamIds -> slot.pulledUp",
+    "note": ""
+  },
+  {
+    "item": "[draw] Elimination two-team: first round with bypass (partial_break_round_split) and subsequent folds",
+    "tabbycat": "generator/elimination.py; utils.py:13-27",
+    "status": "HAVE",
+    "crabbytab": "elimination.ts:planEliminationRound/resolveBracketPositions; generator.ts:397-457",
+    "note": "Check: identical rooms every round for 2,3,4,5,6,7,8,12,16 breaking. Seeds come from standings rank among breaking teams, not Tabbycat's break_rank."
+  },
+  {
+    "item": "[draw] Elimination BP: partial (6x2^n), after-partial, first (4x2^n), subsequent",
+    "tabbycat": "generator/bpelimination.py; manager.py:432-452",
+    "status": "BETTER",
+    "crabbytab": "elimination.ts:planEliminationRound",
+    "note": "Check: identical rooms every round for 4,8,12,16,24,32,48. CrabbyTab also accepts any even field (Tabbycat refuses other sizes)."
+  },
+  {
+    "item": "[draw] Elimination sides random and unconfirmed",
+    "tabbycat": "common.py:211-221; manager.py:149-151",
+    "status": "PARTIAL",
+    "crabbytab": "generator.ts:440-454 eliminationSideRule 'random'; default 'by_seed'",
+    "note": "Tabbycat always shuffles; CrabbyTab's default puts the higher seed on AFF/OG, confirmed."
+  },
+  {
+    "item": "[draw] Elimination: missing results / wrong advancing count errors",
+    "tabbycat": "elimination.py:65-80; bpelimination.py:28-38",
+    "status": "HAVE",
+    "crabbytab": "elimination.ts:getAdvancingTeamIds 51-63; planEliminationRound duplicate-position error",
+    "note": ""
+  },
+  {
+    "item": "[draw] Byes: bye_team_selection off/random/lowest",
+    "tabbycat": "manager.py:93-111,299-311",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:244-270; createByeDebates",
+    "note": "Swing teams never take byes (extra)."
+  },
+  {
+    "item": "[draw] Bye team results none/points",
+    "tabbycat": "manager.py:166-181",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:622 byeResult on bye debate",
+    "note": "Win is attributed by standings, not an automation ballot (not verified here)."
+  },
+  {
+    "item": "[draw] Team flags: pullup",
+    "tabbycat": "powerpair.py:192; pairing.py:74-80",
+    "status": "HAVE",
+    "crabbytab": "twoTeamDraw.ts:draftFor pulledUpTeamIds; DebateTeamSlot.pulledUp",
+    "note": ""
+  },
+  {
+    "item": "[draw] Draw flags 1u1d_hist/1u1d_inst/1u1d_other, bub_up/dn_*, no_bub_updn, max_swapped",
+    "tabbycat": "generator/__init__.py:16-29; powerpair.py:249-273,476-482; random.py:92",
+    "status": "MISSING",
+    "crabbytab": "grep '1u1d|bub_up|max_swapped|no_bub' in src: none; drawFlags.ts derives rematch/institution/side flags after the fact instead",
+    "note": "What the algorithm did (swap, bubble, gave up) is not recorded on debates."
+  },
+  {
+    "item": "[draw] Draw creation errors (not multiple of teams, no teams, already a draw, concurrent creation)",
+    "tabbycat": "common.py:51-56; views.py:679-724",
+    "status": "HAVE",
+    "crabbytab": "generator.ts:274-283; draws.ts:152-165 checkDrawGeneration/DrawHasResultsError/RoundChangedDuringComputeError; API 409",
+    "note": "Also requires enough venues (generator.ts:208-213); Tabbycat does not."
+  },
+  {
+    "item": "[draw] Draw validation / checks of an existing draw",
+    "tabbycat": "(none beyond generator errors)",
+    "status": "BETTER",
+    "crabbytab": "validateDraw.ts (duplicate teams/adjs/venues, side limits, preallocated sides, rematches, institutions...) via DrawCheckPanel and API",
+    "note": ""
+  },
+  {
+    "item": "[draw] Unsaved draw preference defaults",
+    "tabbycat": "preferences.py:261-342",
+    "status": "PARTIAL",
+    "crabbytab": "twoTeamDraw.ts:56-63 (fold, pullup_top) vs ConfigForm.tsx:163-164 (shows intermediate_bubble, fold); presets.ts:defaultPreferences sets none",
+    "note": "BUG: a tournament created without a rules preset is drawn with pullup_top while the settings page shows intermediate_bubble; Tabbycat default is intermediate_bubble_up_down + slide."
+  },
+  {
+    "item": "[draw] Per-request draw options (API)",
+    "tabbycat": "manager.py:186-200 (options arg)",
+    "status": "HAVE",
+    "crabbytab": "api/v1/routes/write/rounds.ts:drawOptionsSchema/validateDrawOptions; tabRoom.ts:generateDraw merges into preferences",
+    "note": "Schema allows maxTimesPerSide 0 (always fails)."
+  },
+  {
+    "item": "[alloc] Allocator selection: Voting vs Consensus Hungarian chosen from ballots-per-debate",
+    "tabbycat": "adjallocation/consumers.py:99-102; management/commands/allocateadjudicators.py (hungarian -> voting if per-adj else consensus)",
+    "status": "PARTIAL",
+    "crabbytab": "src/features/tournament/application/allocation.ts:162 panelStrengthStrategy = preferences.adjudicatorPanelStrategy ?? 'crabbytab_v1'; ConfigForm.tsx:386 lets organiser pick tabbycat_voting/tabbycat_consensus.",
+    "note": "Tabbycat algorithms exist only as opt-in strategies; default is CrabbyTab's own slot-ranking + local search. Not derived from ballotMode even though the preset stores ballotMode voting/consensus."
+  },
+  {
+    "item": "[alloc] VotingHungarianAllocator: solo/panel split, 3-seat panels, -1 adjustment top-half third seat, trainees one per solo debate",
+    "tabbycat": "adjallocation/allocators/hungarian.py:175-293",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/tabbycatHungarian.ts:172-196 allocateTabbycatHungarian voting branch; reached from allocator.ts:1168-1205 when strategy tabbycat_voting; UI ConfigForm strategy select; API POST pairings/allocate-adjudicators.",
+    "note": "Check alloc.audit.test.ts 'voting: solos/panellists split...' matches a brute-force port of Tabbycat on identical normalised inputs. No random.shuffle (deterministic tie-break by score then id) - acceptable/BETTER for reproducibility."
+  },
+  {
+    "item": "[alloc] ConsensusHungarianAllocator: even panel sizes (bigger panels to most important), adjustment -seat, trainees one per debate, no_panellists leftover voters become trainees",
+    "tabbycat": "adjallocation/allocators/hungarian.py:296-375",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/tabbycatHungarian.ts:160-170",
+    "note": "Engine matches; inputs differ (see score normalisation and importance rows)."
+  },
+  {
+    "item": "[alloc] calc_cost strength term 1000*exp(diff-0.25) + (max_score - normalised)",
+    "tabbycat": "adjallocation/allocators/hungarian.py:116-136",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/tabbycatHungarian.ts:76-82 hungarianStrengthCost",
+    "note": "Uses (5 - n) instead of (adj_max_score - n): constant per row, no effect on the assignment (checked)."
+  },
+  {
+    "item": "[alloc] Score normalisation to 0-5 using adj_min_score/adj_max_score, with out-of-range warnings",
+    "tabbycat": "adjallocation/allocators/hungarian.py:86-114; options/preferences.py:499,508",
+    "status": "PARTIAL",
+    "crabbytab": "src/lib/draw/tabbycatHungarian.ts:67-69 normalisedAdjudicatorScore = score/2; adjudicator scale fixed at ADJ_SCORE_MIN=1..ADJ_SCORE_MAX=10 (src/lib/feedback/scores.ts:13-14). grep adjMinScore/adjMaxScore: no hits.",
+    "note": "No configurable adjudicator score range; a score of 1 (CrabbyTab minimum) normalises to 0.5 not 0; no 'score larger/smaller than permitted' warnings. Defaults like adj_min_voting_score 1.5 are not rescaled to the 1-10 scale (1.5 = 30% of Tabbycat's 0-5 range, ~6% of CrabbyTab's)."
+  },
+  {
+    "item": "[alloc] Debate importance (-2..2) as the sole allocation priority",
+    "tabbycat": "draw/models.py:66; hungarian.py:120 (importance+3), :208 (sort by -importance, room_rank)",
+    "status": "PARTIAL",
+    "crabbytab": "src/lib/draw/allocator.ts:444-483 calculateDebatePriorities = 0.4*bracket + 0.4*liveness + 0.2*importance, then 0.75/0.25 blend with venue priority (allocator.ts:1044-1072); tabbycatHungarian.ts:71 maps that composite to 1..5.",
+    "note": "Manual or auto-prioritised importance is only 20% of priority even in the 'Tabbycat' strategies. Check 'manual debate importance is only 20%': a debate with importance 10 but lower bracket gets the importance-0 panel. Importance scale is 0-10 not -2..2 (mapping 1,0,-1,-2 -> 10,7,3,0)."
+  },
+  {
+    "item": "[alloc] Auto-prioritise debates by bracket (4 quartile levels)",
+    "tabbycat": "adjallocation/consumers.py:172-186,216-217",
+    "status": "HAVE",
+    "crabbytab": "src/lib/draw/anticipatedDraw.ts:183-205 importanceByBracket; debatePriority.ts prioritiseDebates; allocation page buttons page.tsx:1054-1066 with confirm dialog.",
+    "note": "Check compares to a hand-port of _prioritise_by_bracket (incl. Python banker's rounding) on 4 bracket lists: identical."
+  },
+  {
+    "item": "[alloc] Auto-prioritise debates by liveness (safe 0 / dead -2 / else 1)",
+    "tabbycat": "adjallocation/consumers.py:195-214",
+    "status": "HAVE",
+    "crabbytab": "src/lib/breakqual/liveness.ts:153-174 importanceByLiveness (safe 7 / dead 0 / live 10), error when no general category (debatePriority.ts:37-42).",
+    "note": "Same branch order (safe checked first)."
+  },
+  {
+    "item": "[alloc] Minimum voting score (adj_min_voting_score) filter; non-voters seated as trainees",
+    "tabbycat": "hungarian.py:183,204; preferences.py:141",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:1019,1161-1163 (score >= minAdjScoreToVote), :1180-1182 below-min voters passed as trainees in Tabbycat modes; ConfigForm.tsx:435.",
+    "note": "In default crabbytab_v1 mode below-minimum non-trainees are dropped entirely (not seated as trainees). Scale caveat in normalisation row."
+  },
+  {
+    "item": "[alloc] no_panellist_position / no_trainee_position (don't allocate AND hide positions in UI)",
+    "tabbycat": "options/preferences.py:436,445; hungarian.py:193-205,309-317",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:1020-1021,1136-1137,1164-1166,1210; allocation.ts:148; ConfigForm.tsx:461-468.",
+    "note": "Allocator obeys both; allocation page does not hide panellist/trainee drop zones (grep noPanellistAdjs in src/app/**/allocation: none), so manual placement is still offered."
+  },
+  {
+    "item": "[alloc] Trainee allocation (Hungarian, adjustment -2, chair conflict/history considered)",
+    "tabbycat": "hungarian.py:138-157",
+    "status": "PARTIAL",
+    "crabbytab": "tabbycatHungarian.ts:88-105 seatTrainees (Tabbycat modes); allocator.ts:1312-1337 greedy lowest-priority-first in crabbytab_v1.",
+    "note": "Tabbycat modes match except adj-adj institutional conflict is not costed (see conflicts row). Default mode seats ALL trainees greedily (Tabbycat leaves surplus unallocated)."
+  },
+  {
+    "item": "[alloc] Chair choice = highest-scored member of panel",
+    "tabbycat": "hungarian.py:280-283, 361-363",
+    "status": "HAVE",
+    "crabbytab": "tabbycatHungarian.ts:133-140 (Tabbycat modes); allocator.ts:1344-1365 default mode picks strongest conflict-free member.",
+    "note": "Default mode differs deliberately (conflict-free preference)."
+  },
+  {
+    "item": "[alloc] No available adjudicators / no voters -> AdjudicatorAllocationError, existing allocation untouched",
+    "tabbycat": "allocators/base.py:33-38; hungarian.py:159-172; consumers.py:104-106",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:1014-1016 returns emptyAllocation for every debate; tabbycatHungarian.ts:150-155 returns empty panels + warning; allocation.ts:171-183,279 saves them.",
+    "note": "Check 'no available adjudicators -> EMPTY allocation': auto-allocate with nobody available silently wipes existing panels instead of refusing."
+  },
+  {
+    "item": "[alloc] Allocator warnings (too few voters / panellists) surfaced to user",
+    "tabbycat": "hungarian.py:215-229,331-338; consumers.py:113-119",
+    "status": "HAVE",
+    "crabbytab": "tabbycatHungarian.ts:156-183 -> allocation.ts:216 -> page.tsx:750 setAllocationWarnings.",
+    "note": "Only Tabbycat strategies emit warnings; crabbytab_v1 emits none."
+  },
+  {
+    "item": "[alloc] Allocation blocked when draw released or not confirmed",
+    "tabbycat": "adjallocation/consumers.py:60-67; allocateadjudicators.py --force",
+    "status": "PARTIAL",
+    "crabbytab": "src/features/tournament/application/stateGuards.ts:745-769 checkAutoAllocation: only cancelled/elimination-advanced (hard) and ballots/completed (soft).",
+    "note": "No draw-status check: can auto-allocate an unconfirmed draft or a released draw (panels then re-hidden via hideRevealedAdjudicators)."
+  },
+  {
+    "item": "[alloc] Adjudicator-team conflict (personal)",
+    "tabbycat": "adjallocation/models.py:48; conflicts.py:387-391,415-418",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:193-198,264-267 (conflict.teamId); editor src/lib/adjudicators/conflicts.ts applyConflictSelection; CSV import/export src/lib/csv/conflictsImport.ts, participantExports.ts:199.",
+    "note": "Penalty adds to institutional penalty instead of being boolean (see double-count row)."
+  },
+  {
+    "item": "[alloc] Adjudicator-adjudicator conflict (personal)",
+    "tabbycat": "models.py:63; conflicts.py:393-397",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:131-137 adjudicatorsConflict, :287-301 pair cost, votingPairCosts :308-357; trainee step :1323-1328.",
+    "note": "In Tabbycat adj-adj conflicts only affect trainee placement (calc_cost chair arg); CrabbyTab default mode also uses them between voters (BETTER)."
+  },
+  {
+    "item": "[alloc] Adjudicator-adjudicator INSTITUTIONAL conflict (shared institution conflicts)",
+    "tabbycat": "conflicts.py:411-413,420-423; hungarian.py:125-127; utils.py:51-59 (warning display)",
+    "status": "MISSING",
+    "crabbytab": "allocator.ts:131-137 adjudicatorsConflict checks only conflict.adjudicatorId; calculateAdjDebateConflict :225-232 likewise. grep 'conflicting_institutions_adj_adj|institutional.*adj.*adj': none.",
+    "note": "Check: two trainees each seated with the chair from their own institution in tabbycat_voting; no conflict reported. Tabbycat would cost conflict_penalty and show a 'via institution' warning."
+  },
+  {
+    "item": "[alloc] Adjudicator-institution and team-institution conflicts (intersection semantics)",
+    "tabbycat": "models.py:80,95; conflicts.py:399-409",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:139-161 sharesInstitution (own institution implicit), declaredInstitutionMatches (adj declared inst vs team OWN inst), teamDeclaresInstitution (team declared vs adj OWN inst).",
+    "note": "Tabbycat conflict = adj inst-conflict set ∩ team inst-conflict set. CrabbyTab misses declared∩declared (check: adj declares OLD, team declares OLD -> no clash). Declared institution conflicts weigh 0.8x penalty (allocator.ts:99) instead of 1x."
+  },
+  {
+    "item": "[alloc] Own-institution conflicts (addowninstitutionconflicts; importer/admin 'create institution conflict' default on, removable)",
+    "tabbycat": "management/commands/addowninstitutionconflicts.py; importer/forms.py:315,354; participants/admin.py:137-176",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:139-149 sharesInstitution treats own institution as conflict whether or not a record exists; conflicts.ts:19-35,96-98 always keeps own conflict record.",
+    "note": "Cannot opt an adjudicator out of their own-institution conflict except by making them 'independent' (which drops ALL same-institution checks incl. composite). Check: adj with empty conflicts still clashes with own-institution team."
+  },
+  {
+    "item": "[alloc] Conflict cost per adj-team is boolean (personal OR institutional)",
+    "tabbycat": "conflicts.py:415-418; hungarian.py:122-124",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:259-283 teamConflictCosts sums institution + personal (+ declared) separately.",
+    "note": "Check: personal + own-institution with same team = 2x conflict penalty (Tabbycat 1x). Changes trade-offs between conflicts."
+  },
+  {
+    "item": "[alloc] History: adj-team seen before (boolean, any prior round, trainees included)",
+    "tabbycat": "conflicts.py:476-521",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:560-587 buildPastAdjTeams (chair/panellists/trainees, skips postponed); allocation.ts:91-99 earlier schedule slots only.",
+    "note": "Set-based, so boolean like Tabbycat."
+  },
+  {
+    "item": "[alloc] History: adj-adj sat together before (boolean, history_penalty)",
+    "tabbycat": "conflicts.py:514-516,523-526; hungarian.py:127",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:530-555 buildPastPanelHistory (count, trainees excluded); REPEAT_PANEL = 0.4*adjHistoryPenalty (allocator.ts:101).",
+    "note": "Count-based 0.4x weight instead of boolean 1x; trainee co-panellings not counted (check). Applies in Tabbycat modes via conflictCost chair pair (allocator.ts:1190)."
+  },
+  {
+    "item": "[alloc] History display with 'rounds ago' (adj-team and adj-adj) in allocation UI",
+    "tabbycat": "conflicts.py:528-557 HistoryInfo.serialized_by_participant",
+    "status": "PARTIAL",
+    "crabbytab": "allocation/page.tsx:303-311,1218-1232 uses calculateAdjDebateConflict -> 'Previously judged X' only.",
+    "note": "No adj-adj history and no recency in UI; page uses seq < active.seq while allocator uses isEarlierScheduleSlot (inconsistent for concurrent rounds)."
+  },
+  {
+    "item": "[alloc] Conflict display on allocation page (adj-team personal/institution, adj-adj)",
+    "tabbycat": "adjallocation/utils.py:12-61",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:1367-1379 conflicts per result; page.tsx:1218-1232",
+    "note": "Adj-adj institutional conflicts never shown (see MISSING row)."
+  },
+  {
+    "item": "[alloc] adj_conflict_penalty / adj_history_penalty preferences stored and read",
+    "tabbycat": "preferences.py:150,159; hungarian.py:73-74",
+    "status": "HAVE",
+    "crabbytab": "types/index.ts:318-319; ConfigForm; allocator.ts:89-105 getAllocationWeights; allocation.ts:151-165 (0 disables respect flags).",
+    "note": "Derived weights (0.8x declared institution, 0.4x repeat panel, 0.3x/5x trainee terms) are CrabbyTab inventions."
+  },
+  {
+    "item": "[alloc] preformed_panel_mismatch_penalty",
+    "tabbycat": "preferences.py:168; preformed/hungarian.py:21,28-29",
+    "status": "PARTIAL",
+    "crabbytab": "types importanceMismatchPenalty; allocator.ts:92,117-122 strengthMismatchCost used for ALL strength matching in crabbytab_v1/panel_average and preformed placement.",
+    "note": "Same setting means something broader: Karl Popper preset (presets.ts:419, value 10 as Tabbycat) makes default-mode strength matching weaker than one history hit (adjHistoryPenalty 1). Scaled by 0.05*(d/10)^2 so even a 10-point mismatch (500k) < one conflict (1M); in Tabbycat one importance level of mismatch (10M) > conflict."
+  },
+  {
+    "item": "[alloc] Preformed panels -> debates, Hungarian (mismatch (debate.importance - panel.importance)^2 + conflicts + history)",
+    "tabbycat": "adjallocation/preformed/hungarian.py:25-57; consumers.py:69-90",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:892-959 placePreformedPanels 'optimise'; reached when preferences.usePreformedPanels (allocation.ts:145) on allocation page auto-allocate.",
+    "note": "Ranks panels by importance then strength and targets the composite priority of the same-ranked debate, not debate.importance. Check: importance-10 panel lands on bracket-3/importance-0 debate instead of importance-10 debate."
+  },
+  {
+    "item": "[alloc] Preformed panels -> debates, Direct (room-rank order)",
+    "tabbycat": "adjallocation/preformed/direct.py:8-10",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:911-926 placement 'direct'; ConfigForm.tsx:416 preformedPanelPlacement.",
+    "note": ""
+  },
+  {
+    "item": "[alloc] copy_panels_to_debates: debates without a panel are cleared; panels copied verbatim",
+    "tabbycat": "adjallocation/preformed/__init__.py:10-25",
+    "status": "PARTIAL",
+    "crabbytab": "allocator.ts:1141-1160 then Step 5 fills remaining debates with normal allocator; :899-908 drops unavailable members.",
+    "note": "Different (arguably better) behaviour: leftover debates auto-filled; unavailable members silently dropped (checks)."
+  },
+  {
+    "item": "[alloc] Create preformed panels from anticipated draw (bracket_min/max, liveness)",
+    "tabbycat": "adjallocation/preformed/anticipated.py:10-115; consumers.py:255-278",
+    "status": "PARTIAL",
+    "crabbytab": "src/lib/draw/anticipatedDraw.ts:111-168; preformedPanels.ts:115-200 anticipateRound/panelsFromAnticipatedDraw; panels/page.tsx:133,276.",
+    "note": "Prelim path matches Tabbycat. Elimination rounds: always breakSize/teamsPerDebate rooms (check: 2nd elim of an 8-break -> 4 rooms, Tabbycat 2); partial-elimination splits not handled; previousRoundWeight never passed by anticipateRound (Round.weight ignored)."
+  },
+  {
+    "item": "[alloc] Auto-prioritise preformed panels (bracket mid / liveness)",
+    "tabbycat": "adjallocation/consumers.py:224-253",
+    "status": "HAVE",
+    "crabbytab": "preformedPanels.ts:207-221 prioritisePanels; panels/page.tsx:147,279-282.",
+    "note": ""
+  },
+  {
+    "item": "[alloc] Auto-allocate adjudicators INTO preformed panels (Voting/Consensus Hungarian over panels)",
+    "tabbycat": "adjallocation/consumers.py:129-170; allocateadjudicators.py --preformed",
+    "status": "MISSING",
+    "crabbytab": "panels/page.tsx imports (lines 10-22) only manual assign, CSV-group import, anticipate, prioritise, save. grep 'autoAllocatePanel|allocatePanelAdj|allocate.*preformed': none.",
+    "note": "Organisers must fill panels by hand or via CSV preformed_panel_id."
+  },
+  {
+    "item": "[alloc] Preformed panel model (importance, room_rank, bracket_min/max, liveness) and editing",
+    "tabbycat": "adjallocation/models.py:114-179",
+    "status": "HAVE",
+    "crabbytab": "types/index.ts:755-770 PreformedPanel stored on Round; preformedPanels.ts:224-295 validate/save (duplicate member, trainee voter, chair checks); API replacePreformedPanels rounds.ts:387.",
+    "note": "Importance 0-10 scale."
+  },
+  {
+    "item": "[alloc] Venue allocation: constrained debates first by highest constraint priority, best satisfiable set, fallback to lower constraints",
+    "tabbycat": "venues/allocator.py:56-157",
+    "status": "BETTER",
+    "crabbytab": "src/lib/draw/venueAllocator.ts:88-180 lexicographic constraint weights in a Hungarian matching; venues.ts:127-160 debateVenueConstraints (teams, adjudicators, teams' institutions).",
+    "note": "Optimal rather than greedy. Semantics nuance: Tabbycat treats several constraints of one subject as alternatives (skips once one is met); CrabbyTab penalises each unmet one (still prefers higher priority). Check: priority 10 beats priority 1 for a contested room."
+  },
+  {
+    "item": "[alloc] Venue allocation: unconstrained debates use the top-N priority rooms",
+    "tabbycat": "venues/allocator.py:34-35,141-147,159-172",
+    "status": "HAVE",
+    "crabbytab": "venueAllocator.ts:121-160 (rooms sorted by priority; ranking cost).",
+    "note": "Deterministic bracket->room-priority alignment instead of Tabbycat's shuffle (check)."
+  },
+  {
+    "item": "[alloc] Venue shortage: allocate what fits, leave remaining debates without a room",
+    "tabbycat": "venues/allocator.py:38,47-52",
+    "status": "PARTIAL",
+    "crabbytab": "venueAllocator.ts:134-138 throws 'Not enough available venues'; generator.ts:204-211 refuses to generate the draw.",
+    "note": "Stricter. Also breaks adjudicator auto-allocation (see BUG row)."
+  },
+  {
+    "item": "[alloc] Room re-allocation after adjudicator allocation when adjudicators have room constraints",
+    "tabbycat": "draw/views.py:727-733 (skips auto room allocation, tells user to run it after adjs)",
+    "status": "PARTIAL",
+    "crabbytab": "allocation.ts:185-208 re-runs allocateVenuesToDebates inside computeAutoAllocation.",
+    "note": "Automatic, but any venue error (shortage, or two panel members with incompatible hard categories via applyAdjudicatorVenueRequirements venueAllocator.ts:58-60) throws and aborts the whole adjudicator allocation (checks). Also overwrites manual room edits."
+  },
+  {
+    "item": "[alloc] VenueConstraint model (subject team/adjudicator/institution, category, priority) + import/edit",
+    "tabbycat": "venues/models.py:102-138",
+    "status": "HAVE",
+    "crabbytab": "types/index.ts:603-606 VenueConstraint on Team/Adjudicator/Institution; src/lib/venues/constraintEdits.ts; app/[tournamentSlug]/imports/venue-constraints/page.tsx.",
+    "note": ""
+  },
+  {
+    "item": "[alloc] VenueCategory many-to-many, display_in_venue_name prefix/suffix, public tooltip",
+    "tabbycat": "venues/models.py:29-48,56-99",
+    "status": "PARTIAL",
+    "crabbytab": "venues.ts:75-104 venueCategoryNames, :183-214 venueDisplayName/venueTooltip; VenueLabel.tsx; draw/page.tsx:806.",
+    "note": "Tabbycat sorts prefixes and suffixes alphabetically and joins with ', '; CrabbyTab keeps stored order and joins with spaces (check: 'Zed Alpha R1' vs Tabbycat 'Alpha, Zed R1'). Cosmetic."
+  },
+  {
+    "item": "[alloc] Venue priority (higher preferred)",
+    "tabbycat": "venues/models.py:12-14; allocator.py:34",
+    "status": "HAVE",
+    "crabbytab": "types Venue.priority; venueAllocator.ts:123",
+    "note": "Also blended into adjudicator debate priority (allocator.ts:1044-1072) - CrabbyTab extra."
+  },
+  {
+    "item": "[alloc] Round availability of adjudicators and venues for allocation",
+    "tabbycat": "tournaments/models.py:551-556 active_adjudicators/active_venues",
+    "status": "HAVE",
+    "crabbytab": "allocator.ts:1005-1011 isAvailableForRound (skipAdjCheckins pref); venues.ts:18-21 isVenueAvailableForRound used in venueAllocator.ts:122.",
+    "note": ""
+  },
+  {
+    "item": "[alloc] Adjudicator weighted score = base*(1-w) + feedback*w; base only when no feedback",
+    "tabbycat": "participants/models.py:530-535",
+    "status": "PARTIAL",
+    "crabbytab": "src/lib/feedback/scores.ts:63-72 blendAdjudicatorScore (testScore preferred), :54-57 undefined weight -> 0.6.",
+    "note": "Legacy rounds without feedbackWeight blend at 60% (Tabbycat Round.feedback_weight default 0). Feedback scaled from feedback scale onto 1-10."
+  },
+  {
+    "item": "[alloc] Duplicate adjudicators across debates in a round / simultaneous rounds",
+    "tabbycat": "adjallocation/models.py:35-36 (unique debate+adjudicator only)",
+    "status": "BETTER",
+    "crabbytab": "API rounds.ts updatePairing rejects an adjudicator on two panels in a round; validateDraw 'adjudicator_in_multiple_debates'; allocation.ts:119-124 excludes adjudicators/venues booked by concurrent rounds.",
+    "note": "Except draw page 'auto-allocate rooms' ignores concurrent bookings (BUG row)."
+  },
+  {
+    "item": "[alloc] Manual debate importance editing",
+    "tabbycat": "draw/models.py:66; SimpleDebateImportanceSerializer",
+    "status": "HAVE",
+    "crabbytab": "allocation/page.tsx:673-676,1333; API updatePairing 'importance'.",
+    "note": "0-10 input; effect limited to 20% of priority (see importance row)."
+  },
+  {
+    "item": "[alloc] Allocation-time settings modal (min voting score, penalties, no panellist/trainee, use preformed, method)",
+    "tabbycat": "adjallocation/consumers.py:40-54",
+    "status": "HAVE",
+    "crabbytab": "Same preferences on config page ConfigForm.tsx:386-470; allocation page has panel size/sizing (page.tsx:1006-1014) and strategy hint.",
+    "note": "Not in the allocation dialog, but stored and read."
+  },
+  {
+    "item": "[alloc] Management command allocateadjudicators (incl. --dry-run, --preformed)",
+    "tabbycat": "adjallocation/management/commands/allocateadjudicators.py",
+    "status": "PARTIAL",
+    "crabbytab": "API POST /rounds/{seq}/pairings/allocate-adjudicators (rounds.ts:288-310) -> tabRoom.autoAllocate.",
+    "note": "No dry-run, no allocator choice, no preformed-panel target."
+  },
+  {
+    "item": "[alloc] Management command allocatepreformedpanels",
+    "tabbycat": "adjallocation/management/commands/allocatepreformedpanels.py",
+    "status": "PARTIAL",
+    "crabbytab": "Only through autoAllocate with usePreformedPanels on (allocation.ts:145).",
+    "note": "No separate 'panels only' operation; remaining debates always filled."
+  },
+  {
+    "item": "[alloc] Management command allocatevenues",
+    "tabbycat": "venues/management/commands/allocatevenues.py",
+    "status": "HAVE",
+    "crabbytab": "draw/page.tsx:374-391 handleAutoAllocateVenues; generator.ts:604-612 at draw time.",
+    "note": "No API route for venue re-allocation (grep allocateVenues in src/lib/api: none)."
+  },
+  {
+    "item": "[alloc] Management command conflictscsv (own-institution excluded unless flag)",
+    "tabbycat": "adjallocation/management/commands/conflictscsv.py",
+    "status": "HAVE",
+    "crabbytab": "src/lib/csv/participantExports.ts:199-245 conflictsCsv (own institution excluded); exports/page.tsx:77; RecordedConflicts.tsx:92.",
+    "note": "No include-own option."
+  },
+  {
+    "item": "[alloc] Management command addowninstitutionconflicts",
+    "tabbycat": "adjallocation/management/commands/addowninstitutionconflicts.py",
+    "status": "NA",
+    "crabbytab": "Own institution is always conflicting implicitly (allocator.ts:139-149).",
+    "note": "Not needed given implicit semantics (see own-institution PARTIAL row)."
+  },
+  {
+    "item": "[alloc] team_history_penalty / avoid_team_history / team_institution_penalty",
+    "tabbycat": "options/preferences.py:177-210",
+    "status": "NA",
+    "crabbytab": "Draw-generation preferences (generator.ts), not allocation.",
+    "note": "Belongs to the draw sub-slice."
+  },
+  {
+    "item": "[alloc] duplicate_adjs / enable_adj_notes / share_adjs / share_venues preferences",
+    "tabbycat": "options/preferences.py (absent in 2.12.1; grep found none)",
+    "status": "NA",
+    "crabbytab": "n/a",
+    "note": "Not Tabbycat 2.12.1 preferences."
+  },
+  {
+    "item": "[alloc] Panel sizing modes (fixed / by_priority) and panel_average strategy",
+    "tabbycat": "(none)",
+    "status": "BETTER",
+    "crabbytab": "allocator.ts:656-676 planPanelSizes; page.tsx:1006-1014",
+    "note": "CrabbyTab-only options; Tabbycat sizes panels implicitly from counts."
+  },
+  {
+    "item": "[standings] Team metric: points (round-weighted)",
+    "tabbycat": "standings/teams.py:65",
+    "status": "HAVE",
+    "crabbytab": "src/lib/standings/metrics.ts:weightedPoints/computeTeamMetrics; calculator.ts:235 (pts*roundWeight); precedence via resolveTeamPrecedence; config ConfigForm.tsx:1292",
+    "note": "Bye wins also add points (1 / 3 BP)."
+  },
+  {
+    "item": "[standings] Team metric: wins",
+    "tabbycat": "standings/teams.py:79",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:computeTeamMetrics (rounds.filter(win)); calculator.ts:232 win=false in BP",
+    "note": "BP prelim win=False matches Tabbycat PolyScoresheet.winners()=set() (results/scoresheet.py:233)."
+  },
+  {
+    "item": "[standings] Team metric: speaks_sum",
+    "tabbycat": "standings/teams.py:90",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:computeTeamMetrics speaksSum over rounds with speaksSum!==null; forfeits/results-only excluded (calculator.ts:223)",
+    "note": "teamScoreIncludesGhosts honoured (calculator.ts:212)."
+  },
+  {
+    "item": "[standings] Team metric: speaks_avg",
+    "tabbycat": "standings/teams.py:101",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:227 mean(speaksValues)",
+    "note": "No-debate team gets 0 (Tabbycat None); ranks identically for descending metrics."
+  },
+  {
+    "item": "[standings] Team metric: speaks_ind_avg",
+    "tabbycat": "standings/teams.py:146",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:228 mean(individualScores); calculator.ts:217 countedSubstantiveSpeeches (ghost/reply excluded)",
+    "note": ""
+  },
+  {
+    "item": "[standings] Team metric: speaks_stddev (population, ascending)",
+    "tabbycat": "standings/teams.py:112",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:popStdDev + TEAM_METRIC_DIRECTION -1",
+    "note": "Check 'speaks_stddev is the population SD' passes (200,210 -> 5). Edge: a team with no scored rounds gets 0 and ranks BEST on an ascending metric; Tabbycat's SQL ranking path (used whenever all precedence metrics are aggregate metrics) puts NULL last."
+  },
+  {
+    "item": "[standings] Team metric: margin_sum",
+    "tabbycat": "standings/teams.py:124",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:207 (BP margin 0, Tabbycat None)",
+    "note": ""
+  },
+  {
+    "item": "[standings] Team metric: margin_avg",
+    "tabbycat": "standings/teams.py:135",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:232 excludes byes/forfeits",
+    "note": ""
+  },
+  {
+    "item": "[standings] Team metric: draw_strength (opponents' points)",
+    "tabbycat": "standings/teams.py:186,268",
+    "status": "PARTIAL",
+    "crabbytab": "metrics.ts:220 over opponentTeamIds; opponentTeamIds only recorded for debates with a confirmed ballot (calculator.ts:197-198)",
+    "note": "Tabbycat collects opponents from every prelim debate up to the round regardless of ballot status. Check 'DIVERGES draw_strength': A drawn vs C in R2 without ballot -> CrabbyTab 0, Tabbycat 1."
+  },
+  {
+    "item": "[standings] Team metric: draw_strength_speaks",
+    "tabbycat": "standings/teams.py:276",
+    "status": "PARTIAL",
+    "crabbytab": "metrics.ts:221",
+    "note": "Same unconfirmed-debate opponent difference as draw_strength."
+  },
+  {
+    "item": "[standings] Team metric: draw_strength_rank (extra only)",
+    "tabbycat": "standings/teams.py:228",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:332-340; EXTRA_ONLY_TEAM_METRICS",
+    "note": "Uses overall ranks only: Tabbycat uses ranks of the standings being generated (category subset); subset.ts keeps the overall value. Same unconfirmed-opponent difference."
+  },
+  {
+    "item": "[standings] Team metric: draw_strength_wins (opponents' wins)",
+    "tabbycat": "n/a (Tabbycat key draw_strength 'by wins' sums points)",
+    "status": "BETTER",
+    "crabbytab": "metrics.ts:219",
+    "note": "CrabbyTab-only extra metric."
+  },
+  {
+    "item": "[standings] Team metric: npullups",
+    "tabbycat": "standings/teams.py:285",
+    "status": "PARTIAL",
+    "crabbytab": "metrics.ts:211 (pullups) from accum pushed only for debates with confirmed ballot",
+    "note": "Tabbycat exclude_unconfirmed=False counts pull-ups in debates without results. Check 'DIVERGES npullups' -> CrabbyTab 0, Tabbycat 1."
+  },
+  {
+    "item": "[standings] Team metric: pullup_debates",
+    "tabbycat": "standings/teams.py:306",
+    "status": "PARTIAL",
+    "crabbytab": "metrics.ts:242",
+    "note": "Same unconfirmed-debate gap as npullups."
+  },
+  {
+    "item": "[standings] Team metric: num_adjs (votes normalised to 3)",
+    "tabbycat": "standings/teams.py:320",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:213-216 VOTES_NORMALISED_PANEL_SIZE; self-split = 3 votes via ballotVotesPossible",
+    "note": "Tabbycat casts to int when all integral; display-only."
+  },
+  {
+    "item": "[standings] Team metric: firsts/seconds/thirds",
+    "tabbycat": "standings/teams.py:353-381",
+    "status": "PARTIAL",
+    "crabbytab": "metrics.ts:208-210 via bpRankInRoom (calculator.ts:68)",
+    "note": "BP bye win counts as 3 points and a first. Correction (coordinator): Tabbycat DOES give BP byes (draw/manager.py:93-96 n_teams % len(sides)) and with bye_team_results=points records points=1, win=True in every format (draw/manager.py:177-180), so a BP bye is worth 1 point (a 'third' in firsts..fourths), not 3. CrabbyTab: src/lib/standings/calculator.ts:169 byePoints = isBP ? 3 : 1. Not covered by tools/tabbycat-diff (all fixtures use bye_team_results=none)."
+  },
+  {
+    "item": "[standings] Team metric: fourths",
+    "tabbycat": "n/a (no fourths metric in teams.py)",
+    "status": "NA",
+    "crabbytab": "TeamStandingRow.fourthPlaces display field only",
+    "note": "Not a Tabbycat metric."
+  },
+  {
+    "item": "[standings] Team metric: num_iron (ascending)",
+    "tabbycat": "standings/teams.py:383",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:263 ironed; metrics.ts:246; direction -1",
+    "note": ""
+  },
+  {
+    "item": "[standings] Team metric: who-beat-whom (repeatable, n/a unless exactly 2 tied, unweighted head-to-head points)",
+    "tabbycat": "standings/teams.py:395; base.py:454-466",
+    "status": "HAVE",
+    "crabbytab": "precedence.ts:annotateWhoBeatWhom, compareValues (null = n/a); calculator.ts:315-319; subset.ts re-evaluates within categories",
+    "note": "Check 'who-beat-whom' passes (2-way tie by head-to-head, 3-way -> null)."
+  },
+  {
+    "item": "[standings] Team metric: points_per_round",
+    "tabbycat": "n/a",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "No such metric in Tabbycat 2.12.1."
+  },
+  {
+    "item": "[standings] Speaker metric: total",
+    "tabbycat": "standings/speakers.py:73",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:computeSpeakerMetrics speaks_sum; ghosts excluded calculator.ts:384",
+    "note": "calculator.ts:380 skips entries whose score is 0 (falsy)."
+  },
+  {
+    "item": "[standings] Speaker metric: average",
+    "tabbycat": "standings/speakers.py:81",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts speaks_avg",
+    "note": ""
+  },
+  {
+    "item": "[standings] Speaker metric: trimmed_mean (high-low drop)",
+    "tabbycat": "standings/speakers.py:225",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:trimmedMean; calculator.ts:452 speakerTrim default 1",
+    "note": "Check passes (3 speeches drop, 2 plain mean). speakerTrim>1 is a CrabbyTab extension."
+  },
+  {
+    "item": "[standings] Speaker metric: team_points (unweighted)",
+    "tabbycat": "standings/speakers.py:89",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:speakerTeamResults (raw points)",
+    "note": ""
+  },
+  {
+    "item": "[standings] Speaker metric: team_wins, firsts, seconds, thirds, num_adjs",
+    "tabbycat": "standings/speakers.py:99-162",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts:speakerTeamResults/computeSpeakerMetrics",
+    "note": ""
+  },
+  {
+    "item": "[standings] Speaker metric: stdev (population, ascending)",
+    "tabbycat": "standings/speakers.py:165",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts popStdDev; SPEAKER_METRIC_DIRECTION -1",
+    "note": ""
+  },
+  {
+    "item": "[standings] Speaker metric: count",
+    "tabbycat": "standings/speakers.py:174",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts speeches_count",
+    "note": ""
+  },
+  {
+    "item": "[standings] Speaker metric: replies_sum/avg/stddev/count",
+    "tabbycat": "standings/speakers.py:183-222",
+    "status": "HAVE",
+    "crabbytab": "metrics.ts reply_*",
+    "note": "CrabbyTab also lets them be chosen in the speaker precedence (Tabbycat listed=False)."
+  },
+  {
+    "item": "[standings] Speaker metric: srank (sum of speech ranks, ascending)",
+    "tabbycat": "standings/speakers.py:260",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:443-445; metrics.ts:320",
+    "note": "No ranked speeches -> 0 -> ranks BEST; Tabbycat SQL path (e.g. APDA preset, all aggregate metrics) sorts NULL last."
+  },
+  {
+    "item": "[standings] Reply standings ranking (fixed precedence replies_avg)",
+    "tabbycat": "standings/views.py:390",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:477-494 ranks the reply list with resolveSpeakerPrecedence (SPEAKER precedence) over reply-only metrics",
+    "note": "BUG. Check 'DIVERGES reply standings': speaker precedence [speaks_sum] -> CrabbyTab xr (35,35) 1st, Tabbycat yr (avg 36) 1st. Hits BP preset [speaks_sum] (if replies on) and DEFAULT_SPEAKER_PRECEDENCE [speaks_sum, speaks_avg] when no preference is stored."
+  },
+  {
+    "item": "[standings] Ranking: rank (standard competition 1,1,3)",
+    "tabbycat": "standings/ranking.py:99",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:325-328; precedence.ts:assignSharedRanks",
+    "note": "Display order inside ties: Tabbycat random, CrabbyTab by name."
+  },
+  {
+    "item": "[standings] Ranking: subrank",
+    "tabbycat": "standings/ranking.py:142; draw/manager.py:278",
+    "status": "MISSING",
+    "crabbytab": "grep 'subrank' in src: no hits",
+    "note": "Only consumed by Tabbycat power-pair draw (powerpair.py update_subranks); draw slice should confirm."
+  },
+  {
+    "item": "[standings] Ranking: institution_rank (shared ties within institution, over all queryset teams)",
+    "tabbycat": "standings/ranking.py:125,162",
+    "status": "PARTIAL",
+    "crabbytab": "breakqual/calculator.ts:155-166, 225-234 sequential counter over eligible teams only",
+    "note": "Ties within an institution don't share rank; ineligible/excluded/broke-elsewhere teams not counted. Both demonstrated by AIDA 1996 checks."
+  },
+  {
+    "item": "[standings] Ranking: rank_filter (ineligible unranked, sorted last)",
+    "tabbycat": "standings/base.py:252-271,332",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:484-494 row.ineligible; standings/page.tsx:196",
+    "note": ""
+  },
+  {
+    "item": "[standings] Tie-break option (random)",
+    "tabbycat": "standings/base.py:286-300",
+    "status": "PARTIAL",
+    "crabbytab": "alphabetical by name (calculator.ts:323,491)",
+    "note": "Deliberate deterministic order; display only in CrabbyTab."
+  },
+  {
+    "item": "[standings] Pref: team_standings_precedence",
+    "tabbycat": "options/preferences.py:750",
+    "status": "HAVE",
+    "crabbytab": "types/index.ts:297; ConfigForm.tsx:1292; read in calculator.ts:305, TournamentContext.tsx:1901 (breaks), api/v1/routes/standings.ts:68",
+    "note": "Empty precedence falls back to format default (Tabbycat: everyone tied)."
+  },
+  {
+    "item": "[standings] Pref: team_standings_extra_metrics",
+    "tabbycat": "options/preferences.py:766",
+    "status": "HAVE",
+    "crabbytab": "ConfigForm.tsx:1309; resolveTeamExtra read in standings/page.tsx:127, publicView/derived.ts",
+    "note": "Tabbycat 5 fields, CrabbyTab 8."
+  },
+  {
+    "item": "[standings] Pref: speaker_standings_precedence",
+    "tabbycat": "options/preferences.py:778",
+    "status": "HAVE",
+    "crabbytab": "ConfigForm.tsx:1319; calculator.ts:453",
+    "note": "Also wrongly drives reply ranking."
+  },
+  {
+    "item": "[standings] Pref: speaker_standings_extra_metrics",
+    "tabbycat": "options/preferences.py:794",
+    "status": "HAVE",
+    "crabbytab": "ConfigForm.tsx:1335; standings/page.tsx:128",
+    "note": ""
+  },
+  {
+    "item": "[standings] Pref: standings_missed_debates",
+    "tabbycat": "standings/views.py:268,296-311",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:460-486 minimum = rounds WITH RESULTS - missable",
+    "note": "Tabbycat: all prelim rounds with seq<=round minus missable. Deliberate per code comment."
+  },
+  {
+    "item": "[standings] Pref: standings_missed_replies",
+    "tabbycat": "standings/views.py:379",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:482",
+    "note": "Same rounds-with-results basis."
+  },
+  {
+    "item": "[standings] Round-limited (as-of-round) standings",
+    "tabbycat": "standings/views.py:99 RoundMixin; generate(round=)",
+    "status": "HAVE",
+    "crabbytab": "lib/standings/asOfRound.ts; standings/page.tsx:109-123; api standings.ts:77-95",
+    "note": ""
+  },
+  {
+    "item": "[standings] Public standings over non-silent rounds only",
+    "tabbycat": "standings/views.py:145-162",
+    "status": "PARTIAL",
+    "crabbytab": "publicRelease.ts:101 isTabRound counts completed silent rounds",
+    "note": "No all_results_released concept (grep none); Tabbycat stops at last non-silent round unless all results released."
+  },
+  {
+    "item": "[standings] Public tab thresholds team/speaker/replies_tab_limit",
+    "tabbycat": "options/preferences.py:819-862; base.py:173",
+    "status": "HAVE",
+    "crabbytab": "publicView/derived.ts:212 withinLimit, 285-296",
+    "note": ""
+  },
+  {
+    "item": "[standings] Break-category team standings ranked within category",
+    "tabbycat": "standings/views.py:514",
+    "status": "PARTIAL",
+    "crabbytab": "public derived.ts:307 + API standings.ts:120 use rankTeamSubset; admin standings/page.tsx:156-157 only filters and shows overall rank (line 121)",
+    "note": "Admin view not re-ranked."
+  },
+  {
+    "item": "[standings] Speaker category standings (within-category rank, public flag, limit)",
+    "tabbycat": "standings/views.py:335-370",
+    "status": "HAVE",
+    "crabbytab": "speakerCategories.ts:speakerRowsInCategory; standings/page.tsx:161; derived.ts:283-294",
+    "note": ""
+  },
+  {
+    "item": "[standings] Swing teams/speakers in standings",
+    "tabbycat": "standings/views.py:417 (excludes only TYPE_BYE)",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:113-116,308,352 excludes isSwing",
+    "note": "Deliberate divergence."
+  },
+  {
+    "item": "[standings] Break rule: standard",
+    "tabbycat": "breakqual/base.py:277",
+    "status": "HAVE",
+    "crabbytab": "breakqual/calculator.ts applyQualificationRule + takeUpTo",
+    "note": ""
+  },
+  {
+    "item": "[standings] Break: ties at the last breaking place",
+    "tabbycat": "breakqual/base.py:281-292, 205-218, 259-268",
+    "status": "BETTER",
+    "crabbytab": "calculator.ts:422-446 cutoffTies; stateGuards.ts:1242 hard block",
+    "note": "Python simulation of Tabbycat code: ranks [1,2,2,4], break 2 -> add_reserve_teams marks the extra tied team RESERVE and populate_database nulls its break_rank: only one tied team breaks, chosen by random tiebreak. CrabbyTab comment claiming Tabbycat grows the break is inaccurate; forcing a director decision is better."
+  },
+  {
+    "item": "[standings] Break rule: aida-1996",
+    "tabbycat": "breakqual/aida.py:31",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:224-237",
+    "note": "Checks: tied 3rd/4th of one institution -> CrabbyTab caps d (Tabbycat a,b,c,d break); general category with top team ineligible -> CrabbyTab b,c,d (Tabbycat b,c,e)."
+  },
+  {
+    "item": "[standings] Break rule: aida-2016-australs",
+    "tabbycat": "breakqual/aida.py:54-126,140",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:selectAida2016Teams",
+    "note": "Institution-rank differences; reinsertion groups by ALL metrics (tieKey) not precedence; reserves can come from below min_wins (check: reserve c vs Tabbycat none); break_rank_correction replaced by cutoff-tie blocking."
+  },
+  {
+    "item": "[standings] Break rule: aida-2016-easters",
+    "tabbycat": "breakqual/aida.py:128-137",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:178-183",
+    "note": "Same caveats as Australs."
+  },
+  {
+    "item": "[standings] Break rule: aida-2019-australs-open",
+    "tabbycat": "breakqual/aida.py:145-159",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:aidaInstitutionCap",
+    "note": "Cap formula identical; inherits 2016 caveats."
+  },
+  {
+    "item": "[standings] AIDA 2016 required metric 'wins'",
+    "tabbycat": "breakqual/base.py:79-109; aida.py:55",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:151 winsOf; 333-338 rejects BP",
+    "note": "No error when 'wins' is absent from the precedence."
+  },
+  {
+    "item": "[standings] WADL/division break rules",
+    "tabbycat": "n/a (models.py:336 choices)",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "Not in Tabbycat 2.12.1."
+  },
+  {
+    "item": "[standings] BreakCategory.is_general semantics",
+    "tabbycat": "breakqual/base.py:111-118,159",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:350; liveness.ts:74; derived.ts:226",
+    "note": "Unticking a team for a GENERAL category in break/eligibility/page.tsx is stored but never read: check 'general category' breaks team a which Tabbycat would mark Ineligible. Workaround: 'ineligible' override."
+  },
+  {
+    "item": "[standings] BreakCategory.priority / different-break",
+    "tabbycat": "breakqual/base.py:153-158; models.py:327",
+    "status": "PARTIAL",
+    "crabbytab": "calculator.ts:343-376 brokenTeamIds over all earlier categories",
+    "note": "BUG: equal-priority categories - check gives ESL a,b / EFL c,d; Tabbycat a,b in both. Tabbycat also treats non-I/R remarks in higher categories as different break."
+  },
+  {
+    "item": "[standings] BreakCategory.break_size / reserve_size",
+    "tabbycat": "breakqual/models.py:319-323",
+    "status": "HAVE",
+    "crabbytab": "breaks.ts:validateBreakCategoryDraft; presets.ts:validateBreakSize; calculator.ts:445",
+    "note": "Reserve-cutoff ties block generation."
+  },
+  {
+    "item": "[standings] BreakCategory.limit",
+    "tabbycat": "breakqual/models.py:332",
+    "status": "HAVE",
+    "crabbytab": "break/page.tsx:761; derived.ts:217",
+    "note": ""
+  },
+  {
+    "item": "[standings] BreakCategory.rule",
+    "tabbycat": "breakqual/models.py:344",
+    "status": "HAVE",
+    "crabbytab": "types BreakQualificationRule; break/page.tsx:741",
+    "note": "Extra maxPerInstitution for standard rule."
+  },
+  {
+    "item": "[standings] Too few eligible teams -> refuse",
+    "tabbycat": "breakqual/base.py:73",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:518; stateGuards.ts:1233; break/page.tsx:484",
+    "note": ""
+  },
+  {
+    "item": "[standings] Remarks C/I/D/d/t/w/R/A",
+    "tabbycat": "breakqual/models.py:387-396; forms.py",
+    "status": "PARTIAL",
+    "crabbytab": "types BreakTeamOverride; calculator.ts:84-100",
+    "note": "No manual Absent/Reserve/Capped; adds 'include'."
+  },
+  {
+    "item": "[standings] BreakingTeam.break_rank",
+    "tabbycat": "breakqual/base.py:232-253",
+    "status": "HAVE",
+    "crabbytab": "calculator.ts:458-461",
+    "note": ""
+  },
+  {
+    "item": "[standings] Generate break (one / all in priority order)",
+    "tabbycat": "breakqual/views.py:110-232",
+    "status": "PARTIAL",
+    "crabbytab": "breaks.ts:generateBreakCommand single category; no generate-all",
+    "note": "Lower categories use the live calculation of higher ones, not their persisted break."
+  },
+  {
+    "item": "[standings] Liveness: two-team",
+    "tabbycat": "breakqual/liveness.py:29",
+    "status": "HAVE",
+    "crabbytab": "draw/anticipatedDraw.ts:openLiveThresholds; breakqual/liveness.ts:categoryLiveThresholds",
+    "note": "7 cases identical to Tabbycat's function output."
+  },
+  {
+    "item": "[standings] Liveness: BP",
+    "tabbycat": "breakqual/liveness.py:9,67",
+    "status": "HAVE",
+    "crabbytab": "anticipatedDraw.ts; liveness.ts:40-57",
+    "note": "6 cases identical."
+  },
+  {
+    "item": "[standings] Liveness: per-category scores and safe/live/dead",
+    "tabbycat": "breakqual/utils.py:83-125",
+    "status": "PARTIAL",
+    "crabbytab": "liveness.ts:livenessStatus, calculateBreakLiveness, roundBreakLiveness",
+    "note": "Uses round-weighted points (Tabbycat raw Sum(points)); total_teams excludes swing; round number = prelim position; general-category membership ignores eligibility."
+  },
+  {
+    "item": "[standings] Liveness feeding draw / allocation UI",
+    "tabbycat": "tournaments/mixins.py:427; adjallocation/consumers.py:199,232; preformed/anticipated.py:107",
+    "status": "HAVE",
+    "crabbytab": "draw/page.tsx:205,848; allocation/page.tsx:717; debatePriority.ts:41; preformedPanels.ts; standings/page.tsx:199",
+    "note": ""
+  },
+  {
+    "item": "[standings] Adjudicator break liveness",
+    "tabbycat": "n/a",
+    "status": "NA",
+    "crabbytab": "-",
+    "note": "Not in Tabbycat."
+  },
+  {
+    "item": "[standings] Command: breakcategoryteamsdump",
+    "tabbycat": "breakqual/management/commands/breakcategoryteamsdump.py",
+    "status": "PARTIAL",
+    "crabbytab": "csv/participantExports.ts:breakEligibilityCsv (exports/page.tsx:76)",
+    "note": "No code name or points columns."
+  },
+  {
+    "item": "[standings] Command: fixbreakeligibility",
+    "tabbycat": "breakqual/management/commands/fixbreakeligibility.py",
+    "status": "BETTER",
+    "crabbytab": "speakerCategories.ts:planEligibilityFromSpeakerCategories; SpeakerCategoryEligibilityPanel (break/page.tsx:480)",
+    "note": "UI with preview and minimumSpeakers; zero-speaker teams never eligible (Tabbycat all([])=True)."
+  },
+  {
+    "item": "[results] Result class selection (consensus/voting x scores/no-scores, forfeit)",
+    "tabbycat": "results/result.py:85",
+    "status": "HAVE",
+    "crabbytab": "src/lib/ballots/result.ts ballotModeFor/usesVotingBallots/usesSpeakerScores + ballotRules.ts ballotsHaveSpeakerScores; used by results/[roundSeq]/[debateId]/page.tsx, privateBallot.ts, api/v1/ballotInput.ts",
+    "note": "speakers_in_ballots prelim/never semantics match get_result_class."
+  },
+  {
+    "item": "[results] BP per-adj ballots with margin_includes_dissenters (PolyNoWinScoresheet, averaged scores)",
+    "tabbycat": "results/result.py:100,202,715",
+    "status": "MISSING",
+    "crabbytab": "ballotModeFor returns consensus for bp unconditionally (result.ts)",
+    "note": "Obscure Tabbycat mode (no ranks/points stored); low importance."
+  },
+  {
+    "item": "[results] Voting majority decision + chair casting vote",
+    "tabbycat": "results/result.py:555",
+    "status": "PARTIAL",
+    "crabbytab": "result.ts aggregateVotingSheets",
+    "note": "Matches when the chair has a sheet. If the chair has no sheet CrabbyTab silently uses sheets[0]; Tabbycat requires a sheet per voting adj (is_complete). validateBallotEntry never checks sheets == voting panel (votingAdjudicatorCount only used for self-split), so api/v1 ballotInput accepts partial/foreign panels. Check: aggregation.check.test.ts 'chair has no sheet'."
+  },
+  {
+    "item": "[results] Speaker scores = mean/median over relevant adjudicators",
+    "tabbycat": "results/result.py:68,1236",
+    "status": "HAVE",
+    "crabbytab": "ballotRules.ts aggregateScoreValues; result.ts aggregateVotingSheets",
+    "note": "median_or_rounded_up_mean reproduced (odd median, even ceil(mean)); verified incl. [75,75.5]->76."
+  },
+  {
+    "item": "[results] Criteria aggregated per criterion then weighted (voting)",
+    "tabbycat": "results/result.py:1236-1260",
+    "status": "HAVE",
+    "crabbytab": "result.ts aggregateVotingSheets criteria branch",
+    "note": "Code-read."
+  },
+  {
+    "item": "[results] Team score = mean of relevant adjudicators' totals; margin from those",
+    "tabbycat": "results/result.py:1221,844",
+    "status": "HAVE",
+    "crabbytab": "result.ts aggregateVotingSheets",
+    "note": "Check 2-1 split: AFF 220.5/NEG 217.5, margin 3, votes 2-1."
+  },
+  {
+    "item": "[results] margin_includes_dissenters",
+    "tabbycat": "options/preferences.py:89; results/result.py:593",
+    "status": "HAVE",
+    "crabbytab": "result.ts aggregateVotingSheets relevantIndexes; config/ConfigForm.tsx",
+    "note": "Winner margin can be negative exactly as Tabbycat (check: -3)."
+  },
+  {
+    "item": "[results] score_aggregation_function",
+    "tabbycat": "options/preferences.py:98",
+    "status": "HAVE",
+    "crabbytab": "ballotRules.ts scoreAggregationFor; ResultsRulesSettings.tsx (in ConfigForm)",
+    "note": ""
+  },
+  {
+    "item": "[results] teamscore_includes_ghosts / ghost (iron-person) speeches",
+    "tabbycat": "results/result.py:1120,1216; options/preferences.py:123",
+    "status": "PARTIAL",
+    "crabbytab": "result.ts markGhostSpeeches, teamSpeakerTotal; standings/calculator.ts",
+    "note": "Totals correct at entry (check 149 vs 222). Changing the pref after ballots only soft-warns (stateGuards checkSettingsChange) and stored teamScores are never recomputed: standings stay stale (stale.check.test.ts)."
+  },
+  {
+    "item": "[results] Declared winner vs scores (winners_in_ballots none/high/tied/low)",
+    "tabbycat": "results/scoresheet.py:163-198; options/preferences.py:626",
+    "status": "HAVE",
+    "crabbytab": "result.ts sheetOutcome, validateDeclaredWinner, effectiveRanks; ballotRules.ts winnerDeclarationFor",
+    "note": "BP extension: tied-points/low-points relax BP tie/low-point checks (validateBpRanks); Tabbycat PolyScoresheet always forbids tied BP totals."
+  },
+  {
+    "item": "[results] Ties forbidden",
+    "tabbycat": "results/scoresheet.py:149,212",
+    "status": "HAVE",
+    "crabbytab": "result.ts validateDeclaredWinner, validateBpRanks",
+    "note": "Except BP tied/low extension."
+  },
+  {
+    "item": "[results] maximum_margin",
+    "tabbycat": "options/preferences.py:52",
+    "status": "HAVE",
+    "crabbytab": "result.ts validateMargin per sheet",
+    "note": ""
+  },
+  {
+    "item": "[results] Self-split ballots",
+    "tabbycat": "results/result.py:626-640; forms.py:281",
+    "status": "HAVE",
+    "crabbytab": "result.ts selfSplitAllowed, aggregateVotingSheets, ballotVotesPossible",
+    "note": "Check passes (2/1 of 3)."
+  },
+  {
+    "item": "[results] TeamScore fields points/win/margin/score/votes_given/votes_possible/has_ghost/forfeit",
+    "tabbycat": "results/models.py:322; result.py:177",
+    "status": "PARTIAL",
+    "crabbytab": "types/index.ts TeamScoreEntry",
+    "note": "votes_possible/has_ghost derived. Forfeit margin stored 0 not None (standings exclude forfeits, no visible effect). BP win stored true for 1st/2nd; Tabbycat stores False in BP (standings override)."
+  },
+  {
+    "item": "[results] Forfeits (enable_forfeits)",
+    "tabbycat": "options/preferences.py:716",
+    "status": "HAVE",
+    "crabbytab": "result.ts forfeitTeamScores, collectBallotErrors",
+    "note": "Two-team only."
+  },
+  {
+    "item": "[results] BP elimination advancing",
+    "tabbycat": "results/result.py:954",
+    "status": "PARTIAL",
+    "crabbytab": "lib/draw/elimination.ts getAdvancingTeamIds",
+    "note": "Logic matches; results-only BP elim asks full 1-4 ranks instead of choosing advancing teams."
+  },
+  {
+    "item": "[results] speaker_ranks",
+    "tabbycat": "options/preferences.py:693",
+    "status": "HAVE",
+    "crabbytab": "result.ts validateSpeechRanks",
+    "note": ""
+  },
+  {
+    "item": "[results] require_substantive_for_reply / reply score min/max/step",
+    "tabbycat": "options/preferences.py:62-80,684",
+    "status": "HAVE",
+    "crabbytab": "result.ts validateSheetScores; scoring/validator.ts; ballotRules.replyScoreStep",
+    "note": "Default reply step = half score step when unset (Tabbycat default 0.5 independent)."
+  },
+  {
+    "item": "[results] score_min/max/step",
+    "tabbycat": "options/preferences.py:25-48",
+    "status": "HAVE",
+    "crabbytab": "scoring/validator.ts; re-validated server-side in privateBallot.ts",
+    "note": ""
+  },
+  {
+    "item": "[results] ballots_per_debate_prelim/elim",
+    "tabbycat": "options/preferences.py:600,613",
+    "status": "HAVE",
+    "crabbytab": "result.ts ballotModeFor; stateGuards lock after ballots",
+    "note": ""
+  },
+  {
+    "item": "[results] individual_ballots + merge",
+    "tabbycat": "results/views.py:654-700; result.py:487,979",
+    "status": "PARTIAL",
+    "crabbytab": "lib/ballots/individualBallots.ts; lib/privateIndividualBallots.ts",
+    "note": "Any disagreement blocks the merge (Tabbycat clears only conflicting fields). Auto merge+confirm by default (privateBallotConfirmation absent=chair); Tabbycat auto-merges only with disable_ballot_confirms (default False)."
+  },
+  {
+    "item": "[results] Private-URL ballot in voting round without individual ballots",
+    "tabbycat": "results/views.py:313,588",
+    "status": "PARTIAL",
+    "crabbytab": "lib/privateBallot.ts privateBallotRules/buildPrivateBallot; privateIndividualBallots.applyPrivateBallotConfirmation",
+    "note": "BUG: Tabbycat gives the chair the per-adjudicator form (every panel sheet). CrabbyTab stores the chair's own sheet as a consensus-shaped ballot, auto-confirmed by default, with no sheets/votes, as the voting round's result (aggregation.check.test.ts)."
+  },
+  {
+    "item": "[results] disable_ballot_confirms",
+    "tabbycat": "options/preferences.py:997",
+    "status": "PARTIAL",
+    "crabbytab": "ballotDoubleEntry (inverse) + privateBallotConfirmation",
+    "note": "Default inverted for private ballots: chair ballot auto-confirmed unless tab_room; Tabbycat never auto-confirms by default."
+  },
+  {
+    "item": "[results] enable_blind_checks",
+    "tabbycat": "options/preferences.py:1006",
+    "status": "HAVE",
+    "crabbytab": "ballotCheckMode blind; ballotEntry.resolveCheckState",
+    "note": ""
+  },
+  {
+    "item": "[results] Ballot confirmation by different user",
+    "tabbycat": "results/templates/BallotEntryFooter.vue (client-only)",
+    "status": "HAVE",
+    "crabbytab": "stateGuards.checkIndependentConfirmation (soft, client)",
+    "note": "Neither enforces server-side."
+  },
+  {
+    "item": "[results] Confirmer recorded",
+    "tabbycat": "results/views.py:348",
+    "status": "PARTIAL",
+    "crabbytab": "features/tournament/application/ballots.ts confirmCheckedBallot",
+    "note": "BUG: confirming an existing ballot sets confirmedTimestamp but never confirmedBy; privateSync.isTabRoomConfirmed then treats a tab-room-confirmed judge ballot as unprotected and a later chair private submission discards it (tabroomConfirm.check.test.ts)."
+  },
+  {
+    "item": "[results] Confirm unconfirms previous only",
+    "tabbycat": "results/forms.py:198",
+    "status": "PARTIAL",
+    "crabbytab": "ballots.ts confirmCheckedBallot",
+    "note": "CrabbyTab discards every other ballot of the debate (drafts too)."
+  },
+  {
+    "item": "[results] result_status none/draft/confirmed, discard",
+    "tabbycat": "results/forms.py:186-220",
+    "status": "HAVE",
+    "crabbytab": "ballots.ts submit/discard commands",
+    "note": "No enable_postponements toggle (debate.postponed exists)."
+  },
+  {
+    "item": "[results] ballots_confirm_digits",
+    "tabbycat": "options/preferences.py:1059",
+    "status": "HAVE",
+    "crabbytab": "print/ballots/page.tsx; PrintOptionsCard.tsx",
+    "note": ""
+  },
+  {
+    "item": "[results] ballot_introduction",
+    "tabbycat": "options/preferences.py:112",
+    "status": "HAVE",
+    "crabbytab": "ballotIntroExplanation read on results page, private adjudicator page, print",
+    "note": ""
+  },
+  {
+    "item": "[results] participant_ballots",
+    "tabbycat": "options/preferences.py:949",
+    "status": "HAVE",
+    "crabbytab": "privateBallot.privateUrlBallotsEnabled enforced in api/private/sync/route.ts",
+    "note": ""
+  },
+  {
+    "item": "[results] ballots_released / private_ballots_released",
+    "tabbycat": "options/preferences.py:917,935",
+    "status": "HAVE",
+    "crabbytab": "lib/publicFeatures.ts",
+    "note": "Not traced deeply."
+  },
+  {
+    "item": "[results] generateresults",
+    "tabbycat": "results/dbutils.py:46",
+    "status": "PARTIAL",
+    "crabbytab": "features/tournament/application/rehearsal.ts planSimulatedBallots",
+    "note": "BUG: 0 ballots (all skipped) with declared winners on voting ballots, speech ranks, or score criteria; 5/8 skipped with stepReplyScore=1 (uses stepSpeakerScore/2). Tabbycat retries random winners and uses reply_score_step."
+  },
+  {
+    "item": "[results] compareballots",
+    "tabbycat": "results/management/commands/compareballots.py",
+    "status": "PARTIAL",
+    "crabbytab": "result.ts diffBallots (double entry only)",
+    "note": "No cross-tournament compare; dev tool."
+  },
+  {
+    "item": "[results] fixballotstatuses",
+    "tabbycat": "results/management/commands/fixballotstatuses.py",
+    "status": "NA",
+    "crabbytab": "ballots.ts keeps resultStatus in step",
+    "note": "Repair tool."
+  },
+  {
+    "item": "[results] removeblankballots",
+    "tabbycat": "results/management/commands/removeblankballots.py",
+    "status": "NA",
+    "crabbytab": "validation rejects blank ballots",
+    "note": ""
+  },
+  {
+    "item": "[results] resaveballots",
+    "tabbycat": "results/management/commands/resaveballots.py",
+    "status": "MISSING",
+    "crabbytab": "grep recompute|resave|rebuildBallot: none",
+    "note": "See stale.check.test.ts."
+  },
+  {
+    "item": "[results] Notification events",
+    "tabbycat": "notifications/models.py:47",
+    "status": "PARTIAL",
+    "crabbytab": "lib/email/settings.ts TEMPLATE_EVENTS",
+    "note": "No user-invite / custom institution template events; others present plus ballot_receipt and registration emails."
+  },
+  {
+    "item": "[results] Template variables",
+    "tabbycat": "notifications/utils.py:78-403",
+    "status": "PARTIAL",
+    "crabbytab": "lib/email/messaging.ts renderEmailTemplate",
+    "note": "Missing POSITION, per-adj URL in draw email, LONG team name, KEY."
+  },
+  {
+    "item": "[results] Ballot-confirmed email",
+    "tabbycat": "notifications/utils.py:133-200",
+    "status": "PARTIAL",
+    "crabbytab": "notifications.ts buildBallotConfirmedRecipients",
+    "note": "Aggregated result + own sheet to all incl. trainees; Tabbycat per-adj sends voting adjs their own sheet only. Plain text."
+  },
+  {
+    "item": "[results] Team points email",
+    "tabbycat": "notifications/utils.py:204",
+    "status": "BETTER",
+    "crabbytab": "notifications.ts buildTeamPointsRecipients",
+    "note": "Only released non-silent rounds counted."
+  },
+  {
+    "item": "[results] Triggers",
+    "tabbycat": "results/views.py:350; draw/views.py:382; motions/views.py:255",
+    "status": "HAVE",
+    "crabbytab": "api/tournaments/[id]/notifications/route.ts + notificationService.ts",
+    "note": "Opt-in automatic with baseline + transactional chunk claims; manual compose page."
+  },
+  {
+    "item": "[results] reply_to_name/address",
+    "tabbycat": "options/preferences.py:1409-1419",
+    "status": "HAVE",
+    "crabbytab": "settings.ts replyToHeader",
+    "note": ""
+  },
+  {
+    "item": "[results] SentMessage/EmailStatus + webhook",
+    "tabbycat": "notifications/models.py:8,92",
+    "status": "HAVE",
+    "crabbytab": "lib/email/history.ts, deliveryStatus.ts, api/email/webhook/route.ts",
+    "note": "Global EMAIL_WEBHOOK_SECRET and own JSON format, not per-tournament email_hook_key/SendGrid."
+  },
+  {
+    "item": "[results] Provider",
+    "tabbycat": "notifications/email_tracking.py",
+    "status": "HAVE",
+    "crabbytab": "lib/email/provider.ts SMTP/nodemailer",
+    "note": "Text only, no HTML part."
+  },
+  {
+    "item": "[results] SMS",
+    "tabbycat": "notifications/models.py:11",
+    "status": "NA",
+    "crabbytab": "lib/sms/provider.ts",
+    "note": "Tabbycat sends no SMS; CrabbyTab SMS provider imported only by a test (unreachable)."
+  },
+  {
+    "item": "[results] enable_ballot_receipts",
+    "tabbycat": "options/preferences.py:1442",
+    "status": "HAVE",
+    "crabbytab": "notifyBallotConfirmed + notifyBallotReceipt",
+    "note": ""
+  },
+  {
+    "item": "[diff-harness] tools/tabbycat-diff run",
+    "tabbycat": "n/a",
+    "status": "HAVE",
+    "crabbytab": "npx vitest run tools/tabbycat-diff: 1 file, 5/5 tests passed (log scratch-tmp/audit2/checks-models-algorithms/diff-run.log). 21 discrepancies, all classified (5 rule difference, 16 valid alternative, 0 defect).",
+    "note": "Passing only means report.json matches known-differences; see the following rows for classification problems."
+  },
+  {
+    "item": "[diff-harness] Auto-classification 'valid alternative' when seed ranges merely overlap",
+    "tabbycat": "n/a",
+    "status": "PARTIAL",
+    "crabbytab": "tools/tabbycat-diff/harness/compare.ts:351-357 overlaps(), :422-423",
+    "note": "Any overlap of the min..max ranges across 8 seeds auto-labels a difference 'valid alternative'. twoteam-odd-ties r5 repeatPairings: Tabbycat 0 in all seeds, CrabbyTab 0..3 (primary 1) with avoid_team_history on; r3 institutionClashes: Tabbycat 0 always, CrabbyTab 0..2 (primary 2) with avoid_same_institution on. These are systematically worse-or-equal, not seed noise, and carry no human note. Should be judged by distribution (e.g. mean/max), not overlap."
+  },
+  {
+    "item": "[diff-harness] known-differences: */allocation/r*/historyRepeats = 'valid alternative'",
+    "tabbycat": "adjallocation/allocators/hungarian.py (history penalty)",
+    "status": "PARTIAL",
+    "crabbytab": "tools/tabbycat-diff/known-differences.json; harness/crabbytab.ts:530-550 computeAutoAllocation without adjudicatorPanelStrategy",
+    "note": "CrabbyTab is worse in both voting fixtures (2 vs 1, 1 vs 0). The alloc slice found CrabbyTab weights adj-team history 0.4x per occurrence vs Tabbycat's full weight, which explains it: this is a rule difference/defect, not a valid alternative. Also the harness never sets adjudicatorPanelStrategy, so it compares Tabbycat's Hungarian allocators with CrabbyTab's default 'crabbytab_v1' (allocation.ts:162); the 'tabbycat_voting'/'tabbycat_consensus' strategies are not differential-tested at all."
+  },
+  {
+    "item": "[diff-harness] known-differences: twoteam-odd-ties/draw/r5/sideCapViolations = 'rule difference'",
+    "tabbycat": "draw/generator/graph.py:37-47",
+    "status": "HAVE",
+    "crabbytab": "tools/tabbycat-diff/known-differences.json",
+    "note": "Classification correct (Tabbycat only checks the cap in graph avoidance when side_allocations=balance and side_penalty>0, with the t1_negs-twice bug at graph.py:42). But the note omits the downside the draw slice found: CrabbyTab's hard cap (default 5 even when unset; 0 = every draw fails) can make draws infeasible where Tabbycat draws."
+  },
+  {
+    "item": "[diff-harness] known-differences: break BC1 breaking/reserves = 'rule difference'",
+    "tabbycat": "breakqual/base.py:205-268",
+    "status": "HAVE",
+    "crabbytab": "tools/tabbycat-diff/known-differences.json",
+    "note": "Independently confirmed by the standings slice with a Python simulation of add_reserve_teams + populate_database: Tabbycat breaks one tied team (random order) and overwrites the rest as reserves. Classification is accurate. (The comment at src/lib/breakqual/calculator.ts:44-49 claiming Tabbycat 'lets every such team through' is wrong.)"
+  },
+  {
+    "item": "[diff-harness] known-differences: r1 byes 'rule difference' and r2-5 byes / bye-driven clashes 'valid alternative'",
+    "tabbycat": "draw/manager.py:299-307, 331-344",
+    "status": "HAVE",
+    "crabbytab": "tools/tabbycat-diff/known-differences.json",
+    "note": "Consistent with Tabbycat's manager (lowest = last of ranked/database order). OK."
+  },
+  {
+    "item": "[diff-harness] known-differences: sideImbalance / bracketSignature 'valid alternative'",
+    "tabbycat": "n/a",
+    "status": "HAVE",
+    "crabbytab": "tools/tabbycat-diff/report/REPORT.md",
+    "note": "Ranges genuinely overlap both ways (r2 CrabbyTab 2..6 vs 4; r5 CrabbyTab 0 vs Tabbycat 1); BP positionCost agrees. Reasonable."
+  },
+  {
+    "item": "[diff-harness] Standings comparison treats Tabbycat null as equal to CrabbyTab 0",
+    "tabbycat": "standings/base.py (null metric ranking)",
+    "status": "PARTIAL",
+    "crabbytab": "tools/tabbycat-diff/harness/compare.ts:71-72",
+    "note": "Comment says both engines rank such rows last; the standings slice showed CrabbyTab gives 0 on ascending metrics (speaks_stddev, srank) which ranks BEST. The equivalence can hide that defect; fixtures never exercise it."
+  },
+  {
+    "item": "[diff-harness] Coverage of the differential fixtures",
+    "tabbycat": "n/a",
+    "status": "PARTIAL",
+    "crabbytab": "tools/tabbycat-diff/fixtures/generate.ts, golden/*.json",
+    "note": "Not exercised: bye_team_results=points (BP bye points diverge), intermediate/intermediate_bubble odd brackets, elimination draws (two-team and BP), AIDA break rules and equal-priority categories (both buggy per standings slice), liveness, consensus/median/self-split aggregation, tabbycat_voting/tabbycat_consensus allocator strategies, preformed panels, venue allocation. The '2800/2800 agreed' headline covers only the configured rule subset."
+  }
+]

@@ -11,59 +11,90 @@ import {
   Check,
   Search,
   RefreshCw,
-  Users2,
   FileCheck2,
   MessageSquareHeart,
-  ShieldAlert,
-  AlertTriangle,
-  Download,
   Share2,
+  Printer,
 } from "lucide-react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { QrCode } from "@/components/ui/QrCode";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton, iconButtonClasses } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Checkbox, Input } from "@/components/ui/Field";
+import { Alert } from "@/components/ui/Feedback";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { TabPanel, Tabs } from "@/components/ui/Tabs";
+import { SpeakerPrivateUrlsPanel } from "@/features/tournament/components/SpeakerPrivateUrlsPanel";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
 import {
+  buildPrivateUrlSlips,
   generatePrivateKey,
   getAbsolutePrivateUrl,
   getAdjudicatorPrivatePath,
   getTeamPrivatePath,
 } from "@/lib/privateUrls";
 
+type ParticipantTab = "adjudicators" | "teams";
+const TABS_ID = "private-urls";
+
 export default function PrivateUrlsManagementPage() {
   const params = useParams();
   const tournamentSlug = params.tournamentSlug as string;
+  const { t, rich } = useI18n();
 
   const {
     tournament,
     loading,
     teams,
     adjudicators,
-    institutions,
     generatePrivateUrlKeys,
     updateAdjudicator,
     updateTeam,
+    saveEntityBatch,
   } = useTournament();
 
-  const [activeTab, setActiveTab] = useState<"adjudicators" | "teams">("adjudicators");
+  const [activeTab, setActiveTab] = useState<ParticipantTab>("adjudicators");
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  // Announced through a role="status" region whenever something is copied.
+  const [copyAnnouncement, setCopyAnnouncement] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showRegenConfirm, setShowRegenConfirm] = useState(false);
   const [copiedAllNotice, setCopiedAllNotice] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [includePasscodeOnSlips, setIncludePasscodeOnSlips] = useState(true);
+  // Slips (and their QR codes) are only rendered while printing, to keep the page light.
+  const [printingSlips, setPrintingSlips] = useState(false);
+
+  React.useEffect(() => {
+    if (!printingSlips) return;
+    const finish = () => setPrintingSlips(false);
+    window.addEventListener("afterprint", finish);
+    window.print();
+    return () => window.removeEventListener("afterprint", finish);
+  }, [printingSlips]);
 
   // Auto-generate keys on first visit if any are missing
   React.useEffect(() => {
     if (loading) return;
     const missingAdjCredentials = adjudicators.some((a) => !a.privateUrlKey || !a.privatePasscode);
-    const missingTeamKeys = teams.some((t) => !t.privateUrlKey || !t.privatePasscode);
+    const missingTeamKeys = teams.some((team) => !team.privateUrlKey || !team.privatePasscode);
     if (missingAdjCredentials || missingTeamKeys) {
       generatePrivateUrlKeys(false);
     }
   }, [loading, adjudicators, teams, generatePrivateUrlKeys]);
 
-  const handleCopy = (text: string, keyId: string) => {
+  const handleCopy = (text: string, keyId: string, announcement: string) => {
     if (navigator?.clipboard) {
       navigator.clipboard.writeText(text);
       setCopiedKey(keyId);
-      setTimeout(() => setCopiedKey(null), 2500);
+      setCopyAnnouncement(announcement);
+      setTimeout(() => {
+        setCopiedKey(null);
+        setCopyAnnouncement("");
+      }, 2500);
     }
   };
 
@@ -84,7 +115,7 @@ export default function PrivateUrlsManagementPage() {
     try {
       await updateAdjudicator({ ...adjudicator, privatePasscode: generatePrivateKey() });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not generate the passcode.");
+      setActionError(error instanceof Error ? error.message : t("setup.email.privateUrls.passcodeFailed"));
     }
   };
 
@@ -95,7 +126,7 @@ export default function PrivateUrlsManagementPage() {
     try {
       await updateTeam({ ...team, privatePasscode: generatePrivateKey() });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not generate the passcode.");
+      setActionError(error instanceof Error ? error.message : t("setup.email.privateUrls.passcodeFailed"));
     }
   };
 
@@ -113,17 +144,18 @@ export default function PrivateUrlsManagementPage() {
 
   // Filter teams
   const filteredTeams = useMemo(() => {
-    return teams.filter((t) => {
+    return teams.filter((team) => {
       const q = searchQuery.toLowerCase();
-      const matchSpk = t.speakers?.some((s) => s.name.toLowerCase().includes(q));
+      const matchSpk = team.speakers?.some((s) => s.name.toLowerCase().includes(q));
       return (
-        t.name.toLowerCase().includes(q) ||
-        (t.institutionName && t.institutionName.toLowerCase().includes(q)) ||
+        team.name.toLowerCase().includes(q) ||
+        (team.institutionName && team.institutionName.toLowerCase().includes(q)) ||
         Boolean(matchSpk)
       );
     });
   }, [teams, searchQuery]);
 
+  // The copied table is a spreadsheet export: its headers and values stay in English.
   const handleCopyAll = () => {
     const lines: string[] = [];
     if (activeTab === "adjudicators") {
@@ -136,431 +168,353 @@ export default function PrivateUrlsManagementPage() {
       });
     } else {
       lines.push("Team Name\tInstitution\tSpeakers\tPrivate URL\tPersonal Passcode");
-      filteredTeams.forEach((t) => {
-        const key = t.privateUrlKey;
+      filteredTeams.forEach((team) => {
+        const key = team.privateUrlKey;
         if (!key) return;
         const url = getAbsolutePrivateUrl(tournamentSlug, "team", key);
-        const spks = (t.speakers || []).map((s) => s.name).join(", ");
-        lines.push(`${t.name}\t${t.institutionName || "Unaffiliated"}\t${spks}\t${url}\t${t.privatePasscode || ""}`);
+        const spks = (team.speakers || []).map((s) => s.name).join(", ");
+        lines.push(`${team.name}\t${team.institutionName || "Unaffiliated"}\t${spks}\t${url}\t${team.privatePasscode || ""}`);
       });
     }
 
     if (navigator?.clipboard) {
       navigator.clipboard.writeText(lines.join("\n"));
       setCopiedAllNotice(true);
-      setTimeout(() => setCopiedAllNotice(false), 3000);
+      setCopyAnnouncement(t("setup.email.privateUrls.copiedList"));
+      setTimeout(() => {
+        setCopiedAllNotice(false);
+        setCopyAnnouncement("");
+      }, 3000);
     }
   };
 
-  return (
-    <div className="space-y-6 max-w-5xl pb-16">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Key className="w-6 h-6 text-blue-600" />
-            <span>Participant Private URLs</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Tabbycat-style individual private URLs for adjudicators (ballots & feedback) and teams (feedback only).
-          </p>
-        </div>
+  // Slips follow the current tab and search, like "Copy current list".
+  const slipParticipants = activeTab === "adjudicators"
+    ? filteredAdjudicators.map((adjudicator) => ({
+        ...adjudicator,
+        detail: adjudicator.institutionName || t("setup.email.privateUrls.independent"),
+      }))
+    : filteredTeams.map((team) => ({
+        ...team,
+        detail: [team.institutionName, (team.speakers || []).map((speaker) => speaker.name).join(", ")]
+          .filter(Boolean)
+          .join(" · "),
+      }));
+  const slips = buildPrivateUrlSlips(
+    slipParticipants,
+    activeTab === "adjudicators" ? "adjudicator" : "team",
+    {
+      origin: typeof window === "undefined" ? "" : window.location.origin,
+      tournamentSlug,
+      includePasscode: includePasscodeOnSlips,
+    }
+  );
 
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={handleCopyAll}
-            className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition shadow-2xs"
-          >
-            {copiedAllNotice ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-emerald-700">Copied Table to Clipboard!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5 text-gray-500" />
-                <span>Copy Current List</span>
-              </>
-            )}
-          </button>
+  const privateLinkCell = (path: string) => (
+    <span className="block max-w-xs truncate rounded border border-border bg-muted px-2 py-1 font-mono text-[11px] text-fg">
+      {path || t("setup.email.privateUrls.generatingLink")}
+    </span>
+  );
 
-          <button
-            type="button"
-            onClick={() => handleGenerate(false)}
-            disabled={isGenerating}
-            className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50 shadow-2xs"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />
-            <span>Ensure All Credentials Assigned</span>
-          </button>
-        </div>
+  const passcodeCell = (
+    id: string,
+    name: string,
+    passcode: string | undefined,
+    onGenerate: () => void
+  ) =>
+    passcode ? (
+      <div className="flex items-center gap-1.5">
+        <span className="rounded border border-border bg-muted px-2 py-1 font-mono text-[11px] text-fg">{passcode}</span>
+        <IconButton
+          size="sm"
+          variant="secondary"
+          label={t("setup.email.privateUrls.copyPasscodeFor", { name })}
+          icon={copiedKey === `${id}:passcode` ? <Check className="text-success" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          onClick={() => handleCopy(passcode, `${id}:passcode`, t("setup.email.privateUrls.copiedPasscodeFor", { name }))}
+        />
       </div>
+    ) : (
+      <Button size="sm" onClick={onGenerate}>
+        {t("setup.email.privateUrls.generatePasscode")}
+      </Button>
+    );
 
-      {/* Info Callout */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1.5">
-          <div className="flex items-center space-x-2 font-bold text-blue-900">
-            <FileCheck2 className="w-4 h-4 text-blue-600" />
-            <span>Adjudicator Private URLs</span>
-          </div>
-          <p className="text-blue-800 leading-relaxed text-[11px]">
-            Adjudicators receive a dedicated portal link to view assigned rooms and panel roles,{" "}
-            <strong>submit ballots</strong> for debates where they chair, and{" "}
-            <strong>submit confidential ratings on other adjudicators</strong>.
-          </p>
-        </div>
-
-        <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-1.5">
-          <div className="flex items-center space-x-2 font-bold text-emerald-950">
-            <MessageSquareHeart className="w-4 h-4 text-emerald-600" />
-            <span>Team Private URLs (Feedback Only)</span>
-          </div>
-          <p className="text-emerald-900 leading-relaxed text-[11px]">
-            Teams receive a private link and separate passcode to check their debate room, side, and assigned panel, and{" "}
-            <strong>submit feedback on the adjudicators who judged them</strong>. Ballots and scores cannot be modified by teams.
-          </p>
-        </div>
-      </div>
-
-      {/* Tab Navigation & Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("adjudicators")}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-              activeTab === "adjudicators"
-                ? "bg-blue-600 text-white shadow-2xs"
-                : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            Adjudicators ({adjudicators.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("teams")}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-              activeTab === "teams"
-                ? "bg-emerald-600 text-white shadow-2xs"
-                : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            Teams ({teams.length})
-          </button>
-        </div>
-
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder={`Search ${activeTab}...`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 bg-white border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-      </div>
-
-      {/* Main Table */}
-      {actionError && (
-        <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          {actionError}
-        </p>
+  const linkActions = (id: string, name: string, fullUrl: string, path: string, key: string | undefined) => (
+    <div className="flex items-center justify-end gap-1.5">
+      <IconButton
+        size="sm"
+        variant="secondary"
+        label={t("setup.email.privateUrls.copyLinkFor", { name })}
+        icon={copiedKey === id ? <Check className="text-success" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        onClick={() => handleCopy(fullUrl, id, t("setup.email.privateUrls.copiedLinkFor", { name }))}
+        disabled={!key}
+      />
+      {key && (
+        <Link
+          href={path}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t("setup.email.privateUrls.openPortalFor", { name })}
+          title={t("setup.email.privateUrls.openPortalFor", { name })}
+          className={iconButtonClasses({ size: "sm" })}
+        >
+          <ExternalLink aria-hidden="true" />
+        </Link>
       )}
-      <div className="bg-white border border-[#d0d7de] rounded-xl shadow-xs overflow-hidden">
+    </div>
+  );
+
+  return (
+    <div className="max-w-5xl space-y-6 pb-16">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            <Key className="h-5 w-5 text-fg-subtle" aria-hidden="true" />
+            {t("setup.email.privateUrls.title")}
+          </span>
+        }
+        description={t("setup.email.privateUrls.description")}
+        actions={
+          <>
+            <Button size="sm" onClick={handleCopyAll}>
+              {copiedAllNotice ? (
+                <Check className="text-success" aria-hidden="true" />
+              ) : (
+                <Share2 aria-hidden="true" />
+              )}
+              {copiedAllNotice ? t("setup.email.privateUrls.copiedList") : t("setup.email.privateUrls.copyList")}
+            </Button>
+            <Checkbox
+              label={t("setup.email.privateUrls.passcodesOnSlips")}
+              checked={includePasscodeOnSlips}
+              onChange={(event) => setIncludePasscodeOnSlips(event.target.checked)}
+            />
+            <Button
+              size="sm"
+              onClick={() => setPrintingSlips(true)}
+              disabled={slips.length === 0 || printingSlips}
+              title={t("setup.email.privateUrls.printSlipsHelp")}
+            >
+              <Printer aria-hidden="true" />
+              {t("setup.email.privateUrls.printSlips", { count: slips.length })}
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => handleGenerate(false)} loading={isGenerating}>
+              {!isGenerating && <RefreshCw aria-hidden="true" />}
+              {t("setup.email.privateUrls.ensureCredentials")}
+            </Button>
+          </>
+        }
+      />
+
+      <p role="status" className="sr-only">{copyAnnouncement}</p>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader
+            headingLevel="h2"
+            icon={<FileCheck2 aria-hidden="true" />}
+            title={t("setup.email.privateUrls.adjudicatorInfoTitle")}
+          />
+          <CardBody className="text-xs leading-relaxed text-fg-muted">
+            {rich("setup.email.privateUrls.adjudicatorInfo", { b: (text) => <strong className="text-fg">{text}</strong> })}
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader
+            headingLevel="h2"
+            icon={<MessageSquareHeart aria-hidden="true" />}
+            title={t("setup.email.privateUrls.teamInfoTitle")}
+          />
+          <CardBody className="text-xs leading-relaxed text-fg-muted">
+            {rich("setup.email.privateUrls.teamInfo", { b: (text) => <strong className="text-fg">{text}</strong> })}
+          </CardBody>
+        </Card>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <Tabs
+          id={TABS_ID}
+          ariaLabel={t("setup.email.privateUrls.tabsLabel")}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          items={[
+            { value: "adjudicators", label: t("setup.email.privateUrls.tabAdjudicators"), count: adjudicators.length },
+            { value: "teams", label: t("setup.email.privateUrls.tabTeams"), count: teams.length },
+          ]}
+        />
+        <Input
+          type="search"
+          aria-label={activeTab === "adjudicators" ? t("setup.email.privateUrls.searchAdjudicators") : t("setup.email.privateUrls.searchTeams")}
+          placeholder={activeTab === "adjudicators" ? t("setup.email.privateUrls.searchAdjudicators") : t("setup.email.privateUrls.searchTeams")}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          leadingIcon={<Search />}
+          className="w-full sm:w-64"
+        />
+      </div>
+
+      {actionError && <Alert tone="danger" role="alert">{actionError}</Alert>}
+
+      <TabPanel id={TABS_ID} value={activeTab}>
         {activeTab === "adjudicators" ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#f6f8fa] border-b border-[#d0d7de] text-gray-600 font-semibold">
-                <tr>
-                  <th className="py-2.5 px-4">Adjudicator</th>
-                  <th className="py-2.5 px-4">Institution</th>
-                  <th className="py-2.5 px-4">Role / Rating</th>
-                  <th className="py-2.5 px-4">Private URL Link</th>
-                  <th className="py-2.5 px-4">Personal Passcode</th>
-                  <th className="py-2.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{t("setup.email.privateUrls.colAdjudicator")}</TH>
+                  <TH>{t("setup.email.privateUrls.colInstitution")}</TH>
+                  <TH>{t("setup.email.privateUrls.colRole")}</TH>
+                  <TH>{t("setup.email.privateUrls.colPrivateUrl")}</TH>
+                  <TH>{t("setup.email.privateUrls.colPasscode")}</TH>
+                  <TH align="right">{t("setup.common.actions")}</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {filteredAdjudicators.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-500">
-                      No adjudicators found.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={6}>{t("setup.email.privateUrls.noAdjudicators")}</TableEmpty>
                 ) : (
                   filteredAdjudicators.map((adj) => {
                     const key = adj.privateUrlKey;
                     const fullUrl = key ? getAbsolutePrivateUrl(tournamentSlug, "adjudicator", key) : "";
                     const path = key ? getAdjudicatorPrivatePath(tournamentSlug, key) : "";
-                    const isCopied = copiedKey === adj.id;
 
                     return (
-                      <tr key={adj.id} className="hover:bg-gray-50/70 transition">
-                        <td className="py-3 px-4 font-bold text-gray-900">
+                      <TR key={adj.id}>
+                        <TD className="font-semibold">
                           {adj.name}
                           {adj.email && (
-                            <span className="block text-[10px] font-normal text-gray-500">
-                              {adj.email}
-                            </span>
+                            <span className="block text-[11px] font-normal text-fg-muted">{adj.email}</span>
                           )}
-                        </td>
-                        <td className="py-3 px-4 text-gray-600">
-                          {adj.institutionName || "Unaffiliated"}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center space-x-1.5">
+                        </TD>
+                        <TD className="text-fg-muted">
+                          {adj.institutionName || t("setup.email.privateUrls.unaffiliated")}
+                        </TD>
+                        <TD>
+                          <div className="flex items-center gap-1.5">
                             {adj.trainee ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
-                                Trainee
-                              </span>
+                              <Badge tone="warning">{t("setup.email.privateUrls.trainee")}</Badge>
                             ) : (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300">
-                                Voting Judge
-                              </span>
+                              <Badge tone="info">{t("setup.email.privateUrls.votingJudge")}</Badge>
                             )}
-                            <span className="text-[10px] font-mono text-gray-500">
-                              (Score: {adj.baseScore})
+                            <span className="whitespace-nowrap font-mono text-[11px] text-fg-muted">
+                              {t("setup.email.privateUrls.score", { score: adj.baseScore })}
                             </span>
                           </div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
-                          <div className="flex items-center space-x-1.5 max-w-xs truncate">
-                            <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path || "Generating private link…"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
-                          {adj.privatePasscode ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1">
-                                {adj.privatePasscode}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(adj.privatePasscode!, `${adj.id}:passcode`)}
-                                className="rounded border border-gray-300 bg-white px-2 py-1 font-sans text-[10px] hover:bg-gray-50"
-                              >
-                                {copiedKey === `${adj.id}:passcode` ? "Copied" : "Copy"}
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleGeneratePasscode(adj.id)}
-                              className="rounded border border-blue-200 bg-blue-50 px-2 py-1 font-sans text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
-                            >
-                              Generate passcode
-                            </button>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end space-x-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(fullUrl, adj.id)}
-                              disabled={!key}
-                              className="px-2.5 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded text-xs font-medium flex items-center space-x-1 transition"
-                              title="Copy full private link to clipboard"
-                            >
-                              {isCopied ? (
-                                <>
-                                  <Check className="w-3 h-3 text-emerald-600" />
-                                  <span className="text-emerald-700 font-semibold">Copied!</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3 text-gray-500" />
-                                  <span>Copy Link</span>
-                                </>
-                              )}
-                            </button>
-
-                            {key && (
-                              <Link
-                                href={path}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition"
-                                title="Open private portal as this adjudicator"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </Link>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                        </TD>
+                        <TD>{privateLinkCell(path)}</TD>
+                        <TD>
+                          {passcodeCell(adj.id, adj.name, adj.privatePasscode, () => handleGeneratePasscode(adj.id))}
+                        </TD>
+                        <TD align="right">{linkActions(adj.id, adj.name, fullUrl, path, key)}</TD>
+                      </TR>
                     );
                   })
                 )}
-              </tbody>
-            </table>
-          </div>
+              </TBody>
+            </Table>
+          </TableContainer>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#f6f8fa] border-b border-[#d0d7de] text-gray-600 font-semibold">
-                <tr>
-                  <th className="py-2.5 px-4">Team</th>
-                  <th className="py-2.5 px-4">Institution</th>
-                  <th className="py-2.5 px-4">Speakers</th>
-                  <th className="py-2.5 px-4">Private URL Link (Feedback Only)</th>
-                  <th className="py-2.5 px-4">Personal Passcode</th>
-                  <th className="py-2.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{t("setup.email.privateUrls.colTeam")}</TH>
+                  <TH>{t("setup.email.privateUrls.colInstitution")}</TH>
+                  <TH>{t("setup.email.privateUrls.colSpeakers")}</TH>
+                  <TH>{t("setup.email.privateUrls.colTeamPrivateUrl")}</TH>
+                  <TH>{t("setup.email.privateUrls.colPasscode")}</TH>
+                  <TH align="right">{t("setup.common.actions")}</TH>
+                </TR>
+              </THead>
+              <TBody>
                 {filteredTeams.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-500">
-                      No teams found.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={6}>{t("setup.email.privateUrls.noTeams")}</TableEmpty>
                 ) : (
-                  filteredTeams.map((t) => {
-                    const key = t.privateUrlKey;
+                  filteredTeams.map((team) => {
+                    const key = team.privateUrlKey;
                     const fullUrl = key ? getAbsolutePrivateUrl(tournamentSlug, "team", key) : "";
                     const path = key ? getTeamPrivatePath(tournamentSlug, key) : "";
-                    const isCopied = copiedKey === t.id;
 
                     return (
-                      <tr key={t.id} className="hover:bg-gray-50/70 transition">
-                        <td className="py-3 px-4 font-bold text-gray-900">{t.name}</td>
-                        <td className="py-3 px-4 text-gray-600">
-                          {t.institutionName || "Unaffiliated"}
-                        </td>
-                        <td className="py-3 px-4 text-gray-500">
-                          {(t.speakers || []).map((s) => s.name).join(", ") || "—"}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
-                          <div className="flex items-center space-x-1.5 max-w-xs truncate">
-                            <span className="truncate bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                              {path || "Generating private link…"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-gray-700">
-                          {t.privatePasscode ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1">
-                                {t.privatePasscode}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(t.privatePasscode!, `${t.id}:passcode`)}
-                                className="rounded border border-gray-300 bg-white px-2 py-1 font-sans text-[10px] hover:bg-gray-50"
-                              >
-                                {copiedKey === `${t.id}:passcode` ? "Copied" : "Copy"}
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateTeamPasscode(t.id)}
-                              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-sans text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
-                            >
-                              Generate passcode
-                            </button>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end space-x-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(fullUrl, t.id)}
-                              disabled={!key}
-                              className="px-2.5 py-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded text-xs font-medium flex items-center space-x-1 transition"
-                              title="Copy full private link to clipboard"
-                            >
-                              {isCopied ? (
-                                <>
-                                  <Check className="w-3 h-3 text-emerald-600" />
-                                  <span className="text-emerald-700 font-semibold">Copied!</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3 text-gray-500" />
-                                  <span>Copy Link</span>
-                                </>
-                              )}
-                            </button>
-
-                            {key && (
-                              <Link
-                                href={path}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition"
-                                title="Open private portal as this team"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </Link>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                      <TR key={team.id}>
+                        <TD className="font-semibold">{team.name}</TD>
+                        <TD className="text-fg-muted">
+                          {team.institutionName || t("setup.email.privateUrls.unaffiliated")}
+                        </TD>
+                        <TD className="text-fg-muted">
+                          {(team.speakers || []).map((s) => s.name).join(", ") || "—"}
+                        </TD>
+                        <TD>{privateLinkCell(path)}</TD>
+                        <TD>
+                          {passcodeCell(team.id, team.name, team.privatePasscode, () => handleGenerateTeamPasscode(team.id))}
+                        </TD>
+                        <TD align="right">{linkActions(team.id, team.name, fullUrl, path, key)}</TD>
+                      </TR>
                     );
                   })
                 )}
-              </tbody>
-            </table>
-          </div>
+              </TBody>
+            </Table>
+          </TableContainer>
         )}
-      </div>
+      </TabPanel>
 
-      {/* Security notice & Regenerate Modal */}
-      <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-between text-xs">
-        <div className="flex items-center space-x-2 text-gray-600">
-          <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>
-          Adjudicators and teams must use a separate personal passcode after opening the link. Share each link and passcode privately.
-          </span>
+      {activeTab === "teams" && (
+        <SpeakerPrivateUrlsPanel
+          tournamentSlug={tournamentSlug}
+          teams={teams}
+          onSave={(teamsUpdated) => saveEntityBatch({ teamsUpdated }, "Speaker private URLs")}
+        />
+      )}
+
+      <Alert tone="warning">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <span>{t("setup.email.privateUrls.securityNotice")}</span>
+          <Button variant="danger" size="sm" className="shrink-0" onClick={() => setShowRegenConfirm(true)}>
+            {t("setup.email.privateUrls.regenerateAll")}
+          </Button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setShowRegenConfirm(true)}
-          className="text-xs text-red-600 hover:text-red-700 font-semibold underline shrink-0 ml-4"
-        >
-          Regenerate All Private Keys
-        </button>
-      </div>
-      <p className="text-[11px] text-gray-500">
-        Upload the tournament from the tabroom after updating links or passcodes so the latest data is available on other devices.
-      </p>
+      </Alert>
+      <p className="text-xs text-fg-muted">{t("setup.email.privateUrls.uploadReminder")}</p>
 
       {showRegenConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
-          <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-xl border border-gray-200 space-y-3">
-            <h3 className="font-bold text-gray-900 text-sm flex items-center space-x-2 text-red-600">
-              <AlertTriangle className="w-4 h-4" />
-              <span>Regenerate All Keys?</span>
-            </h3>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              This will create new secret URLs for all adjudicators and teams. Any previously distributed
-              links will no longer work.
-            </p>
-            <div className="flex justify-end space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowRegenConfirm(false)}
-                className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md text-xs hover:bg-gray-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleGenerate(true)}
-                disabled={isGenerating}
-                className="px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-semibold hover:bg-red-700 transition"
-              >
-                {isGenerating ? "Regenerating..." : "Confirm & Regenerate"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.email.privateUrls.regenerateTitle")}
+          description={t("setup.email.privateUrls.regenerateDescription")}
+          confirmLabel={t("setup.email.privateUrls.regenerateConfirm")}
+          isBusy={isGenerating}
+          onConfirm={() => handleGenerate(true)}
+          onCancel={() => setShowRegenConfirm(false)}
+        />
+      )}
+      {printingSlips && (
+        <section className="print-only private-url-slips" aria-label={t("setup.email.privateUrls.slipsLabel")}>
+          {slips.map((slip) => (
+            <article key={slip.id} className="private-url-slip">
+              <QrCode value={slip.url} label={t("setup.email.privateUrls.slipQrLabel", { name: slip.name })} size={110} />
+              <div className="private-url-slip-text">
+                <strong>{slip.name}</strong>
+                {slip.detail && <span>{slip.detail}</span>}
+                <span>
+                  {t(
+                    slip.type === "adjudicator"
+                      ? "setup.email.privateUrls.slipAdjudicator"
+                      : "setup.email.privateUrls.slipTeam",
+                    { tournament: tournament?.name ?? "" }
+                  )}
+                </span>
+                <code>{slip.url}</code>
+                {slip.passcode && (
+                  <span>
+                    {rich("setup.email.privateUrls.slipPasscode", { code: (text) => <code>{text}</code> }, { passcode: slip.passcode })}
+                  </span>
+                )}
+                <em>{t("setup.email.privateUrls.slipKeepPrivate")}</em>
+              </div>
+            </article>
+          ))}
+        </section>
       )}
     </div>
   );

@@ -5,22 +5,27 @@ import {
   EmailAuthorizationError,
 } from "@/lib/email/authorize";
 import {
-  ADJUDICATOR_RECIPIENT_GROUPS,
   EmailCampaignInputError,
+  type EmailBreakCategory,
   EMAIL_RECIPIENT_GROUPS,
   EmailRecipientGroup,
+  findCredentialEmailConflict,
   MAX_CAMPAIGN_RECIPIENTS,
   prepareEmailMessages,
   resolveEmailRecipients,
+  institutionCoachRecipients,
   sendEmailCampaign,
-  usesAdjudicatorCredentials,
+  usesPrivateCredentials,
 } from "@/lib/email/messaging";
 import {
   createSmtpEmailProvider,
   EmailProviderConfigError,
 } from "@/lib/email/provider";
 import { getAdminFirestore } from "@/lib/firebaseAdmin";
+import { loadPortalVenues } from "@/lib/privateParticipantData";
 import { createEmailCampaign } from "@/lib/email/history";
+import { deliveryRef } from "@/lib/email/deliveryStatus";
+import { loadEmailSettings, replyToHeader } from "@/lib/email/settings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -57,13 +62,7 @@ export async function POST(request: NextRequest) {
   }
 
   const group = recipientGroup as EmailRecipientGroup;
-  const includesPrivateCredentials = usesAdjudicatorCredentials(subject, messageBody);
-  if (includesPrivateCredentials && !ADJUDICATOR_RECIPIENT_GROUPS.includes(group)) {
-    return NextResponse.json(
-      { error: "Private URLs and passcodes can only be sent to adjudicator recipient groups." },
-      { status: 400 }
-    );
-  }
+  const includesPrivateCredentials = usesPrivateCredentials(subject, messageBody);
   const requiresRound =
     group === "round_participants" ||
     group === "round_adjudicators" ||
@@ -98,6 +97,7 @@ export async function POST(request: NextRequest) {
 
     let round: Round | undefined;
     let debates: Debate[] = [];
+    let venues: Awaited<ReturnType<typeof loadPortalVenues>> = [];
     if (typeof roundId === "string" && roundId) {
       const roundSnapshot = await firestore
         .collection("tournaments")
@@ -116,25 +116,45 @@ export async function POST(request: NextRequest) {
         .where("roundId", "==", roundId)
         .get();
       debates = debateSnapshot.docs.map((document) => document.data() as Debate);
+      // Room links for {{venue_url}}, read only when the template uses them.
+      if (`${subject}${messageBody}`.includes("{{venue_url}}")) {
+        venues = await loadPortalVenues(firestore.collection("tournaments").doc(tournamentId), debates);
+      }
     }
 
+    // Break category names for {{break_categories}}, read only when the template uses them.
+    let breakCategories: EmailBreakCategory[] = [];
+    if (/\{\{\s*break_categories\s*\}\}/.test(`${subject}\n${messageBody}`)) {
+      const categorySnapshot = await firestore.collection("tournaments").doc(tournamentId).collection("breakCategories").get();
+      breakCategories = categorySnapshot.docs.map((document) => ({ ...document.data(), id: document.id }) as EmailBreakCategory);
+    }
+
+    // Institution coaches (Tabbycat Coach): read only for that group.
+    const coaches = group === "institution_coaches"
+      ? institutionCoachRecipients(
+          (await firestore.collection("tournaments").doc(tournamentId).collection("institutions").get()).docs
+            .map((document) => document.data())
+            .filter((institution) => typeof institution.deletedAt !== "string")
+            .map((institution) => ({
+              name: String(institution.name ?? ""),
+              coaches: Array.isArray(institution.coaches) ? institution.coaches : [],
+            }))
+        )
+      : [];
     const recipients = resolveEmailRecipients(group, teams, adjudicators, debates, round, {
-      includeAdjudicatorCredentials: includesPrivateCredentials,
+      coaches,
+      breakCategories,
+      includePrivateCredentials: includesPrivateCredentials,
       privateUrlOrigin: request.nextUrl.origin,
       tournamentSlug: tournament.slug,
       preserveDuplicateEmails: includesPrivateCredentials,
+      venues,
     });
-    if (includesPrivateCredentials) {
-      const recipientEmails = new Set<string>();
-      for (const recipient of recipients) {
-        const normalizedEmail = recipient.email.toLowerCase();
-        if (recipientEmails.has(normalizedEmail)) {
-          throw new EmailCampaignInputError(
-            "Each adjudicator must have a unique email address to receive a separate private URL and passcode."
-          );
-        }
-        recipientEmails.add(normalizedEmail);
-      }
+    const conflictingEmail = includesPrivateCredentials ? findCredentialEmailConflict(recipients) : null;
+    if (conflictingEmail) {
+      throw new EmailCampaignInputError(
+        `${conflictingEmail} belongs to more than one participant. Each participant needs their own email address to receive a private URL and passcode.`
+      );
     }
     prepareEmailMessages(recipients, tournament.name, round?.name, subject, messageBody);
     const provider = createSmtpEmailProvider();
@@ -150,13 +170,15 @@ export async function POST(request: NextRequest) {
       bodyTemplate: messageBody,
       recipients,
     });
+    const settings = await loadEmailSettings(firestore.collection("tournaments").doc(tournamentId));
     const result = await sendEmailCampaign(
       provider,
       recipients,
       tournament.name,
       round?.name,
       subject,
-      messageBody
+      messageBody,
+      { replyTo: replyToHeader(settings), ref: deliveryRef(tournamentId, campaign.id) }
     );
     await campaign.update(result);
     return NextResponse.json({

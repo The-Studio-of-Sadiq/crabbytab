@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getAllocationWeights,
+  AdjudicatorAllocationError,
   autoAllocateAdjudicators,
   calculateAdjudicatorFeedbackScores,
   calculateAdjDebateConflict,
@@ -200,6 +201,87 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(panelistIds).toEqual(expect.arrayContaining([lowerScoredAdj.id, lowestScoredAdj.id]));
   });
 
+  it("preserves Preset 1 slot ranking when older tournaments have no strategy setting", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`legacy-team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debates = [
+      { ...createDebate("legacy-high", teams.slice(0, 2)), bracket: 10 },
+      { ...createDebate("legacy-low", teams.slice(2)), bracket: 0 },
+    ];
+    const adjudicators = [
+      createAdj("legacy-high-1", "High 1", 8),
+      createAdj("legacy-high-2", "High 2", 8),
+      createAdj("legacy-low-1", "Low 1", 2),
+      createAdj("legacy-low-2", "Low 2", 2),
+    ];
+
+    const allocations = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+    const averageStrength = (debateId: string) => {
+      const allocation = allocations.find((item) => item.debateId === debateId)!;
+      const ids = [allocation.chairId, ...allocation.panellistIds].filter((id): id is string => Boolean(id));
+      return ids.reduce(
+        (total, id) => total + adjudicators.find((adjudicator) => adjudicator.id === id)!.baseScore,
+        0
+      ) / ids.length;
+    };
+
+    expect(averageStrength("legacy-high")).toBe(5);
+    expect(averageStrength("legacy-low")).toBe(5);
+  });
+
+  it("matches complete panel averages to debate priority in panel-average mode", () => {
+    const teams = Array.from({ length: 4 }, (_, index) => createTeam(`average-team-${index}`, `Team ${index}`));
+    const teamsMap = new Map(teams.map((team) => [team.id, team]));
+    const debates = [
+      { ...createDebate("average-high", teams.slice(0, 2)), bracket: 10 },
+      { ...createDebate("average-low", teams.slice(2)), bracket: 0 },
+    ];
+    const adjudicators = [
+      createAdj("average-high-1", "High 1", 8),
+      createAdj("average-high-2", "High 2", 8),
+      createAdj("average-low-1", "Low 1", 2),
+      createAdj("average-low-2", "Low 2", 2),
+    ];
+
+    const allocations = autoAllocateAdjudicators(
+      debates,
+      teamsMap,
+      adjudicators,
+      new Map(),
+      {
+        panelSize: 2,
+        balancePanels: true,
+        panelStrengthStrategy: "panel_average",
+        respectInstitutionConflicts: true,
+        respectPersonalConflicts: true,
+        respectHistoryConflicts: true,
+      }
+    );
+    const averageStrength = (debateId: string) => {
+      const allocation = allocations.find((item) => item.debateId === debateId)!;
+      const ids = [allocation.chairId, ...allocation.panellistIds].filter((id): id is string => Boolean(id));
+      return ids.reduce(
+        (total, id) => total + adjudicators.find((adjudicator) => adjudicator.id === id)!.baseScore,
+        0
+      ) / ids.length;
+    };
+
+    expect(averageStrength("average-high")).toBe(8);
+    expect(averageStrength("average-low")).toBe(2);
+  });
+
   it("uses all available score-10 adjudicators as chairs before assigning lower scores", () => {
     const debateTeams = Array.from({ length: 6 }, (_, index) => createTeam(`team-${index}`, `Team ${index}`));
     const debates = [
@@ -312,7 +394,7 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(result[0].conflicts).toEqual([]);
   });
 
-  it("prefers a lower-rated chair over an adjudicator with a repeat-team clash", () => {
+  it("treats a repeat-team clash as a soft penalty weighed against strength", () => {
     const team = createTeam("team", "Team");
     const debate = createDebate("debate", [team]);
     const conflicted = createAdj("conflicted", "Conflicted", 10);
@@ -326,8 +408,7 @@ describe("Adjudicator Allocator Preferences", () => {
       traineeIds: [],
       traineeNames: [],
     };
-
-    const result = autoAllocateAdjudicators(
+    const allocate = (preferences?: Partial<TournamentPreferences>) => autoAllocateAdjudicators(
       [debate],
       new Map([[team.id, team]]),
       [conflicted, eligible],
@@ -338,6 +419,7 @@ describe("Adjudicator Allocator Preferences", () => {
         respectInstitutionConflicts: true,
         respectPersonalConflicts: true,
         respectHistoryConflicts: true,
+        preferences,
       },
       {
         allPastDebates: [pastDebate],
@@ -349,8 +431,15 @@ describe("Adjudicator Allocator Preferences", () => {
       }
     );
 
-    expect(result[0].chairId).toBe(eligible.id);
-    expect(result[0].conflicts).toEqual([]);
+    // Default weights: a six-point strength gap outweighs one repeat, which is reported.
+    const soft = allocate();
+    expect(soft[0].chairId).toBe(conflicted.id);
+    expect(soft[0].conflicts).toEqual(["Conflicted: Previously judged Team"]);
+
+    // A history penalty above the strength cost makes the allocator avoid the repeat.
+    const strict = allocate({ adjHistoryPenalty: 1_000_000 });
+    expect(strict[0].chairId).toBe(eligible.id);
+    expect(strict[0].conflicts).toEqual([]);
   });
 
   it("does not promote an institutionally conflicted panel member over a clean adjudicator", () => {
@@ -716,7 +805,7 @@ describe("Adjudicator Allocator Preferences", () => {
     expect(weights.PRIORITY_STRENGTH_MISMATCH).toBe(2_000_000);
   });
 
-  it("respects minAdjScoreToVote by excluding judges below threshold from voting panel", () => {
+  it("seats judges below minAdjScoreToVote as trainees, never as voters (Tabbycat)", () => {
     const teams = [createTeam("t1", "T1"), createTeam("t2", "T2")];
     const teamsMap = new Map<string, Team>();
     teams.forEach((t) => teamsMap.set(t.id, t));
@@ -743,9 +832,10 @@ describe("Adjudicator Allocator Preferences", () => {
     );
 
     expect(result[0].chairId).toBe("adj-high");
-    // lowJudge has score 1.2 < 2.0, so cannot be voting chair or panellist
+    // lowJudge has score 1.2 < 2.0, so cannot be voting chair or panellist, but is still allocated
+    // as a trainee (Tabbycat seats non-voters as trainees instead of leaving them out).
     expect(result[0].panellistIds).not.toContain("adj-low");
-    expect(result[0].traineeIds).not.toContain("adj-low");
+    expect(result[0].traineeIds).toContain("adj-low");
   });
 
   it("assigns only adjudicators explicitly marked as trainees to trainee slots", () => {
@@ -781,8 +871,9 @@ describe("Adjudicator Allocator Preferences", () => {
     const debate = createDebate("d1", teams);
     const uncheckJudge = createAdj("adj-1", "Unchecked Judge", 6.0, false);
 
-    // When skipAdjCheckins is false (default), unchecked judge is skipped
-    const resSkipped = autoAllocateAdjudicators(
+    // When skipAdjCheckins is false (default), unchecked judge is skipped: nobody is available, so
+    // the allocation is refused (Tabbycat AdjudicatorAllocationError) instead of emptying panels.
+    expect(() => autoAllocateAdjudicators(
       [debate],
       teamsMap,
       [uncheckJudge],
@@ -797,8 +888,7 @@ describe("Adjudicator Allocator Preferences", () => {
           skipAdjCheckins: false,
         },
       }
-    );
-    expect(resSkipped[0].chairId).toBeUndefined();
+    )).toThrow(AdjudicatorAllocationError);
 
     // When skipAdjCheckins is true, unchecked judge is available and allocated
     const resAllowed = autoAllocateAdjudicators(
@@ -898,5 +988,16 @@ describe("Adjudicator Allocator Preferences", () => {
 
     expect(res[0].chairId).toBe("j1");
     expect(res[0].traineeIds).toHaveLength(0);
+  });
+});
+
+describe("team–institution conflicts", () => {
+  it("treats an adjudicator from an institution the team declared as an institutional clash", () => {
+    const judge = createAdj("j1", "Judge", 5, true, "i2");
+    const team = { ...createTeam("t1", "Team", "i1"), institutionConflictIds: ["i2"] };
+    const result = calculateAdjDebateConflict(judge, [team]);
+    expect(result.hasInstitutionalClash).toBe(true);
+    expect(result.reasons).toEqual(["Team declared a clash with Inst i2"]);
+    expect(calculateAdjDebateConflict(judge, [createTeam("t2", "Other", "i1")]).hasClash).toBe(false);
   });
 });

@@ -1,378 +1,478 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { useFormatScore } from "@/features/tournament/components/results/useFormatScore";
+import type { MessageKey } from "@/lib/i18n/messages";
+import type { SpeakerMetricId, TeamMetricId } from "@/types";
 import { exportStandingsToCsv } from "@/lib/csv/importer";
-import {
-  Trophy,
-  Award,
-  Download,
-  Printer,
-  Search,
-  Filter,
-  Medal,
-  Users,
-  Layers,
-} from "lucide-react";
+import { csvFileStem, speakerStandingsCsv } from "@/lib/csv/exporters";
+import { downloadCsv } from "@/lib/csv/download";
+import { ReleasePanel } from "@/features/tournament/components/ReleasePanel";
+import { TabroomTeamName } from "@/features/tournament/components/TabroomTeamName";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Input, Select } from "@/components/ui/Field";
+import { TabPanel, Tabs, type TabItem } from "@/components/ui/Tabs";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { Award, Download, Medal, Printer, Search, Users } from "lucide-react";
+import { resolveSpeakerExtra, resolveTeamExtra, resolveTeamPrecedence } from "@/lib/standings/precedence";
+import { breakCategoryStandings } from "@/lib/standings/categoryStandings";
+import { calculateStandingsAsOf } from "@/lib/standings/asOfRound";
+import { roundBreakLiveness } from "@/lib/breakqual/liveness";
+import { BreakLivenessBadges } from "@/features/tournament/components/BreakLivenessBadges";
+import { effectiveSpeakerCategories, speakerCategoryNames, speakerRowsInCategory, speakersInCategory } from "@/lib/speakerCategories";
+
+type StandingsTab = "teams" | "speakers" | "replies";
+
+const TABS_ID = "standings";
+/** Sticky headers need the table to scroll inside its own frame. */
+const TABLE_FRAME = "max-h-[calc(100vh-16rem)] min-h-[12rem]";
+
+/** Column labels for "extra" metrics; most reuse the public tab's metric names. */
+const TEAM_METRIC_KEYS: Record<TeamMetricId, MessageKey> = {
+  wins: "metric.team.wins",
+  points: "metric.team.points",
+  speaks_sum: "metric.team.speaks_sum",
+  speaks_avg: "metric.team.speaks_avg",
+  speaks_ind_avg: "metric.team.speaks_ind_avg",
+  speaks_stddev: "metric.team.speaks_stddev",
+  margin_sum: "metric.team.margin_sum",
+  margin_avg: "metric.team.margin_avg",
+  draw_strength_wins: "metric.team.draw_strength_wins",
+  draw_strength: "metric.team.draw_strength",
+  draw_strength_speaks: "metric.team.draw_strength_speaks",
+  draw_strength_rank: "metric.team.draw_strength_rank",
+  firsts: "metric.team.firsts",
+  seconds: "metric.team.seconds",
+  thirds: "metric.team.thirds",
+  pullups: "metric.team.pullups",
+  pullup_debates: "metric.team.pullup_debates",
+  wbw: "results.standings.metricWbw",
+  num_adjs: "metric.team.num_adjs",
+  num_iron: "metric.team.num_iron",
+};
+
+const SPEAKER_METRIC_KEYS: Record<SpeakerMetricId, MessageKey> = {
+  speaks_sum: "metric.speaker.speaks_sum",
+  speaks_avg: "metric.speaker.speaks_avg",
+  speaks_stddev: "metric.speaker.speaks_stddev",
+  speaks_trimmed_mean: "metric.speaker.speaks_trimmed_mean",
+  speeches_count: "metric.speaker.speeches_count",
+  reply_sum: "metric.speaker.reply_sum",
+  reply_avg: "metric.speaker.reply_avg",
+  srank: "results.standings.metricSrank",
+  reply_stddev: "metric.speaker.reply_stddev",
+  reply_count: "metric.speaker.reply_count",
+  team_points: "metric.speaker.team_points",
+  team_wins: "metric.speaker.team_wins",
+  firsts: "metric.speaker.firsts",
+  seconds: "metric.speaker.seconds",
+  thirds: "metric.speaker.thirds",
+  num_adjs: "metric.speaker.num_adjs",
+};
+
+/** BP placing badge: the number is the content; tone only aids scanning. */
+const bpPointTone = (points: number) =>
+  points === 3 ? "success" : points === 2 ? "info" : points === 1 ? "warning" : "neutral";
 
 export default function StandingsPage() {
   const {
     tournament,
-    teamStandings,
-    speakerStandings,
-    replyStandings,
+    teamStandings: allTeamStandings,
+    speakerStandings: allSpeakerStandings,
+    replyStandings: allReplyStandings,
     breakCategories,
+    teams,
+    rounds,
+    debates,
+    ballots,
   } = useTournament();
+  const { t, plural, formatNumber, formatDecimal, formatList } = useI18n();
+  const formatScore = useFormatScore();
+  const teamsById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+  // A team is found by the name the tab room shows and by its code name.
+  const teamMatches = (teamId: string, storedName: string, query: string) =>
+    storedName.toLowerCase().includes(query) || (teamsById.get(teamId)?.codeName ?? "").toLowerCase().includes(query);
+  /** Same digits as `formatMetricValue`: integers as they are, anything else to two decimals. */
+  const formatMetric = (value: number | null | undefined) =>
+    value === undefined || value === null || !Number.isFinite(value)
+      ? "—"
+      : Number.isInteger(value)
+        ? formatNumber(value, { useGrouping: false })
+        : formatDecimal(value, 2);
 
-  const [activeTab, setActiveTab] = useState<"teams" | "speakers" | "replies">("teams");
+  const [activeTab, setActiveTab] = useState<StandingsTab>("teams");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  /** Tabbycat's admin standings are per round: "" = after every round (the shared default). */
+  const [asOfRoundId, setAsOfRoundId] = useState("");
+  const asOfOptions = useMemo(
+    () => rounds.filter((round) => round.stage === "preliminary" && !round.cancelled).sort((a, b) => a.seq - b.seq),
+    [rounds]
+  );
+  const asOfRound = asOfOptions.find((round) => round.id === asOfRoundId);
+  // Only computed when an earlier round is chosen; the default reuses the shared standings.
+  const asOfStandings = useMemo(
+    () => (tournament && asOfRound ? calculateStandingsAsOf(tournament, rounds, teams, debates, ballots, asOfRound.id) : null),
+    [tournament, asOfRound, rounds, teams, debates, ballots]
+  );
+  const teamStandings = asOfStandings?.teams ?? allTeamStandings;
+  const speakerStandings = asOfStandings?.speakers ?? allSpeakerStandings;
+  const replyStandings = asOfStandings?.replies ?? allReplyStandings;
 
   const isBP = tournament?.format === "bp";
+  const poly = tournament?.format === "poly";
+  // "Extra" metrics: calculated and shown, but not used to rank (Tabbycat's *_extra_metrics).
+  const teamExtra = resolveTeamExtra(tournament?.preferences);
+  const speakerExtra = resolveSpeakerExtra(tournament?.preferences);
 
-  // Filter Team Standings
-  const filteredTeams = teamStandings.filter((t) => {
-    const matchesSearch =
-      t.teamName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.institutionCode || "").toLowerCase().includes(searchQuery.toLowerCase());
+  // Teams filter by break category; speakers by speaker category (ids, with older labels resolved).
+  // The two are different lists, so each tab offers its own options.
+  const speakerCategories = useMemo(
+    () => effectiveSpeakerCategories(tournament?.preferences.speakerCategories, teams),
+    [tournament?.preferences.speakerCategories, teams]
+  );
+  const categoryNames = (refs: string[]) => speakerCategoryNames(refs, speakerCategories);
+  const categoryOptions = activeTab === "teams"
+    ? breakCategories.map((category) => ({ value: category.id, label: category.name }))
+    : activeTab === "speakers"
+      ? speakerCategories
+          .filter((category) => speakersInCategory(teams, category.id, speakerCategories) > 0)
+          .map((category) => ({ value: category.id, label: category.name }))
+      : [];
+  const changeTab = (tab: StandingsTab) => {
+    setActiveTab(tab);
+    setSelectedCategory("all");
+  };
 
-    if (!matchesSearch) return false;
-    if (selectedCategory === "all") return true;
-    return t.breakCategories && t.breakCategories.includes(selectedCategory);
-  });
+  // A break category is ranked among its own teams (Tabbycat's standings by break category), then
+  // searched, so the ranks shown stay the category's ranks.
+  const selectedBreakCategory = activeTab === "teams" ? breakCategories.find((category) => category.id === selectedCategory) : undefined;
+  const teamsInView = useMemo(
+    () => selectedBreakCategory
+      ? breakCategoryStandings(
+          teamStandings,
+          selectedBreakCategory,
+          teamsById,
+          resolveTeamPrecedence(tournament?.format ?? "two_team", tournament?.preferences)
+        )
+      : teamStandings,
+    [selectedBreakCategory, teamStandings, teamsById, tournament?.format, tournament?.preferences]
+  );
+  const filteredTeams = teamsInView.filter(
+    (row) =>
+      teamMatches(row.teamId, row.teamName, searchQuery.toLowerCase()) ||
+      (row.institutionCode || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  // Filter Speaker Standings
-  const filteredSpeakers = speakerStandings.filter((s) => {
-    const matchesSearch =
+  // Filter Speaker Standings; a category is ranked within itself, as Tabbycat's category tabs are.
+  const speakersInView = selectedCategory === "all"
+    ? speakerStandings
+    : speakerRowsInCategory(speakerStandings, selectedCategory, speakerCategories);
+  const filteredSpeakers = speakersInView.filter(
+    (s) =>
       s.speakerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.teamName.toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-    if (selectedCategory === "all") return true;
-    return s.categories && s.categories.includes(selectedCategory);
-  });
+      teamMatches(s.teamId, s.teamName, searchQuery.toLowerCase())
+  );
 
   const handleExport = () => {
+    const name = tournament?.name || "Tournament";
     if (activeTab === "teams") {
-      exportStandingsToCsv(teamStandings, tournament?.name || "Tournament");
+      exportStandingsToCsv(teamStandings, name);
+    } else if (activeTab === "speakers") {
+      downloadCsv(`${csvFileStem(name)}_Speaker_Standings.csv`, speakerStandingsCsv(speakerStandings, { categoryNames }));
+    } else {
+      downloadCsv(`${csvFileStem(name)}_Reply_Standings.csv`, speakerStandingsCsv(replyStandings, { reply: true }));
     }
   };
 
+  const tabs: TabItem<StandingsTab>[] = [
+    { value: "teams", label: t("results.standings.tabTeams"), icon: <Users aria-hidden="true" />, count: teamStandings.length },
+    { value: "speakers", label: t("results.standings.tabSpeakers"), icon: <Award aria-hidden="true" />, count: speakerStandings.length },
+    ...(!isBP && replyStandings.length > 0
+      ? [{ value: "replies" as const, label: t("results.standings.tabReplies"), icon: <Medal aria-hidden="true" />, count: replyStandings.length }]
+      : []),
+  ];
+  const exportHint = t(
+    activeTab === "teams"
+      ? "results.standings.exportTeamsHint"
+      : activeTab === "speakers"
+        ? "results.standings.exportSpeakersHint"
+        : "results.standings.exportRepliesHint"
+  );
+  const noMatches = t(searchQuery || selectedCategory !== "all" ? "results.standings.noMatches" : "results.standings.noResults");
+  // Break liveness before the next preliminary round (none once every preliminary round is done).
+  // Liveness is about the next round from the full results, so it is not shown "as of" a round.
+  const liveness = useMemo(
+    () => (tournament && !asOfRound ? roundBreakLiveness({ tournament, rounds, teams, debates, ballots, breakCategories }) : null),
+    [tournament, asOfRound, rounds, teams, debates, ballots, breakCategories]
+  );
+  const livenessRound = liveness
+    ? rounds
+        .filter((round) => round.stage === "preliminary" && !round.cancelled)
+        .sort((a, b) => a.seq - b.seq)[liveness.roundSeq - 1]
+    : undefined;
+  const teamColumns = (isBP ? 11 : 9) + teamExtra.length + (liveness ? 1 : 0);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Trophy className="w-6 h-6 text-amber-500" />
-            <span>Tournament Standings & Tab</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Real-time rankings computed via Tabbycat standard metric chains (Points &rarr; Speaker Scores &rarr; Rank distribution).
-          </p>
-        </div>
+      <PageHeader
+        title={t("results.standings.title")}
+        description={t("results.standings.description")}
+        actions={
+          <>
+            <Button variant="secondary" onClick={handleExport} title={exportHint}>
+              <Download aria-hidden="true" />
+              {t("results.standings.exportCsv")}
+            </Button>
+            <IconButton variant="secondary" label={t("results.standings.print")} icon={<Printer />} onClick={() => window.print()} />
+          </>
+        }
+      />
 
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={handleExport}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-          >
-            <Download className="w-3.5 h-3.5 text-gray-500" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="p-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition"
-            title="Print Standings"
-          >
-            <Printer className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-      </div>
+      <ReleasePanel />
 
-      {/* Tab Switcher & Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">
-        {/* Navigation Tabs */}
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setActiveTab("teams")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "teams"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Team Standings ({teamStandings.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("speakers")}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-              activeTab === "speakers"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <Award className="w-3.5 h-3.5" />
-            <span>Speaker Standings ({speakerStandings.length})</span>
-          </button>
-
-          {!isBP && replyStandings.length > 0 && (
-            <button
-              onClick={() => setActiveTab("replies")}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-1.5 ${
-                activeTab === "replies"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <Tabs id={TABS_ID} items={tabs} value={activeTab} onValueChange={changeTab} ariaLabel={t("results.standings.tabsLabel")} className="md:flex-1" />
+        <div className="flex flex-wrap items-center gap-2">
+          {asOfOptions.length > 1 && (
+            <Select
+              aria-label={t("results.standings.asOfRound")}
+              value={asOfRoundId}
+              onChange={(e) => setAsOfRoundId(e.target.value)}
+              className="w-44"
             >
-              <Medal className="w-3.5 h-3.5" />
-              <span>Reply Speakers ({replyStandings.length})</span>
-            </button>
-          )}
-        </div>
-
-        {/* Search & Category Filter */}
-        <div className="flex items-center space-x-2">
-          {breakCategories.length > 0 && (
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="text-xs border border-gray-300 rounded px-2.5 py-1.5 bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Categories</option>
-              {breakCategories.map((bc) => (
-                <option key={bc.id} value={bc.id}>
-                  {bc.name}
+              <option value="">{t("results.standings.asOfAllRounds")}</option>
+              {asOfOptions.map((round) => (
+                <option key={round.id} value={round.id}>
+                  {t("results.standings.asOfRoundOption", { round: round.name })}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
-
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search tab..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-56"
-            />
-          </div>
+          {categoryOptions.length > 0 && (
+            <Select
+              aria-label={t(activeTab === "teams" ? "results.standings.breakCategory" : "results.standings.speakerCategory")}
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-40"
+            >
+              <option value="all">{t("results.standings.allCategories")}</option>
+              {categoryOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Input
+            type="search"
+            aria-label={t("results.standings.searchLabel")}
+            placeholder={t("results.standings.searchPlaceholder")}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leadingIcon={<Search />}
+            wrapperClassName="flex-1"
+            className="w-full md:w-56"
+          />
         </div>
       </div>
 
-      {/* 1. Team Standings Table */}
+      {asOfRound && (
+        <p role="status" className="text-xs text-fg-muted">
+          {t("results.standings.asOfNote", { round: asOfRound.name })}
+        </p>
+      )}
+
       {activeTab === "teams" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Team</th>
-                  <th>Institution</th>
-                  <th className="text-right">Points</th>
-                  <th className="text-right">Total Speaks</th>
-                  <th className="text-right">Avg Speaks</th>
+        <TabPanel id={TABS_ID} value="teams">
+          {liveness && livenessRound && (
+            <p className="mb-2 text-xs text-fg-muted">
+              {t("results.standings.livenessNote", { round: livenessRound.name })}
+            </p>
+          )}
+          <TableContainer className={TABLE_FRAME}>
+            <Table>
+              <THead>
+                <TR>
+                  <TH align="right" className="w-12">#</TH>
+                  <TH>{t("results.standings.colTeam")}</TH>
+                  <TH>{t("results.standings.colInstitution")}</TH>
+                  <TH align="right">{t("results.standings.colPoints")}</TH>
+                  <TH align="right">{t("results.standings.colTotalSpeaks")}</TH>
+                  <TH align="right">{t("results.standings.colAvgSpeaks")}</TH>
                   {isBP ? (
                     <>
-                      <th className="text-center w-12 text-emerald-700 font-bold">1st</th>
-                      <th className="text-center w-12 text-blue-700 font-bold">2nd</th>
-                      <th className="text-center w-12 text-amber-700 font-bold">3rd</th>
-                      <th className="text-center w-12 text-gray-600 font-bold">4th</th>
+                      <TH align="right" className="w-12">{t("results.standings.colFirsts")}</TH>
+                      <TH align="right" className="w-12">{t("results.standings.colSeconds")}</TH>
+                      <TH align="right" className="w-12">{t("results.standings.colThirds")}</TH>
+                      <TH align="right" className="w-12">{t("results.standings.colFourths")}</TH>
                     </>
                   ) : (
                     <>
-                      <th className="text-center w-16">Wins</th>
-                      <th className="text-right w-16">Margin</th>
+                      <TH align="right" className="w-16">{t("results.standings.colWins")}</TH>
+                      <TH align="right" className="w-16">{t("results.standings.colMargin")}</TH>
                     </>
                   )}
-                  <th className="w-40 text-center">Round Results</th>
-                </tr>
-              </thead>
-              <tbody>
+                  {teamExtra.map((metric) => (
+                    <TH key={metric} align="right">{t(TEAM_METRIC_KEYS[metric])}</TH>
+                  ))}
+                  <TH>{t("results.standings.colRoundResults")}</TH>
+                  {liveness && <TH>{t("results.standings.colLiveness")}</TH>}
+                </TR>
+              </THead>
+              <TBody>
+                {filteredTeams.length === 0 && <TableEmpty colSpan={teamColumns}>{noMatches}</TableEmpty>}
                 {filteredTeams.map((team) => (
-                  <tr key={team.teamId} className="hover:bg-gray-50">
-                    <td className="text-center font-mono font-bold text-gray-800 text-xs">
-                      {team.rank}
-                    </td>
-                    <td className="font-bold text-gray-900 text-xs">
-                      {team.teamName}
-                    </td>
-                    <td className="text-xs text-gray-600">
-                      {team.institutionCode || "—"}
-                    </td>
-                    <td className="text-right font-mono font-bold text-sm text-blue-600">
-                      {team.points}
-                    </td>
-                    <td className="text-right font-mono font-semibold text-gray-800 text-xs">
-                      {team.totalSpeakerScore.toFixed(1)}
-                    </td>
-                    <td className="text-right font-mono text-gray-600 text-xs">
-                      {team.averageSpeakerScore.toFixed(2)}
-                    </td>
-
+                  <TR key={team.teamId}>
+                    <TD numeric className="text-fg-muted">{formatNumber(team.rank)}</TD>
+                    <TD className="font-medium"><TabroomTeamName team={teamsById.get(team.teamId)} name={team.teamName} /></TD>
+                    <TD className="text-fg-muted">{team.institutionCode || "—"}</TD>
+                    <TD numeric className="text-[13px] font-semibold">{formatNumber(team.points)}</TD>
+                    <TD numeric>{formatDecimal(team.totalSpeakerScore, 1)}</TD>
+                    <TD numeric className="text-fg-muted">{formatDecimal(team.averageSpeakerScore, 2)}</TD>
                     {isBP ? (
                       <>
-                        <td className="text-center font-mono text-xs font-semibold text-emerald-700">
-                          {team.firstPlaces || 0}
-                        </td>
-                        <td className="text-center font-mono text-xs font-semibold text-blue-700">
-                          {team.secondPlaces || 0}
-                        </td>
-                        <td className="text-center font-mono text-xs font-semibold text-amber-700">
-                          {team.thirdPlaces || 0}
-                        </td>
-                        <td className="text-center font-mono text-xs text-gray-500">
-                          {team.fourthPlaces || 0}
-                        </td>
+                        <TD numeric>{formatNumber(team.firstPlaces || 0)}</TD>
+                        <TD numeric>{formatNumber(team.secondPlaces || 0)}</TD>
+                        <TD numeric>{formatNumber(team.thirdPlaces || 0)}</TD>
+                        <TD numeric className="text-fg-muted">{formatNumber(team.fourthPlaces || 0)}</TD>
                       </>
                     ) : (
                       <>
-                        <td className="text-center font-mono font-bold text-xs text-emerald-700">
-                          {team.wins || 0}
-                        </td>
-                        <td className="text-right font-mono text-xs text-gray-700">
-                          {team.margins && team.margins > 0 ? `+${team.margins}` : team.margins || 0}
-                        </td>
+                        <TD numeric className="font-semibold">{formatNumber(team.wins || 0)}</TD>
+                        <TD numeric>
+                          {team.margins && team.margins > 0 ? `+${formatScore(team.margins)}` : formatScore(team.margins || 0)}
+                        </TD>
                       </>
                     )}
-
-                    {/* Round Result Pills */}
-                    <td className="text-center">
-                      <div className="flex items-center justify-center space-x-1">
+                    {teamExtra.map((metric) => (
+                      <TD key={metric} numeric className="text-fg-muted">{formatMetric(team.metrics[metric])}</TD>
+                    ))}
+                    <TD>
+                      <div className="flex items-center gap-1">
                         {team.roundResults.map((r, rIdx) => (
-                          <span
+                          <Badge
                             key={rIdx}
-                            className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-bold ${
-                              isBP
-                                ? r.points === 3
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : r.points === 2
-                                  ? "bg-blue-100 text-blue-800"
-                                  : r.points === 1
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-gray-100 text-gray-500"
-                                : r.win
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                            title={`Round ${r.roundSeq}: ${r.points} pts (${r.side})`}
+                            tone={isBP ? bpPointTone(r.points) : poly ? "neutral" : r.win ? "success" : "danger"}
+                            className="w-6 justify-center px-0 font-mono"
+                            title={plural("results.standings.roundResult", r.points, { round: r.roundSeq, side: r.side })}
                           >
-                            {r.points}
-                          </span>
+                            {/* N teams per room: the points the room's rank earned (none on score-only ballots). */}
+                            {isBP || poly ? formatNumber(r.points) : t(r.win ? "results.standings.winShort" : "results.standings.lossShort")}
+                          </Badge>
                         ))}
                       </div>
-                    </td>
-                  </tr>
+                    </TD>
+                    {liveness && (
+                      <TD>
+                        <BreakLivenessBadges entries={liveness.byTeam.get(team.teamId)} categories={breakCategories} />
+                      </TD>
+                    )}
+                  </TR>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TBody>
+            </Table>
+          </TableContainer>
+        </TabPanel>
       )}
 
-      {/* 2. Speaker Standings Table */}
       {activeTab === "speakers" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Speaker</th>
-                  <th>Team</th>
-                  <th>Institution</th>
-                  <th className="text-center">Speeches</th>
-                  <th className="text-right">Total Score</th>
-                  <th className="text-right">Average</th>
-                  <th className="text-center">Round Scores</th>
-                </tr>
-              </thead>
-              <tbody>
+        <TabPanel id={TABS_ID} value="speakers">
+          <TableContainer className={TABLE_FRAME}>
+            <Table>
+              <THead>
+                <TR>
+                  <TH align="right" className="w-12">#</TH>
+                  <TH>{t("results.standings.colSpeaker")}</TH>
+                  <TH>{t("results.standings.colTeam")}</TH>
+                  <TH>{t("results.standings.colInstitution")}</TH>
+                  <TH align="right">{t("results.standings.colSpeeches")}</TH>
+                  <TH align="right">{t("results.standings.colTotal")}</TH>
+                  <TH align="right">{t("results.standings.colAverage")}</TH>
+                  {speakerExtra.map((metric) => (
+                    <TH key={metric} align="right">{t(SPEAKER_METRIC_KEYS[metric])}</TH>
+                  ))}
+                  <TH>{t("results.standings.colRoundScores")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredSpeakers.length === 0 && <TableEmpty colSpan={8 + speakerExtra.length}>{noMatches}</TableEmpty>}
                 {filteredSpeakers.map((spk) => (
-                  <tr key={spk.speakerId} className="hover:bg-gray-50">
-                    <td className="text-center font-mono font-bold text-gray-800 text-xs">
-                      {spk.rank}
-                    </td>
-                    <td className="font-bold text-gray-900 text-xs">
+                  <TR key={spk.speakerId}>
+                    <TD numeric className="text-fg-muted">
+                      {spk.ineligible ? <span title={t("results.standings.unrankedSpeechesHint")}>—</span> : formatNumber(spk.rank)}
+                    </TD>
+                    <TD className="font-medium">
                       {spk.speakerName}
-                      {spk.categories?.length > 0 && (
-                        <span className="ml-2 inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold bg-gray-100 text-gray-700 uppercase">
-                          {spk.categories.join(", ")}
-                        </span>
+                      {categoryNames(spk.categories ?? []).length > 0 && (
+                        <Badge className="ms-2 uppercase">{formatList(categoryNames(spk.categories ?? []))}</Badge>
                       )}
-                    </td>
-                    <td className="text-xs text-gray-700 font-medium">
-                      {spk.teamName}
-                    </td>
-                    <td className="text-xs text-gray-500">
-                      {spk.institutionCode || "—"}
-                    </td>
-                    <td className="text-center font-mono text-xs text-gray-600">
-                      {spk.speechesCount}
-                    </td>
-                    <td className="text-right font-mono font-bold text-sm text-blue-600">
-                      {spk.totalScore.toFixed(1)}
-                    </td>
-                    <td className="text-right font-mono font-semibold text-gray-800 text-xs">
-                      {spk.averageScore.toFixed(2)}
-                    </td>
-                    <td className="text-center">
-                      <div className="flex items-center justify-center space-x-1 text-[11px] font-mono text-gray-600">
+                      {spk.ineligible && <Badge className="ms-2">{t("results.standings.unrankedSpeeches")}</Badge>}
+                    </TD>
+                    <TD><TabroomTeamName team={teamsById.get(spk.teamId)} name={spk.teamName} /></TD>
+                    <TD className="text-fg-muted">{spk.institutionCode || "—"}</TD>
+                    <TD numeric className="text-fg-muted">{formatNumber(spk.speechesCount)}</TD>
+                    <TD numeric className="text-[13px] font-semibold">{formatDecimal(spk.totalScore, 1)}</TD>
+                    <TD numeric>{formatDecimal(spk.averageScore, 2)}</TD>
+                    {speakerExtra.map((metric) => (
+                      <TD key={metric} numeric className="text-fg-muted">{formatMetric(spk.metrics[metric])}</TD>
+                    ))}
+                    <TD>
+                      <div className="flex items-center gap-1 font-mono text-[11px] text-fg-muted">
                         {spk.scoresByRound.map((sr, idx) => (
-                          <span key={idx} className="bg-gray-100 px-1.5 py-0.5 rounded">
-                            {sr.score}
+                          <span key={idx} className="rounded-sm bg-muted px-1.5 py-0.5">
+                            {formatScore(sr.score)}
                           </span>
                         ))}
                       </div>
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TBody>
+            </Table>
+          </TableContainer>
+        </TabPanel>
       )}
 
-      {/* 3. Reply Speaker Standings */}
       {activeTab === "replies" && (
-        <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left tabby-table">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">#</th>
-                  <th>Reply Speaker</th>
-                  <th>Team</th>
-                  <th className="text-center">Speeches</th>
-                  <th className="text-right">Total Score</th>
-                  <th className="text-right">Average</th>
-                </tr>
-              </thead>
-              <tbody>
+        <TabPanel id={TABS_ID} value="replies">
+          <TableContainer className={TABLE_FRAME}>
+            <Table>
+              <THead>
+                <TR>
+                  <TH align="right" className="w-12">#</TH>
+                  <TH>{t("results.standings.colReplySpeaker")}</TH>
+                  <TH>{t("results.standings.colTeam")}</TH>
+                  <TH align="right">{t("results.standings.colSpeeches")}</TH>
+                  <TH align="right">{t("results.standings.colTotal")}</TH>
+                  <TH align="right">{t("results.standings.colAverage")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {replyStandings.length === 0 && <TableEmpty colSpan={6}>{t("results.standings.noResults")}</TableEmpty>}
                 {replyStandings.map((rep) => (
-                  <tr key={rep.speakerId} className="hover:bg-gray-50">
-                    <td className="text-center font-mono font-bold text-gray-800 text-xs">
-                      {rep.rank}
-                    </td>
-                    <td className="font-bold text-gray-900 text-xs">{rep.speakerName}</td>
-                    <td className="text-xs text-gray-700 font-medium">{rep.teamName}</td>
-                    <td className="text-center font-mono text-xs text-gray-600">{rep.speechesCount}</td>
-                    <td className="text-right font-mono font-bold text-sm text-blue-600">
-                      {rep.totalScore.toFixed(1)}
-                    </td>
-                    <td className="text-right font-mono font-semibold text-gray-800 text-xs">
-                      {rep.averageScore.toFixed(2)}
-                    </td>
-                  </tr>
+                  <TR key={rep.speakerId}>
+                    <TD numeric className="text-fg-muted">
+                      {rep.ineligible ? <span title={t("results.standings.unrankedRepliesHint")}>—</span> : formatNumber(rep.rank)}
+                    </TD>
+                    <TD className="font-medium">
+                      {rep.speakerName}
+                      {rep.ineligible && <Badge className="ms-2">{t("results.standings.unrankedReplies")}</Badge>}
+                    </TD>
+                    <TD><TabroomTeamName team={teamsById.get(rep.teamId)} name={rep.teamName} /></TD>
+                    <TD numeric className="text-fg-muted">{formatNumber(rep.speechesCount)}</TD>
+                    <TD numeric className="text-[13px] font-semibold">{formatDecimal(rep.totalScore, 1)}</TD>
+                    <TD numeric>{formatDecimal(rep.averageScore, 2)}</TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TBody>
+            </Table>
+          </TableContainer>
+        </TabPanel>
       )}
     </div>
   );

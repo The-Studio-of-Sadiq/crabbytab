@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { calculateStandings } from "./calculator";
 import { resolveTeamPrecedence, resolveSpeakerPrecedence, compareByPrecedence } from "./precedence";
 import { DEFAULT_TEAM_PRECEDENCE, DEFAULT_SPEAKER_PRECEDENCE, TEAM_METRIC_DIRECTION } from "./metrics";
-import { Tournament, Round, Team, Debate, BallotSubmission, DebateSide } from "@/types";
+import { Tournament, Round, Team, Debate, BallotSubmission, BPSide, DebateSide } from "@/types";
 
 function tournament(format: "bp" | "uadc", overrides: Partial<Tournament["preferences"]> = {}): Tournament {
   return {
@@ -61,7 +61,7 @@ const round: Round = {
   createdAt: "",
 };
 
-function bpDebate(id: string, roundSeq: number, teams: Record<DebateSide, string>): Debate {
+function bpDebate(id: string, roundSeq: number, teams: Record<BPSide, string>): Debate {
   return {
     id,
     tournamentId: "tourn-test",
@@ -83,7 +83,7 @@ function bpDebate(id: string, roundSeq: number, teams: Record<DebateSide, string
   };
 }
 
-function bpBallot(id: string, debateId: string, points: Record<DebateSide, number>, speaks: Record<DebateSide, number>): BallotSubmission {
+function bpBallot(id: string, debateId: string, points: Record<BPSide, number>, speaks: Record<BPSide, number>): BallotSubmission {
   const mk = (side: DebateSide, s1: number, s2: number) => [
     { speakerId: `${side}-1`, speakerName: `${side}-1`, position: 1, score: s1 },
     { speakerId: `${side}-2`, speakerName: `${side}-2`, position: 2, score: s2 },
@@ -169,7 +169,7 @@ describe("calculateStandings: BP default precedence reproduces legacy order exac
     const t1 = result.teams.find((r) => r.teamId === "t1")!;
     const t2 = result.teams.find((r) => r.teamId === "t2")!;
     expect(t1.metrics.points).toBe(t2.metrics.points); // both 3 total points
-    expect(t2.metrics.speaks_sum).toBeGreaterThan(t1.metrics.speaks_sum);
+    expect(t2.metrics.speaks_sum).toBeGreaterThan(t1.metrics.speaks_sum!);
     expect(t2.rank).toBeLessThan(t1.rank); // t2 ranks above t1 on speaks_sum
   });
 });
@@ -250,7 +250,7 @@ describe("calculateStandings: custom precedence changes the order", () => {
     const t1 = result.teams.find((r) => r.teamId === "t1")!;
     const t3 = result.teams.find((r) => r.teamId === "t3")!;
     expect(t1.metrics.wins).toBe(t3.metrics.wins); // both 1-0 after round 1
-    expect(t1.metrics.draw_strength_wins).toBeGreaterThan(t3.metrics.draw_strength_wins);
+    expect(t1.metrics.draw_strength_wins).toBeGreaterThan(t3.metrics.draw_strength_wins!);
     expect(t1.rank).toBeLessThan(t3.rank);
   });
 });
@@ -268,6 +268,22 @@ describe("calculateStandings: pullups metric", () => {
     const result = calculateStandings(t, [round], teams, [debate], [ballot]);
     expect(result.teams.find((r) => r.teamId === "t1")!.metrics.pullups).toBe(1);
     expect(result.teams.find((r) => r.teamId === "t2")!.metrics.pullups).toBe(0);
+  });
+
+  it("ranks the team with more pull-ups higher when pullups breaks a tie, as Tabbycat's npullups", () => {
+    expect(TEAM_METRIC_DIRECTION.pullups).toBe(1);
+    const t = tournament("bp", { teamStandingsPrecedence: ["points", "pullups"] });
+    const teams = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"].map((id) => team(id, id.toUpperCase()));
+    const pulled = bpDebate("d1", 1, { OG: "t1", OO: "t2", CG: "t3", CO: "t4" });
+    pulled.teams.OG.pulledUp = true;
+    const clean = bpDebate("d2", 1, { OG: "t5", OO: "t6", CG: "t7", CO: "t8" });
+    const speaks = { OG: 150, OO: 150, CG: 150, CO: 150 };
+    const result = calculateStandings(t, [round], teams, [pulled, clean], [
+      bpBallot("b1", "d1", { OG: 3, OO: 2, CG: 1, CO: 0 }, speaks),
+      bpBallot("b2", "d2", { OG: 3, OO: 2, CG: 1, CO: 0 }, speaks),
+    ]);
+    const rankOf = (id: string) => result.teams.find((r) => r.teamId === id)!.rank;
+    expect(rankOf("t1")).toBeLessThan(rankOf("t5"));
   });
 });
 
@@ -299,12 +315,12 @@ describe("calculateStandings: speaker precedence and trimmed mean", () => {
     expect(result.speakers[0].metrics.speaks_sum).toBe(80);
   });
 
-  it("speaks_trimmed_mean drops the configured number of lowest scores", () => {
+  it("speaks_trimmed_mean drops the highest and the lowest score (Tabbycat high-low drop)", () => {
     const t = tournament("bp", { speakerTrim: 1 } as any);
     const teams = [team("t1", "A", [{ id: "s1", name: "Alice" }])];
     const rounds = [1, 2, 3].map((n) => ({ ...round, id: `r${n}`, seq: n }));
     const debates = rounds.map((r) => bpDebate(`d${r.seq}`, r.seq, { OG: "t1", OO: "t1", CG: "t1", CO: "t1" }));
-    const scores = [60, 70, 80]; // trim 1 lowest (60) -> mean of [70, 80] = 75
+    const scores = [60, 70, 80]; // drop 60 and 80 -> mean of [70] = 70
     const ballots = debates.map((d, i) => ({
       id: `b${i}`,
       tournamentId: "tourn-test",
@@ -320,7 +336,7 @@ describe("calculateStandings: speaker precedence and trimmed mean", () => {
     }));
 
     const result = calculateStandings(t, rounds, teams, debates, ballots);
-    expect(result.speakers[0].metrics.speaks_trimmed_mean).toBe(75);
+    expect(result.speakers[0].metrics.speaks_trimmed_mean).toBe(70);
     expect(result.speakers[0].metrics.speaks_sum).toBe(210);
   });
 });

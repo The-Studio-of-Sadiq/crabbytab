@@ -1,6 +1,11 @@
-import { Adjudicator, Debate, Round, Team } from "@/types";
+import { Adjudicator, BreakCategory, Debate, Round, Team, Venue } from "@/types";
+import { safeVenueUrl } from "@/lib/venues/venues";
 import type { EmailMessage, EmailProvider } from "@/lib/email/provider";
-import { getAdjudicatorPrivatePath } from "@/lib/privateUrls";
+import { getAdjudicatorPrivatePath, getTeamPrivatePath } from "@/lib/privateUrls";
+import { getSpeakerPrivatePath } from "@/lib/privateSpeakerUrls";
+
+/** Header naming the tournament and campaign of a message, echoed by delivery webhooks. */
+export const DELIVERY_REF_HEADER = "X-CrabbyTab-Ref";
 
 export const MAX_CAMPAIGN_RECIPIENTS = 100;
 
@@ -16,32 +21,110 @@ export const EMAIL_RECIPIENT_GROUPS = [
   "round_adjudicators",
   "chairs",
   "panellists",
+  "institution_coaches",
 ] as const;
 
-export type EmailRecipientGroup = (typeof EMAIL_RECIPIENT_GROUPS)[number];
+/**
+ * An institution coach or representative (Tabbycat Coach; the "Institution coaches" group, Tabbycat
+ * INSTITUTION_CUSTOM): the coaches stored on institutions and, on the server, the institutions'
+ * active registration representatives.
+ */
+export interface CoachRecipient {
+  name: string;
+  email?: string;
+  institution: string;
+}
 
-export const ADJUDICATOR_RECIPIENT_GROUPS: EmailRecipientGroup[] = [
-  "all_adjudicators",
-  "checked_in_adjudicators",
-  "trainees",
-  "round_adjudicators",
-  "chairs",
-  "panellists",
-];
+/** Every coach stored on the institutions, as recipients. */
+export function institutionCoachRecipients(
+  institutions: ReadonlyArray<{ name: string; coaches?: Array<{ name: string; email?: string }> }>
+): CoachRecipient[] {
+  return institutions.flatMap((institution) =>
+    (institution.coaches ?? []).map((coach) => ({ name: coach.name, email: coach.email, institution: institution.name }))
+  );
+}
+
+export type EmailRecipientGroup = (typeof EMAIL_RECIPIENT_GROUPS)[number];
 
 export interface EmailRecipient {
   email: string;
   name: string;
   adjudicatorId?: string;
+  /** Set for team speakers, so a retry can look the team's private credentials up again. */
+  teamId?: string;
+  /** Set for speakers who have their own private URL, so a retry sends that URL again. */
+  speakerId?: string;
   team?: string;
   institution?: string;
   round?: string;
   debate?: string;
   venue?: string;
+  /** The room's http(s) link (online meeting or map), for {{venue_url}}. */
+  venueUrl?: string;
   chair?: string;
   panellists?: string;
   privateUrl?: string;
   passcode?: string;
+  /** The private URL key alone (Tabbycat KEY), set with the private URL. */
+  key?: string;
+  /** An adjudicator's position on their panel this round: Chair, Panellist or Trainee (Tabbycat POSITION). */
+  position?: string;
+  /** The team's long name, institution included (Tabbycat LONG); the team name when it has none. */
+  longName?: string;
+  /** Automatic notifications: the recipient's side, round result, running points and ballot summary. */
+  side?: string;
+  result?: string;
+  points?: string;
+  ballot?: string;
+  /** Motions released (motions_released). */
+  motions?: string;
+  /** Registration emails: the registered team or adjudicator, a link, and allocated places. */
+  entry?: string;
+  url?: string;
+  teamsAllocated?: string;
+  adjudicatorsAllocated?: string;
+  /** Team registration details (Tabbycat `team_email_*`): who is on the team and its other identifiers. */
+  speakers?: string;
+  codeName?: string;
+  emoji?: string;
+  breakCategories?: string;
+}
+
+/** Break categories as {{break_categories}} needs them. */
+export type EmailBreakCategory = Pick<BreakCategory, "id" | "name" | "isGeneral" | "seq">;
+
+/**
+ * The names of the break categories a team is in, as Tabbycat lists them: the general categories
+ * (every team is in them) and the team's own, in category order.
+ */
+export function teamBreakCategoryNames(team: Pick<Team, "breakCategories">, categories: EmailBreakCategory[]): string {
+  const own = new Set(team.breakCategories ?? []);
+  return [...categories]
+    .filter((category) => category.isGeneral || own.has(category.id))
+    .sort((left, right) => left.seq - right.seq || left.name.localeCompare(right.name))
+    .map((category) => category.name)
+    .join(", ");
+}
+
+/** {{speakers}}, {{code_name}}, {{emoji}} and {{break_categories}} for one team's speakers. */
+export function teamRegistrationVariables(
+  team: Pick<Team, "speakers" | "codeName" | "emoji" | "breakCategories">,
+  categories: EmailBreakCategory[] = []
+): Pick<EmailRecipient, "speakers" | "codeName" | "emoji" | "breakCategories"> {
+  return {
+    speakers: (team.speakers ?? []).map((speaker) => speaker.name).filter(Boolean).join(", "),
+    codeName: team.codeName ?? "",
+    emoji: team.emoji ?? "",
+    breakCategories: teamBreakCategoryNames(team, categories),
+  };
+}
+
+/** Headers added to every message of a send (docs/email-notifications.md). */
+export interface EmailSendOptions {
+  /** Reply-To header value, from the tournament's email settings. */
+  replyTo?: string;
+  /** Delivery reference `{tournamentId}/{campaignId}`, sent as X-CrabbyTab-Ref for delivery webhooks. */
+  ref?: string;
 }
 
 export interface EmailCampaignResult {
@@ -72,6 +155,10 @@ export interface StoredEmailCampaign {
   retryOf?: string;
   retriedBy?: string;
   retryInProgress?: boolean;
+  /** Set when the campaign was sent automatically (draw release, results, ballot receipt). */
+  notificationKey?: string;
+  /** Latest provider delivery status per address (delivery webhook), keyed by `deliveryKey(email)`. */
+  delivery?: Record<string, { event: string; at: string; reason?: string }>;
 }
 
 function describeSendError(error: unknown): string {
@@ -81,9 +168,11 @@ function describeSendError(error: unknown): string {
 
 function debateVariables(
   debate: Debate | undefined,
-  adjudicators: Adjudicator[]
-): Pick<EmailRecipient, "debate" | "venue" | "chair" | "panellists"> {
+  adjudicators: Adjudicator[],
+  venues: Array<Pick<Venue, "id" | "url">> = []
+): Pick<EmailRecipient, "debate" | "venue" | "venueUrl" | "chair" | "panellists"> {
   if (!debate) return {};
+  const venueUrl = safeVenueUrl(venues.find((venue) => venue.id === debate.venueId)?.url);
   const adjudicatorMap = new Map(adjudicators.map((adjudicator) => [adjudicator.id, adjudicator]));
   return {
     debate: Object.values(debate.teams)
@@ -91,6 +180,7 @@ function debateVariables(
       .filter(Boolean)
       .join(" vs "),
     venue: debate.venueName,
+    ...(venueUrl ? { venueUrl } : {}),
     chair: debate.adjudicators.chairName ||
       adjudicatorMap.get(debate.adjudicators.chairId || "")?.name,
     panellists: debate.adjudicators.panellistNames
@@ -109,10 +199,17 @@ export function resolveEmailRecipients(
   debates: Debate[],
   round?: Round,
   options: {
-    includeAdjudicatorCredentials?: boolean;
+    /** Fill {{private_url}} / {{passcode}} with each adjudicator's or team's own credentials. */
+    includePrivateCredentials?: boolean;
     privateUrlOrigin?: string;
     tournamentSlug?: string;
     preserveDuplicateEmails?: boolean;
+    /** Rooms, so {{venue_url}} can carry each debate's room link. */
+    venues?: Array<Pick<Venue, "id" | "url">>;
+    /** Break categories, so {{break_categories}} can name each team's categories. */
+    breakCategories?: EmailBreakCategory[];
+    /** Coaches and representatives for the "institution_coaches" group. */
+    coaches?: CoachRecipient[];
   } = {}
 ): EmailRecipient[] {
   const roundDebates = round ? debates.filter((debate) => debate.roundId === round.id) : [];
@@ -174,11 +271,19 @@ export function resolveEmailRecipients(
         addRecipient({
           email: speaker.email,
           name: speaker.name,
+          teamId: team.id,
+          ...(speaker.privateUrlKey ? { speakerId: speaker.id } : {}),
           team: team.name,
+          longName: team.longName || team.name,
           institution: team.institutionName,
           round: round?.name,
-          ...debateVariables(teamDebate, adjudicators),
+          ...teamRegistrationVariables(team, options.breakCategories),
+          ...debateVariables(teamDebate, adjudicators, options.venues),
           ...(assignedTeamSlot?.pulledUp ? { team: `${team.name} (pulled up)` } : {}),
+          // A speaker with their own private URL gets it (Tabbycat sends each person theirs).
+          ...(options.includePrivateCredentials
+            ? speakerOrTeamCredentials(team, speaker.id, options)
+            : {}),
         });
       }
     }
@@ -209,46 +314,101 @@ export function resolveEmailRecipients(
           (debate.adjudicators.panellistIds || []).includes(adjudicator.id) ||
           (debate.adjudicators.traineeIds || []).includes(adjudicator.id)
       );
+      const position = !assignedDebate
+        ? undefined
+        : assignedDebate.adjudicators.chairId === adjudicator.id
+          ? "Chair"
+          : (assignedDebate.adjudicators.panellistIds || []).includes(adjudicator.id)
+            ? "Panellist"
+            : "Trainee";
       addRecipient({
         email: adjudicator.email,
         name: adjudicator.name,
         adjudicatorId: adjudicator.id,
         institution: adjudicator.institutionName,
         round: round?.name,
-        ...debateVariables(assignedDebate, adjudicators),
-        ...(options.includeAdjudicatorCredentials
-          ? {
-              privateUrl: adjudicator.privateUrlKey &&
-                options.privateUrlOrigin &&
-                options.tournamentSlug
-                ? new URL(
-                    getAdjudicatorPrivatePath(
-                      options.tournamentSlug,
-                      adjudicator.privateUrlKey
-                    ),
-                    options.privateUrlOrigin
-                  ).toString()
-                : "",
-              passcode: adjudicator.privatePasscode || "",
-            }
+        ...(position ? { position } : {}),
+        ...debateVariables(assignedDebate, adjudicators, options.venues),
+        ...(options.includePrivateCredentials
+          ? privateCredentials("adjudicator", adjudicator.privateUrlKey, adjudicator.privatePasscode, options)
           : {}),
       });
     }
   }
 
-  if (options.preserveDuplicateEmails) return recipients;
+  // Coaches have no private URL; {{private_url}} stays empty for them.
+  if (group === "institution_coaches") {
+    for (const coach of options.coaches ?? []) {
+      if (!coach.email?.trim()) continue;
+      addRecipient({ email: coach.email, name: coach.name, institution: coach.institution, round: round?.name });
+    }
+  }
 
+  // With credentials, an address shared by two participants is kept twice (with different links) so
+  // findCredentialEmailConflict can refuse the send; speakers of one team share one link.
   const unique = new Map<string, EmailRecipient>();
   for (const recipient of recipients) {
-    const key = recipient.email.toLowerCase();
+    const email = recipient.email.toLowerCase();
+    const key = options.preserveDuplicateEmails ? `${email}
+${recipient.privateUrl ?? ""}` : email;
     if (!unique.has(key)) unique.set(key, recipient);
   }
   return [...unique.values()];
 }
 
-export function usesAdjudicatorCredentials(subject: string, body: string): boolean {
+/** A speaker's own private URL when they have one, otherwise their team's. */
+export function speakerOrTeamCredentials(
+  team: Pick<Team, "privateUrlKey" | "privatePasscode" | "speakers">,
+  speakerId: string | undefined,
+  options: { privateUrlOrigin?: string; tournamentSlug?: string }
+): Pick<EmailRecipient, "privateUrl" | "passcode" | "key"> {
+  const speaker = speakerId ? (team.speakers ?? []).find((item) => item.id === speakerId) : undefined;
+  return speaker?.privateUrlKey && speaker.privatePasscode
+    ? privateCredentials("speaker", speaker.privateUrlKey, speaker.privatePasscode, options)
+    : privateCredentials("team", team.privateUrlKey, team.privatePasscode, options);
+}
+
+/** The private portal link and passcode for one participant. */
+export function privateCredentials(
+  type: "adjudicator" | "team" | "speaker",
+  privateUrlKey: string | undefined,
+  passcode: string | undefined,
+  options: { privateUrlOrigin?: string; tournamentSlug?: string }
+): Pick<EmailRecipient, "privateUrl" | "passcode" | "key"> {
+  const path = privateUrlKey && options.tournamentSlug
+    ? type === "adjudicator"
+      ? getAdjudicatorPrivatePath(options.tournamentSlug, privateUrlKey)
+      : type === "speaker"
+        ? getSpeakerPrivatePath(options.tournamentSlug, privateUrlKey)
+        : getTeamPrivatePath(options.tournamentSlug, privateUrlKey)
+    : "";
+  return {
+    privateUrl: path && options.privateUrlOrigin ? new URL(path, options.privateUrlOrigin).toString() : "",
+    passcode: passcode || "",
+    key: privateUrlKey || "",
+  };
+}
+
+/**
+ * An email address that would receive two different private links (for example a speaker
+ * registered in two teams), or null. Such sends are refused so nobody gets another person's portal.
+ */
+export function findCredentialEmailConflict(recipients: EmailRecipient[]): string | null {
+  const linkByEmail = new Map<string, string>();
+  for (const recipient of recipients) {
+    const email = recipient.email.toLowerCase();
+    const link = recipient.privateUrl ?? "";
+    const previous = linkByEmail.get(email);
+    if (previous !== undefined && previous !== link) return recipient.email;
+    linkByEmail.set(email, link);
+  }
+  return null;
+}
+
+export function usesPrivateCredentials(subject: string, body: string): boolean {
   return templateUsesVariable(`${subject}\n${body}`, "private_url") ||
-    templateUsesVariable(`${subject}\n${body}`, "passcode");
+    templateUsesVariable(`${subject}\n${body}`, "passcode") ||
+    templateUsesVariable(`${subject}\n${body}`, "key");
 }
 
 function templateUsesVariable(template: string, variable: string): boolean {
@@ -270,10 +430,27 @@ export function renderEmailTemplate(
     round: recipient.round || roundName || "",
     debate: recipient.debate || "",
     venue: recipient.venue || "",
+    venue_url: recipient.venueUrl || "",
     chair: recipient.chair || "",
     panellists: recipient.panellists || "",
     private_url: recipient.privateUrl || "",
     passcode: recipient.passcode || "",
+    key: recipient.key || "",
+    position: recipient.position || "",
+    long_name: recipient.longName || "",
+    side: recipient.side || "",
+    result: recipient.result || "",
+    points: recipient.points || "",
+    ballot: recipient.ballot || "",
+    motions: recipient.motions || "",
+    entry: recipient.entry || "",
+    url: recipient.url || "",
+    teams_allocated: recipient.teamsAllocated || "",
+    adjudicators_allocated: recipient.adjudicatorsAllocated || "",
+    speakers: recipient.speakers || "",
+    code_name: recipient.codeName || "",
+    emoji: recipient.emoji || "",
+    break_categories: recipient.breakCategories || "",
   };
 
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (placeholder, variable: string) => {
@@ -289,7 +466,8 @@ export function prepareEmailMessages(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): EmailMessage[] {
   if (recipients.length === 0) {
     throw new EmailCampaignInputError("No recipients with email addresses were found.");
@@ -325,14 +503,14 @@ export function prepareEmailMessages(
         needsPrivateUrl && !recipient.privateUrl
       ) {
         throw new EmailCampaignInputError(
-          `A private URL is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+          `A private URL is missing for ${recipient.name}. Generate private URLs and try again.`
         );
       }
       if (
         needsPasscode && !recipient.passcode
       ) {
         throw new EmailCampaignInputError(
-          `A passcode is missing for ${recipient.name}. Generate adjudicator credentials and try again.`
+          `A passcode is missing for ${recipient.name}. Generate private URLs and try again.`
         );
       }
     }
@@ -349,6 +527,8 @@ export function prepareEmailMessages(
       to: recipient.email,
       subject,
       text: renderEmailTemplate(bodyTemplate, recipient, tournamentName, roundName),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+      ...(options.ref ? { headers: { [DELIVERY_REF_HEADER]: options.ref } } : {}),
     };
   });
 }
@@ -359,14 +539,16 @@ export async function sendEmailCampaign(
   tournamentName: string,
   roundName: string | undefined,
   subjectTemplate: string,
-  bodyTemplate: string
+  bodyTemplate: string,
+  options: EmailSendOptions = {}
 ): Promise<EmailCampaignResult> {
   const messages = prepareEmailMessages(
     recipients,
     tournamentName,
     roundName,
     subjectTemplate,
-    bodyTemplate
+    bodyTemplate,
+    options
   );
 
   const results: EmailCampaignResult["results"] = [];

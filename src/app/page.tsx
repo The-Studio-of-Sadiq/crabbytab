@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,16 +15,21 @@ import {
   Clock,
   User as UserIcon,
 } from "lucide-react";
-import { TournamentFormat } from "@/types";
+import type { TournamentFormat } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  getDocs,
-  doc,
-  getDoc,
-} from "firebase/firestore";
 import { safeJsonParse } from "@/lib/safeJson";
+import { getLocalStore, readLocalTournamentMetas, tournamentKeyPrefix } from "@/lib/offline/localStore";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { EntryBrandLink, EntryPreferenceControls } from "@/components/setup/SetupShell";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Button, IconButton, buttonClasses } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { Alert, EmptyState, Skeleton } from "@/components/ui/Feedback";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
 
 interface StoredTournamentSummary {
   id: string;
@@ -37,467 +41,391 @@ interface StoredTournamentSummary {
   ownerEmail?: string;
   isOwner?: boolean;
   isLocal?: boolean;
+  accessRole?: "admin" | "dataEntry";
 }
 
 export default function HomePage() {
   const router = useRouter();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { t, formatDateTime } = useI18n();
+  const { user, loading: authLoading, logout, isGlobalAdmin } = useAuth();
   const [tournaments, setTournaments] = useState<StoredTournamentSummary[]>([]);
   const [loadingTournaments, setLoadingTournaments] = useState(true);
   const [filterTab, setFilterTab] = useState<"all" | "mine">("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [cloudError, setCloudError] = useState("");
+  // A flag rather than text, so changing language does not re-create the loader and refetch.
+  const [cloudError, setCloudError] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<StoredTournamentSummary | null>(null);
+  const [deletedName, setDeletedName] = useState("");
 
-  // Creating a tournament happens in the guided setup wizard.
+  // Tournament creation is reserved for global administrators.
   const goCreate = () => router.push("/tournaments/new");
 
-  // Scan localStorage for local copies
-  const getLocalTournaments = useCallback((): StoredTournamentSummary[] => {
+  // Tournaments saved on this device
+  const getLocalTournaments = useCallback(async (): Promise<StoredTournamentSummary[]> => {
     const list: StoredTournamentSummary[] = [];
 
     if (typeof window === "undefined") return list;
 
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("crabbytab_t_") && key.endsWith("_meta")) {
-        try {
-          const parsedItem = safeJsonParse<Record<string, any> | null>(localStorage.getItem(key), null);
-          if (parsedItem && typeof parsedItem === "object" && parsedItem.slug) {
-            const item = parsedItem as Record<string, any>;
-            list.push({
-              id: item.id || `tourn-${item.slug}`,
-              slug: item.slug,
-              name: item.name || item.slug,
-              format: item.format || "bp",
-              createdAt: item.createdAt || new Date().toISOString(),
-              ownerId: item.ownerId,
-              ownerEmail: item.ownerEmail,
-              isLocal: true,
-            });
-          }
-        } catch (e) {
-          // ignore parsing error
-        }
+    let metas: Array<{ key: string; raw: string }> = [];
+    try {
+      metas = await readLocalTournamentMetas(getLocalStore());
+    } catch (error) {
+      console.warn("Could not read tournaments saved on this device:", error);
+    }
+    for (const { raw } of metas) {
+      const item = safeJsonParse<Record<string, any> | null>(raw, null);
+      if (item && typeof item === "object" && item.slug) {
+        list.push({
+          id: item.id || `tourn-${item.slug}`,
+          slug: item.slug,
+          name: item.name || item.slug,
+          format: item.format || "bp",
+          createdAt: item.createdAt || new Date().toISOString(),
+          ownerId: item.ownerId,
+          ownerEmail: item.ownerEmail,
+          isLocal: true,
+        });
       }
     }
 
     return list;
   }, []);
 
-  // Load local tournaments only; cloud access is always initiated by the user.
+  // Local data remains available offline; signed-in accounts load only authorized cloud tournaments.
   const loadTournaments = useCallback(async () => {
-    const localList = getLocalTournaments();
+    const localList = await getLocalTournaments();
     setTournaments(localList.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ));
     setLoadingTournaments(false);
   }, [getLocalTournaments]);
 
-  useEffect(() => {
-    loadTournaments();
-  }, [loadTournaments]);
-
-  const refreshCloudTournaments = async () => {
-    if (!db) {
-      setCloudError("Cloud access is not configured. Local tournaments are still available.");
+  const refreshCloudTournaments = useCallback(async () => {
+    if (!user) {
+      await loadTournaments();
       return;
     }
+    setLoadingTournaments(true);
     setIsRefreshing(true);
-    setCloudError("");
+    setCloudError(false);
     try {
-      const localSlugs = new Set(getLocalTournaments().map((item) => item.slug));
-      const snapshot = await getDocs(collection(db, "tournaments"));
-      const cloudItems = snapshot.docs.map((cloudDoc) => {
-        const data = cloudDoc.data();
-        const slug = typeof data.slug === "string" ? data.slug : cloudDoc.id.replace(/^tourn-/, "");
-        return {
-          id: cloudDoc.id,
-          slug,
-          name: typeof data.name === "string" ? data.name : slug,
-          format: (data.format as TournamentFormat) || "bp",
-          createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
-          ownerId: typeof data.ownerId === "string" ? data.ownerId : undefined,
-          ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : undefined,
-          isOwner: Boolean(user && (data.ownerId === user.uid || data.admins?.[user.uid] === true)),
-          isLocal: localSlugs.has(slug),
-        } satisfies StoredTournamentSummary;
+      const token = await user.getIdToken();
+      const response = await fetch("/api/tournaments", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
-      const localItems = getLocalTournaments();
+      const result = await response.json() as {
+        error?: string;
+        tournaments?: StoredTournamentSummary[];
+      };
+      if (!response.ok) throw new Error(result.error || "Could not load your tournaments.");
+
+      const localItems = await getLocalTournaments();
+      const cloudItems = (result.tournaments || []).map((item) => ({
+        ...item,
+        isOwner: isGlobalAdmin || item.accessRole === "admin",
+        isLocal: localItems.some((local) => local.slug === item.slug),
+      }));
+      const accessibleSlugs = new Set(cloudItems.map((item) => item.slug));
       const cloudBySlug = new Map<string, StoredTournamentSummary>(
         cloudItems.map((item) => [item.slug, item])
       );
-      localItems.forEach((item) => {
-        if (!cloudBySlug.has(item.slug)) cloudBySlug.set(item.slug, item);
-      });
+      localItems
+        .filter((item) => isGlobalAdmin || accessibleSlugs.has(item.slug))
+        .forEach((item) => {
+          if (!cloudBySlug.has(item.slug)) cloudBySlug.set(item.slug, item);
+        });
       setTournaments([...cloudBySlug.values()].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ));
     } catch (error) {
       console.error("Could not refresh cloud tournaments:", error);
-      setCloudError("Could not load the cloud tournament list. Check your connection and try again.");
+      setCloudError(true);
     } finally {
+      setLoadingTournaments(false);
       setIsRefreshing(false);
     }
-  };
+  }, [getLocalTournaments, isGlobalAdmin, loadTournaments, user]);
 
-  const downloadTournament = async (summary: StoredTournamentSummary) => {
-    if (!db || !summary.id) {
-      setCloudError("Cloud download is unavailable because Firebase is not configured.");
-      return;
-    }
-    if (summary.isLocal && !window.confirm("Replace this device's local copy with the cloud copy? This discards unsynced local changes.")) {
-      return;
-    }
+  useEffect(() => {
+    if (authLoading) return;
+    setTournaments([]);
+    setLoadingTournaments(true);
+    if (user) void refreshCloudTournaments();
+    else void loadTournaments();
+  }, [authLoading, loadTournaments, refreshCloudTournaments, user]);
 
-    setIsRefreshing(true);
+  const handleDelete = async (tournament: StoredTournamentSummary) => {
+    setPendingDelete(null);
+
+    // 1. Remove from this device (only this slug: "spring" must not delete "springfield")
     try {
-      const tournamentSnapshot = await getDoc(doc(db, "tournaments", summary.id));
-      if (!tournamentSnapshot.exists()) throw new Error("Tournament no longer exists in the cloud.");
-      const tournamentData = { ...tournamentSnapshot.data(), id: summary.id, slug: summary.slug };
-      const prefix = `crabbytab_t_${summary.slug}`;
-      localStorage.setItem(`${prefix}_meta`, JSON.stringify(tournamentData));
-      const collections: Array<[string, string]> = [
-        ["rounds", "rounds"],
-        ["teams", "teams"],
-        ["adjudicators", "adjudicators"],
-        ["venues", "venues"],
-        ["motions", "motions"],
-        ["breakCategories", "breaks"],
-        ["debates", "debates"],
-        ["ballots", "ballots"],
-        ["feedback", "feedback"],
-        ["institutions", "institutions"],
-      ];
-      for (const [collectionName, storageKey] of collections) {
-        const docs = await getDocs(collection(db, "tournaments", summary.id, collectionName));
-        localStorage.setItem(
-          `${prefix}_${storageKey}`,
-          JSON.stringify(docs.docs.map((document) => document.data()))
-        );
-      }
-      await loadTournaments();
-      router.push(`/${summary.slug}`);
-    } catch (error) {
-      console.error("Could not download tournament:", error);
-      window.alert(error instanceof Error ? error.message : "Could not download tournament.");
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleDelete = async (t: StoredTournamentSummary) => {
-    if (!confirm(`Are you sure you want to delete tournament "${t.name}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    // 1. Remove from localStorage
-    try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(`crabbytab_t_${t.slug}`)) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      await getLocalStore().removePrefix(tournamentKeyPrefix(tournament.slug));
     } catch (e) {
-      console.warn("LocalStorage delete error:", e);
+      console.warn("Could not delete the tournament from this device:", e);
     }
 
     // Refresh list
-    setTournaments((prev) => prev.filter((item) => item.slug !== t.slug));
+    setTournaments((prev) => prev.filter((item) => item.slug !== tournament.slug));
+    setDeletedName(tournament.name);
   };
 
   const filteredTournaments = tournaments.filter((t) => {
     if (filterTab === "mine") {
       if (!user) return false;
-      return (
-        t.ownerId === user.uid ||
-        (user.email && t.ownerEmail === user.email) ||
-        t.isOwner === true
-      );
+      if (isGlobalAdmin) return true;
+      return t.accessRole === "admin" || t.accessRole === "dataEntry";
     }
     return true;
   });
 
   const myTournamentsCount = user
-    ? tournaments.filter(
-        (t) =>
-          t.ownerId === user.uid ||
-          (user.email && t.ownerEmail === user.email) ||
-          t.isOwner === true
-      ).length
+    ? isGlobalAdmin
+      ? tournaments.length
+      : tournaments.filter((t) => t.accessRole === "admin" || t.accessRole === "dataEntry").length
     : 0;
 
+  const filterOptions = [
+    { value: "all" as const, label: t("setup.entry.home.filterAll", { count: tournaments.length }) },
+    ...(user ? [{ value: "mine" as const, label: t("setup.entry.home.filterAssigned", { count: myTournamentsCount }) }] : []),
+  ];
+
+  const emptyTitle = user && !isGlobalAdmin
+    ? t("setup.entry.home.emptyAssignedTitle")
+    : filterTab === "mine"
+      ? t("setup.entry.home.emptyMineTitle")
+      : t("setup.entry.home.emptyAllTitle");
+
   return (
-    <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
-      {/* Top Banner */}
-      <header className="bg-[#24292e] text-white border-b border-[#1b1f23] py-4 px-6 shadow-xs sticky top-0 z-30 max-sm:px-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3 max-md:flex-wrap">
-          <div className="flex min-w-0 items-center space-x-3">
-            <Image src="/crabbytab.svg" alt="" width={36} height={36} className="h-9 w-9 shrink-0" />
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">CrabbyTab</h1>
-              <p className="text-xs text-gray-400 max-sm:hidden">Serverless Parliamentary Debate Tabulation System</p>
-            </div>
+    <div className="themed flex min-h-screen flex-col bg-background text-fg">
+      {/* Top bar */}
+      <header className="sticky top-0 z-30 border-b border-border bg-surface px-6 py-2.5 max-sm:px-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <EntryBrandLink href="/" className="shrink-0" />
+            <p className="truncate text-xs text-fg-muted max-md:hidden">{t("setup.entry.home.tagline")}</p>
           </div>
 
-          <div className="flex items-center space-x-3 max-sm:space-x-1">
+          <div className="flex shrink-0 items-center gap-2 max-sm:gap-1">
             {authLoading ? null : user ? (
               <>
-                <div className="hidden sm:flex items-center space-x-1.5 text-xs text-gray-300 bg-gray-800/80 px-2.5 py-1 rounded border border-gray-700">
-                  <UserIcon className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="font-medium truncate max-w-[160px]">{user.email}</span>
-                </div>
-                <button
-                  onClick={() => logout()}
-                  className="text-xs text-gray-300 hover:text-white px-2 py-1 rounded transition hover:bg-gray-800"
+                <span
+                  className="hidden items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-fg-muted sm:inline-flex"
+                  title={t("setup.entry.signedInAs", { email: user.email || "" })}
                 >
-                  Sign out
-                </button>
+                  <UserIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="max-w-[160px] truncate font-medium">{user.email}</span>
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => logout()}>
+                  {t("setup.entry.signOut")}
+                </Button>
               </>
             ) : (
-              <Link href="/login" className="text-xs text-gray-300 hover:text-white px-2 py-1">
-                Sign in to upload
+              <Link href="/login" className={buttonClasses({ variant: "ghost", size: "sm" })}>
+                <span className="max-sm:hidden">{t("setup.entry.home.signInToUpload")}</span>
+                <span className="sm:hidden">{t("setup.entry.home.signIn")}</span>
               </Link>
             )}
-            <button
-              onClick={goCreate}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold shadow-xs transition max-sm:px-2"
-            >
-              <Plus className="w-4 h-4" />
-            <span className="max-sm:hidden">Create Tournament</span>
-            <span className="hidden max-sm:inline">Create</span>
-            </button>
+            <EntryPreferenceControls />
+            {isGlobalAdmin && (
+              <Button variant="primary" size="sm" onClick={goCreate}>
+                <Plus aria-hidden="true" />
+                <span className="max-sm:hidden">{t("setup.entry.home.createTournament")}</span>
+                <span className="hidden max-sm:inline">{t("setup.entry.home.createShort")}</span>
+              </Button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6 max-sm:px-4 max-sm:py-5">
-        {/* Welcome Card */}
-        <div className="bg-white rounded-lg border border-[#d0d7de] p-6 shadow-xs max-sm:p-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2 mb-1">
-                <h2 className="text-xl font-bold text-gray-900">
-                  Welcome to CrabbyTab Debate Tabulation
-                </h2>
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>Offline-first · saved on this device</span>
-                </span>
-              </div>
-              <p className="text-sm text-gray-600 max-w-2xl">
-                Your working copy stays on this device. Continue tabbing without a connection, then explicitly upload when you are ready.
-              </p>
-            </div>
-            <div className="flex items-center space-x-3 shrink-0">
-            </div>
-          </div>
-        </div>
+      {/* Main content */}
+      <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 px-6 py-8 max-sm:px-4 max-sm:py-5">
+        <Card className="p-6 max-sm:p-4">
+          <PageHeader
+            title={t("setup.entry.home.welcomeTitle")}
+            description={t("setup.entry.home.welcomeBody")}
+            meta={
+              <StatusPill tone="success" icon={<CheckCircle2 aria-hidden="true" />}>
+                {t("setup.entry.home.offlineBadge")}
+              </StatusPill>
+            }
+          />
+        </Card>
 
-        {/* Tournaments Header & Filters */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#d0d7de] pb-3">
-          <div className="flex items-center space-x-3">
-            <h3 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-              <Layers className="w-4 h-4 text-blue-600" />
-              <span>Tournaments</span>
-            </h3>
-
-            {/* Filter Tabs */}
-            <div className="flex items-center space-x-1 bg-gray-100 p-0.5 rounded-md border border-gray-200">
-              <button
-                onClick={() => setFilterTab("all")}
-                className={`px-3 py-1 text-xs font-semibold rounded transition ${
-                  filterTab === "all"
-                    ? "bg-white text-gray-900 shadow-2xs font-bold"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                All ({tournaments.length})
-              </button>
-              {user && (
-                <button
-                  onClick={() => setFilterTab("mine")}
-                  className={`px-3 py-1 text-xs font-semibold rounded transition ${
-                    filterTab === "mine"
-                      ? "bg-white text-blue-700 shadow-2xs font-bold"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  My Tournaments ({myTournamentsCount})
-                </button>
-              )}
+        <section aria-labelledby="home-tournaments-heading" className="space-y-4">
+          {/* Tournaments header & filters */}
+          <div className="flex flex-col justify-between gap-3 border-b border-border pb-3 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 id="home-tournaments-heading" className="flex items-center gap-2 text-[15px] font-semibold text-fg">
+                <Layers className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
+                {t("setup.entry.home.tournamentsHeading")}
+              </h2>
+              <SegmentedControl
+                label={t("setup.entry.home.filterLabel")}
+                size="sm"
+                value={filterTab}
+                options={filterOptions}
+                onChange={setFilterTab}
+              />
             </div>
-            {cloudError && (
-              <p role="alert" className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
-                {cloudError}
-              </p>
-            )}
-          </div>
 
-          <div className="flex items-center space-x-2">
-            <button
+            <Button
+              size="sm"
               onClick={refreshCloudTournaments}
-              disabled={isRefreshing}
-              className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition disabled:opacity-50"
-              title="Explicitly refresh the cloud list; this does not upload or change local tournaments"
+              loading={isRefreshing}
+              loadingText={t("setup.common.loading")}
+              title={t("setup.entry.home.refreshHelp")}
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-gray-500 ${isRefreshing ? "animate-spin text-blue-600" : ""}`} />
-              <span>{isRefreshing ? "Loading..." : "Refresh Cloud List"}</span>
-            </button>
+              <RefreshCw aria-hidden="true" />
+              {t("setup.entry.home.refreshCloud")}
+            </Button>
           </div>
-        </div>
 
-        {/* Tournaments Grid */}
-        {loadingTournaments ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="bg-white rounded-lg border border-gray-200 p-5 animate-pulse space-y-4"
-              >
-                <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-                <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                <div className="h-8 bg-gray-100 rounded w-full pt-4"></div>
-              </div>
-            ))}
-          </div>
-        ) : filteredTournaments.length === 0 ? (
-          <div className="bg-white rounded-lg border border-dashed border-gray-300 p-12 text-center">
-            <Layers className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <h4 className="text-base font-bold text-gray-800 mb-1">
-              {filterTab === "mine" ? "No tournaments created by you yet" : "No tournaments available"}
-            </h4>
-            <p className="text-xs text-gray-500 max-w-sm mx-auto mb-4">
-              {filterTab === "mine"
-                ? "Create a new debate tournament to get started."
-                : "Create a tournament to begin tabulating debates."}
+          {cloudError && (
+            <Alert tone="warning" role="alert">
+              {t("setup.entry.home.cloudError")}
+            </Alert>
+          )}
+          {deletedName && (
+            <p role="status" className="text-[13px] text-fg-muted">
+              {t("setup.entry.home.deleted", { name: deletedName })}
             </p>
-            {user ? (
-              <button
-                onClick={goCreate}
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create Tournament</span>
-              </button>
-            ) : (
-              <Link
-                href="/login"
-                className="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold transition shadow-xs"
-              >
-                <span>Sign in to create tournament</span>
-              </Link>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredTournaments.map((t) => {
-              const isMine =
-                Boolean(user && (t.ownerId === user.uid || (user.email && t.ownerEmail === user.email) || t.isOwner));
-              return (
-                <div
-                  key={t.slug}
-                  className={`bg-white rounded-lg border transition flex flex-col justify-between p-5 hover:shadow-md ${
-                    isMine ? "border-blue-300 hover:border-blue-500" : "border-[#d0d7de] hover:border-gray-400"
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 uppercase tracking-wide">
-                          {t.format === "bp" ? "BP (4-Team)" : "UADC / 2-Team"}
-                        </span>
-                        {isMine && (
-                          <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <Shield className="w-3 h-3 text-emerald-600" />
-                            <span>Director</span>
-                          </span>
-                        )}
+          )}
+
+          {/* Tournaments grid */}
+          {loadingTournaments ? (
+            <div>
+              <p role="status" className="sr-only">{t("setup.entry.home.loadingTournaments")}</p>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="space-y-4 p-5">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-6 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                    <Skeleton className="h-8 w-full" />
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ) : filteredTournaments.length === 0 ? (
+            <EmptyState
+              className="bg-surface"
+              icon={<Layers aria-hidden="true" />}
+              title={emptyTitle}
+              description={isGlobalAdmin ? t("setup.entry.home.emptyAdminHelp") : t("setup.entry.home.emptyStaffHelp")}
+              action={
+                isGlobalAdmin ? (
+                  <Button variant="primary" onClick={goCreate}>
+                    <Plus aria-hidden="true" />
+                    {t("setup.entry.home.createTournament")}
+                  </Button>
+                ) : !user ? (
+                  <Link href="/login" className={buttonClasses({ variant: "primary" })}>
+                    {t("setup.entry.home.signIn")}
+                  </Link>
+                ) : null
+              }
+            />
+          ) : (
+            <ul className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {filteredTournaments.map((item) => {
+                const isMine = Boolean(user && (isGlobalAdmin || item.isOwner));
+                return (
+                  <li key={item.slug}>
+                    <Card
+                      className={cn(
+                        "flex h-full flex-col justify-between p-5 transition-colors",
+                        isMine ? "border-accent/40 hover:border-accent" : "hover:border-border-strong"
+                      )}
+                    >
+                      <div>
+                        <div className="mb-2.5 flex items-start justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone="accent">
+                              {item.format === "bp"
+                                ? t("setup.entry.home.formatBp")
+                                : item.format === "poly" ? t("format.poly") : t("setup.entry.home.formatTwoTeam")}
+                            </Badge>
+                            {isMine && (
+                              <StatusPill tone="success" icon={<Shield aria-hidden="true" />}>
+                                {t("setup.entry.home.director")}
+                              </StatusPill>
+                            )}
+                          </div>
+                          <span className="truncate font-mono text-xs text-fg-subtle">/{item.slug}</span>
+                        </div>
+
+                        <h3 className="mb-1 line-clamp-2 text-base font-semibold leading-snug text-fg">{item.name}</h3>
+
+                        <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px] text-fg-muted">
+                          <Clock className="h-3 w-3 text-fg-subtle" aria-hidden="true" />
+                          <span>{t("setup.entry.home.createdOn", { date: formatDateTime(item.createdAt, { dateStyle: "medium" }) })}</span>
+                          {item.ownerEmail && (
+                            <>
+                              <span aria-hidden="true">&bull;</span>
+                              <span className="max-w-[160px] truncate">{item.ownerEmail}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-400 font-mono">/{t.slug}</span>
-                    </div>
 
-                    <h4 className="text-base font-bold text-gray-900 mb-1 line-clamp-2 leading-snug">
-                      {t.name}
-                    </h4>
+                      <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+                        <div className="flex items-center gap-1">
+                          {item.isLocal && (
+                            <Link
+                              href={`/${item.slug}/public`}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-sm text-xs font-medium text-fg-muted hover:text-fg",
+                                focusRing
+                              )}
+                              aria-label={t("setup.entry.home.publicTabLabel", { name: item.name })}
+                            >
+                              <span>{t("setup.entry.home.publicTab")}</span>
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            </Link>
+                          )}
 
-                    <div className="text-[11px] text-gray-500 mb-4 flex items-center space-x-1.5">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                      <span>
-                        {new Date(t.createdAt).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                      {t.ownerEmail && (
-                        <>
-                          <span>&bull;</span>
-                          <span className="truncate max-w-[120px]">{t.ownerEmail}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                          {item.isLocal && (
+                            <IconButton
+                              size="sm"
+                              className="hover:text-danger"
+                              label={t("setup.entry.home.deleteLabel", { name: item.name })}
+                              icon={<Trash2 aria-hidden="true" />}
+                              onClick={() => setPendingDelete(item)}
+                            />
+                          )}
+                        </div>
 
-                  <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      {t.isLocal && (
-                        <Link
-                          href={`/${t.slug}/public`}
-                          className="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center space-x-1"
-                          title="View Public Tab"
-                        >
-                          <span>Public Tab</span>
-                          <ExternalLink className="w-3 h-3" />
+                        <Link href={`/${item.slug}`} className={buttonClasses({ variant: "secondary", size: "sm" })}>
+                          {item.isLocal ? t("setup.entry.home.enterTabRoom") : t("setup.entry.home.openTournament")}
+                          <ArrowRight aria-hidden="true" />
                         </Link>
-                      )}
-
-                      {t.isLocal && (
-                        <button
-                          onClick={() => handleDelete(t)}
-                          className="p-1 text-gray-400 hover:text-red-600 transition rounded"
-                          title="Delete Tournament"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    {t.isLocal ? (
-                      <Link
-                        href={`/${t.slug}`}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition"
-                      >
-                        <span>Enter Tab Room</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => downloadTournament(t)}
-                        disabled={isRefreshing}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-xs transition disabled:opacity-50"
-                      >
-                        <span>Download to Device</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                      </div>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-[#d0d7de] py-4 px-6 text-center text-xs text-gray-500">
-        CrabbyTab &bull; Offline-first tournament tabulation
+      <footer className="border-t border-border bg-surface px-6 py-4 text-center text-xs text-fg-muted">
+        {t("setup.entry.home.footer")}
       </footer>
+
+      {pendingDelete && (
+        <ConfirmActionDialog
+          variant="danger"
+          title={t("setup.entry.home.deleteTitle")}
+          description={t("setup.entry.home.deleteBody", { name: pendingDelete.name })}
+          confirmLabel={t("setup.entry.home.deleteConfirm")}
+          onConfirm={() => void handleDelete(pendingDelete)}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }
+

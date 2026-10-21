@@ -4,47 +4,227 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import confetti from "canvas-confetti";
+import { Award, Sparkles, Plus, ArrowRight, CheckCircle2, Pencil, Trash2, X } from "lucide-react";
+import { BreakCategory, BreakQualificationRule, BreakTeamOverride } from "@/types";
+import { isPolyFormat, teamsInDebateFor } from "@/lib/debateSides";
+import { isGeneratedBreakStale, type BreakCategoryResult, type BreakExclusionReason } from "@/lib/breakqual/calculator";
 import {
-  Award,
-  Sparkles,
-  Trophy,
-  Plus,
-  ArrowRight,
-  CheckCircle2,
-} from "lucide-react";
-import { BreakCategory } from "@/types";
+  getBreakCategoryDeletionBlocker,
+  upsertBreakCategory,
+  validateBreakCategoryDraft,
+  withTeamOverride,
+  type BreakCategoryDraft,
+} from "@/features/tournament/application/breaks";
+import { eliminationByeCount } from "@/lib/draw/elimination";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { Dialog } from "@/components/ui/Dialog";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Button, IconButton, buttonClasses } from "@/components/ui/Button";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Checkbox, Input, Select } from "@/components/ui/Field";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { StatusPill, type Tone } from "@/components/ui/Badge";
+import { TabPanel, Tabs, type TabItem } from "@/components/ui/Tabs";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { SpeakerCategoryEligibilityPanel } from "@/features/tournament/components/SpeakerCategoryEligibilityPanel";
+
+const OVERRIDE_OPTIONS: BreakTeamOverride[] = [
+  "include",
+  "ineligible",
+  "withdrawn",
+  "different_break",
+  "disqualified",
+  "lost_coin_toss",
+];
+
+/** Labels for the fixed override and exclusion values (the calculator's English labels, translated). */
+const OVERRIDE_KEYS: Record<BreakTeamOverride, MessageKey> = {
+  include: "results.break.override.include",
+  ineligible: "results.break.override.ineligible",
+  withdrawn: "results.break.override.withdrawn",
+  different_break: "results.break.override.differentBreak",
+  disqualified: "results.break.override.disqualified",
+  lost_coin_toss: "results.break.override.lostCoinToss",
+};
+
+const EXCLUSION_KEYS: Record<BreakExclusionReason, MessageKey> = {
+  ineligible: OVERRIDE_KEYS.ineligible,
+  withdrawn: OVERRIDE_KEYS.withdrawn,
+  different_break: OVERRIDE_KEYS.different_break,
+  disqualified: OVERRIDE_KEYS.disqualified,
+  lost_coin_toss: OVERRIDE_KEYS.lost_coin_toss,
+  capped: "results.break.exclusionCapped",
+};
+
+const QUALIFICATION_RULE_KEYS: Record<BreakQualificationRule, MessageKey> = {
+  standard: "results.break.rule.standard",
+  aida_1996: "results.break.rule.aida1996",
+  aida_2016_australs: "results.break.rule.aida2016Australs",
+  aida_2016_easters: "results.break.rule.aida2016Easters",
+  aida_2019_australs_open: "results.break.rule.aida2019AustralsOpen",
+};
+
+const EDITOR_FORM_ID = "break-category-editor";
+/** Sticky headers need the table to scroll inside its own frame. */
+const TABLE_FRAME = "max-h-[calc(100vh-16rem)] rounded-none border-0";
+
+const EMPTY_DRAFT: BreakCategoryDraft = {
+  name: "",
+  breakSize: 8,
+  reserveSize: 2,
+  priority: 5,
+  isGeneral: false,
+  maxPerInstitution: 0,
+  qualificationRule: "standard",
+  limit: 0,
+};
+
+function draftFromCategory(category: BreakCategory): BreakCategoryDraft {
+  return {
+    name: category.name,
+    breakSize: category.breakSize,
+    reserveSize: category.reserveSize,
+    priority: category.priority,
+    isGeneral: category.isGeneral,
+    maxPerInstitution: category.maxPerInstitution ?? 0,
+    qualificationRule: category.qualificationRule ?? "standard",
+    limit: category.limit ?? 0,
+  };
+}
+
+type BreakRowStatus =
+  | { kind: "breaking"; seed: number; breakRank: number; tied: boolean; generated: boolean; manual: boolean }
+  | { kind: "reserve"; index: number | undefined }
+  | { kind: "tied"; cutoff: "break" | "reserve"; places: number; teams: number }
+  | { kind: "excluded"; reason: BreakExclusionReason };
+
+interface BreakRow {
+  teamId: string;
+  teamName: string;
+  institutionName?: string;
+  rank: number;
+  points: number;
+  totalSpeakerScore: number;
+  status: BreakRowStatus;
+}
+
+function buildRows(result: BreakCategoryResult): BreakRow[] {
+  const generatedIds = new Set(result.category.generatedBreak?.breakingTeamIds ?? []);
+  const rows: BreakRow[] = [
+    ...result.breakingTeams.map((entry) => ({
+      teamId: entry.team.id,
+      teamName: entry.team.name,
+      institutionName: entry.team.institutionName,
+      rank: entry.rank,
+      points: entry.standing.points,
+      totalSpeakerScore: entry.standing.totalSpeakerScore,
+      status: {
+        kind: "breaking" as const,
+        seed: entry.seed,
+        breakRank: entry.breakRank ?? entry.seed,
+        tied: result.breakingTeams.some(
+          (other) => other !== entry && (other.breakRank ?? other.seed) === (entry.breakRank ?? entry.seed)
+        ),
+        generated: generatedIds.has(entry.team.id),
+        manual: Boolean(entry.manuallyIncluded),
+      },
+    })),
+    ...result.reserveTeams.map((entry) => ({
+      teamId: entry.team.id,
+      teamName: entry.team.name,
+      institutionName: entry.team.institutionName,
+      rank: entry.rank,
+      points: entry.standing.points,
+      totalSpeakerScore: entry.standing.totalSpeakerScore,
+      status: { kind: "reserve" as const, index: entry.reserveIndex },
+    })),
+    // Teams tied across a cutoff sit between the clear places and the rest until resolved.
+    ...result.cutoffTies.flatMap((tie) =>
+      tie.teams.map((entry) => ({
+        teamId: entry.team.id,
+        teamName: entry.team.name,
+        institutionName: entry.team.institutionName,
+        rank: entry.rank,
+        points: entry.standing.points,
+        totalSpeakerScore: entry.standing.totalSpeakerScore,
+        status: { kind: "tied" as const, cutoff: tie.cutoff, places: tie.places, teams: tie.teams.length },
+      }))
+    ),
+    ...result.excludedTeams.map((entry) => ({
+      teamId: entry.team.id,
+      teamName: entry.team.name,
+      institutionName: entry.team.institutionName,
+      rank: entry.rank,
+      points: entry.standing.points,
+      totalSpeakerScore: entry.standing.totalSpeakerScore,
+      status: { kind: "excluded" as const, reason: entry.reason as BreakExclusionReason },
+    })),
+  ];
+  return rows;
+}
+
+const STATUS_TONES: Record<BreakRowStatus["kind"], Tone> = {
+  breaking: "success",
+  reserve: "info",
+  tied: "danger",
+  excluded: "neutral",
+};
 
 export default function BreakPage() {
   const {
     tournament,
     teams,
     rounds,
+    teamStandings,
     setActiveRound,
     breakCategories,
     breakResults,
     saveBreakCategories,
     generateBreak,
+    isOwnerOrAdmin,
   } = useTournament();
+  const { t, plural, formatNumber, formatDecimal, formatList } = useI18n();
 
+  const teamsInDebate = teamsInDebateFor(tournament);
+  // N teams per room: any break size of at least 1 (elimination rounds are drawn by hand).
+  const minimumBreakSize = isPolyFormat(tournament?.format) ? 1 : teamsInDebate;
   const [activeCategorySlug, setActiveCategorySlug] = useState<string>("open");
-  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatBreakSize, setNewCatBreakSize] = useState(8);
-  const [newCatReserveSize, setNewCatReserveSize] = useState(2);
-  const [newCatIsGeneral, setNewCatIsGeneral] = useState(false);
-  const [newCatPriority, setNewCatPriority] = useState(5);
+  const [editor, setEditor] = useState<{ editingId?: string; draft: BreakCategoryDraft } | null>(null);
+  const [editorError, setEditorError] = useState("");
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<BreakCategory | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isGeneratingBreak, setIsGeneratingBreak] = useState(false);
   const [breakGenerationError, setBreakGenerationError] = useState("");
-
-  const breakHasBeenGenerated = teams.some((team) => team.breakCategoryIds !== undefined);
-  const eliminatedTeamsCount = teams.filter((team) => team.breakStatus === "eliminated").length;
+  const [overrideTeamId, setOverrideTeamId] = useState("");
+  const [overrideValue, setOverrideValue] = useState<BreakTeamOverride>("include");
+  const [overrideError, setOverrideError] = useState("");
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
 
   const selectedResult =
     breakResults.find((r) => r.category.slug === activeCategorySlug) ||
     breakResults[0];
+  const selectedCategory = selectedResult?.category;
+  const categoryHasBeenGenerated = Boolean(
+    selectedCategory &&
+      (selectedCategory.generatedBreak || teams.some((team) => team.breakCategoryIds?.includes(selectedCategory.id)))
+  );
+  const breakIsStale = selectedResult ? isGeneratedBreakStale(selectedResult) : false;
+  const cutoffTies = selectedResult?.cutoffTies ?? [];
+  const tooFewEligible = selectedResult?.tooFewEligible;
+  const generationBlocked = cutoffTies.length > 0 || Boolean(tooFewEligible);
+  const eliminatedTeamsCount = teams.filter((team) => team.breakStatus === "eliminated").length;
   const categoryFirstRound = selectedResult && rounds
     .filter((round) => round.stage === "elimination" && round.breakCategoryIds?.includes(selectedResult.category.id))
     .sort((a, b) => a.seq - b.seq)[0];
+  const rows = selectedResult ? buildRows(selectedResult) : [];
+  const overrides = selectedCategory?.teamOverrides ?? {};
+  const byeCount = selectedResult
+    ? eliminationByeCount(selectedResult.breakingTeams.length, tournament?.format ?? "bp")
+    : 0;
 
   const triggerCelebration = () => {
     confetti({
@@ -54,26 +234,77 @@ export default function BreakPage() {
     });
   };
 
-  const handleAddCategory = async (e: React.FormEvent) => {
+  const openEditor = (category?: BreakCategory) => {
+    setEditorError("");
+    setEditor(category
+      ? { editingId: category.id, draft: draftFromCategory(category) }
+      : { draft: { ...EMPTY_DRAFT, breakSize: Math.max(EMPTY_DRAFT.breakSize, teamsInDebate) } });
+  };
+
+  const updateDraft = (changes: Partial<BreakCategoryDraft>) => {
+    setEditor((current) => (current ? { ...current, draft: { ...current.draft, ...changes } } : current));
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCatName.trim()) return;
+    if (!editor || isSavingCategory) return;
+    const error = validateBreakCategoryDraft(editor.draft, breakCategories, teamsInDebate, editor.editingId);
+    if (error) {
+      setEditorError(error);
+      return;
+    }
+    setIsSavingCategory(true);
+    try {
+      const updated = upsertBreakCategory(breakCategories, editor.draft, tournament?.id || "", editor.editingId);
+      await saveBreakCategories(updated);
+      const saved = editor.editingId
+        ? updated.find((category) => category.id === editor.editingId)
+        : updated[updated.length - 1];
+      if (saved) setActiveCategorySlug(saved.slug);
+      setEditor(null);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : t("results.break.saveCategoryFailed"));
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
 
-    const newCat: BreakCategory = {
-      id: `bc-${Date.now()}`,
-      tournamentId: tournament?.id || "",
-      name: newCatName.trim(),
-      slug: newCatName.toLowerCase().replace(/[^a-z0-9]/g, "-"),
-      seq: breakCategories.length + 1,
-      breakSize: newCatBreakSize,
-      reserveSize: newCatReserveSize,
-      isGeneral: newCatIsGeneral,
-      priority: newCatPriority,
-    };
+  const requestDelete = (category: BreakCategory) => {
+    setDeleteError(getBreakCategoryDeletionBlocker(category, teams, rounds));
+    setPendingDelete(category);
+  };
 
-    const updated = [...breakCategories, newCat];
-    await saveBreakCategories(updated);
-    setShowAddCategoryModal(false);
-    setNewCatName("");
+  const handleDeleteCategory = async () => {
+    if (!pendingDelete || isDeleting) return;
+    const blocker = getBreakCategoryDeletionBlocker(pendingDelete, teams, rounds);
+    if (blocker) {
+      setDeleteError(blocker);
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      await saveBreakCategories(breakCategories.filter((category) => category.id !== pendingDelete.id));
+      setPendingDelete(null);
+      setDeleteError("");
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : t("results.break.deleteCategoryFailed"));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const saveOverride = async (teamId: string, override: BreakTeamOverride | null) => {
+    if (!selectedCategory || isSavingOverride) return;
+    setIsSavingOverride(true);
+    setOverrideError("");
+    try {
+      await saveBreakCategories(withTeamOverride(breakCategories, selectedCategory.id, teamId, override));
+      setOverrideTeamId("");
+    } catch (error) {
+      setOverrideError(error instanceof Error ? error.message : t("results.break.overrideFailed"));
+    } finally {
+      setIsSavingOverride(false);
+    }
   };
 
   const handleGenerateBreak = async () => {
@@ -83,312 +314,485 @@ export default function BreakPage() {
     try {
       await generateBreak(selectedResult.category.id);
     } catch (error) {
-      setBreakGenerationError(error instanceof Error ? error.message : "The break could not be saved. Please try again.");
+      setBreakGenerationError(error instanceof Error ? error.message : t("results.break.generateFailed"));
     } finally {
       setIsGeneratingBreak(false);
     }
   };
 
+  const teamNameById = new Map(teams.map((team) => [team.id, team.name]));
+  const overrideEntries = Object.entries(overrides).sort(([left], [right]) =>
+    (teamNameById.get(left) ?? left).localeCompare(teamNameById.get(right) ?? right)
+  );
+  const rankedTeams = teamStandings.length > 0
+    ? teamStandings.map((standing) => ({
+        id: standing.teamId,
+        label: t("results.break.rankedTeamOption", { rank: standing.rank, name: standing.teamName }),
+      }))
+    : teams.map((team) => ({ id: team.id, label: team.name }));
+
+  const seedLabel = (status: BreakRowStatus) =>
+    status.kind === "breaking"
+      ? // Tied teams share a break rank, shown "=2" as on a printed tab.
+        `${status.tied ? "=" : ""}${formatNumber(status.breakRank)}`
+      : status.kind === "reserve"
+        ? t("results.break.reserveSeed", { index: status.index ?? "?" })
+        : status.kind === "tied"
+          ? "?"
+          : "—";
+
+  const statusLabel = (status: BreakRowStatus) => {
+    switch (status.kind) {
+      case "breaking":
+        return status.generated
+          ? t(status.manual ? "results.break.statusBreakingManual" : "results.break.statusBreaking")
+          : t(status.manual ? "results.break.statusQualifiesManual" : "results.break.statusQualifies");
+      case "reserve":
+        return t("results.break.statusReserve", { index: status.index ?? "?" });
+      case "tied":
+        return plural(
+          status.cutoff === "break" ? "results.break.statusTiedBreak" : "results.break.statusTiedReserve",
+          status.places,
+          { teams: status.teams }
+        );
+      case "excluded":
+        return t(EXCLUSION_KEYS[status.reason]);
+    }
+  };
+
+  const categoryMeta = selectedCategory
+    ? [
+        t(selectedCategory.isGeneral ? "results.break.metaGeneral" : "results.break.metaEligibleOnly"),
+        t("results.break.metaPriority", { priority: selectedCategory.priority }),
+        t("results.break.metaBreakSize", { size: selectedCategory.breakSize }),
+        t("results.break.metaReserves", { count: selectedCategory.reserveSize }),
+        ...(byeCount > 0 ? [plural("results.break.metaByes", byeCount)] : []),
+      ].join(" · ")
+    : "";
+
+  const categoryTabs: TabItem<string>[] = breakResults.map((res) => ({
+    value: res.category.slug,
+    label: (
+      <>
+        {res.category.name}
+        <span className="text-xs font-normal text-fg-muted">
+          {t("results.break.topN", { count: res.category.breakSize })}
+        </span>
+      </>
+    ),
+  }));
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Award className="w-6 h-6 text-purple-600" />
-            <span>Break Qualification & Out-Rounds</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Calculate breaking teams across Open, ESL, and Novice categories with priority resolution.
-          </p>
-        </div>
+      <PageHeader
+        title={t("results.break.title")}
+        description={t("results.break.description")}
+        actions={
+          <>
+            <Link href={`/${tournament?.slug}/break/eligibility`} className={buttonClasses({ variant: "ghost" })}>
+              {t("results.break.eligibilityGrid.link")}
+            </Link>
+            <Link href={`/${tournament?.slug}/break/adjudicators`} className={buttonClasses({ variant: "ghost" })}>
+              {t("results.break.breakingAdjudicators.link")}
+            </Link>
+            <Button variant="ghost" onClick={triggerCelebration}>
+              <Sparkles aria-hidden="true" />
+              {t("results.break.celebrate")}
+            </Button>
+            {/* Staff with standings.view see the break; changing it stays with administrators. */}
+            {isOwnerOrAdmin && (
+              <Button variant="secondary" onClick={() => openEditor()}>
+                <Plus aria-hidden="true" />
+                {t("results.break.addCategory")}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={triggerCelebration}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-bold shadow-xs transition"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Celebrate Break</span>
-          </button>
+      {selectedResult && selectedCategory ? (
+        <>
+          <Tabs
+            id="break-categories"
+            items={categoryTabs}
+            value={selectedCategory.slug}
+            onValueChange={setActiveCategorySlug}
+            ariaLabel={t("results.break.categoriesLabel")}
+          />
 
-          <button
-            onClick={() => setShowAddCategoryModal(true)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded text-xs font-semibold border border-gray-300 transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Category</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Category Tabs */}
-      <div className="flex items-center space-x-2 border-b border-[#d0d7de] pb-3 overflow-x-auto">
-        {breakResults.map((res) => (
-          <button
-            key={res.category.id}
-            onClick={() => setActiveCategorySlug(res.category.slug)}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-md transition flex items-center space-x-2 ${
-              selectedResult?.category.id === res.category.id
-                ? "bg-purple-600 text-white shadow-xs"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <span>{res.category.name}</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                selectedResult?.category.id === res.category.id
-                  ? "bg-purple-800 text-purple-200"
-                  : "bg-gray-200 text-gray-700"
-              }`}
-            >
-              Top {res.category.breakSize}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {/* Breaking Teams List */}
-      {selectedResult ? (
-        <div className="space-y-6">
-          <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-            <div className="p-4 bg-[#f6f8fa] border-b border-[#d0d7de] flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  {selectedResult.category.name} Breaking Teams (
-                  {selectedResult.breakingTeams.length} teams)
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Priority: {selectedResult.category.priority} &bull; Break Size:{" "}
-                  {selectedResult.category.breakSize} &bull; Reserves:{" "}
-                  {selectedResult.category.reserveSize}
-                </p>
-              </div>
-
-              <div className="flex flex-col items-end gap-1.5">
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={handleGenerateBreak}
-                    disabled={isGeneratingBreak || breakResults.length === 0}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{isGeneratingBreak ? "Generating..." : breakHasBeenGenerated ? "Regenerate Break" : "Generate Break"}</span>
-                  </button>
-                  {breakHasBeenGenerated && categoryFirstRound && (
-                    <Link
-                      href={`/${tournament?.slug}/draw`}
-                      onClick={() => setActiveRound(categoryFirstRound)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold shadow-xs transition"
+          <TabPanel id="break-categories" value={selectedCategory.slug} className="space-y-6">
+            <Card className="overflow-hidden">
+              <CardHeader
+                title={plural("results.break.breakingTeamsTitle", selectedResult.breakingTeams.length, {
+                  name: selectedCategory.name,
+                })}
+                description={categoryMeta}
+                actions={isOwnerOrAdmin &&
+                  <>
+                    <Button size="sm" variant="ghost" onClick={() => openEditor(selectedCategory)}>
+                      <Pencil aria-hidden="true" />
+                      {t("results.break.edit")}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-danger hover:text-danger" onClick={() => requestDelete(selectedCategory)}>
+                      <Trash2 aria-hidden="true" />
+                      {t("results.break.delete")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={handleGenerateBreak}
+                      disabled={breakResults.length === 0 || generationBlocked}
+                      loading={isGeneratingBreak}
+                      loadingText={t("results.break.generating")}
+                      title={
+                        tooFewEligible
+                          ? t("results.break.tooFewEligibleTitle")
+                          : cutoffTies.length > 0
+                            ? t("results.break.resolveTieFirst")
+                            : undefined
+                      }
                     >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                      <span>Open {categoryFirstRound.name}</span>
-                    </Link>
+                      <CheckCircle2 aria-hidden="true" />
+                      {t(categoryHasBeenGenerated ? "results.break.regenerate" : "results.break.generate")}
+                    </Button>
+                    {categoryHasBeenGenerated && categoryFirstRound && (
+                      <Link
+                        href={`/${tournament?.slug}/draw`}
+                        onClick={() => setActiveRound(categoryFirstRound)}
+                        className={buttonClasses({ variant: "secondary", size: "sm" })}
+                      >
+                        <ArrowRight className="rtl:-scale-x-100" aria-hidden="true" />
+                        {t("results.break.openRound", { round: categoryFirstRound.name })}
+                      </Link>
+                    )}
+                  </>
+                }
+              />
+
+              {(breakGenerationError || categoryHasBeenGenerated) && (
+                <div className="space-y-1 border-b border-border px-4 py-2 text-xs text-fg-muted">
+                  {breakGenerationError && <p role="alert" className="text-danger">{breakGenerationError}</p>}
+                  {categoryHasBeenGenerated && (
+                    <p>
+                      {plural(
+                        "results.break.generatedSummary",
+                        selectedCategory.generatedBreak?.breakingTeamIds.length ?? selectedResult.breakingTeams.length
+                      )}{" "}
+                      {plural("results.break.eliminatedOverall", eliminatedTeamsCount)}
+                    </p>
                   )}
                 </div>
-                {breakGenerationError && <span role="alert" className="text-[11px] text-red-600">{breakGenerationError}</span>}
-                {breakHasBeenGenerated && (
-                  <span className="text-[11px] text-gray-500">
-                    {selectedResult.breakingTeams.length} qualifiers for this category; {eliminatedTeamsCount} teams eliminated overall
-                  </span>
-                )}
-              </div>
-            </div>
+              )}
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left tabby-table">
-                <thead>
-                  <tr>
-                    <th className="w-16 text-center">Seed</th>
-                    <th className="w-16 text-center">Tab Rank</th>
-                    <th>Team</th>
-                    <th>Institution</th>
-                    <th className="text-right">Points</th>
-                    <th className="text-right">Total Speaks</th>
-                    <th className="text-center w-24">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedResult.breakingTeams.map((entry) => (
-                    <tr key={entry.team.id} className="hover:bg-purple-50/40">
-                      <td className="text-center font-mono font-bold text-sm text-purple-700">
-                        {entry.seed}
-                      </td>
-                      <td className="text-center font-mono text-xs text-gray-600">
-                        #{entry.rank}
-                      </td>
-                      <td className="font-bold text-gray-900 text-xs">
-                        {entry.team.name}
-                      </td>
-                      <td className="text-xs text-gray-600">
-                        {entry.team.institutionName || "—"}
-                      </td>
-                      <td className="text-right font-mono font-bold text-xs text-blue-600">
-                        {entry.standing.points} pts
-                      </td>
-                      <td className="text-right font-mono font-semibold text-xs text-gray-800">
-                        {entry.standing.totalSpeakerScore.toFixed(1)}
-                      </td>
-                      <td className="text-center">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 uppercase">
-                          Breaking
-                        </span>
-                      </td>
-                    </tr>
+              <SpeakerCategoryEligibilityPanel category={selectedCategory} />
+
+              {(generationBlocked || breakIsStale) && (
+                <div className="space-y-2 border-b border-border p-4">
+                  {tooFewEligible && (
+                    <Alert role="alert" tone="danger" title={t("results.break.tooFewEligibleTitle")}>
+                      {t("results.break.tooFewEligibleBody", {
+                        eligible: tooFewEligible.eligible,
+                        breakSize: tooFewEligible.breakSize,
+                      })}
+                    </Alert>
+                  )}
+                  {cutoffTies.map((tie) => (
+                    <Alert
+                      key={tie.cutoff}
+                      role="alert"
+                      tone="danger"
+                      title={plural(
+                        tie.cutoff === "break" ? "results.break.tieBreakTitle" : "results.break.tieReserveTitle",
+                        tie.places,
+                        { teams: tie.teams.length, rank: tie.teams[0]?.rank ?? 0 }
+                      )}
+                    >
+                      {plural("results.break.tieBody", tie.places, {
+                        names: formatList(tie.teams.map((entry) => entry.team.name)),
+                        include: t(OVERRIDE_KEYS.include),
+                        lostCoinToss: t(OVERRIDE_KEYS.lost_coin_toss),
+                      })}
+                    </Alert>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                  {breakIsStale && (
+                    <Alert role="status" tone="warning">
+                      {t("results.break.staleNotice")}
+                    </Alert>
+                  )}
+                </div>
+              )}
 
-          {/* Reserves Table */}
-          {selectedResult.reserveTeams.length > 0 && (
-            <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b border-[#d0d7de]">
-                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide">
-                  Reserve Teams ({selectedResult.reserveTeams.length})
-                </h4>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left tabby-table">
-                  <thead>
-                    <tr>
-                      <th className="w-16 text-center">Reserve</th>
-                      <th className="w-16 text-center">Tab Rank</th>
-                      <th>Team</th>
-                      <th>Institution</th>
-                      <th className="text-right">Points</th>
-                      <th className="text-right">Total Speaks</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedResult.reserveTeams.map((entry) => (
-                      <tr key={entry.team.id} className="hover:bg-gray-50">
-                        <td className="text-center font-mono font-bold text-xs text-amber-700">
-                          R{entry.reserveIndex}
-                        </td>
-                        <td className="text-center font-mono text-xs text-gray-600">
-                          #{entry.rank}
-                        </td>
-                        <td className="font-semibold text-gray-800 text-xs">
-                          {entry.team.name}
-                        </td>
-                        <td className="text-xs text-gray-500">
-                          {entry.team.institutionName || "—"}
-                        </td>
-                        <td className="text-right font-mono text-xs text-gray-700">
-                          {entry.standing.points} pts
-                        </td>
-                        <td className="text-right font-mono text-xs text-gray-700">
-                          {entry.standing.totalSpeakerScore.toFixed(1)}
-                        </td>
-                      </tr>
+              <TableContainer className={TABLE_FRAME}>
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH align="right" className="w-16">{t("results.break.colSeed")}</TH>
+                      <TH align="right" className="w-20">
+                        {t(selectedCategory.isGeneral ? "results.break.colTabRank" : "results.break.colCategoryRank")}
+                      </TH>
+                      <TH>{t("results.break.colTeam")}</TH>
+                      <TH>{t("results.break.colInstitution")}</TH>
+                      <TH align="right">{t("results.break.colPoints")}</TH>
+                      <TH align="right">{t("results.break.colTotalSpeaks")}</TH>
+                      <TH>{t("results.break.colStatus")}</TH>
+                      {isOwnerOrAdmin && <TH className="w-48">{t("results.break.colOverride")}</TH>}
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {rows.length === 0 && <TableEmpty colSpan={isOwnerOrAdmin ? 8 : 7}>{t("results.break.noQualifiers")}</TableEmpty>}
+                    {rows.map((row) => {
+                      const excluded = row.status.kind === "excluded";
+                      return (
+                        <TR key={row.teamId}>
+                          <TD numeric className="text-[13px] font-semibold">{seedLabel(row.status)}</TD>
+                          <TD numeric className="text-fg-muted">{t("results.break.rankValue", { rank: row.rank })}</TD>
+                          <TD className={excluded ? "text-fg-muted" : "font-medium"}>{row.teamName}</TD>
+                          <TD className="text-fg-muted">{row.institutionName || "—"}</TD>
+                          <TD numeric className="font-semibold">{plural("results.break.pointsValue", row.points)}</TD>
+                          <TD numeric>{formatDecimal(row.totalSpeakerScore, 1)}</TD>
+                          <TD>
+                            <StatusPill tone={STATUS_TONES[row.status.kind]}>{statusLabel(row.status)}</StatusPill>
+                          </TD>
+                          {isOwnerOrAdmin && <TD>
+                            <Select
+                              aria-label={t("results.break.overrideFor", { team: row.teamName })}
+                              value={overrides[row.teamId] ?? ""}
+                              disabled={isSavingOverride}
+                              onChange={(event) =>
+                                saveOverride(row.teamId, (event.target.value || null) as BreakTeamOverride | null)
+                              }
+                              className="h-7 text-xs"
+                            >
+                              <option value="">{t("results.break.noOverride")}</option>
+                              {OVERRIDE_OPTIONS.map((option) => (
+                                <option key={option} value={option}>{t(OVERRIDE_KEYS[option])}</option>
+                              ))}
+                            </Select>
+                          </TD>}
+                        </TR>
+                      );
+                    })}
+                  </TBody>
+                </Table>
+              </TableContainer>
+            </Card>
+
+            {/* Manual overrides */}
+            {isOwnerOrAdmin && <Card>
+              <CardHeader
+                title={t("results.break.overridesTitle")}
+                description={t("results.break.overridesDescription", {
+                  include: t(OVERRIDE_KEYS.include),
+                })}
+              />
+              <CardBody className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Select
+                    id="override-team"
+                    label={t("results.break.overrideTeam")}
+                    value={overrideTeamId}
+                    onChange={(event) => setOverrideTeamId(event.target.value)}
+                    wrapperClassName="flex-1"
+                  >
+                    <option value="">{t("results.break.selectTeam")}</option>
+                    {rankedTeams.map((team) => (
+                      <option key={team.id} value={team.id}>{team.label}</option>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
+                  </Select>
+                  <Select
+                    id="override-value"
+                    label={t("results.break.overrideValue")}
+                    value={overrideValue}
+                    onChange={(event) => setOverrideValue(event.target.value as BreakTeamOverride)}
+                    wrapperClassName="sm:w-48"
+                  >
+                    {OVERRIDE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{t(OVERRIDE_KEYS[option])}</option>
+                    ))}
+                  </Select>
+                  <Button
+                    variant="secondary"
+                    disabled={!overrideTeamId || isSavingOverride}
+                    onClick={() => saveOverride(overrideTeamId, overrideValue)}
+                  >
+                    {t("results.break.applyOverride")}
+                  </Button>
+                </div>
+                {overrideError && <p role="alert" className="text-xs text-danger">{overrideError}</p>}
+                {overrideEntries.length > 0 ? (
+                  <ul className="divide-y divide-border rounded-md border border-border">
+                    {overrideEntries.map(([teamId, override]) => {
+                      const teamName = teamNameById.get(teamId) ?? t("results.break.deletedTeam");
+                      return (
+                        <li key={teamId} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[13px]">
+                          <span>
+                            <strong className="font-medium text-fg">{teamName}</strong>
+                            <span className="text-fg-muted"> · {t(OVERRIDE_KEYS[override])}</span>
+                          </span>
+                          <IconButton
+                            size="sm"
+                            label={t("results.break.removeOverride", { team: teamName })}
+                            icon={<X />}
+                            disabled={isSavingOverride}
+                            onClick={() => saveOverride(teamId, null)}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-fg-muted">{t("results.break.noOverrides")}</p>
+                )}
+              </CardBody>
+            </Card>}
+          </TabPanel>
+        </>
       ) : (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-10 text-center">
-          <Award className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-gray-800 mb-1">No Break Categories Defined</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-            Add Open, ESL, or Novice break categories to calculate qualifying breaking teams.
-          </p>
-          <button
-            onClick={() => setShowAddCategoryModal(true)}
-            className="inline-flex items-center space-x-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-bold shadow-xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Break Category</span>
-          </button>
-        </div>
+        <EmptyState
+          icon={<Award aria-hidden="true" />}
+          title={t("results.break.emptyTitle")}
+          description={t("results.break.emptyDescription")}
+          action={isOwnerOrAdmin ? (
+            <Button variant="primary" onClick={() => openEditor()}>
+              <Plus aria-hidden="true" />
+              {t("results.break.addBreakCategory")}
+            </Button>
+          ) : undefined}
+        />
       )}
 
-      {/* Add Break Category Modal */}
-      {showAddCategoryModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-200">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center space-x-2">
-              <Award className="w-5 h-5 text-purple-600" />
-              <span>Add Break Category</span>
-            </h3>
-            <form onSubmit={handleAddCategory} className="space-y-4 text-sm">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Category Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. ESL Break or Novice Break"
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
+      {/* Add / Edit Break Category */}
+      <Dialog
+        open={editor !== null}
+        onClose={() => setEditor(null)}
+        dismissible={!isSavingCategory}
+        icon={<Award className="text-fg-subtle" aria-hidden="true" />}
+        title={t(editor?.editingId ? "results.break.editorEditTitle" : "results.break.editorAddTitle")}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditor(null)} disabled={isSavingCategory}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              form={EDITOR_FORM_ID}
+              variant="primary"
+              loading={isSavingCategory}
+              loadingText={t("results.break.saving")}
+            >
+              {t("results.break.saveCategory")}
+            </Button>
+          </>
+        }
+      >
+        {editor && (
+          <form id={EDITOR_FORM_ID} onSubmit={handleSaveCategory} className="space-y-4">
+            <Input
+              id="break-name"
+              type="text"
+              required
+              label={t("results.break.fieldName")}
+              placeholder={t("results.break.fieldNamePlaceholder")}
+              value={editor.draft.name}
+              onChange={(e) => updateDraft({ name: e.target.value })}
+            />
 
+            <div className="space-y-1.5">
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Break Size</label>
-                  <select
-                    value={newCatBreakSize}
-                    onChange={(e) => setNewCatBreakSize(parseInt(e.target.value, 10))}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                  >
-                    <option value={64}>64 Teams (Triple Octos)</option>
-                    <option value={32}>32 Teams (Double Octos)</option>
-                    <option value={16}>16 Teams (Octos)</option>
-                    <option value={8}>8 Teams (Quarters)</option>
-                    <option value={4}>4 Teams (Semis)</option>
-                    <option value={2}>2 Teams (Grand Final)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Reserve Size</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    value={newCatReserveSize}
-                    onChange={(e) => setNewCatReserveSize(parseInt(e.target.value, 10))}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Priority Order (Higher takes precedence)</label>
-                <input
+                <Input
+                  id="break-size"
                   type="number"
-                  min="1"
-                  max="100"
-                  value={newCatPriority}
-                  onChange={(e) => setNewCatPriority(parseInt(e.target.value, 10))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                  label={t("results.break.fieldBreakSize")}
+                  min={minimumBreakSize}
+                  step={teamsInDebate === 4 ? 2 : 1}
+                  value={editor.draft.breakSize}
+                  onChange={(e) => updateDraft({ breakSize: parseInt(e.target.value, 10) || 0 })}
+                  aria-describedby="break-size-help"
+                />
+                <Input
+                  id="break-reserves"
+                  type="number"
+                  label={t("results.break.fieldReserveSize")}
+                  min="0"
+                  value={editor.draft.reserveSize}
+                  onChange={(e) => updateDraft({ reserveSize: parseInt(e.target.value, 10) || 0 })}
                 />
               </div>
+              <p id="break-size-help" className="text-xs text-fg-muted">
+                {t("results.break.fieldSizeHelp")}
+                {teamsInDebate === 4 ? ` ${t("results.break.fieldSizeHelpBp")}` : ""}
+              </p>
+            </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddCategoryModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded shadow-xs"
-                >
-                  Save Category
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <Input
+              id="break-priority"
+              type="number"
+              label={t("results.break.fieldPriority")}
+              min="1"
+              max="100"
+              value={editor.draft.priority}
+              onChange={(e) => updateDraft({ priority: parseInt(e.target.value, 10) || 0 })}
+            />
+
+            <Checkbox
+              label={t("results.break.fieldGeneral")}
+              description={t("results.break.fieldGeneralHelp")}
+              checked={editor.draft.isGeneral}
+              onChange={(e) => updateDraft({ isGeneral: e.target.checked })}
+            />
+
+            <Select
+              id="break-rule"
+              label={t("results.break.fieldRule")}
+              help={t("results.break.fieldRuleHelp")}
+              value={editor.draft.qualificationRule}
+              onChange={(event) => updateDraft({ qualificationRule: event.target.value as BreakQualificationRule })}
+            >
+              {(Object.keys(QUALIFICATION_RULE_KEYS) as BreakQualificationRule[]).map((rule) => (
+                <option key={rule} value={rule}>{t(QUALIFICATION_RULE_KEYS[rule])}</option>
+              ))}
+            </Select>
+
+            <Input
+              id="break-max-institution"
+              type="number"
+              label={t("results.break.fieldMaxPerInstitution")}
+              help={t("results.break.fieldMaxPerInstitutionHelp")}
+              min="0"
+              max={editor.draft.breakSize}
+              value={editor.draft.maxPerInstitution}
+              onChange={(event) => updateDraft({ maxPerInstitution: Math.max(0, parseInt(event.target.value, 10) || 0) })}
+            />
+
+            <Input
+              id="break-tab-limit"
+              type="number"
+              label={t("results.break.fieldTabLimit")}
+              help={t("results.break.fieldTabLimitHelp")}
+              min="0"
+              value={editor.draft.limit ?? 0}
+              onChange={(event) => updateDraft({ limit: Math.max(0, parseInt(event.target.value, 10) || 0) })}
+            />
+
+            {editorError && <p role="alert" className="text-xs text-danger">{editorError}</p>}
+          </form>
+        )}
+      </Dialog>
+
+      {pendingDelete && (
+        <ConfirmActionDialog
+          title={t("results.break.deleteTitle", { name: pendingDelete.name })}
+          description={t("results.break.deleteDescription")}
+          confirmLabel={t("results.break.deleteConfirm")}
+          variant="danger"
+          onConfirm={handleDeleteCategory}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError("");
+          }}
+          isBusy={isDeleting}
+          error={deleteError}
+        />
       )}
     </div>
   );

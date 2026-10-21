@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
+import { isGlobalAdminUid } from "@/lib/globalAdmin";
+import { isTournamentAdministrator } from "@/lib/tournamentAccess";
 import { AuditCategory, AuditEvent } from "@/types";
 
 export const runtime = "nodejs";
@@ -86,10 +88,15 @@ export async function POST(
     if (!tournamentSnapshot.exists) {
       return NextResponse.json({ error: "Tournament not found." }, { status: 404 });
     }
+    const staffSnapshot = await tournamentRef.collection("staff").doc(user.uid).get();
     const tournament = tournamentSnapshot.data();
     if (
-      tournament?.ownerId !== user.uid &&
-      tournament?.admins?.[user.uid] !== true
+      !isGlobalAdminUid(user.uid) &&
+      !isTournamentAdministrator(
+        { ownerId: tournament?.ownerId, admins: tournament?.admins },
+        user.uid
+      ) &&
+      staffSnapshot.data()?.role !== "admin"
     ) {
       return NextResponse.json({ error: "Only tournament administrators can release the audit log." }, { status: 403 });
     }

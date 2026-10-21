@@ -5,7 +5,7 @@ import { createEmailCampaign } from "./history";
 
 describe("email campaign history", () => {
   it("omits undefined Firestore fields and private credentials from campaign records", async () => {
-    const create = vi.fn(async () => undefined);
+    const create = vi.fn(async (_record: unknown) => undefined);
     const campaignDocument = {
       id: "campaign-1",
       create,
@@ -38,7 +38,7 @@ describe("email campaign history", () => {
       recipients: [recipient],
     });
 
-    const record = create.mock.calls[0][0] as Record<string, unknown>;
+    const record = (create.mock.calls[0]?.[0] ?? {}) as Record<string, unknown>;
     expect(record).not.toHaveProperty("roundId");
     expect(record).not.toHaveProperty("roundName");
     expect(record).not.toHaveProperty("retryOf");

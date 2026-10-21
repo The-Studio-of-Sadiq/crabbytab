@@ -1,18 +1,19 @@
 "use client";
 
+import { sideLabel } from "@/lib/sideNames";
 import React, { useMemo } from "react";
 import { useTournament } from "@/contexts/TournamentContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { SideBadge } from "@/components/ui/SideBadge";
-import {
-  BarChart3,
-  TrendingUp,
-  PieChart,
-  CheckCircle2,
-  AlertCircle,
-  Lightbulb,
-  Shield,
-} from "lucide-react";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { EmptyState, ProgressBar } from "@/components/ui/Feedback";
+import { StatusPill } from "@/components/ui/Badge";
+import { Table, TableContainer, TableEmpty, TBody, TD, TH, THead, TR } from "@/components/ui/Table";
+import { BarChart3, TrendingUp, PieChart, Lightbulb } from "lucide-react";
 import { DebateSide } from "@/types";
+import { computeMotionRoundStatistics, countMotionVetoes } from "@/lib/motionStatistics";
+import { isPolyFormat, tournamentSides } from "@/lib/debateSides";
 
 export default function AnalyticsPage() {
   const {
@@ -21,13 +22,12 @@ export default function AnalyticsPage() {
     debates,
     ballots,
     motions,
-    teamStandings,
-    speakerStandings,
-    adjudicators,
   } = useTournament();
+  const { t, plural, formatNumber, formatDecimal } = useI18n();
 
   const isBP = tournament?.format === "bp";
   const confirmedBallots = ballots.filter((b) => b.confirmed && !b.discarded);
+  const formatPercent = (percent: number) => formatNumber(percent / 100, { style: "percent" });
 
   // 1. Speaker Score Distribution (Bins from 65 to 85)
   const scoreBins = useMemo(() => {
@@ -51,7 +51,7 @@ export default function AnalyticsPage() {
 
   // 2. Side Win / Points Balance Analysis
   const sideStats = useMemo(() => {
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+    const sides: DebateSide[] = tournament ? tournamentSides(tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
     const stats: Record<string, { totalPoints: number; totalWins: number; count: number }> = {};
 
     sides.forEach((s) => {
@@ -72,235 +72,230 @@ export default function AnalyticsPage() {
     });
 
     return stats;
-  }, [confirmedBallots, isBP]);
+  }, [confirmedBallots, isBP, tournament]);
 
-  // 3. Motion Statistics
-  const motionStats = useMemo(() => {
-    return motions.map((m) => {
-      const motionDebates = debates.filter((d) => d.motionId === m.id);
-      const mBallots = confirmedBallots.filter((b) => b.motionId === m.id);
-
-      const ogWins = mBallots.filter((b) => b.teamScores?.OG?.points === 3).length;
-      const ooWins = mBallots.filter((b) => b.teamScores?.OO?.points === 3).length;
-      const cgWins = mBallots.filter((b) => b.teamScores?.CG?.points === 3).length;
-      const coWins = mBallots.filter((b) => b.teamScores?.CO?.points === 3).length;
-
-      const affWins = mBallots.filter((b) => b.teamScores?.AFF?.win).length;
-      const negWins = mBallots.filter((b) => b.teamScores?.NEG?.win).length;
-
-      return {
-        motion: m,
-        totalDebates: motionDebates.length,
-        completedBallots: mBallots.length,
-        ogWins,
-        ooWins,
-        cgWins,
-        coWins,
-        affWins,
-        negWins,
-      };
-    });
-  }, [motions, debates, confirmedBallots]);
+  // 3. Motion statistics, one row per round a motion was used in (Tabbycat motions-statistics);
+  // the counting rules live in lib/motionStatistics.ts, shared with the public page.
+  const roundOrder = useMemo(
+    () => [...rounds].sort((left, right) => left.seq - right.seq).map((round) => round.id),
+    [rounds]
+  );
+  const roundNames = useMemo(() => new Map(rounds.map((round) => [round.id, round.name])), [rounds]);
+  const motionStats = useMemo(
+    () =>
+      // Tabbycat has no motion statistics for more or fewer than two teams (other than BP).
+      (isPolyFormat(tournament?.format) ? [] : computeMotionRoundStatistics(motions, debates, ballots, isBP, roundOrder)).map((stat) => ({
+        ...stat,
+        vetoes: countMotionVetoes(ballots, stat.motion.id, stat.roundId),
+      })),
+    [motions, debates, ballots, isBP, roundOrder, tournament?.format]
+  );
+  const showVetoes =
+    Boolean(tournament?.preferences?.enableMotionVetoes) || motionStats.some((stat) => stat.vetoes > 0);
+  const motionColumns = 4 + (isBP ? 4 : 2) + (showVetoes ? 1 : 0);
+  const sampleSize = confirmedBallots.length * (isBP ? 8 : 6);
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <BarChart3 className="w-6 h-6 text-blue-600" />
-            <span>Tournament Analytics & Progression</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Real-time analytics for ballot velocity, speaker score distributions, and motion balance.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6 pb-12">
+      <PageHeader title={t("results.analytics.title")} description={t("results.analytics.description")} />
 
       {/* 1. Round-by-Round Progression Tracker */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs">
-        <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center space-x-2">
-          <TrendingUp className="w-4 h-4 text-blue-600" />
-          <span>Round Progression & Ballot Completion Velocity</span>
-        </h3>
+      <Card>
+        <CardHeader icon={<TrendingUp aria-hidden="true" />} title={t("results.analytics.progressionTitle")} />
+        <CardBody>
+          {rounds.length === 0 ? (
+            <p className="text-[13px] text-fg-muted">{t("results.analytics.noRounds")}</p>
+          ) : (
+            <ul className="space-y-4">
+              {rounds.map((round) => {
+                const rDebates = debates.filter((d) => d.roundId === round.id);
+                const rConfirmed = rDebates.filter((d) =>
+                  d.byeTeamId || confirmedBallots.some((b) => b.debateId === d.id)
+                ).length;
+                const pct = rDebates.length > 0 ? Math.round((rConfirmed / rDebates.length) * 100) : 0;
 
-        <div className="space-y-4">
-          {rounds.map((round) => {
-            const rDebates = debates.filter((d) => d.roundId === round.id);
-            const rConfirmed = rDebates.filter((d) =>
-              d.byeTeamId || confirmedBallots.some((b) => b.debateId === d.id)
-            ).length;
-            const pct = rDebates.length > 0 ? Math.round((rConfirmed / rDebates.length) * 100) : 0;
-
-            return (
-              <div key={round.id} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-gray-900">{round.name}</span>
-                    <span className="text-gray-500 font-mono">
-                      ({rConfirmed} / {rDebates.length} results)
-                    </span>
-                  </div>
-                  <span className="font-mono font-bold text-gray-700">{pct}%</span>
-                </div>
-                <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      pct === 100 ? "bg-emerald-500" : pct > 0 ? "bg-blue-600" : "bg-gray-300"
-                    }`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+                return (
+                  <li key={round.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium text-fg">{round.name}</span>
+                        <span className="font-mono text-fg-muted">
+                          {t("results.analytics.roundProgress", { confirmed: rConfirmed, total: rDebates.length })}
+                        </span>
+                      </div>
+                      <span className="font-mono font-semibold text-fg">{formatPercent(pct)}</span>
+                    </div>
+                    <ProgressBar
+                      value={rConfirmed}
+                      max={rDebates.length}
+                      label={t("results.analytics.roundProgressLabel", { round: round.name })}
+                      className="h-2"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
 
       {/* 2. Speaker Score Distribution Histogram */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-            <BarChart3 className="w-4 h-4 text-indigo-600" />
-            <span>Speaker Score Distribution (Bell Curve)</span>
-          </h3>
-          <span className="text-xs text-gray-500 font-medium">
-            Sample size: {confirmedBallots.length * (isBP ? 8 : 6)} speeches
-          </span>
-        </div>
-
-        <div className="pt-4 pb-2">
-          <div className="h-44 flex items-end justify-between gap-1 sm:gap-2 px-2 border-b border-gray-200">
+      <Card>
+        <CardHeader
+          icon={<BarChart3 aria-hidden="true" />}
+          title={t("results.analytics.distributionTitle")}
+          description={t("results.analytics.distributionDescription")}
+          actions={
+            <span className="text-xs text-fg-muted">{plural("results.analytics.sampleSize", sampleSize)}</span>
+          }
+        />
+        <CardBody>
+          <ul
+            aria-label={t("results.analytics.distributionTitle")}
+            className="flex h-48 items-stretch justify-between gap-1 border-b border-border px-2 sm:gap-2"
+          >
             {Object.entries(scoreBins.bins).map(([scoreStr, count]) => {
               const heightPct = Math.round((count / scoreBins.maxCount) * 100);
+              return (
+                <li key={scoreStr} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                  <span className="sr-only">
+                    {plural("results.analytics.distributionBar", count, { score: Number(scoreStr) })}
+                  </span>
+                  <span aria-hidden="true" className="font-mono text-[10px] text-fg-muted">
+                    {formatNumber(count)}
+                  </span>
+                  <div
+                    aria-hidden="true"
+                    className="w-full rounded-t-sm bg-accent"
+                    style={{ height: `${Math.max(2, heightPct * 0.85)}%` }}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+          <div aria-hidden="true" className="flex justify-between gap-1 px-2 pt-1.5 sm:gap-2">
+            {Object.keys(scoreBins.bins).map((scoreStr) => (
+              <span key={scoreStr} className="min-w-0 flex-1 text-center font-mono text-[10px] text-fg-muted">
+                {formatNumber(Number(scoreStr))}
+              </span>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* 3. Side Balance & Win Rates */}
+      <Card>
+        <CardHeader icon={<PieChart aria-hidden="true" />} title={t("results.analytics.sideBalanceTitle")} />
+        <CardBody>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(sideStats).map(([sideKey, data]) => {
+              const avgPts = data.count > 0 ? data.totalPoints / data.count : 0;
+              const winPct = data.count > 0 ? Math.round((data.totalWins / data.count) * 100) : 0;
 
               return (
-                <div key={scoreStr} className="flex-1 flex flex-col items-center group relative">
-                  <div
-                    className="w-full bg-indigo-500 hover:bg-indigo-600 rounded-t transition-all"
-                    style={{ height: `${Math.max(4, heightPct)}%` }}
-                  />
-                  <span className="text-[10px] font-mono text-gray-500 mt-2">{scoreStr}</span>
+                <div key={sideKey} className="flex flex-col justify-between rounded-lg border border-border bg-muted/40 p-4">
+                  <div>
+                    <SideBadge side={sideKey as DebateSide} preferences={tournament?.preferences} />
+                    <div className="mt-3">
+                      <div className="font-mono text-2xl font-semibold text-fg">{formatDecimal(avgPts, 2)}</div>
+                      <span className="text-xs text-fg-muted">{t("results.analytics.averagePoints")}</span>
+                    </div>
+                  </div>
 
-                  {/* Tooltip */}
-                  <div className="absolute -top-7 bg-gray-900 text-white text-[10px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none">
-                    {count}
+                  <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3 text-xs">
+                    <span className="text-fg-muted">{t("results.analytics.firstsOrWins")}</span>
+                    <span className="font-mono font-semibold text-fg">
+                      {t("results.analytics.winsValue", { wins: data.totalWins, percent: formatPercent(winPct) })}
+                    </span>
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      </div>
-
-      {/* 3. Side Balance & Win Rates */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg p-5 shadow-xs">
-        <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center space-x-2">
-          <PieChart className="w-4 h-4 text-emerald-600" />
-          <span>Side Balance & Win Rate Statistics</span>
-        </h3>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {Object.entries(sideStats).map(([sideKey, data]) => {
-            const avgPts = data.count > 0 ? (data.totalPoints / data.count).toFixed(2) : "0.00";
-            const winPct = data.count > 0 ? Math.round((data.totalWins / data.count) * 100) : 0;
-
-            return (
-              <div
-                key={sideKey}
-                className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex flex-col justify-between"
-              >
-                <div>
-                  <SideBadge side={sideKey as DebateSide} />
-                  <div className="mt-3">
-                    <div className="text-2xl font-bold font-mono text-gray-900">{avgPts}</div>
-                    <span className="text-[11px] text-gray-500 font-semibold">Average Points / Debate</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
-                  <span className="text-gray-600">1st Place / Wins:</span>
-                  <span className="font-bold text-emerald-700 font-mono">
-                    {data.totalWins} ({winPct}%)
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+        </CardBody>
+      </Card>
 
       {/* 4. Motion Statistics Table */}
-      <div className="bg-white border border-[#d0d7de] rounded-lg shadow-xs overflow-hidden">
-        <div className="p-4 bg-[#f6f8fa] border-b border-[#d0d7de]">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-            <Lightbulb className="w-4 h-4 text-amber-500" />
-            <span>Motion Balance Analysis</span>
-          </h3>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left tabby-table">
-            <thead>
-              <tr>
-                <th>Motion</th>
-                <th className="w-24 text-center">Debates</th>
-                {isBP ? (
-                  <>
-                    <th className="w-20 text-center text-rose-700 font-bold">OG Wins</th>
-                    <th className="w-20 text-center text-sky-700 font-bold">OO Wins</th>
-                    <th className="w-20 text-center text-amber-700 font-bold">CG Wins</th>
-                    <th className="w-20 text-center text-purple-700 font-bold">CO Wins</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="w-24 text-center text-emerald-700 font-bold">AFF Wins</th>
-                    <th className="w-24 text-center text-slate-700 font-bold">NEG Wins</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {motionStats.map((ms) => (
-                <tr key={ms.motion.id} className="hover:bg-gray-50">
-                  <td className="text-xs font-bold text-gray-900">
-                    <span className="text-amber-700 block font-semibold text-[11px] mb-0.5">
-                      {ms.motion.reference}
-                    </span>
-                    &ldquo;{ms.motion.text}&rdquo;
-                  </td>
-                  <td className="text-center font-mono text-xs text-gray-700">{ms.completedBallots}</td>
+      <Card className="overflow-hidden">
+        <CardHeader
+          icon={<Lightbulb aria-hidden="true" />}
+          title={t("results.analytics.motionTitle")}
+          description={t("results.analytics.motionDescription")}
+        />
+        {motions.length === 0 ? (
+          <div className="p-4">
+            <EmptyState title={t("results.analytics.noMotions")} />
+          </div>
+        ) : (
+          <TableContainer className="max-h-[calc(100vh-16rem)] rounded-none border-0">
+            <Table>
+              <THead>
+                <TR>
+                  <TH>{t("results.analytics.colMotion")}</TH>
+                  <TH className="w-28">{t("results.analytics.colRound")}</TH>
+                  <TH align="right" className="w-24">{t("results.analytics.colDebates")}</TH>
                   {isBP ? (
-                    <>
-                      <td className="text-center font-mono text-xs font-bold text-rose-700">
-                        {ms.ogWins}
-                      </td>
-                      <td className="text-center font-mono text-xs font-bold text-sky-700">
-                        {ms.ooWins}
-                      </td>
-                      <td className="text-center font-mono text-xs font-bold text-amber-700">
-                        {ms.cgWins}
-                      </td>
-                      <td className="text-center font-mono text-xs font-bold text-purple-700">
-                        {ms.coWins}
-                      </td>
-                    </>
+                    (["OG", "OO", "CG", "CO"] as const).map((side) => (
+                      <TH key={side} align="right" className="w-20">{t("results.analytics.colSideWins", { side })}</TH>
+                    ))
                   ) : (
                     <>
-                      <td className="text-center font-mono text-xs font-bold text-emerald-700">
-                        {ms.affWins}
-                      </td>
-                      <td className="text-center font-mono text-xs font-bold text-slate-700">
-                        {ms.negWins}
-                      </td>
+                      <TH align="right" className="w-24">
+                        {t("results.analytics.colSideWins", { side: sideLabel("AFF", tournament?.preferences) })}
+                      </TH>
+                      <TH align="right" className="w-24">
+                        {t("results.analytics.colSideWins", { side: sideLabel("NEG", tournament?.preferences) })}
+                      </TH>
                     </>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  {showVetoes && <TH align="right" className="w-20">{t("results.analytics.colVetoes")}</TH>}
+                  <TH align="right" className="w-36">{t("results.analytics.colChiSquared")}</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {motionStats.length === 0 && <TableEmpty colSpan={motionColumns}>{t("results.analytics.noMotions")}</TableEmpty>}
+                {motionStats.map((ms) => (
+                  <TR key={`${ms.motion.id}|${ms.roundId ?? ""}`}>
+                    <TD className="min-w-64">
+                      <span className="mb-0.5 block text-[11px] font-medium text-fg-muted">{ms.motion.reference}</span>
+                      <span className="font-medium">&ldquo;{ms.motion.text}&rdquo;</span>
+                    </TD>
+                    <TD className="text-fg-muted">{(ms.roundId && roundNames.get(ms.roundId)) || "—"}</TD>
+                    <TD numeric>{formatNumber(ms.debatesCounted)}</TD>
+                    {ms.positions.map((position) => (
+                      <TD key={position.side} numeric className="font-semibold">{formatNumber(position.wins)}</TD>
+                    ))}
+                    {showVetoes && <TD numeric>{formatNumber(ms.vetoes)}</TD>}
+                    <TD align="right" className="text-xs">
+                      {ms.balance.chiSquared === null || ms.balance.pValue === null ? (
+                        <span className="text-fg-muted">{t("results.analytics.insufficientData")}</span>
+                      ) : (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="font-mono font-semibold text-fg">
+                            {t("results.analytics.chiValue", {
+                              chi: formatDecimal(ms.balance.chiSquared, 2),
+                              p: formatDecimal(ms.balance.pValue, 3),
+                            })}
+                          </span>
+                          <span className="text-[11px] text-fg-muted">
+                            {t("results.analytics.chiMeta", {
+                              n: ms.balance.observations,
+                              df: ms.balance.degreesOfFreedom,
+                            })}
+                          </span>
+                          {ms.balance.lowExpectedCount && (
+                            <StatusPill tone="warning">{t("results.analytics.lowExpectedCount")}</StatusPill>
+                          )}
+                        </div>
+                      )}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Card>
     </div>
   );
 }

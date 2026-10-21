@@ -23,7 +23,8 @@ function createStanding(teamId: string, teamName: string, rank: number, points: 
     averageSpeakerScore: (300 - rank * 2) / 2,
     breakCategories: [],
     roundResults: [],
-    metrics: {} as any,
+    // Metrics agree with the rank: a non-general category re-ranks its teams on them.
+    metrics: { points, speaks_sum: 300 - rank * 2 } as TeamStandingRow["metrics"],
   };
 }
 
@@ -81,6 +82,107 @@ describe("Break Qualification Calculator (breakqual/calculator)", () => {
     const regenerated = applyBreakStatuses(teams, updatedResults);
     expect(regenerated.map((team) => team.breakStatus)).toEqual(["eliminated", "breaking"]);
     expect(regenerated[0].breakCategoryIds).toEqual([]);
+  });
+
+  it("enforces an institution cap and promotes the next eligible institution", () => {
+    const teams = [
+      createTeam("a-1", "A1", ["open"]),
+      createTeam("a-2", "A2", ["open"]),
+      createTeam("a-3", "A3", ["open"]),
+      createTeam("a-4", "A4", ["open"]),
+      createTeam("b-1", "B1", ["open"]),
+    ].map((team, index) => ({
+      ...team,
+      institutionId: index < 4 ? "institution-a" : "institution-b",
+    }));
+    const category: BreakCategory = {
+      id: "open",
+      tournamentId: "t1",
+      name: "Open",
+      slug: "open",
+      seq: 1,
+      breakSize: 4,
+      reserveSize: 1,
+      isGeneral: true,
+      priority: 1,
+      maxPerInstitution: 3,
+    };
+    const result = calculateBreaks(
+      [category],
+      teams,
+      teams.map((team, index) => createStanding(team.id, team.name, index + 1, 6 - index))
+    )[0];
+
+    expect(result.breakingTeams.map((entry) => entry.team.id)).toEqual(["a-1", "a-2", "a-3", "b-1"]);
+    expect(result.reserveTeams).toHaveLength(0);
+  });
+
+  it("applies the AIDA 1996 hard three-team institution cap", () => {
+    const teams = Array.from({ length: 5 }, (_, index) => ({
+      ...createTeam(`team-${index + 1}`, `Team ${index + 1}`, []),
+      institutionId: index < 4 ? "institution-a" : "institution-b",
+    }));
+    const category: BreakCategory = {
+      id: "open",
+      tournamentId: "t1",
+      name: "Open",
+      slug: "open",
+      seq: 1,
+      breakSize: 4,
+      reserveSize: 0,
+      isGeneral: true,
+      priority: 1,
+      qualificationRule: "aida_1996",
+    };
+    const standings = teams.map((team, index) =>
+      createStanding(team.id, team.name, index + 1, 10 - index)
+    );
+    const result = calculateBreaks([category], teams, standings)[0];
+    expect(result.breakingTeams.map((entry) => entry.team.id))
+      .toEqual(["team-1", "team-2", "team-3", "team-5"]);
+  });
+
+  it("applies the AIDA 2016 wins cutoff before its institution cap", () => {
+    const teams = Array.from({ length: 8 }, (_, index) => ({
+      ...createTeam(`team-${index + 1}`, `Team ${index + 1}`, []),
+      institutionId: index < 4 ? "institution-a" : "institution-b",
+    }));
+    const category: BreakCategory = {
+      id: "open",
+      tournamentId: "t1",
+      name: "Open",
+      slug: "open",
+      seq: 1,
+      breakSize: 4,
+      reserveSize: 0,
+      isGeneral: true,
+      priority: 1,
+      qualificationRule: "aida_2016_australs",
+    };
+    const standings = teams.map((team, index) => ({
+      ...createStanding(team.id, team.name, index + 1, 8 - index),
+      wins: index < 4 ? 5 - index : index === 4 ? 2 : 1,
+    }));
+    const result = calculateBreaks([category], teams, standings)[0];
+    expect(result.breakingTeams.map((entry) => entry.team.id))
+      .toEqual(["team-1", "team-2", "team-3", "team-5"]);
+  });
+
+  it("rejects AIDA 2016 rules for BP tournaments", () => {
+    const category: BreakCategory = {
+      id: "open",
+      tournamentId: "t1",
+      name: "Open",
+      slug: "open",
+      seq: 1,
+      breakSize: 4,
+      reserveSize: 0,
+      isGeneral: true,
+      priority: 1,
+      qualificationRule: "aida_2016_easters",
+    };
+    expect(() => calculateBreaks([category], [], [], "bp"))
+      .toThrow("require a two-team tournament format");
   });
 
   it("prioritizes higher-priority categories and excludes broken teams from lower ones", () => {

@@ -2,6 +2,9 @@
 
 import React from "react";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { IconButton } from "@/components/ui/Button";
+import { Checkbox, Select } from "@/components/ui/Field";
 
 const MAX_METRICS = 8;
 
@@ -14,15 +17,20 @@ export function PrecedenceEditor<M extends string>({
   onChange,
   labels,
   disabledIds = [],
+  repeatableIds = [],
 }: {
   value: M[];
   onChange: (next: M[]) => void;
   labels: Record<M, string>;
   /** Metrics greyed out in the "add" list (e.g. BP-only metrics in a two-team tournament). */
   disabledIds?: M[];
+  /** Metrics that may be added more than once (who-beat-whom). */
+  repeatableIds?: M[];
 }) {
+  const { t } = useI18n();
   const allIds = Object.keys(labels) as M[];
-  const available = allIds.filter((id) => !value.includes(id));
+  const repeatable = new Set(repeatableIds);
+  const available = allIds.filter((id) => repeatable.has(id) || !value.includes(id));
   const disabledSet = new Set(disabledIds);
 
   const move = (index: number, dir: -1 | 1) => {
@@ -35,80 +43,79 @@ export function PrecedenceEditor<M extends string>({
 
   const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
   const add = (id: M) => {
-    if (value.length >= MAX_METRICS || value.includes(id)) return;
+    if (value.length >= MAX_METRICS || (value.includes(id) && !repeatable.has(id))) return;
     onChange([...value, id]);
   };
 
   return (
     <div className="space-y-2">
-      {value.length === 0 && (
-        <p className="text-xs text-gray-500 italic">No metrics set — using the format default.</p>
-      )}
+      {value.length === 0 && <p className="text-xs italic text-fg-muted">{t("setup.wizard.precedenceEmpty")}</p>}
       <ol className="space-y-1.5">
-        {value.map((id, i) => (
-          <li
-            key={id}
-            className="flex items-center justify-between bg-white border border-[#d0d7de] rounded px-3 py-1.5"
-          >
-            <span className="flex items-center space-x-2 text-sm">
-              <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-600 text-[11px] font-bold flex items-center justify-center">
-                {i + 1}
+        {value.map((id, i) => {
+          const metric = labels[id] ?? id;
+          return (
+            <li
+              key={`${id}-${i}`}
+              className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-1.5"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-[13px]">
+                <span
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-fg-muted"
+                  aria-hidden="true"
+                >
+                  {i + 1}
+                </span>
+                <span className="font-medium text-fg">{metric}</span>
               </span>
-              <span className="font-medium text-gray-900">{labels[id] ?? id}</span>
-            </span>
-            <span className="flex items-center space-x-1">
-              <button
-                type="button"
-                aria-label="Move up"
-                disabled={i === 0}
-                onClick={() => move(i, -1)}
-                className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ArrowUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Move down"
-                disabled={i === value.length - 1}
-                onClick={() => move(i, 1)}
-                className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ArrowDown className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                aria-label="Remove"
-                onClick={() => remove(i)}
-                className="p-1 text-gray-500 hover:text-red-700"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </span>
-          </li>
-        ))}
+              <span className="flex shrink-0 items-center gap-0.5">
+                <IconButton
+                  size="sm"
+                  label={t("setup.wizard.precedenceMoveUp", { metric })}
+                  icon={<ArrowUp aria-hidden="true" />}
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                />
+                <IconButton
+                  size="sm"
+                  label={t("setup.wizard.precedenceMoveDown", { metric })}
+                  icon={<ArrowDown aria-hidden="true" />}
+                  disabled={i === value.length - 1}
+                  onClick={() => move(i, 1)}
+                />
+                <IconButton
+                  size="sm"
+                  label={t("setup.wizard.precedenceRemove", { metric })}
+                  icon={<X aria-hidden="true" />}
+                  onClick={() => remove(i)}
+                  className="hover:text-danger"
+                />
+              </span>
+            </li>
+          );
+        })}
       </ol>
 
       {value.length < MAX_METRICS && available.length > 0 && (
-        <div className="flex items-center space-x-2 pt-1">
-          <select
-            className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs bg-white"
+        <div className="flex items-center gap-2 pt-1">
+          <Select
+            aria-label={t("setup.wizard.precedenceAddLabel")}
+            className="min-w-0 flex-1 text-xs"
             value=""
             onChange={(e) => e.target.value && add(e.target.value as M)}
           >
             <option value="" disabled>
-              Add a metric...
+              {t("setup.wizard.precedenceAdd")}
             </option>
             {available.map((id) => (
               <option key={id} value={id} disabled={disabledSet.has(id)}>
-                {labels[id]}
-                {disabledSet.has(id) ? " (not applicable to this format)" : ""}
+                {disabledSet.has(id) ? t("setup.wizard.precedenceNotApplicable", { metric: labels[id] }) : labels[id]}
               </option>
             ))}
-          </select>
-          <Plus className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          </Select>
+          <Plus className="h-3.5 w-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
         </div>
       )}
-      <p className="text-[11px] text-gray-500">Up to {MAX_METRICS} metrics. Teams tied on every metric here share a rank.</p>
+      <p className="text-xs text-fg-muted">{t("setup.wizard.precedenceLimit", { max: MAX_METRICS })}</p>
     </div>
   );
 }
@@ -133,17 +140,9 @@ export function ExtraMetricsEditor<M extends string>({
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {options.map((id) => (
-        <label key={id} className="flex items-center space-x-2 text-xs text-gray-800 cursor-pointer">
-          <input
-            type="checkbox"
-            className="rounded border-gray-300 text-blue-600"
-            checked={value.includes(id)}
-            onChange={() => toggle(id)}
-          />
-          <span>{labels[id]}</span>
-        </label>
+        <Checkbox key={id} label={labels[id]} checked={value.includes(id)} onChange={() => toggle(id)} />
       ))}
     </div>
   );

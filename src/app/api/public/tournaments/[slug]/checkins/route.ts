@@ -1,0 +1,36 @@
+import { NextRequest, NextResponse } from "next/server";
+import type { PublicCheckinsSource } from "@/lib/publicView/projection";
+import { countCheckins, listCheckins } from "@/lib/publicView/snapshot";
+import { getPublicSections, publicCacheHeaders, PublicViewError } from "@/lib/publicView/store";
+
+export const runtime = "nodejs";
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug } = await params;
+  try {
+    const { sections } = await getPublicSections(slug, ["checkins"]);
+    const checkins = sections.checkins as PublicCheckinsSource | undefined;
+    if (!checkins?.enabled) {
+      return NextResponse.json({ error: "Public check-in status is disabled." }, { status: 403 });
+    }
+    const now = Date.now();
+    return NextResponse.json(
+      {
+        tournamentName: checkins.tournamentName,
+        updatedAt: new Date(now).toISOString(),
+        rounds: countCheckins(checkins, now),
+        ...(checkins.people ? { people: listCheckins(checkins, now) } : {}),
+      },
+      { headers: publicCacheHeaders(15, 30) }
+    );
+  } catch (error) {
+    if (error instanceof PublicViewError && error.status < 500) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("Could not load public check-in status:", error);
+    return NextResponse.json({ error: "Could not load public check-in status." }, { status: 503 });
+  }
+}

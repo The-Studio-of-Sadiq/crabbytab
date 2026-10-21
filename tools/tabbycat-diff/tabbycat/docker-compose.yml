@@ -1,0 +1,43 @@
+# Regenerates tools/tabbycat-diff/golden/*.tabbycat.json with the official Tabbycat.
+#
+#   docker compose -f tools/tabbycat-diff/tabbycat/docker-compose.yml run --rm --build tabbycat
+#   docker compose -f tools/tabbycat-diff/tabbycat/docker-compose.yml down -v
+#
+# The database is throwaway, reachable only on the compose network, and uses trust auth, so there
+# is no password to keep secret. Nothing is published to the host.
+name: crabbytab-tabbycat-diff
+
+services:
+  db:
+    image: postgres:18.0-bookworm
+    environment:
+      POSTGRES_USER: tabbycat
+      POSTGRES_DB: tabbycat
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tabbycat -d tabbycat"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tabbycat:
+    build: .
+    # Write the golden files as the invoking user, not root (set HARNESS_UID/GID if yours differ).
+    user: "${HARNESS_UID:-1000}:${HARNESS_GID:-1000}"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tabbycat@db:5432/tabbycat
+      TABBYCAT_VERSION: v2.12.1
+    volumes:
+      - ../fixtures:/fixtures:ro
+      - ../golden:/golden
+    command:
+      - sh
+      - -c
+      - >-
+        python /opt/tabbycat/tabbycat/manage.py migrate --noinput -v 0 &&
+        python -I /harness/run_tabbycat.py --tabbycat /opt/tabbycat --fixtures /fixtures --out /golden

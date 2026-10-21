@@ -1,0 +1,954 @@
+[
+ {
+  "item": "Site index / tournament list",
+  "tabbycat": "tabbycat-index (urls.py:26)",
+  "status": "HAVE",
+  "crabbytab": "src/app/page.tsx; src/app/tournaments/page.tsx",
+  "note": "Home page lists device, assigned and searchable cloud tournaments with links to the public tab and tab room."
+ },
+ {
+  "item": "Blank-site first-run superuser creation",
+  "tabbycat": "blank-site-start (urls.py:29)",
+  "status": "NA",
+  "crabbytab": "src/app/login/page.tsx; src/lib/globalAdmin.ts",
+  "note": "Firebase Auth plus global-admin config replace Django's first-run superuser form."
+ },
+ {
+  "item": "Create tournament wizard",
+  "tabbycat": "tournament-create (urls.py:32)",
+  "status": "HAVE",
+  "crabbytab": "src/app/tournaments/new/page.tsx; src/components/setup/TournamentWizard.tsx",
+  "note": "Multi-step wizard: format, rules preset, rounds, breaks, score ranges, public toggles."
+ },
+ {
+  "item": "Load demo tournament",
+  "tabbycat": "load-demo (urls.py:35)",
+  "status": "HAVE",
+  "crabbytab": "src/app/tournaments/demo/page.tsx; src/components/setup/DemoTournamentForm.tsx",
+  "note": "BP or WSDC demo data."
+ },
+ {
+  "item": "Style guide page",
+  "tabbycat": "style-guide (urls.py:40)",
+  "status": "NA",
+  "crabbytab": "docs/design-system.md",
+  "note": "Developer-only page; CrabbyTab documents its design system in docs instead."
+ },
+ {
+  "item": "JavaScript i18n catalogue",
+  "tabbycat": "javascript-catalog (urls.py:49)",
+  "status": "NA",
+  "crabbytab": "src/lib/i18n; src/components/i18n/I18nProvider.tsx",
+  "note": "Django JS catalog plumbing; CrabbyTab bundles its own message catalogues."
+ },
+ {
+  "item": "Tournament public home",
+  "tabbycat": "tournament-public-index (tournaments/urls.py:9)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (WelcomePanel, tabbed sections)",
+  "note": "Public landing with welcome message and released sections."
+ },
+ {
+  "item": "Tournament admin home (overview)",
+  "tabbycat": "tournament-admin-home (tournaments/urls.py:12)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/page.tsx; src/app/[tournamentSlug]/audit/page.tsx",
+  "note": "Overview with current round status, matchups, completion and counts; the action log is a separate audit page."
+ },
+ {
+  "item": "Tournament assistant home",
+  "tabbycat": "tournament-assistant-home (tournaments/urls.py:15)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/page.tsx; src/components/layout/Sidebar.tsx (staffMay permission gating)",
+  "note": "Same overview; assistants see only pages their permission groups allow."
+ },
+ {
+  "item": "Complete round (with pre-completion check)",
+  "tabbycat": "tournament-complete-round-check (tournaments/urls.py:69); tournament-complete-round (tournaments/urls.py:75)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/page.tsx (complete/reopen, completionBlockers); src/features/tournament/application/stateGuards.ts checkRoundCompletion/checkRoundReopen",
+  "note": "Completion is blocked until every debate has a confirmed result; reopening warns about later draws."
+ },
+ {
+  "item": "Toggle round silent",
+  "tabbycat": "tournament-complete-round-toggle-silent (tournaments/urls.py:72)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/page.tsx (results.overview.silent checkbox); Round.silent read in public/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "Set current round",
+  "tabbycat": "tournament-set-current-round (tournaments/urls.py:78)",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/publicFeatures.ts currentDrawRoundId; src/contexts/TournamentContext.tsx activeRound",
+  "note": "No explicit tournament-wide 'current round' setter: the public current round is derived as the latest confirmed draw, and the tab room's active round is a per-device selection."
+ },
+ {
+  "item": "Round weightings",
+  "tabbycat": "set-round-weights (tournaments/urls.py:83)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/RoundWeightsEditor.tsx; Round.weight",
+  "note": ""
+ },
+ {
+  "item": "Configure tournament (post-create setup)",
+  "tabbycat": "tournament-configure (tournaments/urls.py:86)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/config/[category]/page.tsx; src/app/[tournamentSlug]/config/ConfigForm.tsx",
+  "note": "Settings split into draw/rounds/format/scoring/standings/visibility pages."
+ },
+ {
+  "item": "Fix debate teams (integrity error page)",
+  "tabbycat": "tournament-fix-debate-teams (tournaments/urls.py:89)",
+  "status": "NA",
+  "crabbytab": "src/lib/draw/validateDraw.ts",
+  "note": "Django-specific repair page for missing DebateTeam rows; CrabbyTab stores sides inside the Debate document and validates draws."
+ },
+ {
+  "item": "Tournament schedule (admin)",
+  "tabbycat": "tournament-set-schedule (tournaments/urls.py:92)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/schedule/page.tsx; src/features/tournament/components/schedule/ScheduleEventsCard.tsx, RoundScheduleCard.tsx",
+  "note": ""
+ },
+ {
+  "item": "Public schedule and iCalendar feed",
+  "tabbycat": "tournament-public-schedule (tournaments/urls.py:32); tournament-public-schedule-ical (tournaments/urls.py:34)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/schedule/public/page.tsx; src/app/api/public/tournaments/[slug]/schedule/ical/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Edit debate adjudicators (allocation editor)",
+  "tabbycat": "edit-debate-adjudicators (adjallocation/urls.py:9)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/allocation/page.tsx; src/lib/draw/allocator.ts; src/features/tournament/application/allocation.ts",
+  "note": "Auto-allocate, drag/pick-and-place, conflict/history clash highlighting, diversity view, importance, feedback weight, reveal."
+ },
+ {
+  "item": "Edit adjudicators across concurrent rounds",
+  "tabbycat": "edit-debate-adjudicators-multi (adjallocation/urls.py:12)",
+  "status": "PARTIAL",
+  "crabbytab": "src/features/tournament/components/CurrentRoundsBar.tsx; src/features/tournament/application/schedule.ts concurrentRoundClashes",
+  "note": "Concurrent rounds are switched between with a clash summary; there is no single editor showing all concurrent rounds' debates for cross-round moves."
+ },
+ {
+  "item": "Preformed panels",
+  "tabbycat": "edit-panel-adjudicators (adjallocation/urls.py:15); panel-adjudicators-index (adjallocation/urls.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/allocation/panels/page.tsx; src/features/tournament/application/preformedPanels.ts",
+  "note": "Create from anticipated draw, bracket/liveness priority, CSV."
+ },
+ {
+  "item": "Adjudicator-team conflicts",
+  "tabbycat": "adjallocation-conflicts-adj-team (adjallocation/urls.py:23)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/conflicts/page.tsx; src/features/tournament/components/AdjudicatorConflictsEditor.tsx; RecordedConflicts.tsx",
+  "note": "Edited per adjudicator, by CSV, and listed/removed on the conflicts page."
+ },
+ {
+  "item": "Adjudicator-adjudicator conflicts",
+  "tabbycat": "adjallocation-conflicts-adj-adj (adjallocation/urls.py:26)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/AdjudicatorConflictsEditor.tsx; src/lib/csv/conflictsImport.ts",
+  "note": ""
+ },
+ {
+  "item": "Adjudicator-institution conflicts",
+  "tabbycat": "adjallocation-conflicts-adj-inst (adjallocation/urls.py:29)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/AdjudicatorConflictsEditor.tsx; src/lib/adjudicators/conflicts.ts",
+  "note": ""
+ },
+ {
+  "item": "Team-institution conflicts",
+  "tabbycat": "adjallocation-conflicts-team-inst (adjallocation/urls.py:32)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/RecordedConflicts.tsx (addTeamInstitutionConflict); src/lib/csv/conflictsExport.ts",
+  "note": ""
+ },
+ {
+  "item": "Feedback overview (adjudicator ratings table)",
+  "tabbycat": "adjfeedback-overview (adjfeedback/urls_admin.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/page.tsx (ratings table: base/test, weighted average, counted)",
+  "note": ""
+ },
+ {
+  "item": "Feedback progress (admin)",
+  "tabbycat": "adjfeedback-progress (adjfeedback/urls_admin.py:14)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/page.tsx (results.feedback.progress.*)",
+  "note": "Per-round expected/missing/unexpected submissions."
+ },
+ {
+  "item": "Set adjudicator base/test score",
+  "tabbycat": "adjfeedback-set-adj-base-score (adjfeedback/urls_admin.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/adjudicator/[adjudicatorId]/page.tsx (test score, reason, score history)",
+  "note": "Edited on the adjudicator detail page with a recorded history."
+ },
+ {
+  "item": "Set adjudicator breaking status / admin breaking adjudicators",
+  "tabbycat": "adjfeedback-set-adj-breaking-status (adjfeedback/urls_admin.py:22); breakqual-adjudicators (breakqual/urls_admin.py:15)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/imports/ImportDirectory.tsx (editingAdj.breaking checkbox); src/features/tournament/components/ReleasePanel.tsx",
+  "note": "Breaking flag is a checkbox in each adjudicator's edit dialog; no breaking-adjudicators list or inline toggle column as in Tabbycat's feedback overview and admin break page."
+ },
+ {
+  "item": "Set adjudicator tester status ('has been tested')",
+  "tabbycat": "adjfeedback-set-adj-tester-status (adjfeedback/urls_admin.py:25)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "No is_tester flag on Adjudicator (src/types/index.ts:802). grep: isTester, tester."
+ },
+ {
+  "item": "Feedback weight per round",
+  "tabbycat": "adjfeedback-set-feedback-weight (adjfeedback/urls_admin.py:28)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/page.tsx (results.feedback.weights.*); src/app/[tournamentSlug]/allocation/page.tsx (feedbackWeight)",
+  "note": ""
+ },
+ {
+  "item": "Latest / important / comments feedback views",
+  "tabbycat": "adjfeedback-view-latest (adjfeedback/urls_admin.py:33); adjfeedback-view-important (adjfeedback/urls_admin.py:36); adjfeedback-view-comments (adjfeedback/urls_admin.py:39)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/submissions/page.tsx (filters: round, status, important only, source type)",
+  "note": "One filterable submissions view replaces the three card views."
+ },
+ {
+  "item": "Feedback by source / from team / from adjudicator",
+  "tabbycat": "adjfeedback-view-by-source (adjfeedback/urls_admin.py:42); adjfeedback-view-from-team (adjfeedback/urls_admin.py:45); adjfeedback-view-from-adjudicator (adjfeedback/urls_admin.py:48)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/submissions/page.tsx (filters.from, tabTeam/tabAdjudicator); src/app/[tournamentSlug]/feedback/page.tsx progress",
+  "note": ""
+ },
+ {
+  "item": "Feedback by target / on adjudicator",
+  "tabbycat": "adjfeedback-view-by-target (adjfeedback/urls_admin.py:51); adjfeedback-view-on-adjudicator (adjfeedback/urls_admin.py:54)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/adjudicator/[adjudicatorId]/page.tsx; src/app/[tournamentSlug]/feedback/submissions/page.tsx (aboutAdjudicator filter)",
+  "note": ""
+ },
+ {
+  "item": "Admin add feedback (index, from team, from adjudicator)",
+  "tabbycat": "adjfeedback-add-index (adjfeedback/urls_admin.py:59); adjfeedback-add-from-team (adjfeedback/urls_admin.py:62); adjfeedback-add-from-adjudicator (adjfeedback/urls_admin.py:65)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/page.tsx (results.feedback.entry.*)",
+  "note": ""
+ },
+ {
+  "item": "Edit feedback questions",
+  "tabbycat": "adjfeedback-edit-questions (adjfeedback/urls_admin.py:69)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/config/ConfigForm.tsx (teamFeedbackQuestions / adjudicatorFeedbackQuestions); src/components/feedback/FeedbackPathsEditor.tsx",
+  "note": "Separate team and adjudicator question sets, validated on save."
+ },
+ {
+  "item": "Bulk update adjudicator scores",
+  "tabbycat": "adjfeedback-update-scores-bulk (adjfeedback/urls_admin.py:74)",
+  "status": "HAVE",
+  "crabbytab": "src/lib/csv/importPlan.ts (adjudicator rows update existing, provided.score); src/app/[tournamentSlug]/imports/[importType]/page.tsx",
+  "note": "Done through the adjudicators CSV import's update-existing preview rather than a paste box."
+ },
+ {
+  "item": "Ignore / confirm feedback",
+  "tabbycat": "adjfeedback-ignore-feedback (adjfeedback/urls_admin.py:79); adjfeedback-confirm-feedback (adjfeedback/urls_admin.py:82)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/FeedbackReviewControls.tsx",
+  "note": ""
+ },
+ {
+  "item": "Adjudicator scores and feedback CSV",
+  "tabbycat": "adjfeedback-csv-scores (adjfeedback/urls_admin.py:87); adjfeedback-csv-feedback (adjfeedback/urls_admin.py:90)",
+  "status": "HAVE",
+  "crabbytab": "src/lib/csv/exporters.ts adjudicatorScoresCsv/feedbackSubmissionsCsv; src/app/[tournamentSlug]/feedback/page.tsx export buttons",
+  "note": ""
+ },
+ {
+  "item": "Assistant add feedback",
+  "tabbycat": "adjfeedback-assistant-add-index (adjfeedback/urls_assistant.py:10); adjfeedback-assistant-add-from-team (adjfeedback/urls_assistant.py:13); adjfeedback-assistant-add-from-adjudicator (adjfeedback/urls_assistant.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/page.tsx; src/lib/staffPermissions.ts feedback.enter; src/app/api/tournaments/[tournamentId]/data-entry-sync/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Public feedback progress",
+  "tabbycat": "public_feedback_progress (adjfeedback/urls_public.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/public/PublicSitePanels.tsx FeedbackProgressPanel; src/lib/publicView/derived.ts buildFeedbackProgress",
+  "note": ""
+ },
+ {
+  "item": "Public feedback submission without private URL (pick your name)",
+  "tabbycat": "adjfeedback-public-add-index (adjfeedback/urls_public.py:16); adjfeedback-public-add-from-team-pk (adjfeedback/urls_public.py:19); adjfeedback-public-add-from-adjudicator-pk (adjfeedback/urls_public.py:22)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "Only private-URL feedback exists. grep: publicFeedback, public_feedback, feedbackByName; docs/tabbycat-parity-plan.md:83,249 lists it as not done."
+ },
+ {
+  "item": "Feedback via private URL (team / adjudicator)",
+  "tabbycat": "adjfeedback-public-add-from-team-randomised (adjfeedback/urls_public.py:27); adjfeedback-public-add-from-adjudicator-randomised (adjfeedback/urls_public.py:30)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private/team/[key]/page.tsx; src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx; src/app/api/private/sync/route.ts",
+  "note": "Custom questions, feedback paths, passcode gate."
+ },
+ {
+  "item": "Availability index (per round)",
+  "tabbycat": "availability-index (availability/urls.py:10)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx",
+  "note": "Combined availability and check-in page with teams/adjudicators/venues tabs."
+ },
+ {
+  "item": "Check in all / from previous round",
+  "tabbycat": "availability-checkin-all (availability/urls.py:14); availability-checkin-previous (availability/urls.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (markAllPresent, copyFromRound)",
+  "note": ""
+ },
+ {
+  "item": "Adjudicator availability (and check in all breaking adjudicators)",
+  "tabbycat": "availability-adjudicators (availability/urls.py:20); availability-update-adjudicators (availability/urls.py:22); availability-checkin-breaking-adjudicators (availability/urls.py:24)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (tabAdjudicators, markBreakingPresent)",
+  "note": ""
+ },
+ {
+  "item": "Team availability",
+  "tabbycat": "availability-teams (availability/urls.py:28); availability-update-teams (availability/urls.py:30)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (tabTeams); src/lib/roundAvailability.ts",
+  "note": ""
+ },
+ {
+  "item": "Venue availability",
+  "tabbycat": "availability-venues (availability/urls.py:34); availability-update-venues (availability/urls.py:36)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (tabVenues)",
+  "note": ""
+ },
+ {
+  "item": "Admin break index and breaking teams per category (generate / regenerate / remarks)",
+  "tabbycat": "breakqual-index (breakqual/urls_admin.py:9); breakqual-teams (breakqual/urls_admin.py:12); breakqual-generate-all (breakqual/urls_admin.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/break/page.tsx; src/lib/breakqual/calculator.ts; src/features/tournament/application/breaks.ts",
+  "note": "Generate per category, stale-break notice, overrides (remarks), reserves, institution cap."
+ },
+ {
+  "item": "Edit team break eligibility",
+  "tabbycat": "breakqual-edit-eligibility (breakqual/urls_admin.py:22); breakqual-update-eligibility (breakqual/urls_admin.py:25)",
+  "status": "PARTIAL",
+  "crabbytab": "src/features/tournament/components/TeamCategoryFields.tsx BreakEligibilityField in src/app/[tournamentSlug]/imports/ImportDirectory.tsx; CSV import",
+  "note": "Eligibility is set per team in its edit dialog (or by CSV); no team-by-category checkbox grid for bulk editing."
+ },
+ {
+  "item": "Edit break categories",
+  "tabbycat": "break-categories-edit (breakqual/urls_admin.py:28)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/break/page.tsx (add/edit/delete category, rule, size, reserves, priority)",
+  "note": ""
+ },
+ {
+  "item": "Public break pages (index, teams, bracket, adjudicators)",
+  "tabbycat": "breakqual-public-index (breakqual/urls_public.py:8); breakqual-public-teams (breakqual/urls_public.py:11); breakqual-public-bracket (breakqual/urls_public.py:14); breakqual-public-adjs (breakqual/urls_public.py:17)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (break, bracket, adjudicators tabs); src/lib/publicBracket.ts; PublicListPanels.tsx AdjudicatorListsPanel",
+  "note": ""
+ },
+ {
+  "item": "Check-in pre-scan (barcode scanning)",
+  "tabbycat": "admin-checkin-prescan (checkins/urls_admin.py:8); assistant-checkin-prescan (checkins/urls_assistant.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (scan field and camera scanner)",
+  "note": ""
+ },
+ {
+  "item": "People and venue check-in statuses",
+  "tabbycat": "admin-people-statuses (checkins/urls_admin.py:12); admin-venues-statuses (checkins/urls_admin.py:15); assistant-people-statuses (checkins/urls_assistant.py:12); assistant-venues-statuses (checkins/urls_assistant.py:15)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (history, expiry, per-speaker check-in)",
+  "note": ""
+ },
+ {
+  "item": "Check-in identifiers: list, generate, print",
+  "tabbycat": "admin-checkin-identifiers (checkins/urls_admin.py:19); admin-checkin-generate (checkins/urls_admin.py:22); admin-checkin-print (checkins/urls_admin.py:25); assistant-checkin-identifiers (checkins/urls_assistant.py:19); assistant-checkin-print (checkins/urls_assistant.py:22)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/page.tsx (barcodes section, printBarcodes); src/components/ui/Code39Barcode.tsx",
+  "note": "Barcodes derive from entity ids, so no generate step is needed."
+ },
+ {
+  "item": "Public check-in status",
+  "tabbycat": "checkins-public-status (checkins/urls_public.py:8)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/checkins/public/page.tsx; src/app/api/public/tournaments/[slug]/checkins/route.ts (countCheckins)",
+  "note": "Shows per-round counts of checked-in teams/adjudicators only; Tabbycat lists each person/team with their status."
+ },
+ {
+  "item": "Participant self check-in via private URL",
+  "tabbycat": "checkins-public-submit (checkins/urls_public.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/SelfCheckInPanel.tsx (used in both private portals)",
+  "note": ""
+ },
+ {
+  "item": "Draw page, create draw, regenerate",
+  "tabbycat": "draw (draw/urls_admin.py:11); draw-create (draw/urls_admin.py:14); draw-regenerate (draw/urls_admin.py:26)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx handleGenerate/confirmGenerate; src/features/tournament/application/draws.ts; src/lib/draw/generator.ts",
+  "note": "Venue-shortage block, confirmation before overwriting/discarding results, seeded generator."
+ },
+ {
+  "item": "Draw with details",
+  "tabbycat": "draw-details (draw/urls_admin.py:17)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/DrawDetailsPanel.tsx; src/lib/draw/drawFlags.ts buildDrawDetails",
+  "note": "Points, side history, previous opponents, pull-ups."
+ },
+ {
+  "item": "Position balance report",
+  "tabbycat": "draw-position-balance (draw/urls_admin.py:20)",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/draw/drawFlags.ts (side_imbalance flag, sideCounts); DrawDetailsPanel.tsx",
+  "note": "Side history and imbalance flags exist, but no dedicated report of each BP team's position cost under the configured cost function. grep: positionBalance, PositionBalance."
+ },
+ {
+  "item": "Confirm draw (draft to confirmed, before release)",
+  "tabbycat": "draw-confirm (draw/urls_admin.py:23)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx:483,1059 (drawStatus 'draft' <-> 'confirmed')",
+  "note": "CrabbyTab's 'confirmed' status is the public release; there is no separate locked-but-unreleased confirmed stage."
+ },
+ {
+  "item": "Release / unrelease draw",
+  "tabbycat": "draw-release (draw/urls_admin.py:53); draw-unrelease (draw/urls_admin.py:59)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx ReleaseActionDialog; src/features/tournament/application/stateGuards.ts checkDrawRelease",
+  "note": ""
+ },
+ {
+  "item": "Release draw to teams only",
+  "tabbycat": "draw-teams-release (draw/urls_admin.py:56)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "No teams-only release status (DrawStatus is none/draft/confirmed/released, src/types/index.ts:632). grep: teamsReleased, teams_released, TEAMS_RELEASED."
+ },
+ {
+  "item": "Email adjudicator and team assignments",
+  "tabbycat": "draw-adj-email (draw/urls_admin.py:31); draw-team-email (draw/urls_admin.py:34)",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/notifications.ts buildDrawTeamRecipients/buildDrawAdjudicatorRecipients; src/features/tournament/components/AutomaticNotificationsPanel.tsx",
+  "note": "Opt-in automatic on release plus 'Send due notifications now'; the compose form also reaches round adjudicators with draw variables. No per-recipient selection table as in Tabbycat."
+ },
+ {
+  "item": "Edit matchups",
+  "tabbycat": "edit-debate-teams (draw/urls_admin.py:39)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx (drag/pick team moves); src/lib/draw/drawEditing.ts; UnassignedTeamsPool.tsx",
+  "note": ""
+ },
+ {
+  "item": "Draw display (admin/assistant, by venue / by team)",
+  "tabbycat": "draw-display (draw/urls_admin.py:44); draw-display-specific-round-by-venue (draw/urls_admin.py:47); draw-display-specific-round-by-team (draw/urls_admin.py:50); draw-assistant-display (draw/urls_assistant.py:10); draw-assistant-display-specific-round-by-venue (draw/urls_assistant.py:19); draw-assistant-display-specific-round-by-team (draw/urls_assistant.py:22)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/display/page.tsx (rooms/teams/motions views, auto-scroll, text size); src/lib/staffPermissions.ts draw.display",
+  "note": ""
+ },
+ {
+  "item": "Draw display for current (concurrent) rounds",
+  "tabbycat": "draw-display-current-rounds-by-venue (draw/urls_admin.py:69); draw-display-current-rounds-by-team (draw/urls_admin.py:72); draw-assistant-display-current-rounds-by-venue (draw/urls_assistant.py:13); draw-assistant-display-current-rounds-by-team (draw/urls_assistant.py:16)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/display/page.tsx (activeRound only)",
+  "note": "Display shows one round at a time; concurrent rounds are not combined on one projector view."
+ },
+ {
+  "item": "Set round start time",
+  "tabbycat": "draw-start-time-set (draw/urls_admin.py:64)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/schedule/RoundScheduleCard.tsx (Round.startsAt); src/features/tournament/application/motionRelease.ts",
+  "note": ""
+ },
+ {
+  "item": "Side pre-allocations (view / edit)",
+  "tabbycat": "draw-side-allocations (draw/urls_admin.py:76); draw-side-allocations-update (draw/urls_admin.py:79)",
+  "status": "PARTIAL",
+  "crabbytab": "src/features/tournament/components/DrawSetupPanel.tsx (round.preallocatedSides)",
+  "note": "Sides are pre-allocated per round in the draw setup panel; no all-rounds team x round grid."
+ },
+ {
+  "item": "Bulk apply side pre-allocations from a previous round (same / opposite)",
+  "tabbycat": "draw-side-allocations-bulk (draw/urls_admin.py:82)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "grep: preallocat with opposite/invert/copyFrom/fromRound in DrawSetupPanel.tsx: none."
+ },
+ {
+  "item": "Public draw (current rounds / specific round)",
+  "tabbycat": "draw-public-current-rounds (draw/urls_public.py:8); draw-public-for-round (draw/urls_public.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (drawRounds, roundPicker); src/lib/publicFeatures.ts isRoundDrawPublic",
+  "note": "Draw mode off/current/all. 'Current' is the single latest released round, not all concurrent rounds."
+ },
+ {
+  "item": "Public side allocations",
+  "tabbycat": "draw-public-side-allocations (draw/urls_public.py:14)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/public/PublicSitePanels.tsx SideAllocationsPanel",
+  "note": ""
+ },
+ {
+  "item": "Simple importer (institutions, teams, adjudicators, venues)",
+  "tabbycat": "importer-simple-index (importer/urls.py:9); importer-simple-institutions (importer/urls.py:12); importer-simple-teams (importer/urls.py:15); importer-simple-adjudicators (importer/urls.py:18); importer-simple-venues (importer/urls.py:21)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/[importType]/page.tsx; src/app/[tournamentSlug]/imports/venues/page.tsx; src/features/tournament/components/CsvImportDialog.tsx; src/lib/csv/importPlan.ts",
+  "note": "CSV import with row-level preview, update-or-create matching and manual add forms."
+ },
+ {
+  "item": "Export tournament archive (XML)",
+  "tabbycat": "exporter-xml-index (importer/urls.py:25); exporter-archive-all (importer/urls.py:28)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/application/debateXml.ts createDebateXmlArchive; src/components/layout/Navbar.tsx (exportArchive); src/app/[tournamentSlug]/exports/page.tsx",
+  "note": "Also JSON backup and CSV participant exports."
+ },
+ {
+  "item": "Import tournament archive",
+  "tabbycat": "importer-archive (importer/urls_archive.py:9)",
+  "status": "HAVE",
+  "crabbytab": "src/app/tournaments/import/page.tsx; src/components/setup/DebateXmlImportForm.tsx; src/features/tournament/application/debateXmlImport.ts",
+  "note": ""
+ },
+ {
+  "item": "Edit round motions, copy, copy from previous round",
+  "tabbycat": "motions-edit (motions/urls_admin.py:9); motions-copy (motions/urls_admin.py:12); motions-previous (motions/urls_admin.py:15)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/motions/page.tsx; src/features/tournament/components/RoundMotionsPanel.tsx; src/lib/motions/roundMotions.ts copyMotionsToRound/copyPreviousRoundMotions",
+  "note": ""
+ },
+ {
+  "item": "Release / unrelease motions and info slides",
+  "tabbycat": "motions-release (motions/urls_admin.py:18); motions-release-infoslides (motions/urls_admin.py:21); motions-unrelease (motions/urls_admin.py:24)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/MotionReleaseControl.tsx; src/features/tournament/application/motionRelease.ts (three-state MotionsStatus)",
+  "note": ""
+ },
+ {
+  "item": "Display motions (admin/assistant)",
+  "tabbycat": "motions-display (motions/urls_admin.py:27); motions-assistant-display (motions/urls_assistant.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/display/page.tsx (motions view, reveal steps, info slides); staffPermissions motions.display",
+  "note": ""
+ },
+ {
+  "item": "Email motion release",
+  "tabbycat": "motions-email (motions/urls_admin.py:32)",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/notifications.ts buildMotionsRecipients (motions_released event)",
+  "note": "Automatic opt-in notification rather than a manual send page."
+ },
+ {
+  "item": "Motion statistics (admin)",
+  "tabbycat": "motions-statistics (motions/urls_admin.py:38)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/analytics/page.tsx; src/lib/motionStatistics.ts; src/lib/motionBalance.ts",
+  "note": "Side wins, vetoes, chi-squared balance."
+ },
+ {
+  "item": "Global (cross-tournament) motion statistics (admin)",
+  "tabbycat": "motions-global-statistics (motions/urls_admin.py:41)",
+  "status": "HAVE",
+  "crabbytab": "src/app/tournaments/motions/page.tsx; src/lib/motions/crossTournament.ts",
+  "note": "Across tournaments the user administers."
+ },
+ {
+  "item": "Public motions and motion statistics",
+  "tabbycat": "motions-public (motions/urls_public.py:8); motions-public-statistics (motions/urls_public.py:13)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (motions tab, MotionStatisticsSummary); src/lib/publicFeatures.ts orderPublicMotions",
+  "note": ""
+ },
+ {
+  "item": "Public global motion statistics",
+  "tabbycat": "motions-global-public-statistics (motions/urls_public.py:16)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "Cross-tournament stats exist only for administrators (src/app/tournaments/motions/page.tsx). grep: globalMotion, crossTournament in public pages."
+ },
+ {
+  "item": "Send test email",
+  "tabbycat": "notifications-test-email (notifications/urls.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/email/page.tsx; src/app/api/email/test/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Custom email compose",
+  "tabbycat": "notifications-email (notifications/urls_admin.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/email/page.tsx; src/lib/email/messaging.ts EMAIL_RECIPIENT_GROUPS/renderEmailTemplate",
+  "note": "Recipient groups, template variables, private credentials."
+ },
+ {
+  "item": "Email event webhook",
+  "tabbycat": "notifications-webhook (notifications/urls_admin.py:12)",
+  "status": "HAVE",
+  "crabbytab": "src/app/api/email/webhook/route.ts; src/lib/email/deliveryStatus.ts",
+  "note": "Provider-neutral signed webhook instead of SendGrid-specific."
+ },
+ {
+  "item": "Email delivery status",
+  "tabbycat": "notifications-status (notifications/urls_admin.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/email/page.tsx (campaign history with delivery counts); src/app/api/email/history/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Tournament configuration index and sections",
+  "tabbycat": "options-tournament-index (options/urls.py:9); options-tournament-section (options/urls.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/config/[category]/page.tsx; src/app/[tournamentSlug]/config/ConfigForm.tsx",
+  "note": ""
+ },
+ {
+  "item": "Apply rules preset to an existing tournament",
+  "tabbycat": "options-presets-confirm (options/urls.py:14)",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/setup/presets.ts RULES_PRESETS; src/components/setup/TournamentWizard.tsx",
+  "note": "Presets can only be chosen in the creation wizard; config pages have no 'apply preset' action."
+ },
+ {
+  "item": "Participants list (admin/assistant)",
+  "tabbycat": "participants-list (participants/urls_admin.py:8); participants-assistant-list (participants/urls_assistant.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/[importType]/page.tsx (teams, adjudicators tables); src/components/layout/Sidebar.tsx",
+  "note": ""
+ },
+ {
+  "item": "Institutions list (admin/assistant)",
+  "tabbycat": "participants-institutions-list (participants/urls_admin.py:11); participants-assistant-institutions-list (participants/urls_assistant.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/[importType]/page.tsx (institutions) via ImportDirectory.tsx",
+  "note": ""
+ },
+ {
+  "item": "Institution gender diversity table",
+  "tabbycat": "participants-institution-gender-diversity (participants/urls_admin.py:14)",
+  "status": "MISSING",
+  "crabbytab": "src/app/[tournamentSlug]/imports/diversity/page.tsx (tournament-wide only)",
+  "note": "Diversity stats are tournament-wide (src/lib/publicView/derived.ts buildDiversity); no per-institution gender breakdown. grep: byInstitution, perInstitution."
+ },
+ {
+  "item": "Code names list (decoder)",
+  "tabbycat": "participants-code-names-list (participants/urls_admin.py:17); participants-assistant-code-names-list (participants/urls_assistant.py:14)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/imports/ImportDirectory.tsx (codeName field in team edit); src/lib/csv/participantExports.ts teamsCsv code_name; src/lib/codeNames.ts",
+  "note": "No code-name-to-real-name list page; visible only per team in the edit dialog or the teams CSV. Also: manually added teams get codeName = real team name (ImportDirectory.tsx:281), which reveals the real name under code-name modes until regenerated."
+ },
+ {
+  "item": "Institution adjudicator requirement report (N-1 rule)",
+  "tabbycat": "participants-adj-rule (participants/urls_admin.py:20)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "No per-institution teams-vs-adjudicators per round report. grep: N-1, adjRequirement, requiredAdjudicators."
+ },
+ {
+  "item": "Email team registration details",
+  "tabbycat": "participants-email (participants/urls_admin.py:24)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/email/page.tsx (all_teams group with {{team}}, {{private_url}} variables)",
+  "note": "No dedicated template event, but the compose form covers it."
+ },
+ {
+  "item": "Speaker category eligibility and categories",
+  "tabbycat": "participants-speaker-eligibility (participants/urls_admin.py:28); participants-speaker-update-eligibility (participants/urls_admin.py:31); participants-speaker-categories-edit (participants/urls_admin.py:34)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/speaker-categories/page.tsx; src/features/tournament/components/SpeakerCategoryEligibilityPanel.tsx; src/lib/speakerCategories.ts",
+  "note": ""
+ },
+ {
+  "item": "Admin team record page",
+  "tabbycat": "participants-team-record (participants/urls_admin.py:38)",
+  "status": "PARTIAL",
+  "crabbytab": "src/features/tournament/components/public/PublicRecordPages.tsx TeamRecordPage",
+  "note": "Only the public record page exists (and only when record pages are enabled); no admin record with private URL, conflicts, feedback submitted, unreleased results."
+ },
+ {
+  "item": "Add / delete speaker on a team",
+  "tabbycat": "participants-team-speaker-add (participants/urls_admin.py:41); participants-team-speaker-delete (participants/urls_admin.py:44)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/imports/ImportDirectory.tsx (team edit dialog edits existing speakers; create form has 2-3 slots)",
+  "note": "Existing teams' speakers can be renamed but not added or removed in the UI; only via CSV re-import."
+ },
+ {
+  "item": "Admin adjudicator record page",
+  "tabbycat": "participants-adjudicator-record (participants/urls_admin.py:47)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/feedback/adjudicator/[adjudicatorId]/page.tsx",
+  "note": "Feedback received, score history, allocations; conflicts are in the edit dialog."
+ },
+ {
+  "item": "Public participants and institutions lists",
+  "tabbycat": "participants-public-list (participants/urls_public.py:8); participants-public-institutions-list (participants/urls_public.py:11)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/public/PublicListPanels.tsx ParticipantsPanel/InstitutionsPanel; src/lib/publicLists.ts",
+  "note": ""
+ },
+ {
+  "item": "Public team and adjudicator record pages",
+  "tabbycat": "participants-public-team-record (participants/urls_public.py:15); participants-public-adjudicator-record (participants/urls_public.py:18)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/team/[teamId]/page.tsx; src/app/[tournamentSlug]/public/adjudicator/[adjudicatorId]/page.tsx; PublicRecordPages.tsx",
+  "note": ""
+ },
+ {
+  "item": "Print scoresheets (admin/assistant)",
+  "tabbycat": "printing-scoresheets (printing/urls_admin.py:10); printing-assistant-scoresheets (printing/urls_assistant.py:10)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/print/ballots/page.tsx; src/features/tournament/components/PrintOptionsCard.tsx",
+  "note": "With barcodes for ballot intake."
+ },
+ {
+  "item": "Print feedback forms (admin/assistant)",
+  "tabbycat": "printing-feedback (printing/urls_admin.py:13); printing-assistant-feedback (printing/urls_assistant.py:13)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/print/feedback/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "Printable private URL sheets (teams/adjudicators)",
+  "tabbycat": "printing-urls-teams (printing/urls_admin.py:18); printing-urls-adjudicators (printing/urls_admin.py:21)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private-urls/page.tsx (printSlips with QR codes, optional passcodes)",
+  "note": ""
+ },
+ {
+  "item": "Private URLs list and generate",
+  "tabbycat": "privateurls-list (privateurls/urls_admin.py:8); privateurls-generate (privateurls/urls_admin.py:12)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private-urls/page.tsx; src/lib/privateUrls.ts",
+  "note": "Per team and adjudicator (not per speaker), plus passcodes."
+ },
+ {
+  "item": "Email private URLs",
+  "tabbycat": "privateurls-email (privateurls/urls_admin.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/email/page.tsx ({{private_url}}, {{passcode}}); src/lib/email/messaging.ts privateCredentials",
+  "note": ""
+ },
+ {
+  "item": "Private URL landing page",
+  "tabbycat": "privateurls-person-index (privateurls/urls_public.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private/team/[key]/page.tsx; src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "Admin institution registrations (list, edit, questions, coach questions)",
+  "tabbycat": "reg-institution-list (registration/urls_admin.py:10); reg-institution-edit (registration/urls_admin.py:12); reg-institution-questions (registration/urls_admin.py:20); reg-coach-questions (registration/urls_admin.py:23)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/registration/page.tsx; src/features/tournament/components/registration/RegistrationQueue.tsx, RegistrationSettingsForm.tsx; src/lib/registration/types.ts institutionQuestions",
+  "note": "Institution requests reviewed in the queue with an allocate-places action."
+ },
+ {
+  "item": "Email institution coaches",
+  "tabbycat": "reg-email-coaches (registration/urls_admin.py:11)",
+  "status": "PARTIAL",
+  "crabbytab": "src/lib/email/messaging.ts EMAIL_RECIPIENT_GROUPS (no representatives group); RepresentativesPanel.tsx",
+  "note": "Representatives get the automatic 'places allocated' email only; no bulk compose to all coaches/representatives."
+ },
+ {
+  "item": "Slot transfers (approve, summary, update)",
+  "tabbycat": "reg-slot-transfer-approval (registration/urls_admin.py:14); reg-slot-transfer-summary (registration/urls_admin.py:15); reg-slot-transfer-update (registration/urls_admin.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/registration/SlotTransfersPanel.tsx; src/lib/registration/transfers.ts",
+  "note": ""
+ },
+ {
+  "item": "Team / adjudicator / speaker registration lists, confirm, questions",
+  "tabbycat": "reg-team-list (registration/urls_admin.py:26); reg-team-confirm (registration/urls_admin.py:27); reg-team-questions (registration/urls_admin.py:30); reg-adjudicator-list (registration/urls_admin.py:33); reg-adjudicator-confirm (registration/urls_admin.py:34); reg-adjudicator-questions (registration/urls_admin.py:37); reg-speaker-questions (registration/urls_admin.py:41)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/registration/RegistrationQueue.tsx; src/lib/registration/review.ts, autoApprove.ts; types.ts speakerQuestions",
+  "note": "Duplicate detection, auto-accept modes, reject/reopen."
+ },
+ {
+  "item": "Public institution registration and representative landing",
+  "tabbycat": "reg-create-institution (registration/urls_public.py:9); reg-inst-landing (registration/urls_public.py:13)",
+  "status": "HAVE",
+  "crabbytab": "src/app/register/[slug]/page.tsx; src/app/api/public/tournaments/[slug]/registration/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Coach view of institution's response",
+  "tabbycat": "reg-inst-view-response (registration/urls_public.py:16)",
+  "status": "MISSING",
+  "crabbytab": "src/app/register/[slug]/page.tsx",
+  "note": "Representative link shows places remaining but not their submitted institution response or registered teams/adjudicators. grep: viewResponse, view-response."
+ },
+ {
+  "item": "Coach slot transfer request",
+  "tabbycat": "reg-inst-transfer-slots (registration/urls_public.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/register/[slug]/page.tsx (register.transfer*)",
+  "note": ""
+ },
+ {
+  "item": "Institutional and public team/adjudicator/speaker registration forms",
+  "tabbycat": "reg-inst-create-adj (registration/urls_public.py:22); reg-inst-create-team (registration/urls_public.py:25); reg-create-adjudicator (registration/urls_public.py:30); reg-create-team (registration/urls_public.py:34); reg-create-speaker (registration/urls_public.py:37)",
+  "status": "HAVE",
+  "crabbytab": "src/app/register/[slug]/page.tsx; src/lib/registration/validation.ts",
+  "note": "Speakers are registered within the team form rather than as a separate step."
+ },
+ {
+  "item": "Admin results entry list per round",
+  "tabbycat": "results-round-list (results/urls_admin.py:9)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "Postpone debate",
+  "tabbycat": "results-postpone-debate (results/urls_admin.py:14)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx:868-890 (postponed + reason); src/features/tournament/application/stateGuards.ts",
+  "note": "Toggled on the draw page rather than the results list."
+ },
+ {
+  "item": "Admin new / edit ballot",
+  "tabbycat": "results-ballotset-new (results/urls_admin.py:22); results-ballotset-edit (results/urls_admin.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx; src/features/tournament/components/ballot/BallotHistory.tsx, BallotDiffDialog.tsx",
+  "note": "Versions, diff, confirm/discard."
+ },
+ {
+  "item": "Legacy ballot views (old admin/assistant/public)",
+  "tabbycat": "old-results-ballotset-edit (results/urls_admin.py:27); old-results-ballotset-new (results/urls_admin.py:30); old-results-assistant-ballotset-edit (results/urls_assistant.py:22); old-results-assistant-ballotset-new (results/urls_assistant.py:25); old-results-public-ballotset-new-pk (results/urls_public.py:24)",
+  "status": "NA",
+  "crabbytab": "",
+  "note": "Deprecated Tabbycat views kept for backward compatibility."
+ },
+ {
+  "item": "Merge latest individual ballots",
+  "tabbycat": "results-merge-latest (results/urls_admin.py:34); results-assistant-merge-latest (results/urls_assistant.py:29)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/[roundSeq]/[debateId]/page.tsx onFillFromPortal; src/lib/ballots/individualBallots.ts mergeIndividualBallots",
+  "note": ""
+ },
+ {
+  "item": "Assistant results entry (list, new, edit)",
+  "tabbycat": "results-assistant-round-list (results/urls_assistant.py:9); results-assistant-ballotset-new (results/urls_assistant.py:17); results-assistant-ballotset-edit (results/urls_assistant.py:14)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/results/page.tsx; src/app/api/tournaments/[tournamentId]/assistant-ballots/route.ts; src/lib/assistantBallotConfirmation.ts",
+  "note": "Assistants' ballots forced unconfirmed; confirm-others permission."
+ },
+ {
+  "item": "Public results index and round results",
+  "tabbycat": "results-public-index (results/urls_public.py:9); results-public-round (results/urls_public.py:16)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (results tab with roundPicker)",
+  "note": ""
+ },
+ {
+  "item": "Public ballot scoresheets",
+  "tabbycat": "results-public-scoresheet-view (results/urls_public.py:12)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/public/PublicSitePanels.tsx ScoresheetsPanel; src/lib/publicFeatures.ts (ballots setting)",
+  "note": ""
+ },
+ {
+  "item": "Public ballot submission without private URL (pick your name)",
+  "tabbycat": "results-public-ballot-submission-index (results/urls_public.py:21)",
+  "status": "MISSING",
+  "crabbytab": "",
+  "note": "Ballots can only be submitted via private URLs. grep: publicBallots (only a local variable), public_ballots; docs/tabbycat-parity-plan.md:83,249."
+ },
+ {
+  "item": "Private URL ballot submission, view, and post-submission page",
+  "tabbycat": "results-public-ballotset-new-randomised (results/urls_public.py:30); results-privateurl-scoresheet-view (results/urls_public.py:33); post-results-public-ballotset-new (results/urls_public.py:43)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private/adjudicator/[key]/page.tsx (enter/edit ballot, confirmed status); src/app/api/private/sync/route.ts",
+  "note": ""
+ },
+ {
+  "item": "Speaker private URL scoresheet",
+  "tabbycat": "speaker-results-privateurl-scoresheet (results/urls_public.py:38)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/private/team/[key]/page.tsx (ScoresheetsPanel)",
+  "note": "Per-team rather than per-speaker private URL."
+ },
+ {
+  "item": "Admin standings (index, team, speaker, reply, break / speaker categories)",
+  "tabbycat": "standings-index (standings/urls_admin.py:9); standings-team (standings/urls_admin.py:12); standings-break-category (standings/urls_admin.py:15); standings-speaker (standings/urls_admin.py:23); standings-speaker-category (standings/urls_admin.py:26); standings-reply (standings/urls_admin.py:29)",
+  "status": "PARTIAL",
+  "crabbytab": "src/app/[tournamentSlug]/standings/page.tsx; src/contexts/TournamentContext.tsx:1873 standingsResult; src/lib/standings/calculator.ts",
+  "note": "All tabs and category filters exist, but standings always cover every non-cancelled round; Tabbycat's admin standings are 'as of round N' (round_seq in the URL) and CrabbyTab has no round selector."
+ },
+ {
+  "item": "Email team standings / progress",
+  "tabbycat": "progress-email (standings/urls_admin.py:19)",
+  "status": "HAVE",
+  "crabbytab": "src/lib/email/notifications.ts buildTeamPointsRecipients (team_points event)",
+  "note": "Automatic opt-in on results release."
+ },
+ {
+  "item": "Diversity standings (admin)",
+  "tabbycat": "standings-diversity (standings/urls_admin.py:33)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/diversity/page.tsx (buildAdminDiversity)",
+  "note": ""
+ },
+ {
+  "item": "Public current team standings",
+  "tabbycat": "standings-public-teams-current (standings/urls_public.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (standings tab, showPublicStandings)",
+  "note": ""
+ },
+ {
+  "item": "Public team / break-category / speaker / speaker-category / replies tabs",
+  "tabbycat": "standings-public-tab-team (standings/urls_public.py:12); standings-public-tab-break-category (standings/urls_public.py:15); standings-public-tab-speaker (standings/urls_public.py:18); standings-public-tab-speaker-category (standings/urls_public.py:21); standings-public-tab-replies (standings/urls_public.py:25)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/public/page.tsx (teamTab and speakerTab with category options, repliesTab); src/lib/publicRelease.ts",
+  "note": ""
+ },
+ {
+  "item": "Public adjudicators tab and diversity",
+  "tabbycat": "standings-public-adjudicators-tab (standings/urls_public.py:29); standings-public-diversity (standings/urls_public.py:32)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/public/PublicSitePanels.tsx AdjudicatorTabPanel/DiversityPanel",
+  "note": ""
+ },
+ {
+  "item": "Invite user and accept invitation",
+  "tabbycat": "invite-user (users/urls_admin.py:7); accept-invitation (users/urls_admin.py:8)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/staff/page.tsx; src/features/tournament/components/StaffInvitationsPanel.tsx; src/app/invite/page.tsx; src/lib/staffInvitations.ts",
+  "note": "Permission groups per invite."
+ },
+ {
+  "item": "Edit debate venues",
+  "tabbycat": "edit-debate-venues (venues/urls_admin.py:9)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/draw/page.tsx handleChangeVenue/handleAutoAllocateVenues; src/lib/draw/venueAllocator.ts getVenueIncompatibilities",
+  "note": "Venue select per debate with constraint warnings, not a separate drag-and-drop page."
+ },
+ {
+  "item": "Edit venues across concurrent rounds",
+  "tabbycat": "edit-debate-venues-multi (venues/urls_admin.py:12)",
+  "status": "PARTIAL",
+  "crabbytab": "src/features/tournament/components/CurrentRoundsBar.tsx",
+  "note": "Clash warnings across concurrent rounds but no combined multi-round venue editor."
+ },
+ {
+  "item": "Venue categories",
+  "tabbycat": "venues-categories (venues/urls_admin.py:15)",
+  "status": "HAVE",
+  "crabbytab": "src/features/tournament/components/VenueCategoriesEditor.tsx; src/app/[tournamentSlug]/imports/venues/page.tsx",
+  "note": ""
+ },
+ {
+  "item": "Venue constraints",
+  "tabbycat": "venues-constraints (venues/urls_admin.py:18)",
+  "status": "HAVE",
+  "crabbytab": "src/app/[tournamentSlug]/imports/venue-constraints/page.tsx",
+  "note": ""
+ }
+]

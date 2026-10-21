@@ -1,28 +1,144 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isGlobalAdmin() {
+      return request.auth != null && request.auth.token.globalAdmin == true;
+    }
+
     // Tournaments root collection
     match /tournaments/{tournamentId} {
       function isTournamentAdmin() {
-        let tournament = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data;
-        return request.auth != null && (
-          tournament.ownerId == request.auth.uid ||
-          (tournament.admins != null && tournament.admins[request.auth.uid] == true)
+        return isGlobalAdmin() || (
+          request.auth != null && (
+            get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId == request.auth.uid ||
+            (
+              "admins" in get(/databases/$(database)/documents/tournaments/$(tournamentId)).data &&
+              request.auth.uid in get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.admins &&
+              get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.admins[request.auth.uid] == true
+            ) ||
+            (
+              exists(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)) &&
+              get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "admin"
+            )
+          )
         );
       }
 
-      allow read: if true; // Public discovery reads root metadata; child data uses the sanitized API.
-      allow create: if request.auth != null &&
-        request.resource.data.ownerId == request.auth.uid &&
-        request.resource.data.admins[request.auth.uid] == true;
-      allow update, delete: if isTournamentAdmin();
+      function isAssignedAssistant() {
+        return request.auth != null &&
+          exists(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data.role == "dataEntry";
+      }
+
+      // Staff access (docs/staff-access.md): a data-entry assistant's direct live writes also need
+      // the permission. `permissions` is derived from their groups by the staff route; staff
+      // documents written before groups existed have none and keep every assistant permission.
+      // The tournament's assistantAccess "none" switches assistants off.
+      function assistantMay(permission) {
+        let staff = get(/databases/$(database)/documents/tournaments/$(tournamentId)/staff/$(request.auth.uid)).data;
+        let preferences = get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.get("preferences", {});
+        return preferences.get("assistantAccess", "all_areas") != "none" &&
+          (staff.get("permissions", null) == null || permission in staff.permissions);
+      }
+
+      allow read: if isTournamentAdmin() || isAssignedAssistant();
+      // Only global admins create tournaments (matches the hub's Create button).
+      allow create: if isGlobalAdmin();
+      // Admins and staff admins may edit a tournament but never its ownership;
+      // only the owner (or a global admin) may change the admin list.
+      allow update: if isGlobalAdmin() || (
+        isTournamentAdmin() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(["ownerId"]) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["admins"]) ||
+          resource.data.ownerId == request.auth.uid
+        )
+      );
+      allow delete: if isTournamentAdmin();
 
       // Tournament records and private participant data are administrator-only.
       match /{collection}/{document} {
-        allow read, write: if collection != "auditEvents" &&
-          collection != "auditReleases" &&
-          collection != "data" &&
-          isTournamentAdmin();
+        allow read: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
+          collection != "serverOnly" && isTournamentAdmin();
+        allow create, delete: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
+          collection != "serverOnly" && isTournamentAdmin();
+        allow update: if collection != "staff" && collection != "syncConflicts" &&
+          collection != "auditEvents" && collection != "auditReleases" && collection != "data" &&
+          collection != "serverOnly" && isTournamentAdmin();
+      }
+
+      match /staff/{staffId} {
+        allow read, write: if isTournamentAdmin();
+      }
+
+      // Live collections (docs/live-collaboration.md). Administrators read and write them through
+      // the rule above. Data-entry assistants may additionally create their own unconfirmed
+      // ballots and change only check-in fields; they never read these collections directly
+      // (their copy comes redacted from the assistant-data route). The field lists mirror
+      // ASSISTANT_LIVE_BALLOT_FIELDS / ASSISTANT_LIVE_CHECK_IN_FIELDS in src/lib/dataEntrySync.ts.
+      function assistantLiveBallotFields() {
+        return ["id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText",
+          "speakerScores", "teamScores", "timestamp", "confirmed", "discarded", "submitterType",
+          "submitterId", "submitterName", "chairId", "syncVersion", "sheets", "vetoes", "forfeitSide",
+          "noSpeakerScores", "selfSplit"];
+      }
+
+      function assistantLiveCheckInFields() {
+        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion"];
+      }
+
+      function isAssistantBallot(ballotId) {
+        let ballot = request.resource.data;
+        let debatePath = /databases/$(database)/documents/tournaments/$(tournamentId)/debates/$(ballot.debateId);
+        return ballot.keys().hasOnly(assistantLiveBallotFields()) &&
+          ballot.keys().hasAll(["id", "tournamentId", "roundId", "debateId", "version", "speakerScores",
+            "teamScores", "confirmed", "discarded", "submitterType", "submitterId"]) &&
+          ballot.id == ballotId &&
+          ballot.tournamentId == tournamentId &&
+          ballot.confirmed == false &&
+          ballot.discarded == false &&
+          ballot.submitterType == "tabroom" &&
+          ballot.submitterId == request.auth.uid &&
+          ballot.version is int && ballot.version >= 1 && ballot.version <= 1000 &&
+          ballot.speakerScores is map &&
+          ballot.teamScores is map &&
+          ballot.get("syncVersion", 1) == 1 &&
+          ballot.debateId is string &&
+          exists(debatePath) &&
+          get(debatePath).data.roundId == ballot.roundId &&
+          !("deletedAt" in get(debatePath).data);
+      }
+
+      function isAssistantCheckIn() {
+        let next = request.resource.data;
+        return !("deletedAt" in resource.data) &&
+          next.diff(resource.data).affectedKeys().hasOnly(assistantLiveCheckInFields()) &&
+          next.get("checkedIn", false) is bool &&
+          next.get("roundAvailability", {}) is map &&
+          next.get("roundAvailabilityAt", {}) is map &&
+          next.get("checkInHistory", []) is list && next.get("checkInHistory", []).size() <= 50 &&
+          next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1;
+      }
+
+      match /ballots/{ballotId} {
+        allow create: if isAssignedAssistant() && isAssistantBallot(ballotId) && assistantMay("results.enter");
+      }
+
+      match /teams/{teamId} {
+        allow update: if isAssignedAssistant() && isAssistantCheckIn() && assistantMay("checkins.edit");
+      }
+
+      match /adjudicators/{adjudicatorId} {
+        allow update: if isAssignedAssistant() && isAssistantCheckIn() && assistantMay("checkins.edit");
+      }
+
+      // Conflicting cloud versions are append-only recovery records.
+      match /syncConflicts/{conflictId} {
+        allow read: if isTournamentAdmin();
+        allow create: if isTournamentAdmin();
+        allow update, delete: if false;
       }
 
       // Audit events are append-only; only tournament administrators may read them.
@@ -44,15 +160,61 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Server-only records (staff invitations, custom staff permission groups, registration
+      // settings, submissions, representatives and team invitations) are read and written only by
+      // server routes with the Admin SDK; their nested collections fall outside every client rule
+      // here (docs/staff-invitations.md, docs/staff-access.md, docs/registration.md).
+      match /serverOnly/{document=**} {
+        allow read, write: if false;
+      }
+
       // Legacy bundled tournament data is administrator-only.
       match /data/{document} {
         allow read, write: if isTournamentAdmin();
       }
     }
 
+    // Slug registry: tournamentSlugs/{slug} = { tournamentId }. Written in the
+    // same transaction as the tournament, so post-write state is checked.
+    function isAdminOfTournamentAfter(tournamentId) {
+      return request.auth != null && (
+        getAfter(/databases/$(database)/documents/tournaments/$(tournamentId)).data.ownerId == request.auth.uid ||
+        getAfter(/databases/$(database)/documents/tournaments/$(tournamentId)).data.get("admins", {}).get(request.auth.uid, false) == true
+      );
+    }
+
+    match /tournamentSlugs/{slug} {
+      allow read: if request.auth != null;
+      allow create: if isGlobalAdmin() || (
+        request.resource.data.keys().hasOnly(["tournamentId"]) &&
+        request.resource.data.tournamentId is string &&
+        isAdminOfTournamentAfter(request.resource.data.tournamentId) &&
+        getAfter(/databases/$(database)/documents/tournaments/$(request.resource.data.tournamentId)).data.slug == slug
+      );
+      allow update: if isGlobalAdmin() || (
+        request.resource.data.keys().hasOnly(["tournamentId"]) &&
+        request.resource.data.tournamentId == resource.data.tournamentId &&
+        isAdminOfTournamentAfter(resource.data.tournamentId)
+      );
+      allow delete: if isGlobalAdmin() || (
+        isAdminOfTournamentAfter(resource.data.tournamentId) &&
+        getAfter(/databases/$(database)/documents/tournaments/$(resource.data.tournamentId)).data.slug != slug
+      );
+    }
+
     // Direct users collection for profile / tournaments list
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Published public views are written and served only by server routes (Admin SDK), which
+    // cache them; clients never read them directly.
+    match /publicViews/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if isGlobalAdmin();
     }
   }
 }

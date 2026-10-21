@@ -4,8 +4,35 @@ import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { ThemeToggle, useThemePreference } from "@/components/ui/ThemeToggle";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+
+/** Theme and language buttons for pages outside the tournament shell (home, sign-in, setup). */
+export function EntryPreferenceControls({ className }: { className?: string }) {
+  const { preference, setPreference } = useThemePreference();
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      <LanguageSwitcher />
+      <ThemeToggle preference={preference} onChange={setPreference} />
+    </div>
+  );
+}
+
+/** The CrabbyTab logo and name, linking to `href`. */
+export function EntryBrandLink({ href, className }: { href: string; className?: string }) {
+  return (
+    <Link href={href} className={cn("inline-flex items-center gap-2 rounded-md text-fg", focusRing, className)}>
+      <Image src="/crabbytab.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0" />
+      <span className="font-semibold">CrabbyTab</span>
+    </Link>
+  );
+}
 
 export function SetupShell({
   children,
@@ -15,31 +42,45 @@ export function SetupShell({
   maxWidth?: string;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen bg-[#f6f8fa] flex flex-col">
-      <header className="bg-[#24292e] text-white py-4 px-6 max-sm:px-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/tournaments" className="inline-flex items-center space-x-2">
-            <Image src="/crabbytab.svg" alt="" width={32} height={32} className="h-8 w-8" />
-            <span className="font-bold">CrabbyTab</span>
-          </Link>
-          {user && (
-            <div className="flex items-center space-x-3 text-xs text-gray-300">
-              <span className="hidden sm:inline">{user.email}</span>
-              <button
+    <div className="themed flex min-h-screen flex-col bg-background text-fg">
+      <header className="border-b border-border bg-surface px-6 py-2.5 max-sm:px-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+          <EntryBrandLink href="/tournaments" />
+          <div className="flex min-w-0 items-center gap-2">
+            {user && (
+              <span className="hidden truncate text-xs text-fg-muted sm:inline" title={t("setup.entry.signedInAs", { email: user.email || "" })}>
+                {user.email}
+              </span>
+            )}
+            <EntryPreferenceControls />
+            {user && (
+              <Link
+                href="/account/password"
+                className={buttonClasses({ variant: "ghost", size: "sm" })}
+                title={t("setup.entry.account.changePassword")}
+              >
+                <KeyRound aria-hidden="true" />
+                <span className="max-sm:sr-only">{t("setup.entry.account.changePassword")}</span>
+              </Link>
+            )}
+            {user && (
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={async () => {
                   await logout();
                   router.replace("/login");
                 }}
-                className="inline-flex items-center space-x-1 px-2 py-1 rounded hover:bg-white/10"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sign out</span>
-              </button>
-            </div>
-          )}
+                <LogOut aria-hidden="true" />
+                <span className="max-sm:sr-only">{t("setup.entry.signOut")}</span>
+              </Button>
+            )}
+          </div>
         </div>
       </header>
       <main className={`flex-1 w-full ${maxWidth} mx-auto px-4 py-10 max-sm:py-6`}>{children}</main>

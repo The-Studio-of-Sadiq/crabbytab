@@ -1,50 +1,31 @@
 import React from "react";
-import { DebateSide } from "@/types";
+import { DebateSide, TournamentPreferences } from "@/types";
+import { cn } from "@/components/ui/cn";
+import { sideLabel } from "@/lib/sideNames";
 
-export function SideBadge({ side }: { side: DebateSide }) {
-  const getBadgeClass = () => {
-    switch (side) {
-      case "OG":
-        return "side-badge-og";
-      case "OO":
-        return "side-badge-oo";
-      case "CG":
-        return "side-badge-cg";
-      case "CO":
-        return "side-badge-co";
-      case "AFF":
-        return "side-badge-aff";
-      case "NEG":
-        return "side-badge-neg";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-300";
-    }
-  };
-
-  const getLabel = () => {
-    switch (side) {
-      case "OG":
-        return "OG (Opening Gov)";
-      case "OO":
-        return "OO (Opening Opp)";
-      case "CG":
-        return "CG (Closing Gov)";
-      case "CO":
-        return "CO (Closing Opp)";
-      case "AFF":
-        return "Affirmative";
-      case "NEG":
-        return "Negative";
-      default:
-        return side;
-    }
-  };
-
+/**
+ * Debate position label. The abbreviation is the text; colour only aids scanning. Pass the
+ * tournament's preferences so two-team sides use its side names (Gov/Opp, Prop/Opp, ...).
+ */
+export function SideBadge({
+  side,
+  className,
+  preferences,
+}: {
+  side: DebateSide;
+  className?: string;
+  preferences?: Partial<Pick<TournamentPreferences, "sideNames">>;
+}) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${getBadgeClass()}`}
+      title={sideLabel(side, preferences, "full")}
+      className={cn(
+        "inline-flex h-5 items-center rounded-sm px-1.5 text-[11px] font-semibold uppercase tracking-wide",
+        `side-badge-${String(side).toLowerCase()}`,
+        className
+      )}
     >
-      {side}
+      {sideLabel(side, preferences)}
     </span>
   );
 }

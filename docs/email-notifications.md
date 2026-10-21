@@ -1,0 +1,94 @@
+# Email settings, templates, delivery status and SMS
+
+Roadmap #21 (as corrected in the source-level audit): per-tournament saved templates for every
+automatic email, Reply-To, the "ballot confirmed" and "motions released" events, private/feedback
+URL and registration emails, delivery status through a signed provider webhook, and an SMS hook.
+SMTP stays the only built-in transport. Code: `src/lib/email/settings.ts`,
+`src/lib/email/notifications.ts`, `src/lib/email/notificationService.ts`,
+`src/lib/email/deliveryStatus.ts`, `src/lib/email/templatedEmail.ts`, `src/lib/sms/provider.ts`.
+
+## Email settings (Email page → "Email settings and templates")
+
+Stored server-side in `tournaments/{id}/serverOnly/emailSettings` (clients cannot read it; only
+`GET/PUT /api/tournaments/{id}/email/settings`, administrators only). Changes apply to the next
+email at once; no upload is needed.
+
+- **Reply-To name and address**: added to every email the tournament sends (campaigns, retries,
+  automatic notifications, receipts, registration and representative emails). Tabbycat's
+  `reply_to_name` / `reply_to_address`.
+- **Templates**: one saved subject and message per event. A template equal to the default is not
+  stored, so improvements to the defaults still apply. Unknown `{{variables}}` are refused on save.
+- **Email registrants**: sends "Registration received" and "Registration approved".
+
+| Event | Sent to | When | Extra variables |
+|---|---|---|---|
+| Draw released (teams / adjudicators) | speakers / allocated adjudicators | as before | `side`, `debate`, `venue`, `chair`, `panellists`; teams also `long_name`; adjudicators also `position` (Chair / Panellist / Trainee) and their own `private_url` / `key` (never the passcode), as Tabbycat's POSITION and URL |
+| Team results | speakers | as before | `result`, `points` |
+| Ballot receipt | submitting adjudicator; the debate's adjudicators for tab-room results | private-URL or public-form ballot; a result the tab room or an assistant enters and confirms (with `notifyBallotReceipt` and without "Ballot confirmed"). Never for BP elimination rounds (Tabbycat) | `ballot` |
+| **Ballot confirmed** | consensus ballots: every adjudicator of the debate, trainees included; voting ballots: each voting adjudicator with a sheet (Tabbycat) | the tab room confirms a result (`notifyBallotConfirmed`) | `ballot` (with voting ballots, only the adjudicator's own sheet and the decision it gives, never the panel's aggregate) |
+| **Motions released** | speakers and revealed adjudicators of the round | motions released and draw visible (`notifyMotionsReleased`) | `motions` (released motions with info slides) |
+| **Private URL** / **Feedback URL** | chosen in the compose form | sent by hand ("Use in the compose form") | `private_url`, `passcode`, `key` (the private URL key alone, Tabbycat KEY) |
+| **Team registration details** | chosen in the compose form ("Use in the compose form" also picks *All teams*) | sent by hand, as Tabbycat's `team_email_subject` / `team_email_message` | `speakers` (everyone on the team), `code_name`, `emoji`, `break_categories` (general categories and the team's own) |
+| **Registration received / approved** | registrant's contact address | public submission / approval (with *Email registrants*) | `entry`, `institution` |
+| **Places allocated** | institution representative | their link is issued or re-sent | `institution`, `teams_allocated`, `adjudicators_allocated`, `url` |
+| **Institution registered** | an institution's contact | the institution registers (always sent; see registration.md) | `institution`, `url` |
+
+Custom emails and the bulk email can go to **Institution coaches and representatives**
+(`institution_coaches`, Tabbycat's INSTITUTION_CUSTOM / `reg-email-coaches`): the coaches stored on
+the institutions ([participants.md](participants.md#institution-coaches)); registration
+representatives join the group once saved as coaches. Coaches have no private URL, so
+`{{private_url}}` is empty for them. Speakers with their own private URL receive it instead of the
+team's in `{{private_url}}` / `{{passcode}}` (retries too).
+
+Common variables: `name`, `email`, `tournament`, `round`, `institution`, `team`. The team
+registration variables (`speakers`, `code_name`, `emoji`, `break_categories`) can be used in any
+email to team speakers; they are empty for adjudicators. Break category names are read from the
+cloud copy only when a template uses `{{break_categories}}`. Tabbycat's `{{ SHORT }}` is
+`{{team}}`; `{{ LONG }}` is `{{long_name}}` (the team's long name with its institution, or the team
+name when it has none). `{{position}}` is an adjudicator's position on their panel in the round and
+`{{key}}` a participant's private URL key (filled like `{{private_url}}`).
+
+### When the new automatic emails go out
+
+- *Motions released* is a round notification like the draw: due when `areRoundMotionsReleased`
+  holds on the cloud copy (one place to change when motion release gains more states), sent in
+  chunks with the existing log, baseline (opting in skips rounds already released) and retry.
+- *Ballot confirmed* scans only the confirmed ballots of running rounds (draw out, not cancelled,
+  not completed) plus one log document per round recording which ballots were emailed; each
+  ballot is claimed in a transaction before it is sent. Opting in marks existing confirmations as
+  sent. An administrator device asks the server to send right after confirming (after flushing
+  live writes), and uploads and **Send due notifications now** also trigger it. Confirmations in
+  completed rounds are not emailed.
+
+## Delivery status
+
+Every message carries `X-CrabbyTab-Ref: {tournamentId}/{campaignId}`. Configure the provider (or
+a small adapter in front of it) to post events to `POST /api/email/webhook`:
+
+```
+POST /api/email/webhook
+X-CrabbyTab-Signature: sha256=<hex HMAC-SHA256 of the raw body with EMAIL_WEBHOOK_SECRET>
+{ "events": [ { "ref": "t1/abc", "email": "a@b.org", "event": "delivered", "timestamp": 1700000000, "reason": "…" } ] }
+```
+
+Events are Tabbycat's EmailStatus kinds: processed, deferred, delivered, bounce, dropped, open,
+click, spamreport, unsubscribe, failed. Unknown kinds and malformed refs are skipped; at most 500
+events and 256 kB per request. The latest stage per address is stored on the campaign
+(`delivery`); a later open never hides a bounce. Campaign history shows the counts. Without
+`EMAIL_WEBHOOK_SECRET` the endpoint answers 404; wrong signatures 401. SendGrid, Mailgun, SES and
+others all support custom headers or arguments that can carry the ref; no provider is built in.
+
+## SMS
+
+`src/lib/sms/provider.ts` defines `SmsProvider` and a generic webhook implementation: with
+`SMS_WEBHOOK_URL` (https) set, each SMS is POSTed as `{ to, text, ref? }`, signed like the
+delivery webhook with `SMS_WEBHOOK_SECRET`, to a relay you control (Twilio, Vonage, a gateway…).
+Numbers must be international (`+country code`). Nothing sends SMS yet: participants have no
+phone field until the registration work adds one, so this is the interface for that work.
+
+## Web push
+
+Not implemented. Push to participants needs a service worker with push handling, VAPID keys,
+per-device subscriptions stored server-side and permission prompts; on iOS it works only for a
+home-screen-installed PWA. CrabbyTab's private portals are plain pages without a service worker,
+so push would be a separate project; email (and the SMS hook) cover the same events.

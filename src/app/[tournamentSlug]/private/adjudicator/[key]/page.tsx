@@ -3,29 +3,69 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
+import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
 import {
   FileCheck2,
   MessageSquareHeart,
-  UserCheck,
-  CheckCircle2,
-  AlertTriangle,
   MapPin,
   Users,
-  Star,
   ThumbsUp,
   ThumbsDown,
-  X,
   ExternalLink,
-  ChevronRight,
-  Shield,
   Clock,
-  Sparkles,
   Lock,
+  Loader2,
   RefreshCw,
 } from "lucide-react";
-import { DebateSide, Debate, BallotSubmission } from "@/types";
-import { validateFeedbackScore, validateSpeakerScore, validateReplyScore } from "@/lib/scoring/validator";
+import { DebateSide, Debate, BallotSubmission, FeedbackAnswer, SpeakerScoreEntry } from "@/types";
+import {
+  applyScoreCriteria,
+  rulesSides,
+  buildBallotResult,
+  effectiveRanks,
+  substantiveSpeakerCount,
+  usesSpeakerScores,
+  validateBallotEntry,
+  type BallotEntry,
+} from "@/lib/ballots/result";
+import { speakerRanksFor, winnerDeclarationFor } from "@/lib/ballots/ballotRules";
+import { privateBallotRules, privateSelfSplitAllowed, privateUrlBallotsEnabled } from "@/lib/privateBallot";
+import { MotionChoiceFields } from "@/features/tournament/components/ballot/MotionChoiceFields";
+import {
+  participantBallotAsksMotion,
+  participantBallotAsksVetoes,
+  participantRoundMotions,
+} from "@/lib/ballots/participantMotion";
+import { debateSides, isPolyFormat } from "@/lib/debateSides";
+import { blankSpeeches } from "@/features/tournament/application/ballotEntry";
+import { SpeechRows } from "@/features/tournament/components/ballot/SpeechRows";
+import { translatedSideName } from "@/lib/sideNames";
+import { arrangeDebateSides, isSidePermutation, sidesChosenOnBallot, sidesPending } from "@/lib/draw/manualSides";
+import { validateFeedbackScore, defaultFeedbackScore, feedbackScoreStep } from "@/lib/scoring/validator";
+import { FeedbackQuestionFields } from "@/components/feedback/FeedbackQuestionFields";
+import {
+  isFeedbackEnabledForRound,
+  questionsForFeedbackSource,
+  validateFeedbackAnswers,
+} from "@/lib/feedback/questions";
+import { feedbackPathsForRound, isFeedbackPathAllowed } from "@/lib/feedback/paths";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { PublicCenteredCard, PublicShell } from "@/components/public/PublicShell";
+import { ChoiceChips } from "@/components/public/ChoiceChips";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Badge, StatusPill } from "@/components/ui/Badge";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { Checkbox, Input, Label, Select, Textarea } from "@/components/ui/Field";
+import { Dialog } from "@/components/ui/Dialog";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SideBadge } from "@/components/ui/SideBadge";
+import { cn } from "@/components/ui/cn";
+import { focusRing } from "@/components/ui/focus";
+
+type PanelRole = "chair" | "panellist" | "trainee";
 
 export default function AdjudicatorPrivatePortalPage() {
   const params = useParams();
@@ -45,23 +85,26 @@ export default function AdjudicatorPrivatePortalPage() {
     rounds,
     activeRound,
     debates,
+    venues,
     ballots,
     feedback,
+    motions,
     submitBallot,
     addFeedback,
-    updateAdjudicator,
   } = useTournament();
+  const { t, plural, rich } = useI18n();
 
   // The URL key identifies the adjudicator; a separate passcode gates access.
   const adjudicator = useMemo(() => {
     return adjudicators.find((a) => a.privateUrlKey === privateKey);
   }, [adjudicators, privateKey]);
 
-  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false;
+  // Feedback is on and taken through private URLs (Tabbycat participant_feedback).
+  const feedbackEnabled = tournament?.preferences?.feedbackEnabled !== false && tournament?.preferences?.privateUrlFeedback !== false;
   const minFeedbackScore = tournament?.preferences?.feedbackMinScore ?? 1;
   const maxFeedbackScore = tournament?.preferences?.feedbackMaxScore ?? 10;
+  const feedbackQuestions = questionsForFeedbackSource("adjudicator", tournament?.preferences);
   const isBP = tournament?.format === "bp";
-  const replyEnabled = Boolean(tournament?.preferences?.replyScoresEnabled && !isBP);
 
   // Filter state
   const [selectedRoundTab, setSelectedRoundTab] = useState<string>("active");
@@ -118,7 +161,7 @@ export default function AdjudicatorPrivatePortalPage() {
     event.preventDefault();
     const passcode = enteredPasscode.trim();
     if (!passcode) {
-      setPasscodeError("Enter the personal passcode provided by the tournament tabroom.");
+      setPasscodeError(t("portal.passcodeMissing"));
       return;
     }
     setPasscodeError("");
@@ -133,7 +176,7 @@ export default function AdjudicatorPrivatePortalPage() {
         localStorage.removeItem(rememberedPasscodeKey);
       }
     } catch (error) {
-      setPasscodeError(error instanceof Error ? error.message : "Could not verify this passcode.");
+      setPasscodeError(error instanceof Error ? error.message : t("portal.passcodeError"));
     }
   };
 
@@ -147,10 +190,11 @@ export default function AdjudicatorPrivatePortalPage() {
   const [feedbackDebateId, setFeedbackDebateId] = useState("");
   const [feedbackRoundId, setFeedbackRoundId] = useState("");
   const [feedbackScore, setFeedbackScore] = useState<number>(
-    Math.round((minFeedbackScore + maxFeedbackScore) / 2)
+    defaultFeedbackScore(tournament?.preferences)
   );
   const [feedbackAgree, setFeedbackAgree] = useState<boolean>(true);
   const [feedbackComments, setFeedbackComments] = useState("");
+  const [feedbackAnswers, setFeedbackAnswers] = useState<Record<string, FeedbackAnswer>>({});
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSuccessNotice, setFeedbackSuccessNotice] = useState("");
@@ -158,32 +202,25 @@ export default function AdjudicatorPrivatePortalPage() {
   // In-portal Ballot Modal State
   const [showBallotModal, setShowBallotModal] = useState(false);
   const [ballotDebate, setBallotDebate] = useState<Debate | null>(null);
-  const [ballotScores, setBallotScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }[]>>({});
-  const [ballotReplyScores, setBallotReplyScores] = useState<Record<string, { speakerId: string; speakerName: string; score: number }>>({});
-  const [ballotRanks, setBallotRanks] = useState<Record<string, number>>({});
+  /** Sides chosen on the ballot: the debate as drawn, and whether the chair has recorded the sides. */
+  const [ballotDrawnDebate, setBallotDrawnDebate] = useState<Debate | null>(null);
+  const [ballotSidesChosen, setBallotSidesChosen] = useState(true);
+  const [ballotEntry, setBallotEntry] = useState<BallotEntry | null>(null);
+  /** A solo adjudicator's 2:1 split declaration (allowSelfSplitBallots); kept apart from the sheet. */
+  const [ballotSelfSplit, setBallotSelfSplit] = useState(false);
   const [ballotMotionId, setBallotMotionId] = useState<string>("");
+  const [ballotVetoes, setBallotVetoes] = useState<Partial<Record<DebateSide, string>>>({});
+  // The round's motions, when the ballot asks which was debated (sent by the private sync).
+  const ballotRoundMotions = useMemo(
+    () => (ballotDebate ? participantRoundMotions(motions, ballotDebate.roundId) : []),
+    [motions, ballotDebate]
+  );
+  const ballotAsksMotion = participantBallotAsksMotion(tournament?.preferences, ballotRoundMotions);
+  const ballotAsksVetoes = participantBallotAsksVetoes(tournament?.preferences, ballotRoundMotions);
   const [ballotSubmitting, setBallotSubmitting] = useState(false);
   const [ballotError, setBallotError] = useState("");
   const [ballotSuccessNotice, setBallotSuccessNotice] = useState("");
 
-  // Check-in toggle
-  const [isUpdatingCheckIn, setIsUpdatingCheckIn] = useState(false);
-  const [checkInError, setCheckInError] = useState("");
-  const handleToggleCheckIn = async () => {
-    if (!adjudicator) return;
-    setIsUpdatingCheckIn(true);
-    setCheckInError("");
-    try {
-      await updateAdjudicator({
-        ...adjudicator,
-        checkedIn: !adjudicator.checkedIn,
-      }, activePasscode);
-    } catch (error) {
-      setCheckInError(error instanceof Error ? error.message : "Could not update check-in.");
-    } finally {
-      setIsUpdatingCheckIn(false);
-    }
-  };
 
   // Find all debates this adjudicator is assigned to
   const assignedDebates = useMemo(() => {
@@ -281,9 +318,10 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetAdjName(targetAdj.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
+    setFeedbackAnswers({});
     setFeedbackError("");
     setShowFeedbackModal(true);
   };
@@ -294,9 +332,10 @@ export default function AdjudicatorPrivatePortalPage() {
     setFeedbackTargetTeamName(targetTeam.name);
     setFeedbackDebateId(debate.id);
     setFeedbackRoundId(debate.roundId);
-    setFeedbackScore(Math.round((minFeedbackScore + maxFeedbackScore) / 2));
+    setFeedbackScore(defaultFeedbackScore(tournament?.preferences));
     setFeedbackAgree(true);
     setFeedbackComments("");
+    setFeedbackAnswers({});
     setFeedbackError("");
     setShowFeedbackModal(true);
   };
@@ -305,6 +344,11 @@ export default function AdjudicatorPrivatePortalPage() {
     e.preventDefault();
     if (!adjudicator) return;
     setFeedbackError("");
+    const answersError = validateFeedbackAnswers(feedbackQuestions, feedbackAnswers);
+    if (answersError) {
+      setFeedbackError(answersError);
+      return;
+    }
 
     const check = validateFeedbackScore(feedbackScore, tournament?.preferences);
     if (!check.valid && check.error) {
@@ -331,68 +375,69 @@ export default function AdjudicatorPrivatePortalPage() {
         score: feedbackScore,
         agreeWithDecision: feedbackAgree,
         comments: feedbackComments.trim(),
+        answers: feedbackAnswers,
         confirmed: true,
       }, activePasscode, privateKey);
       setShowFeedbackModal(false);
       const targetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
-      setFeedbackSuccessNotice(`Feedback for ${targetName} was recorded successfully.`);
+      setFeedbackSuccessNotice(t("portal.feedback.recorded", { target: targetName }));
       setTimeout(() => setFeedbackSuccessNotice(""), 5000);
     } catch (error) {
-      setFeedbackError(error instanceof Error ? error.message : "Failed to submit feedback.");
+      setFeedbackError(error instanceof Error ? error.message : t("portal.feedback.failed"));
     } finally {
       setFeedbackSubmitting(false);
     }
   };
 
   // Open in-portal ballot modal
-  const handleOpenBallotModal = (debate: Debate) => {
+  const handleOpenBallotModal = (drawnDebate: Debate, chosenAffTeamId?: string) => {
+    // Initialize from confirmed or draft ballot if exists
+    const existingBallot = ballots.find((b) => b.debateId === drawnDebate.id && !b.discarded);
+    // Sides chosen on the ballot: arrange the debate as the chair recorded it (or as an earlier
+    // ballot / a confirmed result did); until then the chair must pick the sides first.
+    let debate = drawnDebate;
+    let sidesChosen = true;
+    if (sidesChosenOnBallot(drawnDebate)) {
+      const affTeamId = chosenAffTeamId ?? existingBallot?.teamScores?.AFF?.teamId ??
+        (drawnDebate.sidesConfirmed ? drawnDebate.teams.AFF?.teamId : undefined);
+      const negTeamId = [drawnDebate.teams.AFF?.teamId, drawnDebate.teams.NEG?.teamId].find((id) => id && id !== affTeamId);
+      const assignment = { AFF: affTeamId, NEG: negTeamId };
+      sidesChosen = Boolean(affTeamId) && isSidePermutation(drawnDebate, assignment);
+      if (sidesChosen) debate = arrangeDebateSides(drawnDebate, assignment);
+    }
+    // A ballot recorded with other sides than the ones just chosen does not prefill the scores.
+    const existing = existingBallot && existingBallot.teamScores?.AFF?.teamId === debate.teams.AFF?.teamId
+      ? existingBallot
+      : undefined;
+    setBallotDrawnDebate(drawnDebate);
+    setBallotSidesChosen(sidesChosen);
     setBallotDebate(debate);
-    setBallotMotionId(debate.motionId || "");
+    if (!chosenAffTeamId) {
+      // With several motions the adjudicator picks the debated one (never defaulted to the first);
+      // an earlier ballot's choice is kept.
+      const roundMotionIds = participantRoundMotions(motions, debate.roundId).map((motion) => motion.id);
+      const earlier = existingBallot?.motionId && roundMotionIds.includes(existingBallot.motionId) ? existingBallot.motionId : "";
+      setBallotMotionId(roundMotionIds.length > 1 ? earlier : debate.motionId || "");
+      setBallotVetoes(roundMotionIds.length > 1 ? { ...(existingBallot?.vetoes || {}) } : {});
+    }
     setBallotError("");
 
-    // Initialize from confirmed or draft ballot if exists
-    const existing = ballots.find((b) => b.debateId === debate.id && !b.discarded);
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
-
-    const initScores: Record<string, { speakerId: string; speakerName: string; score: number }[]> = {};
-    const initReplyScores: Record<string, { speakerId: string; speakerName: string; score: number }> = {};
-    const initRanks: Record<string, number> = {};
-
-    sides.forEach((side, sideIdx) => {
-      const teamSlot = debate.teams[side];
-      const team = teamSlot ? teamsMap.get(teamSlot.teamId) : null;
-      initRanks[side] = existing?.teamScores?.[side]?.rank || sideIdx + 1;
-
-      if (existing?.speakerScores?.[side]) {
-        initScores[side] = existing.speakerScores[side].filter((s) => s.position !== 4);
-        const replyItem = existing.speakerScores[side].find((s) => s.position === 4);
-        if (replyItem) initReplyScores[side] = replyItem;
-      } else {
-        const substantiveCount = tournament?.preferences?.substantiveSpeakers || (isBP ? 2 : 3);
-        const spks = [];
-        for (let i = 0; i < substantiveCount; i++) {
-          const spk = team?.speakers?.[i];
-          spks.push({
-            speakerId: spk?.id || `spk-${side}-${i}`,
-            speakerName: spk?.name || `Speaker ${i + 1}`,
-            score: Math.round(((tournament?.preferences?.minSpeakerScore || 68) + (tournament?.preferences?.maxSpeakerScore || 84)) / 2),
-          });
-        }
-        initScores[side] = spks;
-
-        if (replyEnabled) {
-          initReplyScores[side] = {
-            speakerId: `reply-${side}`,
-            speakerName: `${team?.name || side} Reply`,
-            score: Math.round(((tournament?.preferences?.minReplyScore || 34) + (tournament?.preferences?.maxReplyScore || 42)) / 2),
-          };
-        }
-      }
+    // The portal ballot is one adjudicator's own sheet, entered like a consensus ballot.
+    const rules = privateBallotRules(tournament!, roundsMap.get(debate.roundId), debate, [...roundsMap.values()]);
+    const sides = rulesSides(rules);
+    const speakerScores = Object.fromEntries(sides.map((side) => {
+      const team = debate.teams[side] ? teamsMap.get(debate.teams[side]!.teamId) : undefined;
+      const saved = existing?.speakerScores?.[side];
+      return [side, saved && saved.length > 0 ? saved : blankSpeeches(team?.speakers || [], rules)];
+    })) as Record<DebateSide, SpeakerScoreEntry[]>;
+    setBallotEntry({
+      speakerScores,
+      ranks: Object.fromEntries(sides.map((side, index) => [side, existing?.teamScores?.[side]?.rank || index + 1])),
+      // N teams per room, results only: the advancing teams.
+      ...(isPolyFormat(rules.format) ? { winners: sides.filter((side) => existing?.teamScores?.[side]?.win === true) } : {}),
+      motionId: debate.motionId || "",
     });
-
-    setBallotScores(initScores);
-    setBallotReplyScores(initReplyScores);
-    setBallotRanks(initRanks);
+    setBallotSelfSplit(existing?.selfSplit === true);
     setShowBallotModal(true);
   };
 
@@ -400,83 +445,39 @@ export default function AdjudicatorPrivatePortalPage() {
     e.preventDefault();
     if (!ballotDebate || !adjudicator) return;
     setBallotError("");
+    if (!ballotSidesChosen) {
+      setBallotError(t("adjPortal.ballot.chooseSides"));
+      return;
+    }
 
-    // Validate scores
-    const sides: DebateSide[] = isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
-    for (const side of sides) {
-      for (const spk of ballotScores[side] || []) {
-        const check = validateSpeakerScore(spk.score, tournament?.preferences);
-        if (!check.valid && check.error) {
-          setBallotError(`${side} ${spk.speakerName}: ${check.error}`);
-          return;
-        }
-      }
-      if (replyEnabled && ballotReplyScores[side]) {
-        const check = validateReplyScore(ballotReplyScores[side].score, tournament?.preferences);
-        if (!check.valid && check.error) {
-          setBallotError(`${side} Reply: ${check.error}`);
-          return;
-        }
-      }
+    if (!ballotEntry || !tournament) return;
+    if (ballotAsksMotion && !ballotRoundMotions.some((motion) => motion.id === ballotMotionId)) {
+      setBallotError(t("adjPortal.ballot.chooseMotion"));
+      return;
+    }
+    const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]);
+    const sides = rulesSides(rules);
+    const rosters = Object.fromEntries(sides.map((side) => [
+      side,
+      teamsMap.get(ballotDebate.teams[side]?.teamId || "")?.speakers || [],
+    ]));
+    const errors = validateBallotEntry({ ...ballotEntry, motionId: undefined }, { ...rules, rosters });
+    if (errors.length > 0) {
+      setBallotError(errors.join(" "));
+      return;
     }
 
     setBallotSubmitting(true);
     try {
-      const speakerScoresRecord: Record<string, any[]> = {};
-      const teamScoresRecord: Record<string, any> = {};
-
-      sides.forEach((side) => {
-        const teamSlot = ballotDebate.teams[side];
-        if (!teamSlot) return;
-
-        const allSpkList = [...(ballotScores[side] || [])].map((s, idx) => ({
-          speakerId: s.speakerId,
-          speakerName: s.speakerName,
-          score: s.score,
-          position: idx + 1,
-        }));
-
-        if (replyEnabled && ballotReplyScores[side]) {
-          allSpkList.push({
-            speakerId: ballotReplyScores[side].speakerId,
-            speakerName: ballotReplyScores[side].speakerName,
-            score: ballotReplyScores[side].score,
-            position: 4,
-          });
-        }
-
-        speakerScoresRecord[side] = allSpkList;
-
-        const includeGhosts = tournament?.preferences?.teamScoreIncludesGhosts ?? false;
-        let substantiveList = ballotScores[side] || [];
-        if (!includeGhosts) {
-          const seen = new Set<string>();
-          substantiveList = substantiveList.filter((s) => {
-            if (!s.speakerId) return true;
-            if (seen.has(s.speakerId)) return false;
-            seen.add(s.speakerId);
-            return true;
-          });
-        }
-        const substantiveTotal = substantiveList.reduce((sum, s) => sum + s.score, 0);
-        const replyTotal = replyEnabled && ballotReplyScores[side] ? ballotReplyScores[side].score : 0;
-        const total = substantiveTotal + replyTotal;
-        const rank = ballotRanks[side] || 1;
-        const pts = isBP ? (rank === 1 ? 3 : rank === 2 ? 2 : rank === 3 ? 1 : 0) : rank === 1 ? 1 : 0;
-
-        teamScoresRecord[side] = {
-          side,
-          teamId: teamSlot.teamId,
-          points: pts,
-          totalSpeakerScore: total,
-          rank,
-          win: pts === 1 || pts === 3,
-          margin: isBP ? 0 : rank === 1 ? 2 : -2,
-        };
-      });
-
+      const result = buildBallotResult(
+        ballotEntry,
+        Object.fromEntries(sides.map((side) => [side, ballotDebate.teams[side]?.teamId || ""])),
+        ballotDebate.adjudicators?.chairId,
+        rules
+      );
+      const selfSplit = ballotSelfSplit && privateSelfSplitAllowed(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate);
       const candidateBallot: BallotSubmission = {
-        id: `ballot-${ballotDebate.id}-adj-${Date.now()}`,
+        id: `ballot-${ballotDebate.id}-adj-${adjudicator.id}-${crypto.randomUUID()}`,
         tournamentId: tournament?.id || tournamentSlug,
         roundId: ballotDebate.roundId,
         debateId: ballotDebate.id,
@@ -487,9 +488,16 @@ export default function AdjudicatorPrivatePortalPage() {
         submitterId: adjudicator.id,
         submitterName: adjudicator.name,
         motionId: ballotMotionId,
-        motionText: ballotDebate.motionText,
-        speakerScores: speakerScoresRecord,
-        teamScores: teamScoresRecord,
+        motionText: ballotAsksMotion
+          ? ballotRoundMotions.find((motion) => motion.id === ballotMotionId)?.text
+          : ballotDebate.motionText,
+        ...(ballotAsksVetoes && Object.values(ballotVetoes).some(Boolean)
+          ? { vetoes: Object.fromEntries(Object.entries(ballotVetoes).filter(([, motionId]) => Boolean(motionId) && motionId !== ballotMotionId)) }
+          : {}),
+        speakerScores: result.speakerScores,
+        teamScores: result.teamScores,
+        ...(result.noSpeakerScores ? { noSpeakerScores: true } : {}),
+        ...(selfSplit ? { selfSplit: true } : {}),
         chairId: ballotDebate.adjudicators?.chairId,
         timestamp: new Date().toISOString(),
         confirmedBy: adjudicator.name,
@@ -498,65 +506,60 @@ export default function AdjudicatorPrivatePortalPage() {
 
       await submitBallot(candidateBallot, activePasscode);
       setShowBallotModal(false);
-      setBallotSuccessNotice(`Ballot for ${ballotDebate.venueName} successfully submitted!`);
+      setBallotSuccessNotice(t("adjPortal.ballot.success", { venue: ballotDebate.venueName ?? "" }));
       setTimeout(() => setBallotSuccessNotice(""), 6000);
     } catch (error) {
-      setBallotError(error instanceof Error ? error.message : "Failed to save ballot.");
+      setBallotError(error instanceof Error ? error.message : t("adjPortal.ballot.failed"));
     } finally {
       setBallotSubmitting(false);
     }
   };
 
+  const shellTitle = tournament?.shortName || tournament?.name || t("common.tournament");
+  const publicHref = `/${tournamentSlug}/public`;
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
-        <div className="text-center space-y-2">
-          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs text-gray-500">Loading your adjudicator portal...</p>
-        </div>
-      </div>
+      <PublicShell title={shellTitle} width="narrow">
+        <PublicCenteredCard className="flex flex-col items-center text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-fg-subtle" aria-hidden="true" />
+          <p role="status" className="text-[13px] text-fg-muted">{t("adjPortal.loading")}</p>
+        </PublicCenteredCard>
+      </PublicShell>
     );
   }
 
   if (cloudLoadError) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-amber-200 rounded-xl p-8 text-center shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto">
-            <Lock className="w-6 h-6" />
+      <PublicShell title={shellTitle} width="narrow">
+        <PublicCenteredCard className="text-center">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-warning-border bg-warning-subtle text-warning">
+            <Lock className="h-5 w-5" aria-hidden="true" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Tournament data unavailable</h1>
-          <p role="alert" className="text-xs text-gray-600 leading-relaxed">{cloudLoadError}</p>
-          <Link
-            href={`/${tournamentSlug}/public`}
-            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
-          >
-            Visit Public Tournament Page
+          <h1 className="text-xl font-semibold text-fg">{t("portal.unavailableTitle")}</h1>
+          <p role="alert" className="text-[13px] leading-relaxed text-fg-muted">{cloudLoadError}</p>
+          <Link href={publicHref} className={buttonClasses({ variant: "primary", size: "lg" })}>
+            {t("portal.visitPublic")}
           </Link>
-        </div>
-      </div>
+        </PublicCenteredCard>
+      </PublicShell>
     );
   }
 
   if (verifiedPasscodeFor !== privateKey) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
-        <form
-          onSubmit={handlePasscodeSubmit}
-          className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 shadow-sm space-y-5"
-        >
-          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
-            <Lock className="w-6 h-6" />
-          </div>
-          <div className="text-center space-y-2">
-            <h1 className="text-lg font-bold text-gray-900">Adjudicator passcode required</h1>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Enter the personal passcode provided by the tournament tabroom to open your private portal.
-            </p>
-          </div>
-          <label className="block text-xs font-semibold text-gray-700">
-            Personal passcode
-            <input
+      <PublicShell title={shellTitle} width="narrow">
+        <PublicCenteredCard>
+          <form onSubmit={handlePasscodeSubmit} className="space-y-4">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-accent/30 bg-accent-subtle text-accent-text">
+              <Lock className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div className="space-y-1.5 text-center">
+              <h1 className="text-xl font-semibold text-fg">{t("adjPortal.passcodeTitle")}</h1>
+              <p className="text-[13px] leading-relaxed text-fg-muted">{t("portal.passcodeIntro")}</p>
+            </div>
+            <Input
+              label={t("portal.passcodeLabel")}
               type="password"
               autoComplete="current-password"
               autoFocus
@@ -565,786 +568,705 @@ export default function AdjudicatorPrivatePortalPage() {
                 setEnteredPasscode(event.target.value);
                 setPasscodeError("");
               }}
-              className="mt-1.5 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="h-10"
               required
             />
-          </label>
-          <label className="flex items-center gap-2 text-xs text-gray-700">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={(event) => setRememberMe(event.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          Remember me on this device
-          </label>
-          {passcodeError && <p role="alert" className="text-xs text-red-700">{passcodeError}</p>}
-          <button
-            type="submit"
-            className="w-full px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
-          >
-            Open private portal
-          </button>
-          <p className="text-center text-[11px] text-gray-500">
-            {tournament?.shortName || tournament?.name || "Tournament"}
-          </p>
-        </form>
-      </div>
+            <Checkbox
+              label={t("portal.rememberMe")}
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+            />
+            {passcodeError && <Alert tone="danger" role="alert">{passcodeError}</Alert>}
+            <Button type="submit" variant="primary" size="lg" className="w-full">
+              {t("portal.open")}
+            </Button>
+          </form>
+        </PublicCenteredCard>
+      </PublicShell>
     );
   }
 
   if (!adjudicator) {
     return (
-      <div className="min-h-screen bg-[#f6f8fa] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-[#d0d7de] rounded-xl p-8 text-center shadow-sm space-y-4">
-          <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
-            <Lock className="w-6 h-6" />
+      <PublicShell title={shellTitle} width="narrow">
+        <PublicCenteredCard className="text-center">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-danger-border bg-danger-subtle text-danger">
+            <Lock className="h-5 w-5" aria-hidden="true" />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Private Adjudicator Link Invalid</h1>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The private URL you visited is not associated with an adjudicator in this tournament. Please
-            contact the tournament tabroom / adjudication core to obtain your valid personal link.
-          </p>
-          <Link
-            href={`/${tournamentSlug}/public`}
-            className="inline-block px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-md hover:bg-blue-700 transition"
-          >
-            Visit Public Tournament Page
+          <h1 className="text-xl font-semibold text-fg">{t("adjPortal.invalidTitle")}</h1>
+          <p className="text-[13px] leading-relaxed text-fg-muted">{t("adjPortal.invalidBody")}</p>
+          <Link href={publicHref} className={buttonClasses({ variant: "primary", size: "lg" })}>
+            {t("portal.visitPublic")}
           </Link>
-        </div>
-      </div>
+        </PublicCenteredCard>
+      </PublicShell>
     );
   }
 
+  const syncing = privateSyncState === "syncing";
+  const feedbackTargetName = feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName;
+
   return (
-    <div className="min-h-screen bg-[#f6f8fa] text-gray-900 pb-16">
-      {/* Top Header / Identity Bar */}
-      <header className="bg-white border-b border-[#d0d7de] sticky top-0 z-30 shadow-2xs">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-base shadow-xs">
-              ⚖️
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wide">
-                  {tournament?.shortName || tournament?.name || "Tournament"} &bull; Adjudicator Portal
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  Private Link
-                </span>
-              </div>
-              <h1 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-                <span>{adjudicator.name}</span>
-                {adjudicator.institutionName && (
-                  <span className="text-xs font-normal text-gray-500">
-                    ({adjudicator.institutionName})
-                  </span>
-                )}
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => void syncPrivatePortal(privateKey, activePasscode).catch((error) => {
-                console.error("Could not sync adjudicator portal:", error);
-              })}
-              disabled={privateSyncState === "syncing"}
-              className="flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${privateSyncState === "syncing" ? "animate-spin" : ""}`} />
-              Sync / Download
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleCheckIn}
-              disabled={isUpdatingCheckIn}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition border ${
-                adjudicator.checkedIn
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
-                  : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-              }`}
-            >
-              <UserCheck className={`w-3.5 h-3.5 ${adjudicator.checkedIn ? "text-emerald-600" : "text-gray-500"}`} />
-              <span>{adjudicator.checkedIn ? "Checked In ✓" : "Mark Checked In"}</span>
-            </button>
-
-            <Link
-              href={`/${tournamentSlug}/public`}
-              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md transition text-xs flex items-center space-x-1"
-              title="View Public Draw & Standings"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Public Hub</span>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        {checkInError && (
-          <p role="alert" className="text-xs text-red-700">{checkInError}</p>
-        )}
-        {privateSyncMessage && (
-          <p
-            role={privateSyncState === "error" ? "alert" : "status"}
-            className={`rounded-md border px-3 py-2 text-xs ${
-              privateSyncState === "error"
-                ? "border-amber-200 bg-amber-50 text-amber-900"
-                : "border-blue-200 bg-blue-50 text-blue-900"
-            }`}
+    <PublicShell
+      title={shellTitle}
+      subtitle={t("adjPortal.portalName")}
+      width="narrow"
+      actions={
+        <Link
+          href={publicHref}
+          title={t("portal.publicHubTitle")}
+          aria-label={t("portal.publicHub")}
+          className={buttonClasses({ variant: "ghost", size: "sm" })}
+        >
+          <ExternalLink aria-hidden="true" />
+          <span className="hidden sm:inline">{t("portal.publicHub")}</span>
+        </Link>
+      }
+    >
+      <PageHeader
+        title={adjudicator.name}
+        description={adjudicator.institutionName || undefined}
+        meta={
+          <>
+            <Badge tone="accent">
+              <Lock className="h-3 w-3" aria-hidden="true" />
+              {t("portal.privateLink")}
+            </Badge>
+            <Badge>{t("adjPortal.score", { score: adjudicator.baseScore })}</Badge>
+            {adjudicator.trainee ? (
+              <Badge tone="warning">{t("role.trainee")}</Badge>
+            ) : (
+              <Badge tone="info">{t("adjPortal.voting")}</Badge>
+            )}
+            {adjudicator.independent && <Badge>{t("common.independent")}</Badge>}
+          </>
+        }
+        actions={
+          <Button
+            variant="secondary"
+            size="md"
+            loading={syncing}
+            onClick={() => void syncPrivatePortal(privateKey, activePasscode).catch((error) => {
+              console.error("Could not sync adjudicator portal:", error);
+            })}
           >
-            {privateSyncMessage}
+            {!syncing && <RefreshCw aria-hidden="true" />}
+            {t("adjPortal.sync")}
+          </Button>
+        }
+      />
+
+      <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
+
+      {privateSyncMessage && (
+        <Alert tone={privateSyncState === "error" ? "warning" : "info"} role={privateSyncState === "error" ? "alert" : "status"}>
+          {privateSyncMessage}
+        </Alert>
+      )}
+
+      <div role="status" aria-live="polite" className="space-y-2 empty:sr-only">
+        {feedbackSuccessNotice && <Alert tone="success">{feedbackSuccessNotice}</Alert>}
+        {ballotSuccessNotice && <Alert tone="success">{ballotSuccessNotice}</Alert>}
+      </div>
+
+      <Card className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("adjPortal.accreditation")}</h2>
+          <p className="text-[13px] leading-relaxed text-fg-muted">
+            {rich("adjPortal.intro", { b: (text) => <strong className="font-semibold text-fg">{text}</strong> })}
           </p>
-        )}
-        {/* Success Notices */}
-        {feedbackSuccessNotice && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{feedbackSuccessNotice}</span>
-          </div>
-        )}
-
-        {ballotSuccessNotice && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-800 flex items-center space-x-2 shadow-2xs">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{ballotSuccessNotice}</span>
-          </div>
-        )}
-
-        {/* Adjudicator Status & Responsibilities Card */}
-        <div className="bg-white border border-[#d0d7de] rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Accreditation</span>
-              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-800 border border-gray-200">
-                Score: {adjudicator.baseScore}
-              </span>
-              {adjudicator.trainee ? (
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                  Trainee
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                  Voting Adjudicator
-                </span>
-              )}
-              {adjudicator.independent && (
-                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                  Independent
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Use this private portal to <strong>submit ballots</strong> for debates where you chair, and{" "}
-              <strong>submit confidential feedback</strong> on co-panellists, chairs, and trainees.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 text-xs">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-center min-w-[90px]">
-              <span className="block text-lg font-extrabold text-blue-700">{assignedDebates.length}</span>
-              <span className="text-[10px] text-blue-800 font-medium">Debates Assigned</span>
-            </div>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-center min-w-[90px]">
-              <span className="block text-lg font-extrabold text-emerald-700">
-                {feedback.filter((f) => f.sourceId === adjudicator.id).length}
-              </span>
-              <span className="text-[10px] text-emerald-800 font-medium">Feedback Given</span>
-            </div>
-          </div>
         </div>
-
-        {/* Tab Controls for Assigned Debates */}
-        <div className="flex items-center justify-between border-b border-[#d0d7de] pb-2">
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={() => setSelectedRoundTab("active")}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-                selectedRoundTab === "active"
-                  ? "bg-blue-600 text-white shadow-2xs"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              Current Round {activeRound ? `(${activeRound.name})` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedRoundTab("all")}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
-                selectedRoundTab === "all"
-                  ? "bg-blue-600 text-white shadow-2xs"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              All Rounds & History ({assignedDebates.length})
-            </button>
+        <dl className="grid shrink-0 grid-cols-2 gap-2">
+          <div className="flex min-w-[96px] flex-col-reverse rounded-md border border-border bg-background px-3 py-2 text-center">
+            <dt className="text-[11px] text-fg-muted">{t("adjPortal.debatesAssigned")}</dt>
+            <dd className="text-xl font-semibold tabular-nums text-fg">{assignedDebates.length}</dd>
           </div>
-
-          <span className="text-xs text-gray-500 font-medium hidden sm:inline">
-            Showing {displayedDebates.length} debate(s)
-          </span>
-        </div>
-
-        {/* Assigned Debates List */}
-        {displayedDebates.length === 0 ? (
-          <div className="bg-white border border-[#d0d7de] rounded-xl p-10 text-center text-gray-500 text-xs shadow-xs space-y-2">
-            <Clock className="w-8 h-8 text-gray-400 mx-auto" />
-            <p className="font-semibold text-gray-700">No debates assigned for this view.</p>
-            <p className="text-[11px] text-gray-500">
-              When the tabroom generates and confirms the draw, your assigned room, panel, and ballot will appear here.
-            </p>
+          <div className="flex min-w-[96px] flex-col-reverse rounded-md border border-border bg-background px-3 py-2 text-center">
+            <dt className="text-[11px] text-fg-muted">{t("adjPortal.feedbackGiven")}</dt>
+            <dd className="text-xl font-semibold tabular-nums text-fg">
+              {feedback.filter((f) => f.sourceId === adjudicator.id).length}
+            </dd>
           </div>
-        ) : (
-          <div className="space-y-5">
-            {displayedDebates.map((debate) => {
-              const round = roundsMap.get(debate.roundId);
-              const isChair = debate.adjudicators?.chairId === adjudicator.id;
-              const isPanellist = debate.adjudicators?.panellistIds?.includes(adjudicator.id);
-              const isTrainee = debate.adjudicators?.traineeIds?.includes(adjudicator.id);
-              const canSubmitBallot =
-                !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
+        </dl>
+      </Card>
 
-              const roleLabel = isChair ? "Chair" : isPanellist ? "Panellist" : isTrainee ? "Trainee" : "Judge";
-              const debateBallots = ballots.filter((b) => b.debateId === debate.id && !b.discarded);
-              const confirmedBallot = debateBallots.find((b) => b.confirmed);
-              const draftBallot = debateBallots.find((b) => !b.confirmed);
-              const existingBallot = confirmedBallot || draftBallot;
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+        <ChoiceChips
+          label={t("portal.roundFilterLabel")}
+          options={[
+            {
+              value: "active",
+              label: activeRound ? t("portal.currentRoundNamed", { round: activeRound.name }) : t("portal.currentRound"),
+            },
+            { value: "all", label: t("portal.allRounds", { count: assignedDebates.length }) },
+          ]}
+          value={selectedRoundTab}
+          onChange={setSelectedRoundTab}
+        />
+        <span className="text-xs text-fg-muted">{plural("portal.showing", displayedDebates.length)}</span>
+      </div>
 
-              // Build list of co-judges for feedback
-              const coJudges: { id: string; name: string; role: string }[] = [];
-              if (debate.adjudicators?.chairId && debate.adjudicators.chairId !== adjudicator.id) {
+      {displayedDebates.length === 0 ? (
+        <EmptyState
+          icon={<Clock aria-hidden="true" />}
+          title={t("adjPortal.emptyTitle")}
+          description={t("adjPortal.emptyBody")}
+        />
+      ) : (
+        <div className="space-y-4">
+          {displayedDebates.map((debate) => {
+            const round = roundsMap.get(debate.roundId);
+            const isChair = debate.adjudicators?.chairId === adjudicator.id;
+            const isPanellist = debate.adjudicators?.panellistIds?.includes(adjudicator.id);
+            const isTrainee = debate.adjudicators?.traineeIds?.includes(adjudicator.id);
+            const canVote = !adjudicator.trainee && !isTrainee && (isChair || isPanellist);
+            // Tabbycat participant_ballots "off": the tab room enters every ballot.
+            const ballotsByPrivateUrl = tournament ? privateUrlBallotsEnabled(tournament) : true;
+            const canSubmitBallot = canVote && ballotsByPrivateUrl;
+
+            const roleLabel = t(isChair ? "role.chair" : isPanellist ? "role.panellist" : isTrainee ? "role.trainee" : "role.judge");
+            const debateBallots = ballots.filter((b) => b.debateId === debate.id && !b.discarded);
+            const confirmedBallot = debateBallots.find((b) => b.confirmed);
+            const draftBallot = debateBallots.find((b) => !b.confirmed);
+            const existingBallot = confirmedBallot || draftBallot;
+
+            // Build list of co-judges for feedback
+            // Fallback names are saved on feedback records, so they stay in the source language.
+            const coJudges: { id: string; name: string; role: PanelRole }[] = [];
+            if (debate.adjudicators?.chairId && debate.adjudicators.chairId !== adjudicator.id) {
+              coJudges.push({
+                id: debate.adjudicators.chairId,
+                name: debate.adjudicators.chairName || "Chair",
+                role: "chair",
+              });
+            }
+            debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
+              if (pid !== adjudicator.id) {
                 coJudges.push({
-                  id: debate.adjudicators.chairId,
-                  name: debate.adjudicators.chairName || "Chair",
-                  role: "Chair",
+                  id: pid,
+                  name: debate.adjudicators?.panellistNames?.[idx] || "Panellist",
+                  role: "panellist",
                 });
               }
-              debate.adjudicators?.panellistIds?.forEach((pid, idx) => {
-                if (pid !== adjudicator.id) {
-                  coJudges.push({
-                    id: pid,
-                    name: debate.adjudicators?.panellistNames?.[idx] || "Panellist",
-                    role: "Panellist",
-                  });
-                }
-              });
-              debate.adjudicators?.traineeIds?.forEach((tid, idx) => {
-                if (tid !== adjudicator.id) {
-                  coJudges.push({
-                    id: tid,
-                    name: debate.adjudicators?.traineeNames?.[idx] || "Trainee",
-                    role: "Trainee",
-                  });
-                }
-              });
+            });
+            debate.adjudicators?.traineeIds?.forEach((tid, idx) => {
+              if (tid !== adjudicator.id) {
+                coJudges.push({
+                  id: tid,
+                  name: debate.adjudicators?.traineeNames?.[idx] || "Trainee",
+                  role: "trainee",
+                });
+              }
+            });
+            const myRole: PanelRole | undefined = isChair ? "chair" : isPanellist ? "panellist" : isTrainee ? "trainee" : undefined;
+            const feedbackPaths = feedbackPathsForRound(tournament?.preferences, round);
+            const feedbackOpen = feedbackEnabled && isFeedbackEnabledForRound(
+              debate,
+              round,
+              tournament?.preferences?.feedbackInEliminationRounds !== false
+            );
+            const ratedCoJudges = myRole
+              ? coJudges.filter((target) => isFeedbackPathAllowed(feedbackPaths, myRole, target.role))
+              : [];
+            const headingId = `debate-${debate.id}-heading`;
+            const sides: DebateSide[] = tournament ? debateSides(debate, tournament) : isBP ? ["OG", "OO", "CG", "CO"] : ["AFF", "NEG"];
+            const pending = !isBP && sidesPending(debate);
 
-              return (
-                <div
-                  key={debate.id}
-                  className="bg-white border border-[#d0d7de] rounded-xl shadow-xs overflow-hidden transition hover:border-gray-400"
-                >
-                  {/* Debate Card Header */}
-                  <div className="bg-[#f6f8fa] px-5 py-3.5 border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2.5">
-                      <span className="font-bold text-gray-900 text-sm">
-                        {round ? round.name : `Round ${debate.roundSeq}`}
-                      </span>
-                      <span className="text-gray-400">&bull;</span>
-                      <div className="flex items-center space-x-1 text-xs text-gray-700 font-semibold">
-                        <MapPin className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{debate.venueName}</span>
-                      </div>
+            return (
+              <Card key={debate.id} role="region" aria-labelledby={headingId} className="overflow-hidden">
+                <div className="flex flex-col gap-2 border-b border-border bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                    <h2 id={headingId} className="text-[15px] font-semibold text-fg">
+                      {round ? round.name : t("portal.roundFallback", { number: debate.roundSeq })}
+                    </h2>
+                    <span className="flex min-w-0 items-center gap-1 text-[13px] text-fg-muted">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-fg-subtle" aria-hidden="true" />
+                      <VenueLabel
+                        debate={debate}
+                        venues={venues}
+                        categories={tournament?.preferences?.venueCategories}
+                        audience="public"
+                      />
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={isChair ? "accent" : isPanellist ? "info" : "warning"}>
+                      {t("adjPortal.yourRole", { role: roleLabel })}
+                    </Badge>
+                    {existingBallot?.confirmed ? (
+                      <StatusPill tone="success">{t("adjPortal.ballotConfirmed")}</StatusPill>
+                    ) : existingBallot ? (
+                      <StatusPill tone="warning">{t("adjPortal.ballotDraft")}</StatusPill>
+                    ) : (
+                      <StatusPill tone="neutral" icon={<Clock aria-hidden="true" />}>{t("adjPortal.ballotPending")}</StatusPill>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-4">
+                  {debate.motionText && (
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("portal.motion")}</p>
+                      <blockquote className="mt-0.5 text-[13px] italic text-fg">&ldquo;{debate.motionText}&rdquo;</blockquote>
                     </div>
+                  )}
 
-                    <div className="flex items-center space-x-2">
-                      <span
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded uppercase ${
-                          isChair
-                            ? "bg-blue-100 text-blue-800 border border-blue-300"
-                            : isPanellist
-                            ? "bg-purple-100 text-purple-800 border border-purple-300"
-                            : "bg-amber-100 text-amber-800 border border-amber-300"
-                        }`}
-                      >
-                        Your Role: {roleLabel}
-                      </span>
-
-                      {existingBallot?.confirmed ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 uppercase">
-                          Ballot Confirmed ✓
-                        </span>
-                      ) : existingBallot ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 uppercase">
-                          Ballot Draft
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-300 uppercase">
-                          Ballot Pending
-                        </span>
-                      )}
-                    </div>
+                  <div>
+                    <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+                      {t("adjPortal.teamsPositions")}
+                    </h3>
+                    <ul className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", (isBP || sides.length > 2) && "md:grid-cols-4")}>
+                      {sides.map((side) => (
+                        <li key={side} className="min-w-0 rounded-md border border-border bg-background p-2.5">
+                          <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-fg-muted">
+                            {pending ? (
+                              t("common.sidesTbc")
+                            ) : (
+                              <>
+                                <SideBadge side={side} preferences={tournament?.preferences} />
+                                {translatedSideName(t, side, tournament?.preferences)}
+                              </>
+                            )}
+                          </span>
+                          <span className="mt-1 block break-words text-[13px] font-medium text-fg">
+                            {debate.teams[side]?.teamName || t("common.tbd")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
 
-                  <div className="p-5 space-y-4">
-                    {debate.motionText && (
-                      <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs">
-                        <span className="font-bold text-amber-900 block mb-0.5">Motion:</span>
-                        <p className="text-gray-800 italic">&ldquo;{debate.motionText}&rdquo;</p>
-                      </div>
+                  <section className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                        <FileCheck2 className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
+                        {t("adjPortal.ballotEntry")}
+                      </h3>
+                      <p className="text-xs text-fg-muted">
+                        {isChair ? t("adjPortal.chairDuty") : t("adjPortal.panelDuty")}
+                      </p>
+                    </div>
+                    {canSubmitBallot ? (
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        className="w-full sm:w-auto"
+                        onClick={() => handleOpenBallotModal(debate)}
+                      >
+                        <FileCheck2 aria-hidden="true" />
+                        {existingBallot?.confirmed ? t("adjPortal.editBallot") : t("adjPortal.enterBallot")}
+                      </Button>
+                    ) : (
+                      <p className="text-xs text-fg-muted">
+                        {canVote ? t("adjPortal.ballotsOff") : t("adjPortal.traineeNoBallot")}
+                      </p>
                     )}
+                  </section>
 
-                    {/* Matchup & Teams in Debate */}
-                    <div>
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                        Teams & Positions
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                        {isBP ? (
-                          <>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">OG &bull; Opening Gov</span>
-                              <span className="font-bold text-gray-900">{debate.teams.OG?.teamName || "TBD"}</span>
-                            </div>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">OO &bull; Opening Opp</span>
-                              <span className="font-bold text-gray-900">{debate.teams.OO?.teamName || "TBD"}</span>
-                            </div>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">CG &bull; Closing Gov</span>
-                              <span className="font-bold text-gray-900">{debate.teams.CG?.teamName || "TBD"}</span>
-                            </div>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">CO &bull; Closing Opp</span>
-                              <span className="font-bold text-gray-900">{debate.teams.CO?.teamName || "TBD"}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">AFF &bull; Affirmative</span>
-                              <span className="font-bold text-gray-900">{debate.teams.AFF?.teamName || "TBD"}</span>
-                            </div>
-                            <div className="p-2.5 rounded bg-gray-50 border border-gray-200 text-xs">
-                              <span className="text-[10px] font-bold text-gray-500 block">NEG &bull; Negative</span>
-                              <span className="font-bold text-gray-900">{debate.teams.NEG?.teamName || "TBD"}</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Section: Action 1 - Ballot Entry */}
-                    <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
-                          <FileCheck2 className="w-4 h-4 text-blue-600" />
-                          <span>Debate Ballot Entry</span>
+                  {feedbackOpen && (
+                    <section className="space-y-2.5 border-t border-border pt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                          <MessageSquareHeart className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
+                          {t("adjPortal.feedbackOnAdjudicators")}
+                        </h3>
+                        <span className="text-[11px] text-fg-muted">
+                          {t("portal.scale", { min: minFeedbackScore, max: maxFeedbackScore })}
                         </span>
-                        <p className="text-[11px] text-gray-500">
-                          {isChair
-                            ? "As Chair, you are responsible for entering the official panel decision and scores."
-                            : "Voting panellists and chairs can enter or verify ballot scores."}
-                        </p>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        {canSubmitBallot ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenBallotModal(debate)}
-                            className="px-3.5 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition flex items-center space-x-1.5 shadow-2xs"
-                          >
-                            <FileCheck2 className="w-3.5 h-3.5" />
-                            <span>{existingBallot?.confirmed ? "Edit / Re-enter Ballot" : "Enter Ballot"}</span>
-                          </button>
-                        ) : (
-                          <span className="text-xs text-gray-500">Trainees may observe but cannot submit ballots.</span>
-                        )}
-                      </div>
-                    </div>
+                      {coJudges.length === 0 ? (
+                        <p className="text-xs text-fg-muted">{t("adjPortal.solo")}</p>
+                      ) : ratedCoJudges.length === 0 ? (
+                        <p className="text-xs text-fg-muted">{t("adjPortal.noFeedbackPath")}</p>
+                      ) : (
+                        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {ratedCoJudges.map((target) => {
+                            const submitted = hasSubmittedFeedback(target.id, debate.id);
+                            const pastFb = getSubmittedFeedback(target.id, debate.id);
 
-                    {/* Section: Action 2 - Adjudicator Feedback */}
-                    {feedbackEnabled && (
-                      <div className="pt-3 border-t border-gray-100 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
-                            <MessageSquareHeart className="w-4 h-4 text-pink-600" />
-                            <span>Submit Feedback on Other Adjudicators</span>
-                          </span>
-                          <span className="text-[10px] text-gray-500 font-mono">
-                            Scale: {minFeedbackScore}–{maxFeedbackScore}
-                          </span>
-                        </div>
-
-                        {coJudges.length === 0 ? (
-                          <p className="text-[11px] text-gray-500 italic">
-                            No other adjudicators on this panel (solo adjudication).
-                          </p>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            {coJudges.map((target) => {
-                              const submitted = hasSubmittedFeedback(target.id, debate.id);
-                              const pastFb = getSubmittedFeedback(target.id, debate.id);
-
-                              return (
-                                <div
-                                  key={target.id}
-                                  className="p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between gap-2"
-                                >
-                                  <div>
-                                    <span className="font-bold text-gray-900 text-xs block">{target.name}</span>
-                                    <span className="text-[10px] text-gray-500 font-medium">{target.role}</span>
-                                  </div>
-
-                                  {submitted ? (
-                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded flex items-center space-x-1">
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                      <span>Done ({pastFb?.score})</span>
-                                    </span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenFeedbackModal(target, debate)}
-                                      className="px-2.5 py-1 bg-white border border-pink-300 text-pink-700 hover:bg-pink-50 rounded text-xs font-semibold transition"
-                                    >
-                                      Rate
-                                    </button>
-                                  )}
+                            return (
+                              <li
+                                key={target.id}
+                                className="flex items-center justify-between gap-2 rounded-md border border-border bg-background p-2.5"
+                              >
+                                <div className="min-w-0">
+                                  <span className="block break-words text-[13px] font-medium text-fg">{target.name}</span>
+                                  <span className="text-xs text-fg-muted">{t(`role.${target.role}`)}</span>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                                {submitted ? (
+                                  <StatusPill tone="success">{t("portal.done", { score: pastFb?.score ?? "" })}</StatusPill>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    size="md"
+                                    aria-label={t("adjPortal.rateTarget", { name: target.name })}
+                                    onClick={() => handleOpenFeedbackModal(target, debate)}
+                                  >
+                                    {t("adjPortal.rate")}
+                                  </Button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
 
-                        <div className="pt-3 border-t border-gray-100 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
-                              <Users className="w-4 h-4 text-emerald-600" />
-                              <span>Submit Feedback on Teams</span>
-                            </span>
-                            <span className="text-[10px] text-gray-500 font-mono">
-                              Scale: {minFeedbackScore}–{maxFeedbackScore}
+                      {feedbackPaths.onTeams && (
+                        <div className="space-y-2.5 border-t border-border pt-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+                              <Users className="h-4 w-4 text-fg-subtle" aria-hidden="true" />
+                              {t("adjPortal.feedbackOnTeams")}
+                            </h3>
+                            <span className="text-[11px] text-fg-muted">
+                              {t("portal.scale", { min: minFeedbackScore, max: maxFeedbackScore })}
                             </span>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             {Object.values(debate.teams || {}).filter((slot) => slot?.teamId).map((slot) => {
                               const targetId = slot!.teamId;
+                              // Saved on the feedback record, so the fallback stays in the source language.
                               const targetName = teamsMap.get(targetId)?.name || slot!.teamName || "Team";
                               const submitted = hasSubmittedTeamFeedback(targetId, debate.id);
                               const pastFeedback = getSubmittedTeamFeedback(targetId, debate.id);
                               return (
-                                <div
+                                <li
                                   key={targetId}
-                                  className="p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between gap-2"
+                                  className="flex items-center justify-between gap-2 rounded-md border border-border bg-background p-2.5"
                                 >
-                                  <span className="font-bold text-gray-900 text-xs">{targetName}</span>
+                                  <span className="min-w-0 break-words text-[13px] font-medium text-fg">{targetName}</span>
                                   {submitted ? (
-                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded">
-                                      Done ({pastFeedback?.score})
-                                    </span>
+                                    <StatusPill tone="success">{t("portal.done", { score: pastFeedback?.score ?? "" })}</StatusPill>
                                   ) : (
-                                    <button
-                                      type="button"
+                                    <Button
+                                      variant="secondary"
+                                      size="md"
+                                      aria-label={t("adjPortal.rateTarget", { name: targetName })}
                                       onClick={() => handleOpenTeamFeedbackModal({ id: targetId, name: targetName }, debate)}
-                                      className="px-2.5 py-1 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold transition"
                                     >
-                                      Rate
-                                    </button>
+                                      {t("adjPortal.rate")}
+                                    </Button>
                                   )}
-                                </div>
+                                </li>
                               );
                             })}
-                          </div>
+                          </ul>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </section>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </main>
-
-      {/* FEEDBACK MODAL */}
-      {showFeedbackModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-gray-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2">
-                <MessageSquareHeart className="w-5 h-5 text-pink-600" />
-                <h3 className="font-bold text-gray-900 text-sm">
-                  Submit {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"} Feedback
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowFeedbackModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {feedbackError && (
-              <div className="p-2.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-1.5">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{feedbackError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmitFeedback} className="space-y-4 text-xs">
-              <div className="p-2.5 rounded bg-gray-50 border border-gray-200">
-                <span className="text-[10px] text-gray-500 font-bold uppercase block">
-                  Target {feedbackTargetType === "adjudicator" ? "Adjudicator" : "Team"}
-                </span>
-                <span className="text-sm font-bold text-gray-900">
-                  {feedbackTargetType === "adjudicator" ? feedbackTargetAdjName : feedbackTargetTeamName}
-                </span>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-gray-700">
-                    Feedback Score ({minFeedbackScore}–{maxFeedbackScore})
-                  </label>
-                  <span className="text-sm font-bold text-blue-600">{feedbackScore} / {maxFeedbackScore}</span>
-                </div>
-                <input
-                  type="range"
-                  min={minFeedbackScore}
-                  max={maxFeedbackScore}
-                  step={1}
-                  value={feedbackScore}
-                  onChange={(e) => setFeedbackScore(parseInt(e.target.value, 10))}
-                  className="w-full accent-blue-600 cursor-pointer"
-                />
-              </div>
-
-              {feedbackTargetType === "adjudicator" && <div>
-                <label className="font-semibold text-gray-700 block mb-1.5">
-                  Did you agree with this adjudicator&apos;s decision/contribution?
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFeedbackAgree(true)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
-                      feedbackAgree
-                        ? "bg-emerald-50 border-emerald-500 text-emerald-800 font-bold"
-                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Yes, Agreed</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFeedbackAgree(false)}
-                    className={`py-2 px-3 rounded-md font-semibold text-xs flex items-center justify-center space-x-1.5 border transition ${
-                      !feedbackAgree
-                        ? "bg-amber-50 border-amber-500 text-amber-800 font-bold"
-                        : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    <ThumbsDown className="w-3.5 h-3.5 text-amber-600" />
-                    <span>No, Disagreed</span>
-                  </button>
-                </div>
-              </div>}
-
-              <div>
-                <label className="font-semibold text-gray-700 block mb-1">
-                  {feedbackTargetType === "adjudicator" ? "Constructive Feedback & Notes" : "Constructive Feedback on Team Performance"} (Confidential to Adjudication Core)
-                </label>
-                <textarea
-                  rows={3}
-                  value={feedbackComments}
-                  onChange={(e) => setFeedbackComments(e.target.value)}
-                  placeholder={feedbackTargetType === "adjudicator"
-                    ? "Detail tracking of arguments, clarity of oral adjudication, engagement..."
-                    : "Comment on the team’s engagement, argumentation, and conduct..."}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowFeedbackModal(false)}
-                  className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={feedbackSubmitting}
-                  className="px-4 py-1.5 bg-pink-600 text-white rounded-md font-semibold hover:bg-pink-700 transition disabled:opacity-50"
-                >
-                  {feedbackSubmitting ? "Submitting..." : "Submit Feedback"}
-                </button>
-              </div>
-            </form>
-          </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* IN-PORTAL BALLOT ENTRY MODAL */}
-      {showBallotModal && ballotDebate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-2xs overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-2xl w-full my-8 p-6 shadow-xl border border-gray-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div>
-                <h3 className="font-bold text-gray-900 text-base flex items-center space-x-2">
-                  <FileCheck2 className="w-5 h-5 text-blue-600" />
-                  <span>Enter Debate Ballot &bull; {ballotDebate.venueName}</span>
-                </h3>
-                <p className="text-[11px] text-gray-500">
-                  Submit panel ranking and speaker scores directly from your private adjudicator portal.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowBallotModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <Dialog
+        open={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        dismissible={!feedbackSubmitting}
+        icon={<MessageSquareHeart className="text-fg-subtle" aria-hidden="true" />}
+        title={feedbackTargetType === "adjudicator" ? t("adjPortal.modalAdjudicatorTitle") : t("adjPortal.modalTeamTitle")}
+        footer={
+          <>
+            <Button variant="secondary" size="lg" disabled={feedbackSubmitting} onClick={() => setShowFeedbackModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              form="portal-feedback-form"
+              variant="primary"
+              size="lg"
+              loading={feedbackSubmitting}
+              loadingText={t("portal.feedback.submitting")}
+            >
+              {t("portal.feedback.submit")}
+            </Button>
+          </>
+        }
+      >
+        <form id="portal-feedback-form" onSubmit={handleSubmitFeedback} className="space-y-4">
+          {feedbackError && <Alert tone="danger" role="alert">{feedbackError}</Alert>}
+          {tournament?.preferences?.feedbackIntroduction?.trim() && (
+            <p className="whitespace-pre-line rounded-md border border-border bg-background p-2.5 text-fg-muted">
+              {tournament.preferences.feedbackIntroduction}
+            </p>
+          )}
+          <div className="rounded-md border border-border bg-background p-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+              {feedbackTargetType === "adjudicator" ? t("adjPortal.targetAdjudicator") : t("adjPortal.targetTeam")}
+            </p>
+            <p className="break-words text-[15px] font-semibold text-fg">{feedbackTargetName}</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="portal-feedback-score">
+                {t("portal.feedback.score", { min: minFeedbackScore, max: maxFeedbackScore })}
+              </Label>
+              <output htmlFor="portal-feedback-score" className="text-[13px] font-semibold tabular-nums text-fg">
+                {t("portal.feedback.scoreValue", { score: feedbackScore, max: maxFeedbackScore })}
+              </output>
             </div>
+            <input
+              id="portal-feedback-score"
+              type="range"
+              min={minFeedbackScore}
+              max={maxFeedbackScore}
+              step={feedbackScoreStep(tournament?.preferences)}
+              value={feedbackScore}
+              aria-valuetext={t("portal.feedback.scoreValue", { score: feedbackScore, max: maxFeedbackScore })}
+              onChange={(e) => setFeedbackScore(parseFloat(e.target.value))}
+              className={cn("h-8 w-full cursor-pointer rounded-md accent-[rgb(var(--color-accent))]", focusRing)}
+            />
+          </div>
 
-            {ballotError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{ballotError}</span>
+          {feedbackTargetType === "adjudicator" && (
+            <fieldset className="space-y-1.5">
+              <legend className="mb-1.5 text-xs font-medium text-fg">{t("adjPortal.agreeQuestion")}</legend>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  aria-pressed={feedbackAgree}
+                  onClick={() => setFeedbackAgree(true)}
+                  className={cn(
+                    "inline-flex h-10 items-center justify-center gap-1.5 rounded-md border px-3 text-[13px] font-medium transition-colors",
+                    feedbackAgree
+                      ? "border-success-border bg-success-subtle text-fg"
+                      : "border-border-strong bg-surface text-fg-muted hover:bg-muted hover:text-fg",
+                    focusRing
+                  )}
+                >
+                  <ThumbsUp className="h-4 w-4 text-success" aria-hidden="true" />
+                  {t("portal.feedback.agreeYes")}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!feedbackAgree}
+                  onClick={() => setFeedbackAgree(false)}
+                  className={cn(
+                    "inline-flex h-10 items-center justify-center gap-1.5 rounded-md border px-3 text-[13px] font-medium transition-colors",
+                    !feedbackAgree
+                      ? "border-warning-border bg-warning-subtle text-fg"
+                      : "border-border-strong bg-surface text-fg-muted hover:bg-muted hover:text-fg",
+                    focusRing
+                  )}
+                >
+                  <ThumbsDown className="h-4 w-4 text-warning" aria-hidden="true" />
+                  {t("portal.feedback.agreeNo")}
+                </button>
               </div>
+            </fieldset>
+          )}
+
+          <Textarea
+            id="portal-feedback-comments"
+            label={
+              <>
+                {feedbackTargetType === "adjudicator" ? t("adjPortal.adjudicatorComments") : t("portal.feedback.teamComments")}{" "}
+                <span className="font-normal text-fg-muted">{t("portal.feedback.confidential")}</span>
+              </>
+            }
+            rows={3}
+            value={feedbackComments}
+            onChange={(e) => setFeedbackComments(e.target.value)}
+            placeholder={feedbackTargetType === "adjudicator"
+              ? t("adjPortal.adjudicatorPlaceholder")
+              : t("portal.feedback.teamPlaceholder")}
+          />
+
+          <FeedbackQuestionFields
+            questions={feedbackQuestions}
+            answers={feedbackAnswers}
+            onChange={(questionId, value) =>
+              setFeedbackAnswers((current) => ({ ...current, [questionId]: value }))
+            }
+          />
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={showBallotModal && ballotDebate !== null}
+        onClose={() => setShowBallotModal(false)}
+        dismissible={!ballotSubmitting}
+        size="lg"
+        icon={<FileCheck2 className="text-fg-subtle" aria-hidden="true" />}
+        title={t("adjPortal.ballot.title", { venue: ballotDebate?.venueName ?? "" })}
+        description={t("adjPortal.ballot.description")}
+        footer={
+          <>
+            <p className="w-full text-xs text-fg-muted sm:me-auto sm:w-auto sm:self-center">
+              {t("adjPortal.ballot.confirmNote", { name: adjudicator.name })}
+            </p>
+            <Button variant="secondary" size="lg" disabled={ballotSubmitting} onClick={() => setShowBallotModal(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              form="portal-ballot-form"
+              variant="primary"
+              size="lg"
+              loading={ballotSubmitting}
+              loadingText={t("adjPortal.ballot.submitting")}
+            >
+              {t("adjPortal.ballot.submit")}
+            </Button>
+          </>
+        }
+      >
+        {ballotDebate && (
+          <form id="portal-ballot-form" onSubmit={handleSubmitBallotFromPortal} className="space-y-4">
+            {ballotError && <Alert tone="danger" role="alert">{ballotError}</Alert>}
+            {tournament?.preferences?.ballotIntroExplanation?.trim() && (
+              <Alert tone="info" title={t("results.ballot.instructions")}>
+                <span className="whitespace-pre-line text-xs">{tournament.preferences.ballotIntroExplanation}</span>
+              </Alert>
             )}
-
-            <form onSubmit={handleSubmitBallotFromPortal} className="space-y-5 text-xs">
-              {(isBP ? (["OG", "OO", "CG", "CO"] as DebateSide[]) : (["AFF", "NEG"] as DebateSide[])).map((side) => {
+            {ballotDrawnDebate && sidesChosenOnBallot(ballotDrawnDebate) && (
+              <fieldset className="space-y-2 rounded-md border border-info-border bg-info-subtle p-3">
+                <legend className="px-1 text-xs font-semibold text-fg">{t("adjPortal.ballot.sidesLegend")}</legend>
+                {!ballotSidesChosen && <p className="text-xs text-fg-muted">{t("adjPortal.ballot.chooseSides")}</p>}
+                {[ballotDrawnDebate.teams.AFF, ballotDrawnDebate.teams.NEG].map((slot) => slot?.teamId && (
+                  <label key={slot.teamId} className="flex min-h-8 cursor-pointer items-center gap-2 text-[13px] font-medium text-fg">
+                    <input
+                      type="radio"
+                      name="portal-affirmative-team"
+                      checked={ballotSidesChosen && ballotDebate.teams.AFF?.teamId === slot.teamId}
+                      onChange={() => handleOpenBallotModal(ballotDrawnDebate, slot.teamId)}
+                      className={cn("h-4 w-4 shrink-0 accent-[rgb(var(--color-accent))]", focusRing)}
+                    />
+                    {t("adjPortal.ballot.affirmativeWas", { team: slot.teamName })}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {ballotSidesChosen && tournament && (
+              <MotionChoiceFields
+                idPrefix="portal-ballot"
+                motions={ballotRoundMotions}
+                askMotion={ballotAsksMotion}
+                askVetoes={ballotAsksVetoes}
+                sides={rulesSides(privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]))}
+                teamNames={Object.fromEntries(Object.entries(ballotDebate.teams || {}).map(([side, slot]) => [side, slot?.teamName || side]))}
+                motionId={ballotMotionId}
+                vetoes={ballotVetoes}
+                onMotionChange={setBallotMotionId}
+                onVetoChange={(side, motionId) => setBallotVetoes((current) => ({ ...current, [side]: motionId }))}
+              />
+            )}
+            {ballotSidesChosen && ballotEntry && tournament && (() => {
+              const rules = privateBallotRules(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate, [...roundsMap.values()]);
+              const sides = rulesSides(rules);
+              const scored = usesSpeakerScores(rules);
+              const poly = isPolyFormat(rules.format);
+              // Poly ranks always come from the totals (Tabbycat's PolyScoresheet).
+              const fromScores = scored && (poly || winnerDeclarationFor(rules.preferences) === "none");
+              const rankCount = scored && speakerRanksFor(rules.preferences) !== "none"
+                ? sides.length * substantiveSpeakerCount(rules)
+                : undefined;
+              const derived = effectiveRanks(
+                Object.fromEntries(sides.map((side) => [side, applyScoreCriteria(ballotEntry.speakerScores[side] || [], rules)])),
+                ballotEntry.ranks,
+                rules
+              );
+              const setRank = (side: DebateSide, rank: number) => setBallotEntry((current) => {
+                if (!current) return current;
+                if (isBP) return { ...current, ranks: { ...current.ranks, [side]: rank } };
+                // Two teams: choosing one team's result sets the other's.
+                return { ...current, ranks: Object.fromEntries(sides.map((other) => [other, other === side ? rank : rank === 1 ? 2 : 1])) };
+              });
+              return sides.map((side) => {
                 const teamSlot = ballotDebate.teams[side];
-                const spks = ballotScores[side] || [];
-                const reply = ballotReplyScores[side];
-                const rank = ballotRanks[side] || 1;
-
+                const rank = ballotEntry.ranks?.[side] || 1;
+                const teamHeadingId = `ballot-team-${side}`;
                 return (
-                  <div key={side} className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
-                    <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-xs bg-white px-2 py-0.5 rounded border border-gray-300">
-                          {side}
-                        </span>
-                        <span className="font-bold text-gray-900 text-sm">
-                          {teamSlot?.teamName || "Unassigned"}
-                        </span>
+                  <section key={side} aria-labelledby={teamHeadingId} className="space-y-3 rounded-lg border border-border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SideBadge side={side} preferences={rules.preferences} />
+                        <h3 id={teamHeadingId} className="break-words text-[13px] font-semibold text-fg">
+                          {teamSlot?.teamName || t("adjPortal.ballot.unassigned")}
+                        </h3>
                       </div>
-
-                      <div className="flex items-center space-x-1.5">
-                        <label className="text-[11px] font-semibold text-gray-600">Rank / Place:</label>
-                        <select
-                          value={rank}
-                          onChange={(e) =>
-                            setBallotRanks((prev) => ({
-                              ...prev,
-                              [side]: parseInt(e.target.value, 10),
-                            }))
-                          }
-                          className="bg-white border border-gray-300 rounded px-2 py-1 font-bold text-xs"
-                        >
-                          {isBP ? (
-                            <>
-                              <option value={1}>1st Place (3 pts)</option>
-                              <option value={2}>2nd Place (2 pts)</option>
-                              <option value={3}>3rd Place (1 pt)</option>
-                              <option value={4}>4th Place (0 pts)</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value={1}>1st - Win (1 pt)</option>
-                              <option value={2}>2nd - Loss (0 pts)</option>
-                            </>
-                          )}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Speaker scores inputs */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {spks.map((spk, idx) => (
-                        <div key={idx} className="bg-white p-2 rounded border border-gray-200 flex items-center justify-between gap-2">
-                          <span className="font-semibold text-gray-800 truncate text-[11px]">
-                            {spk.speakerName} (Spk {idx + 1})
-                          </span>
+                      {poly && rules.polyScoresOnly ? null : poly && !scored ? (
+                        <label className="flex items-center gap-2 text-xs font-medium text-fg">
                           <input
-                            type="number"
-                            step={tournament?.preferences?.stepSpeakerScore || 1}
-                            value={spk.score}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setBallotScores((prev) => ({
-                                ...prev,
-                                [side]: prev[side].map((s, i) => (i === idx ? { ...s, score: val } : s)),
-                              }));
-                            }}
-                            className="w-16 border border-gray-300 rounded px-2 py-1 text-xs font-mono font-bold text-center"
+                            type="checkbox"
+                            className="h-4 w-4 accent-[rgb(var(--color-accent))]"
+                            checked={Boolean(ballotEntry.winners?.includes(side))}
+                            onChange={(event) => setBallotEntry((current) => current && {
+                              ...current,
+                              winners: event.target.checked
+                                ? [...(current.winners || []).filter((item) => item !== side), side]
+                                : (current.winners || []).filter((item) => item !== side),
+                            })}
+                            aria-label={t("results.ballot.advancesLabel", { team: teamSlot?.teamName || side })}
                           />
-                        </div>
-                      ))}
-
-                      {replyEnabled && reply && (
-                        <div className="bg-amber-50 p-2 rounded border border-amber-200 flex items-center justify-between gap-2">
-                          <span className="font-semibold text-amber-900 truncate text-[11px]">
-                            Reply Speech
-                          </span>
-                          <input
-                            type="number"
-                            step={0.5}
-                            value={reply.score}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setBallotReplyScores((prev) => ({
-                                ...prev,
-                                [side]: { ...prev[side], score: val },
-                              }));
-                            }}
-                            className="w-16 border border-amber-300 rounded px-2 py-1 text-xs font-mono font-bold text-center bg-white"
-                          />
+                          {t("results.ballot.advances")}
+                        </label>
+                      ) : fromScores ? (
+                        <span className="text-xs font-medium text-fg-muted">
+                          {isBP || poly ? `${t("adjPortal.ballot.rank")} ${derived[side] ?? "—"}` : derived[side] === 1 ? t("adjPortal.ballot.win") : t("adjPortal.ballot.loss")}
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor={`ballot-rank-${side}`} className="text-xs text-fg-muted">{t("adjPortal.ballot.rank")}</Label>
+                          <Select
+                            id={`ballot-rank-${side}`}
+                            value={rank}
+                            aria-describedby={teamHeadingId}
+                            onChange={(e) => setRank(side, parseInt(e.target.value, 10))}
+                            className="h-10 w-auto font-medium"
+                          >
+                            {isBP ? (
+                              <>
+                                <option value={1}>{t("adjPortal.ballot.bpFirst")}</option>
+                                <option value={2}>{t("adjPortal.ballot.bpSecond")}</option>
+                                <option value={3}>{t("adjPortal.ballot.bpThird")}</option>
+                                <option value={4}>{t("adjPortal.ballot.bpFourth")}</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value={1}>{t("adjPortal.ballot.win")}</option>
+                                <option value={2}>{t("adjPortal.ballot.loss")}</option>
+                              </>
+                            )}
+                          </Select>
                         </div>
                       )}
                     </div>
-                  </div>
+                    {scored && (
+                      <div className="overflow-x-auto">
+                        <SpeechRows
+                          idPrefix={`portal-${side}`}
+                          roster={teamsMap.get(teamSlot?.teamId || "")?.speakers || []}
+                          entries={ballotEntry.speakerScores[side] || []}
+                          rules={rules}
+                          rankCount={rankCount}
+                          onChange={(speeches) => setBallotEntry((current) =>
+                            current ? { ...current, speakerScores: { ...current.speakerScores, [side]: speeches } } : current
+                          )}
+                        />
+                      </div>
+                    )}
+                  </section>
                 );
-              })}
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <span className="text-[11px] text-gray-500">
-                  Submitting will mark this ballot confirmed by {adjudicator.name}.
-                </span>
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowBallotModal(false)}
-                    className="px-3 py-1.5 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={ballotSubmitting}
-                    className="px-4 py-1.5 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition disabled:opacity-50"
-                  >
-                    {ballotSubmitting ? "Submitting Ballot..." : "Submit Ballot"}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+              });
+            })()}
+            {ballotSidesChosen && tournament &&
+              privateSelfSplitAllowed(tournament, roundsMap.get(ballotDebate.roundId), ballotDebate) && (
+              <Checkbox
+                label={t("results.ballot.selfSplit")}
+                description={t("results.ballot.selfSplitHelp")}
+                checked={ballotSelfSplit}
+                onChange={(event) => setBallotSelfSplit(event.target.checked)}
+              />
+            )}
+          </form>
+        )}
+      </Dialog>
+    </PublicShell>
   );
 }

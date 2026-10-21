@@ -1,11 +1,20 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import type { DragEvent } from "react";
+import Link from "next/link";
+import { ComputeStatus } from "@/features/tournament/components/ComputeStatus";
+import { tabroomTeamName } from "@/lib/codeNames";
+import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import { ComputeCancelledError } from "@/features/tournament/compute/computeClient";
 import { useTournament } from "@/contexts/TournamentContext";
-import { Adjudicator, Debate, Team } from "@/types";
+import { allocationPositionOpen } from "@/lib/adjudicators/allocationPositions";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n";
+import type { AdjudicatorPanelStrategy, Institution } from "@/types";
+import { Adjudicator, Debate, PanelSizingMode, Team } from "@/types";
 import {
   calculateAdjDebateConflict,
-  calculateAdjudicatorFeedbackScores,
   calculateDebatePriorities,
   buildPastAdjTeams,
   computeBreakLiveness,
@@ -16,31 +25,218 @@ import {
   Users2,
   Sparkles,
   AlertTriangle,
-  CheckCircle2,
   X,
   UserPlus,
-  ShieldAlert,
-  Search,
-  ArrowRightLeft,
   GripVertical,
-  Building2,
-  Trash2,
   RotateCcw,
   Eye,
   EyeOff,
   Layers,
   Gauge,
   Zap,
-  TrendingUp,
+  Flame,
+  Hand,
+  Crown,
+  GraduationCap,
+  Undo2,
+  CircleAlert,
 } from "lucide-react";
 import { safeJsonParse } from "@/lib/safeJson";
+import { calculateScaledFeedbackScores, normalizeFeedbackWeight } from "@/lib/feedback/scores";
+import { DiversityBadges, PanelDiversityLine } from "@/features/tournament/components/DiversityBadges";
+import {
+  AvailableAdjudicatorsPanel,
+  judgePickKey,
+  type JudgeDragPayload,
+} from "@/features/tournament/components/AvailableAdjudicatorsPanel";
+import { CurrentRoundsBar } from "@/features/tournament/components/CurrentRoundsBar";
+import { DEFAULT_SHARD_STATE, ShardControls, type ShardState } from "@/features/tournament/components/ShardControls";
+import { usePlaceTargetNavigation } from "@/features/tournament/components/usePlaceTargetNavigation";
+import { buildShards } from "@/lib/draw/sharding";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Input, Select } from "@/components/ui/Field";
+import { Alert } from "@/components/ui/Feedback";
+import { Badge, type Tone } from "@/components/ui/Badge";
+import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
+import { cn } from "@/components/ui/cn";
+import { roundBreakLiveness } from "@/lib/breakqual/liveness";
+import {
+  DebatePriorityUnavailableError,
+  prioritiseDebates,
+  type DebatePrioritiseMethod,
+} from "@/features/tournament/application/debatePriority";
 
-interface JudgeDragPayload {
-  type: "judge";
-  sourceType: "available" | "chair" | "panellist" | "trainee";
+function describeError(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+type SlotRole = "chair" | "panellist" | "trainee";
+
+/** Where a judge is dropped or placed: a slot of a debate, or back to the available pool. */
+type JudgeTarget = { kind: "slot"; debateId: string; role: SlotRole } | { kind: "pool" };
+
+/** Result of a manual assignment: written, refused by a rule (error shown), or nothing to do. */
+type AssignOutcome = "done" | "refused" | "unchanged";
+
+const STRATEGY_HINT_KEYS: Record<AdjudicatorPanelStrategy, MessageKey> = {
+  crabbytab_v1: "tabroom.allocation.strategy.crabbytab_v1",
+  panel_average: "tabroom.allocation.strategy.panel_average",
+  tabbycat_voting: "tabroom.allocation.strategy.tabbycat_voting",
+  tabbycat_consensus: "tabroom.allocation.strategy.tabbycat_consensus",
+};
+
+const ROLE_KEYS: Record<SlotRole, MessageKey> = {
+  chair: "role.chair",
+  panellist: "role.panellist",
+  trainee: "role.trainee",
+};
+
+const PANEL_SIZES = [1, 3, 5, 7] as const;
+
+/** Drop-zone look: accent while a judge hovers over it (danger when that judge clashes here). */
+function dropZoneClass(hovered: boolean, clash: boolean, idle: string) {
+  if (!hovered) return idle;
+  return clash
+    ? "border-dashed border-danger bg-danger-subtle ring-2 ring-danger"
+    : "border-dashed border-accent bg-accent-subtle ring-2 ring-accent";
+}
+
+/** A placed judge: draggable, with Move (pick) and Remove controls. */
+function PlacedJudgeChip({
+  adjId,
+  name,
+  adjudicator,
+  role,
+  roomLabel,
+  sourceDebateId,
+  clashes,
+  score,
+  isPicked,
+  pickActive,
+  showDiversity,
+  institutionsById,
+  onPick,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+  className,
+}: {
   adjId: string;
-  adjName: string;
-  sourceDebateId?: string;
+  name: string;
+  adjudicator: Adjudicator | undefined;
+  role: SlotRole;
+  roomLabel: string;
+  sourceDebateId: string;
+  clashes: string[];
+  score: string | undefined;
+  isPicked: boolean;
+  pickActive: boolean;
+  showDiversity: boolean;
+  institutionsById: Map<string, Pick<Institution, "region">>;
+  onPick(payload: JudgeDragPayload): void;
+  onRemove(payload: JudgeDragPayload): void;
+  onDragStart(event: DragEvent<HTMLElement>, payload: JudgeDragPayload): void;
+  onDragEnd(): void;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const payload: JudgeDragPayload = { type: "judge", sourceType: role, adjId, adjName: name, sourceDebateId };
+  const roleLabel = t(ROLE_KEYS[role]);
+  return (
+    <div
+      draggable
+      onDragEnd={onDragEnd}
+      onDragStart={(event) => onDragStart(event, payload)}
+      className={cn(
+        "flex min-w-0 items-start justify-between gap-2 rounded-md border bg-surface px-2 py-1.5 text-xs",
+        "cursor-grab active:cursor-grabbing",
+        clashes.length > 0 ? "border-danger-border bg-danger-subtle" : "border-border",
+        isPicked && "border-accent bg-accent-subtle ring-2 ring-accent",
+        className
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-1.5">
+        <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-fg-subtle" aria-hidden="true" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="font-semibold text-fg">{name}</span>
+            {adjudicator?.institutionName && (
+              <span className="text-[11px] text-fg-muted">({adjudicator.institutionName})</span>
+            )}
+            {score !== undefined && (
+              <span className="font-mono text-[11px] text-fg-muted" title={t("tabroom.allocation.scoreTitle")}>
+                {score}
+              </span>
+            )}
+            {isPicked && <Badge tone="accent">{t("tabroom.allocation.pickedBadge")}</Badge>}
+          </div>
+          {showDiversity && adjudicator && (
+            <DiversityBadges participant={adjudicator} institutionsById={institutionsById} />
+          )}
+          {clashes.length > 0 && (
+            <p className="mt-0.5 flex items-start gap-1 text-[11px] font-medium text-danger">
+              <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+              <span>{t("tabroom.allocation.clashWithReasons", { reasons: clashes.join("; ") })}</span>
+            </p>
+          )}
+        </div>
+      </div>
+      {!pickActive && (
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5"
+            data-pick-key={judgePickKey(payload.adjId)}
+            onClick={() => onPick(payload)}
+            aria-label={t("tabroom.allocation.pickPlacedAria", { name, role: roleLabel, room: roomLabel })}
+          >
+            <Hand aria-hidden="true" />
+            {t("tabroom.allocation.move")}
+          </Button>
+          <IconButton
+            size="sm"
+            className="h-6 w-6"
+            label={t("tabroom.allocation.removeAria", { name, role: roleLabel, room: roomLabel })}
+            icon={<X aria-hidden="true" />}
+            onClick={() => onRemove(payload)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A place target shown on every slot while a judge is picked. */
+function PlaceTargetButton({
+  label,
+  ariaLabel,
+  describedBy,
+  icon,
+  onClick,
+}: {
+  label: string;
+  ariaLabel: string;
+  describedBy?: string;
+  icon: React.ReactNode;
+  onClick(): void;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="primary"
+      className="h-6 px-2"
+      data-place-target=""
+      aria-label={ariaLabel}
+      aria-describedby={describedBy}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+    </Button>
+  );
 }
 
 export default function AllocationPage() {
@@ -59,19 +255,46 @@ export default function AllocationPage() {
     updateDebates,
     teamStandings,
     breakCategories,
+    institutions,
+    venues,
+    recordAuditEvent,
+    ballots,
   } = useTournament();
+  const { t, plural, rich, formatDecimal, formatNumber } = useI18n();
+  const teamCodeNameMode = getPublicSiteSettings(tournament?.preferences).teamCodeNames;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [panelSize, setPanelSize] = useState<number>(1);
+  const [panelSizing, setPanelSizing] = useState<PanelSizingMode>(
+    tournament?.preferences?.panelSizingMode ?? "fixed"
+  );
+  const [showDiversity, setShowDiversity] = useState(false);
+  const [feedbackWeightError, setFeedbackWeightError] = useState("");
   const [isAllocating, setIsAllocating] = useState(false);
   const [revealError, setRevealError] = useState("");
   const [manualAssignmentError, setManualAssignmentError] = useState("");
-  const [selectedAdjForManual, setSelectedAdjForManual] = useState<Adjudicator | null>(null);
+  const [allocationWarnings, setAllocationWarnings] = useState<string[]>([]);
   const [showPriorityPanel, setShowPriorityPanel] = useState(true);
+  const [shardState, setShardState] = useState<ShardState>(DEFAULT_SHARD_STATE);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [pendingPrioritise, setPendingPrioritise] = useState<DebatePrioritiseMethod | null>(null);
+  const [isPrioritising, setIsPrioritising] = useState(false);
+  const [prioritiseMessage, setPrioritiseMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
   // Drag & drop state
   const [draggingJudge, setDraggingJudge] = useState<JudgeDragPayload | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+
+  // Pick-then-place state (keyboard and touch; also mouse clicks on a pool card)
+  const [picked, setPicked] = useState<JudgeDragPayload | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+
+  const cancelPick = () => {
+    setPicked(null);
+    setAnnouncement(t("tabroom.common.moveCancelled"));
+  };
+  usePlaceTargetNavigation(Boolean(picked), cancelPick);
 
   const roundDebates = useMemo(
     () => (activeRound ? debates.filter((d) => d.roundId === activeRound.id && !d.byeTeamId) : []),
@@ -90,7 +313,7 @@ export default function AllocationPage() {
 
   const teamsMap = useMemo(() => {
     const map = new Map<string, Team>();
-    teams.forEach((t) => map.set(t.id, t));
+    teams.forEach((team) => map.set(team.id, team));
     return map;
   }, [teams]);
 
@@ -101,8 +324,14 @@ export default function AllocationPage() {
   }, [adjudicators]);
 
   const feedbackScores = useMemo(
-    () => calculateAdjudicatorFeedbackScores(feedback),
-    [feedback]
+    () => calculateScaledFeedbackScores(feedback, debates, tournament?.preferences),
+    [feedback, debates, tournament?.preferences]
+  );
+  const feedbackWeight = activeRound?.feedbackWeight;
+  const scoreOf = (adjudicator: Adjudicator) => effectiveAdjScore(adjudicator, feedbackScores, feedbackWeight);
+  const institutionsById = useMemo(
+    () => new Map(institutions.map((institution) => [institution.id, institution])),
+    [institutions]
   );
 
   // ─── Debate Priorities ───
@@ -140,6 +369,42 @@ export default function AllocationPage() {
     });
   }, [roundDebates, debatePriorities]);
 
+  const shards = useMemo(() => {
+    const venueById = new Map(venues.map((venue) => [venue.id, venue]));
+    return buildShards(
+      roundDebates.map((debate) => ({
+        id: debate.id,
+        bracket: debate.bracket,
+        importance: debatePriorities.get(debate.id)?.priorityScore ?? debate.importance,
+        roomRank: debate.roomRank,
+        venueName: debate.venueName,
+        venueCategory: debate.venueId ? venueById.get(debate.venueId)?.category : undefined,
+      })),
+      shardState
+    );
+  }, [roundDebates, debatePriorities, venues, shardState]);
+  const openShardIds = useMemo(
+    () => (shardState.index === null ? null : new Set(shards[shardState.index] ?? [])),
+    [shards, shardState.index]
+  );
+  const visibleRoundDebates = useMemo(
+    () => (openShardIds ? sortedRoundDebates.filter((debate) => openShardIds.has(debate.id)) : sortedRoundDebates),
+    [sortedRoundDebates, openShardIds]
+  );
+
+  const roomLabelById = new Map(
+    visibleRoundDebates.map((debate, index) => [
+      debate.id,
+      debate.venueName || t("tabroom.allocation.roomFallback", { number: debate.roomRank || index + 1 }),
+    ])
+  );
+  const roomLabelOf = (debateId: string) => {
+    const known = roomLabelById.get(debateId);
+    if (known) return known;
+    const debate = roundDebates.find((d) => d.id === debateId);
+    return debate?.venueName || t("tabroom.allocation.roomFallback", { number: debate?.roomRank ?? "?" });
+  };
+
   // Determine which adjudicators are currently assigned in this round
   const assignedAdjIds = useMemo(() => {
     const set = new Set<string>();
@@ -168,9 +433,10 @@ export default function AllocationPage() {
   // Sort available adjs by effective score (highest first)
   const sortedFilteredAdjs = useMemo(
     () => [...filteredAdjs].sort(
-      (a, b) => effectiveAdjScore(b, feedbackScores) - effectiveAdjScore(a, feedbackScores)
+      (a, b) =>
+        effectiveAdjScore(b, feedbackScores, feedbackWeight) - effectiveAdjScore(a, feedbackScores, feedbackWeight)
     ),
-    [filteredAdjs, feedbackScores]
+    [filteredAdjs, feedbackScores, feedbackWeight]
   );
 
   // ─── Panel Strength per Debate ───
@@ -186,34 +452,34 @@ export default function AllocationPage() {
       const scores = panelAdjIds
         .map((id) => adjsMap.get(id))
         .filter((a): a is Adjudicator => a !== undefined)
-        .map((a) => effectiveAdjScore(a, feedbackScores));
+        .map((a) => effectiveAdjScore(a, feedbackScores, feedbackWeight));
       const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
       map.set(debate.id, Math.round(avg * 10) / 10);
     }
     return map;
-  }, [roundDebates, adjsMap, feedbackScores]);
+  }, [roundDebates, adjsMap, feedbackScores, feedbackWeight]);
 
-  // Priority score color coding
-  const getPriorityColor = (score: number) => {
-    if (score >= 7) return "bg-red-100 text-red-800 border-red-300";
-    if (score >= 4) return "bg-amber-100 text-amber-800 border-amber-300";
-    return "bg-green-100 text-green-800 border-green-300";
+  // Priority score tone; the score itself is the visible text.
+  const getPriorityTone = (score: number): Tone => {
+    if (score >= 7) return "danger";
+    if (score >= 4) return "warning";
+    return "success";
   };
 
-  const getStrengthColor = (strength: number) => {
-    if (strength >= 7) return "text-emerald-700 bg-emerald-50";
-    if (strength >= 4) return "text-blue-700 bg-blue-50";
-    return "text-gray-600 bg-gray-50";
+  const getStrengthTone = (strength: number): Tone => {
+    if (strength >= 7) return "success";
+    if (strength >= 4) return "info";
+    return "neutral";
   };
 
   // Assign Chair to Debate
-  const assignChair = async (debateId: string, adj: Adjudicator) => {
+  const assignChair = async (debateId: string, adj: Adjudicator): Promise<AssignOutcome> => {
     if (adj.trainee) {
-      setManualAssignmentError("Trainees cannot be assigned as chairs.");
-      return;
+      setManualAssignmentError(t("tabroom.allocation.refuseTraineeChair"));
+      return "refused";
     }
     const debate = roundDebates.find((d) => d.id === debateId);
-    if (!debate) return;
+    if (!debate) return "unchanged";
 
     const updatedDebatesList = debates.map((d) => {
       if (d.roundId !== activeRound?.id) return d;
@@ -251,7 +517,7 @@ export default function AllocationPage() {
     });
 
     await updateDebates(updatedDebatesList);
-    setSelectedAdjForManual(null);
+    return "done";
   };
 
   const removeChair = async (debateId: string) => {
@@ -268,14 +534,14 @@ export default function AllocationPage() {
     await updateDebate(updatedDebate);
   };
 
-  const addPanellist = async (debateId: string, adj: Adjudicator) => {
+  const addPanellist = async (debateId: string, adj: Adjudicator): Promise<AssignOutcome> => {
     if (adj.trainee) {
-      setManualAssignmentError("Trainees cannot be assigned as panellists.");
-      return;
+      setManualAssignmentError(t("tabroom.allocation.refuseTraineePanellist"));
+      return "refused";
     }
     const debate = roundDebates.find((d) => d.id === debateId);
-    if (!debate) return;
-    if (debate.adjudicators?.panellistIds?.includes(adj.id)) return;
+    if (!debate) return "unchanged";
+    if (debate.adjudicators?.panellistIds?.includes(adj.id)) return "unchanged";
 
     const updatedDebatesList = debates.map((d) => {
       if (d.roundId !== activeRound?.id) return d;
@@ -313,7 +579,7 @@ export default function AllocationPage() {
     });
 
     await updateDebates(updatedDebatesList);
-    setSelectedAdjForManual(null);
+    return "done";
   };
 
   const removePanellist = async (debateId: string, adjId: string) => {
@@ -336,14 +602,14 @@ export default function AllocationPage() {
     await updateDebate(updatedDebate);
   };
 
-  const addTrainee = async (debateId: string, adj: Adjudicator) => {
+  const addTrainee = async (debateId: string, adj: Adjudicator): Promise<AssignOutcome> => {
     if (!adj.trainee) {
-      setManualAssignmentError("Only adjudicators marked as trainees can be assigned to trainee slots.");
-      return;
+      setManualAssignmentError(t("tabroom.allocation.refuseNonTrainee"));
+      return "refused";
     }
     const debate = roundDebates.find((d) => d.id === debateId);
-    if (!debate) return;
-    if (debate.adjudicators?.traineeIds?.includes(adj.id)) return;
+    if (!debate) return "unchanged";
+    if (debate.adjudicators?.traineeIds?.includes(adj.id)) return "unchanged";
 
     const updatedDebatesList = debates.map((d) => {
       if (d.roundId !== activeRound?.id) return d;
@@ -381,7 +647,7 @@ export default function AllocationPage() {
     });
 
     await updateDebates(updatedDebatesList);
-    setSelectedAdjForManual(null);
+    return "done";
   };
 
   const removeTrainee = async (debateId: string, adjId: string) => {
@@ -411,8 +677,7 @@ export default function AllocationPage() {
     await updateDebate({ ...debate, importance });
   };
 
-  const handleClearAllocations = async () => {
-    if (!confirm("Clear all judge allocations for this round?")) return;
+  const clearAllocations = async () => {
     const updatedDebatesList = debates.map((d) => {
       if (d.roundId !== activeRound?.id) return d;
       return {
@@ -430,13 +695,90 @@ export default function AllocationPage() {
     await updateDebates(updatedDebatesList);
   };
 
+  const handleConfirmClear = async () => {
+    setIsClearing(true);
+    try {
+      await clearAllocations();
+    } catch (error) {
+      setManualAssignmentError(describeError(error, t("tabroom.allocation.clearFailed")));
+    } finally {
+      setIsClearing(false);
+      setConfirmingClear(false);
+    }
+  };
+
+  // Tabbycat's "auto-prioritise debates": sets every room's importance (the manual 20% of the blend).
+  const handleConfirmPrioritise = async () => {
+    if (!activeRound || !tournament || !pendingPrioritise) return;
+    const method = pendingPrioritise;
+    setIsPrioritising(true);
+    setPrioritiseMessage(null);
+    try {
+      const liveness = method === "liveness"
+        ? roundBreakLiveness({ tournament, rounds, teams, debates, ballots, breakCategories }, activeRound)
+        : null;
+      const updated = new Map(
+        prioritiseDebates(roundDebates, method, breakCategories, liveness).map((debate) => [debate.id, debate])
+      );
+      await updateDebates(debates.map((debate) => updated.get(debate.id) ?? debate));
+      await recordAuditEvent({
+        action: "draw.debate_importance_auto",
+        category: "draw",
+        summary: `${activeRound.name} room importances set by ${method}`,
+        roundId: activeRound.id,
+        details: { method },
+      });
+      setPrioritiseMessage({ tone: "success", text: t("tabroom.allocation.prioritised") });
+    } catch (error) {
+      setPrioritiseMessage({
+        tone: "danger",
+        text: error instanceof DebatePriorityUnavailableError
+          ? t("tabroom.allocation.prioritiseLivenessUnavailable")
+          : describeError(error, t("tabroom.allocation.prioritiseFailed")),
+      });
+    } finally {
+      setIsPrioritising(false);
+      setPendingPrioritise(null);
+    }
+  };
+
   const handleAutoAllocate = async () => {
     if (!activeRound) return;
     setIsAllocating(true);
+    setManualAssignmentError("");
+    setAllocationWarnings([]);
     try {
-      await autoAllocate(activeRound.id, panelSize);
+      setAllocationWarnings(await autoAllocate(activeRound.id, panelSize, { panelSizing }));
+    } catch (error) {
+      if (!(error instanceof ComputeCancelledError)) {
+        setManualAssignmentError(describeError(error, t("tabroom.allocation.allocateFailed")));
+      }
     } finally {
       setIsAllocating(false);
+    }
+  };
+
+  const handleFeedbackWeightChange = async (value: string) => {
+    if (!activeRound) return;
+    const percent = parseFloat(value);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      setFeedbackWeightError(t("tabroom.allocation.feedbackWeightRange"));
+      return;
+    }
+    setFeedbackWeightError("");
+    const weight = Math.round(percent) / 100;
+    if (weight === activeRound.feedbackWeight) return;
+    try {
+      await updateRound({ ...activeRound, feedbackWeight: weight });
+      await recordAuditEvent({
+        action: "round.feedback_weight_changed",
+        category: "feedback",
+        summary: `${activeRound.name} feedback weight set to ${Math.round(weight * 100)}%`,
+        roundId: activeRound.id,
+        details: { previous: activeRound.feedbackWeight, current: weight },
+      });
+    } catch (error) {
+      setFeedbackWeightError(error instanceof Error ? error.message : t("tabroom.allocation.feedbackWeightFailed"));
     }
   };
 
@@ -449,12 +791,107 @@ export default function AllocationPage() {
         adjudicatorsRevealed: !activeRound.adjudicatorsRevealed,
       });
     } catch (error) {
-      setRevealError(error instanceof Error ? error.message : "Could not update adjudicator visibility.");
+      setRevealError(error instanceof Error ? error.message : t("tabroom.allocation.revealFailed"));
     }
+  };
+
+  // ─── One code path for drop, place (pick-then-place) and remove ───
+  const applyJudgeMove = async (payload: JudgeDragPayload, target: JudgeTarget) => {
+    if (target.kind === "pool") {
+      if (payload.sourceDebateId) {
+        try {
+          if (payload.sourceType === "chair") {
+            await removeChair(payload.sourceDebateId);
+          } else if (payload.sourceType === "panellist") {
+            await removePanellist(payload.sourceDebateId, payload.adjId);
+          } else if (payload.sourceType === "trainee") {
+            await removeTrainee(payload.sourceDebateId, payload.adjId);
+          }
+          setPicked(null);
+          setAnnouncement(t("tabroom.allocation.announceReturned", { name: payload.adjName }));
+        } catch (error) {
+          const message = describeError(error, t("tabroom.allocation.changeFailed"));
+          setManualAssignmentError(message);
+          setAnnouncement(message);
+        }
+      }
+      setDraggingJudge(null);
+      return;
+    }
+
+    const adj = adjsMap.get(payload.adjId);
+    if (!adj) return;
+    setManualAssignmentError("");
+    if (!allocationPositionOpen(target.role, tournament?.preferences)) {
+      const message = t(target.role === "panellist" ? "tabroom.allocation.panellistPositionClosed" : "tabroom.allocation.traineePositionClosed");
+      setManualAssignmentError(message);
+      setAnnouncement(message);
+      return;
+    }
+    const room = roomLabelOf(target.debateId);
+    const debate = roundDebates.find((d) => d.id === target.debateId);
+    const previousChair =
+      debate?.adjudicators?.chairId && debate.adjudicators.chairId !== adj.id ? debate.adjudicators.chairName : undefined;
+
+    try {
+      let outcome: AssignOutcome = "unchanged";
+      if (target.role === "chair") {
+        outcome = await assignChair(target.debateId, adj);
+      } else if (target.role === "panellist") {
+        outcome = await addPanellist(target.debateId, adj);
+      } else if (target.role === "trainee") {
+        outcome = await addTrainee(target.debateId, adj);
+      }
+      if (outcome === "refused") {
+        setAnnouncement(
+          target.role === "chair"
+            ? t("tabroom.allocation.refuseTraineeChair")
+            : target.role === "panellist"
+              ? t("tabroom.allocation.refuseTraineePanellist")
+              : t("tabroom.allocation.refuseNonTrainee")
+        );
+      } else {
+        setPicked(null);
+        if (outcome === "unchanged") setAnnouncement(t("tabroom.common.nothingChanged"));
+        else if (target.role === "chair")
+          setAnnouncement(
+            previousChair
+              ? t("tabroom.allocation.announceChairReplacing", { name: adj.name, room, previous: previousChair })
+              : t("tabroom.allocation.announceChair", { name: adj.name, room })
+          );
+        else if (target.role === "panellist")
+          setAnnouncement(t("tabroom.allocation.announcePanellist", { name: adj.name, room }));
+        else setAnnouncement(t("tabroom.allocation.announceTrainee", { name: adj.name, room }));
+      }
+    } catch (error) {
+      const message = describeError(error, t("tabroom.allocation.changeFailed"));
+      setManualAssignmentError(message);
+      setAnnouncement(message);
+    }
+
+    setDraggingJudge(null);
+  };
+
+  const pickJudge = (payload: JudgeDragPayload) => {
+    if (picked?.adjId === payload.adjId) {
+      cancelPick();
+      return;
+    }
+    setPicked(payload);
+    setAnnouncement(
+      payload.sourceDebateId
+        ? t("tabroom.allocation.announcePickedPlaced", {
+            name: payload.adjName,
+            role: t(ROLE_KEYS[payload.sourceType as SlotRole]),
+            room: roomLabelOf(payload.sourceDebateId),
+          })
+        : t("tabroom.allocation.announcePickedPool", { name: payload.adjName })
+    );
   };
 
   // --- Drag and Drop Handlers for Judges ---
   const handleDragStartJudge = (e: React.DragEvent, payload: JudgeDragPayload) => {
+    setPicked(null);
     setDraggingJudge(payload);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("application/json", JSON.stringify(payload));
@@ -468,323 +905,342 @@ export default function AllocationPage() {
     }
   };
 
-  const handleDragLeaveJudgeSlot = (e: React.DragEvent, targetKey: string) => {
+  const handleDragLeaveJudgeSlot = (_e: React.DragEvent, targetKey: string) => {
     if (dragOverTarget === targetKey) {
       setDragOverTarget(null);
     }
   };
 
-  const handleDropJudgeSlot = async (
-    e: React.DragEvent,
-    targetDebateId: string,
-    targetRole: "chair" | "panellist" | "trainee"
-  ) => {
+  const readDropPayload = (e: React.DragEvent): JudgeDragPayload | null => {
     e.preventDefault();
     setDragOverTarget(null);
-
     const raw = e.dataTransfer.getData("application/json");
-    if (!raw) return;
-    const payload = safeJsonParse<JudgeDragPayload | null>(raw, null);
+    if (!raw) return null;
+    return safeJsonParse<JudgeDragPayload | null>(raw, null);
+  };
+
+  const handleDropJudgeSlot = async (e: React.DragEvent, targetDebateId: string, targetRole: SlotRole) => {
+    const payload = readDropPayload(e);
     if (!payload) return;
-
-    const adj = adjsMap.get(payload.adjId);
-    if (!adj) return;
-    setManualAssignmentError("");
-
-    if (targetRole === "chair") {
-      await assignChair(targetDebateId, adj);
-    } else if (targetRole === "panellist") {
-      await addPanellist(targetDebateId, adj);
-    } else if (targetRole === "trainee") {
-      await addTrainee(targetDebateId, adj);
-    }
-
-    setDraggingJudge(null);
+    await applyJudgeMove(payload, { kind: "slot", debateId: targetDebateId, role: targetRole });
   };
 
   const handleDropUnassignJudge = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOverTarget(null);
-
-    const raw = e.dataTransfer.getData("application/json");
-    if (!raw) return;
-    const payload = safeJsonParse<JudgeDragPayload | null>(raw, null);
+    const payload = readDropPayload(e);
     if (!payload) return;
-
-    if (payload.sourceDebateId) {
-      if (payload.sourceType === "chair") {
-        await removeChair(payload.sourceDebateId);
-      } else if (payload.sourceType === "panellist") {
-        await removePanellist(payload.sourceDebateId, payload.adjId);
-      } else if (payload.sourceType === "trainee") {
-        await removeTrainee(payload.sourceDebateId, payload.adjId);
-      }
-    }
-    setDraggingJudge(null);
+    await applyJudgeMove(payload, { kind: "pool" });
   };
 
+  const placeHere = (debateId: string, role: SlotRole) => {
+    if (picked) void applyJudgeMove(picked, { kind: "slot", debateId, role });
+  };
+
+  const revealed = Boolean(activeRound?.adjudicatorsRevealed);
+  const preformedCount = activeRound?.preformedPanels?.length ?? 0;
+  const pickActive = Boolean(picked);
+  const chairsAssigned = roundDebates.filter((d) => d.adjudicators?.chairId).length;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#d0d7de] pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight flex items-center space-x-2">
-            <Users2 className="w-6 h-6 text-indigo-600" />
-            <span>Adjudicator Allocation</span>
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Allocate adjudicators independently of the team draw. Assignments stay private until you reveal them.
-          </p>
-        </div>
+    <div className="space-y-4">
+      <CurrentRoundsBar />
+      <PageHeader
+        title={t("tabroom.allocation.title")}
+        description={t("tabroom.allocation.description")}
+        actions={
+          <>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleAutoAllocate}
+              disabled={roundDebates.length === 0}
+              loading={isAllocating}
+              loadingText={t("tabroom.allocation.optimizing")}
+            >
+              <Sparkles aria-hidden="true" />
+              {t("tabroom.allocation.autoAllocate")}
+            </Button>
+            <ComputeStatus kind="allocation" />
+            <Button
+              size="sm"
+              onClick={handleToggleAdjudicatorReveal}
+              disabled={!activeRound || assignedAdjIds.size === 0}
+              aria-pressed={revealed}
+              title={revealed ? t("tabroom.allocation.hideTitle") : t("tabroom.allocation.revealTitle")}
+            >
+              {revealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+              {revealed ? t("tabroom.allocation.hide") : t("tabroom.allocation.reveal")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setShowPriorityPanel(!showPriorityPanel)}
+              aria-pressed={showPriorityPanel}
+              className={cn(showPriorityPanel && "border-accent bg-accent-subtle text-accent-text")}
+            >
+              <Gauge aria-hidden="true" />
+              {t("tabroom.allocation.priorityInfo")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setShowDiversity(!showDiversity)}
+              aria-pressed={showDiversity}
+              className={cn(showDiversity && "border-accent bg-accent-subtle text-accent-text")}
+              title={t("tabroom.allocation.diversityTitle")}
+            >
+              <Users2 aria-hidden="true" />
+              {t("tabroom.allocation.diversity")}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setConfirmingClear(true)}
+              disabled={roundDebates.length === 0 || assignedAdjIds.size === 0}
+              title={t("tabroom.allocation.clearTitle")}
+            >
+              <RotateCcw aria-hidden="true" />
+              {t("tabroom.allocation.clear")}
+            </Button>
+          </>
+        }
+      />
 
-        {/* Action Controls */}
+      {/* Allocation engine settings */}
+      <Card className="space-y-2 p-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+          {t("tabroom.allocation.engineHeading")}
+        </h2>
+        <div className="flex flex-wrap items-end gap-3">
+          <Select
+            label={t("tabroom.allocation.panelsLabel")}
+            value={panelSizing}
+            onChange={(e) => setPanelSizing(e.target.value as PanelSizingMode)}
+            className="h-7 w-auto text-xs"
+          >
+            <option value="fixed">{t("tabroom.allocation.sizingFixed")}</option>
+            <option value="by_priority">{t("tabroom.allocation.sizingByPriority")}</option>
+          </Select>
+          <Select
+            label={panelSizing === "by_priority" ? t("tabroom.allocation.largestPanel") : t("tabroom.allocation.panelSize")}
+            value={panelSize}
+            onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
+            className="h-7 w-auto text-xs"
+          >
+            {PANEL_SIZES.map((size) =>
+              size === 1 ? (
+                <option key={size} value={size}>{t("tabroom.allocation.panelSizeSolo")}</option>
+              ) : (
+                <option key={size} value={size}>
+                  {t("tabroom.allocation.panelSizeOption", { size, panellists: size - 1 })}
+                </option>
+              )
+            )}
+          </Select>
+          {activeRound && (
+            <Input
+              key={`${activeRound.id}-${activeRound.feedbackWeight}`}
+              label={t("tabroom.allocation.feedbackWeight")}
+              title={t("tabroom.allocation.feedbackWeightTitle")}
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              defaultValue={Math.round(normalizeFeedbackWeight(activeRound.feedbackWeight) * 100)}
+              onBlur={(e) => handleFeedbackWeightChange(e.target.value)}
+              error={feedbackWeightError || undefined}
+              className="h-7 w-20 text-center font-mono text-xs"
+            />
+          )}
+        </div>
+        <p className="text-xs text-fg-muted">
+          {t(STRATEGY_HINT_KEYS[tournament?.preferences?.adjudicatorPanelStrategy ?? "crabbytab_v1"])}
+          {tournament?.preferences?.usePreformedPanels && preformedCount > 0
+            ? ` ${plural("tabroom.allocation.preformedPlacedFirst", preformedCount)}`
+            : ""}
+        </p>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="rounded-md border border-indigo-200 bg-indigo-50 p-2">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-900">Allocation Engine</div>
-            <div className="mt-1 flex items-center gap-2 text-xs">
-              <span className="font-semibold text-indigo-800">Automatic panel size</span>
-              <select
-                value={panelSize}
-                onChange={(e) => setPanelSize(parseInt(e.target.value, 10))}
-                className="bg-white border border-indigo-300 rounded px-2 py-0.5 font-semibold text-gray-900 text-xs"
-                aria-label="Automatic allocation engine panel size"
-              >
-                <option value={1}>1 (Solo Chair)</option>
-                <option value={3}>3 (Chair + 2 Panellists)</option>
-                <option value={5}>5 (Chair + 4 Panellists)</option>
-              </select>
-            </div>
-            <p className="mt-1 text-[10px] text-indigo-700">The computer assigns chairs to the highest-priority rooms first.</p>
-          </div>
-
-          <button
-            onClick={handleAutoAllocate}
-            disabled={isAllocating || roundDebates.length === 0}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold shadow-xs transition disabled:opacity-50"
+          <Button
+            size="sm"
+            onClick={() => setPendingPrioritise("bracket")}
+            disabled={roundDebates.length === 0}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{isAllocating ? "Optimizing..." : "Auto-Allocate All"}</span>
-          </button>
-
-          <button
-            onClick={handleToggleAdjudicatorReveal}
-            disabled={!activeRound || assignedAdjIds.size === 0}
-            className={`inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded text-xs font-bold shadow-xs transition disabled:opacity-50 ${
-              activeRound?.adjudicatorsRevealed
-                ? "bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white"
-            }`}
-            title={activeRound?.adjudicatorsRevealed
-              ? "Hide adjudicator assignments from teams and public viewers"
-              : "Reveal adjudicator assignments to teams and public viewers"}
+            <Gauge aria-hidden="true" />
+            {t("tabroom.allocation.prioritiseByBracket")}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setPendingPrioritise("liveness")}
+            disabled={roundDebates.length === 0 || activeRound?.stage !== "preliminary"}
           >
-            {activeRound?.adjudicatorsRevealed
-              ? <EyeOff className="w-3.5 h-3.5" />
-              : <Eye className="w-3.5 h-3.5" />}
-            <span>{activeRound?.adjudicatorsRevealed ? "Hide Adjudicators" : "Reveal Adjudicators"}</span>
-          </button>
-
-          <button
-            onClick={() => setShowPriorityPanel(!showPriorityPanel)}
-            className={`inline-flex items-center space-x-1.5 px-3 py-1.5 font-semibold border rounded text-xs shadow-2xs transition ${
-              showPriorityPanel
-                ? "bg-indigo-50 text-indigo-700 border-indigo-300"
-                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            <Gauge className="w-3.5 h-3.5" />
-            <span>Priority Info</span>
-          </button>
-
-          <button
-            onClick={handleClearAllocations}
-            disabled={roundDebates.length === 0 || assignedAdjIds.size === 0}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold border border-gray-300 rounded text-xs shadow-2xs transition disabled:opacity-50"
-            title="Reset all judge assignments for this round"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-gray-500" />
-            <span>Clear Allocations</span>
-          </button>
+            <Flame aria-hidden="true" />
+            {t("tabroom.allocation.prioritiseByLiveness")}
+          </Button>
+          <span className="text-xs text-fg-muted">{t("tabroom.allocation.prioritiseHelp")}</span>
         </div>
-      </div>
+        {prioritiseMessage && (
+          <p
+            role={prioritiseMessage.tone === "danger" ? "alert" : "status"}
+            className={cn("text-xs", prioritiseMessage.tone === "danger" ? "text-danger" : "text-fg-muted")}
+          >
+            {prioritiseMessage.text}
+          </p>
+        )}
+        <Link
+          href={`/${tournament?.slug}/allocation/panels`}
+          className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-accent-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Layers className="h-3.5 w-3.5" aria-hidden="true" /> {t("tabroom.allocation.preformedLink")}
+        </Link>
+      </Card>
 
-      {revealError && <p role="alert" className="text-xs text-red-700">{revealError}</p>}
-      {manualAssignmentError && <p role="alert" className="text-xs text-red-700">{manualAssignmentError}</p>}
+      {revealError && <Alert tone="danger" role="alert">{revealError}</Alert>}
+      {manualAssignmentError && <Alert tone="danger" role="alert">{manualAssignmentError}</Alert>}
+      {allocationWarnings.length > 0 && (
+        <Alert tone="warning" role="status" title={t("tabroom.allocation.warningsTitle")}>
+          <ul className="list-disc pl-5">
+            {allocationWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </Alert>
+      )}
 
       {/* Round Selector Bar */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide mr-1">
-          Select Round:
+      <div className="flex items-center gap-2 overflow-x-auto pb-1" role="group" aria-labelledby="allocation-round-label">
+        <span id="allocation-round-label" className="mr-1 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+          {t("tabroom.allocation.selectRound")}
         </span>
         {rounds.map((r) => (
-          <button
+          <Button
             key={r.id}
+            size="sm"
+            variant={activeRound?.id === r.id ? "primary" : "secondary"}
+            aria-pressed={activeRound?.id === r.id}
             onClick={() => setActiveRound(r)}
-            className={`px-3 py-1 text-xs font-semibold rounded-md border transition ${
-              activeRound?.id === r.id
-                ? "bg-indigo-600 text-white border-indigo-700 shadow-xs"
-                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-            }`}
           >
             {r.name}
-          </button>
+          </Button>
         ))}
       </div>
 
-      {/* Main Allocation Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Available Adjudicators Drawer */}
-        <div className="lg:col-span-4 space-y-4">
-          <div
-            onDragOver={(e) => handleDragOverJudgeSlot(e, "available-drawer")}
-            onDragLeave={(e) => handleDragLeaveJudgeSlot(e, "available-drawer")}
-            onDrop={handleDropUnassignJudge}
-            className={`bg-white border rounded-lg p-4 shadow-xs transition ${
-              dragOverTarget === "available-drawer"
-                ? "border-amber-500 bg-amber-50/50 border-dashed ring-2 ring-amber-300"
-                : "border-[#d0d7de]"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-                <span>Available Adjudicators</span>
-                <span className="bg-indigo-100 text-indigo-800 text-xs px-2 py-0.2 rounded-full font-bold">
-                  {availableAdjs.length}
-                </span>
-              </h3>
-              <span className="text-[11px] text-gray-500">(Drag into rooms)</span>
-            </div>
-
-            <div className="relative mb-3">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Filter judges or institution..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {selectedAdjForManual && (
-              <div className="mb-3 p-2.5 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-900 flex items-center justify-between">
-                <div>
-                  <span className="font-bold">Selected: </span>
-                  <span>{selectedAdjForManual.name}</span>
-                  <span className="text-[10px] text-indigo-700 block">Click on any room to assign as Chair or Panellist</span>
-                </div>
-                <button
-                  onClick={() => setSelectedAdjForManual(null)}
-                  className="p-1 hover:bg-indigo-100 rounded text-indigo-700"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {sortedFilteredAdjs.map((adj) => {
-                const isSelected = selectedAdjForManual?.id === adj.id;
-                const score = effectiveAdjScore(adj, feedbackScores);
-
-                return (
-                  <div
-                    key={adj.id}
-                    draggable
-                    onDragEnd={() => setDraggingJudge(null)}
-                    onDragStart={(e) =>
-                      handleDragStartJudge(e, {
-                        type: "judge",
-                        sourceType: "available",
-                        adjId: adj.id,
-                        adjName: adj.name,
-                      })
-                    }
-                    onClick={() => setSelectedAdjForManual(isSelected ? null : adj)}
-                    className={`p-2.5 rounded-lg border text-xs cursor-grab active:cursor-grabbing transition flex items-center justify-between ${
-                      isSelected
-                        ? "bg-indigo-50 border-indigo-500 shadow-xs ring-1 ring-indigo-400"
-                        : "bg-gray-50/70 border-gray-200 hover:border-indigo-300 hover:bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <div>
-                        <div className="font-bold text-gray-900 flex items-center space-x-1.5">
-                          <span>{adj.name}</span>
-                          {adj.trainee && (
-                            <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-semibold uppercase">
-                              Trainee
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-gray-500 flex items-center space-x-1">
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                          <span>{adj.institutionName || "Independent / Unaffiliated"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
-                        score >= 7 ? "bg-emerald-100 text-emerald-800" :
-                        score >= 4 ? "bg-blue-100 text-blue-800" :
-                        "bg-gray-200 text-gray-800"
-                      }`}>
-                        {score.toFixed(1)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {filteredAdjs.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-6">
-                  No available adjudicators matching query.
-                </p>
-              )}
+      {/* Picked judge banner */}
+      {picked && (
+        <div className="sticky top-topbar z-20 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent bg-accent-subtle px-3 py-2 text-[13px] text-fg shadow-lg">
+          <div className="flex min-w-0 items-center gap-2">
+            <Hand className="h-4 w-4 shrink-0 text-accent-text" aria-hidden="true" />
+            <div className="min-w-0">
+              <p>
+                {picked.sourceDebateId
+                  ? rich("tabroom.allocation.bannerPlaced", { b: (s) => <strong>{s}</strong> }, {
+                      name: picked.adjName,
+                      role: t(ROLE_KEYS[picked.sourceType as SlotRole]),
+                      room: roomLabelOf(picked.sourceDebateId),
+                    })
+                  : rich("tabroom.allocation.bannerPool", { b: (s) => <strong>{s}</strong> }, { name: picked.adjName })}
+              </p>
+              <p className="text-xs text-fg-muted">{t("tabroom.allocation.bannerHint")}</p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            {picked.sourceDebateId && (
+              <PlaceTargetButton
+                label={t("tabroom.allocation.returnToPool")}
+                ariaLabel={t("tabroom.allocation.returnToPoolAria", { name: picked.adjName })}
+                icon={<Undo2 aria-hidden="true" />}
+                onClick={() => void applyJudgeMove(picked, { kind: "pool" })}
+              />
+            )}
+            <Button size="sm" onClick={cancelPick}>
+              {t("tabroom.common.cancelEsc")}
+            </Button>
+          </div>
         </div>
+      )}
+      <p className="sr-only" aria-live="polite" role="status">
+        {announcement}
+      </p>
+
+      {/* Main Allocation Layout */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        {/* Left: Available Adjudicators Drawer */}
+        <AvailableAdjudicatorsPanel
+          adjudicators={sortedFilteredAdjs}
+          availableCount={availableAdjs.length}
+          feedbackScores={feedbackScores}
+          feedbackWeight={feedbackWeight}
+          showDiversity={showDiversity}
+          institutionsById={institutionsById}
+          picked={picked}
+          searchQuery={searchQuery}
+          dragOverTarget={dragOverTarget}
+          onSearchChange={setSearchQuery}
+          onPick={pickJudge}
+          onReturnToPool={() => picked && void applyJudgeMove(picked, { kind: "pool" })}
+          onDragStart={handleDragStartJudge}
+          onDragEnd={() => setDraggingJudge(null)}
+          onDragOver={handleDragOverJudgeSlot}
+          onDragLeave={handleDragLeaveJudgeSlot}
+          onDrop={handleDropUnassignJudge}
+        />
 
         {/* Right: Debates Allocation Board */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-900">
-              Debates for {activeRound?.name} ({roundDebates.length} rooms)
-            </h3>
-            <span className="text-xs text-gray-500">
-              {roundDebates.filter((d) => d.adjudicators?.chairId).length} of {roundDebates.length} Chairs Assigned
+        <section className="space-y-3 lg:col-span-8" aria-labelledby="allocation-debates-heading">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="allocation-debates-heading" className="text-[15px] font-semibold text-fg">
+              {plural("tabroom.allocation.debatesHeading", roundDebates.length, { round: activeRound?.name ?? "" })}
+            </h2>
+            <span className="text-xs text-fg-muted">
+              {plural("tabroom.allocation.chairsAssigned", roundDebates.length, { assigned: chairsAssigned })}
             </span>
           </div>
 
-          <div className="space-y-4">
-            {sortedRoundDebates.map((debate, dIdx) => {
-              const debateTeams: Team[] = Object.values(debate.teams || {})
-                .map((t) => (t?.teamId ? teamsMap.get(t.teamId) : undefined))
-                .filter((t): t is Team => t !== undefined);
+          {roundDebates.length > 1 && (
+            <ShardControls
+              state={shardState}
+              onChange={setShardState}
+              shardSizes={shards.map((shard) => shard.length)}
+            />
+          )}
+          {openShardIds && (
+            <p role="status" className="text-xs text-fg-muted">
+              {plural("tabroom.allocation.shardShowing", roundDebates.length, { visible: visibleRoundDebates.length })}
+            </p>
+          )}
 
+          <div className="space-y-3">
+            {visibleRoundDebates.map((debate) => {
+              const debateTeams: Team[] = Object.values(debate.teams || {})
+                .map((slot) => (slot?.teamId ? teamsMap.get(slot.teamId) : undefined))
+                .filter((team): team is Team => team !== undefined);
+
+              const roomLabel = roomLabelOf(debate.id);
               const priority = debatePriorities.get(debate.id);
               const panelStrength = debatePanelStrengths.get(debate.id) ?? 0;
 
-              const previewJudge = adjsMap.get(draggingJudge?.adjId ?? selectedAdjForManual?.id ?? "");
+              const panelMembers = [
+                debate.adjudicators?.chairId,
+                ...(debate.adjudicators?.panellistIds || []),
+                ...(debate.adjudicators?.traineeIds || []),
+              ]
+                .map((id) => (id ? adjsMap.get(id) : undefined))
+                .filter((member): member is Adjudicator => member !== undefined);
+              const othersOnPanel = (adjId: string) => panelMembers.filter((member) => member.id !== adjId);
+              const previewJudge = adjsMap.get(draggingJudge?.adjId ?? picked?.adjId ?? "");
               const judgeClashPreview = previewJudge
-                ? calculateAdjDebateConflict(previewJudge, debateTeams, pastAdjudicatorTeams)
+                ? calculateAdjDebateConflict(
+                    previewJudge,
+                    debateTeams,
+                    pastAdjudicatorTeams,
+                    undefined,
+                    othersOnPanel(previewJudge.id)
+                  )
                 : null;
               const dragJudgeClashPreview = judgeClashPreview?.reasons ?? [];
+              const clashPreviewId = `allocation-clash-${debate.id}`;
+              const clashDescribedBy = judgeClashPreview?.hasClash ? clashPreviewId : undefined;
 
-              // Check clashes for currently assigned chair
-              let chairConflicts: string[] = [];
-              if (debate.adjudicators?.chairId) {
-                const chairAdj = adjsMap.get(debate.adjudicators.chairId);
-                if (chairAdj) {
-                  chairConflicts = calculateAdjDebateConflict(
-                    chairAdj,
-                    debateTeams,
-                    pastAdjudicatorTeams
-                  ).reasons;
-                }
-              }
+              const clashesOf = (adj: Adjudicator | undefined) =>
+                adj
+                  ? calculateAdjDebateConflict(adj, debateTeams, pastAdjudicatorTeams, undefined, othersOnPanel(adj.id)).reasons
+                  : [];
+
+              const chairAdj = debate.adjudicators?.chairId ? adjsMap.get(debate.adjudicators.chairId) : undefined;
+              const chairConflicts = clashesOf(chairAdj);
 
               const chairDropKey = `${debate.id}-chair`;
               const panellistDropKey = `${debate.id}-panellist`;
@@ -794,350 +1250,381 @@ export default function AllocationPage() {
               const isPanellistHovered = dragOverTarget === panellistDropKey;
               const isTraineeHovered = dragOverTarget === traineeDropKey;
 
+              // A picked judge is not offered its own current slot, nor a position the tournament
+              // turned off (no_panellist_position / no_trainee_position).
+              const showTarget = (role: SlotRole) =>
+                Boolean(picked) &&
+                allocationPositionOpen(role, tournament?.preferences) &&
+                !(picked?.sourceDebateId === debate.id && picked?.sourceType === role);
+              const panellistsOpen = allocationPositionOpen("panellist", tournament?.preferences);
+              const traineesOpen = allocationPositionOpen("trainee", tournament?.preferences);
+
+              const chipProps = {
+                roomLabel,
+                sourceDebateId: debate.id,
+                pickActive,
+                showDiversity,
+                institutionsById,
+                onPick: pickJudge,
+                onRemove: (payload: JudgeDragPayload) => void applyJudgeMove(payload, { kind: "pool" }),
+                onDragStart: handleDragStartJudge,
+                onDragEnd: () => setDraggingJudge(null),
+              };
+
+              const panellistIds = debate.adjudicators?.panellistIds || [];
+              const traineeIds = debate.adjudicators?.traineeIds || [];
+
               return (
-                <div
+                <Card
                   key={debate.id}
-                  className={`bg-white border rounded-lg shadow-2xs overflow-hidden ${
-                    judgeClashPreview?.hasClash
-                      ? "border-red-400 ring-1 ring-red-200"
-                      : "border-[#d0d7de]"
-                  }`}
+                  className={cn("overflow-hidden", judgeClashPreview?.hasClash && "border-danger ring-1 ring-danger")}
                 >
                   {/* Room & Teams Bar with Priority Info */}
-                  <div className="p-3 bg-[#f6f8fa] border-b border-[#d0d7de] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center space-x-3">
-                      <span className="font-bold text-gray-900 text-xs mr-1">
-                        {debate.venueName || `Room ${dIdx + 1}`}
-                      </span>
+                  <div className="flex flex-col justify-between gap-2 border-b border-border bg-muted px-3 py-2 sm:flex-row sm:items-center">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-[13px] font-semibold text-fg">{roomLabel}</h3>
 
                       {showPriorityPanel && priority && (
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded border ${getPriorityColor(priority.priorityScore)}`}>
-                            <Gauge className="w-3 h-3" />
-                            <span>P:{priority.priorityScore.toFixed(1)}</span>
-                          </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge tone={getPriorityTone(priority.priorityScore)} title={t("tabroom.allocation.priorityTitle")}>
+                            <Gauge className="h-3 w-3" aria-hidden="true" />
+                            {t("tabroom.allocation.priorityBadge", { score: formatDecimal(priority.priorityScore, 1) })}
+                          </Badge>
                           {panelStrength > 0 && (
-                            <span className={`inline-flex items-center space-x-1 text-[10px] font-bold px-2 py-0.5 rounded ${getStrengthColor(panelStrength)}`}>
-                              <Zap className="w-3 h-3" />
-                              <span>S:{panelStrength.toFixed(1)}</span>
-                            </span>
+                            <Badge tone={getStrengthTone(panelStrength)} title={t("tabroom.allocation.strengthTitle")}>
+                              <Zap className="h-3 w-3" aria-hidden="true" />
+                              {t("tabroom.allocation.strengthBadge", { score: formatDecimal(panelStrength, 1) })}
+                            </Badge>
                           )}
-                          <span className="text-[10px] text-gray-400" title="Break liveness average for teams in this debate">
-                            🔥{(priority.breakLiveness * 100).toFixed(0)}%
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[11px] text-fg-muted"
+                            title={t("tabroom.allocation.livenessTitle")}
+                          >
+                            <Flame className="h-3 w-3" aria-hidden="true" />
+                            {t("tabroom.allocation.livenessBadge", {
+                              percent: formatNumber(priority.breakLiveness, { style: "percent", maximumFractionDigits: 0 }),
+                            })}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-gray-600">
-                        {debateTeams.map((t) => `${t.name} (${t.institutionName || "Indep"})`).join(" vs ")}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className="text-xs text-fg-muted"
+                        title={
+                          debateTeams
+                            .map((team) => tabroomTeamName(team, undefined, teamCodeNameMode).tooltip)
+                            .map((tooltip) =>
+                              !tooltip
+                                ? ""
+                                : tooltip.kind === "code"
+                                  ? t("public.codeNameTooltip", { code: tooltip.name })
+                                  : t("tabroom.common.realNameTooltip", { name: tooltip.name })
+                            )
+                            .filter(Boolean)
+                            .join("; ") || undefined
+                        }
+                      >
+                        {debateTeams
+                          .map((team) =>
+                            t("tabroom.allocation.teamWithInstitution", {
+                              team: tabroomTeamName(team, undefined, teamCodeNameMode).name,
+                              institution: team.institutionName || t("tabroom.allocation.independentShort"),
+                            })
+                          )
+                          .join(t("tabroom.allocation.teamsSeparator"))}
                       </span>
 
                       {showPriorityPanel && (
-                        <div className="flex items-center space-x-1">
-                          <label className="text-[10px] text-gray-500 font-semibold" title="Manual priority override (0-10)">
-                            ±
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={10}
-                            step={0.5}
-                            value={debate.importance || 0}
-                            onChange={(e) => updateDebateImportance(debate.id, parseFloat(e.target.value) || 0)}
-                            className="w-12 text-[10px] font-mono font-bold text-center border border-gray-300 rounded px-1 py-0.5"
-                            title="Manual priority (higher = more important debate)"
-                          />
-                        </div>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={10}
+                          step={0.5}
+                          value={debate.importance || 0}
+                          onChange={(e) => updateDebateImportance(debate.id, parseFloat(e.target.value) || 0)}
+                          aria-label={t("tabroom.allocation.importanceAria", { room: roomLabel })}
+                          title={t("tabroom.allocation.importanceTitle")}
+                          className="h-6 w-14 px-1 text-center font-mono text-[11px]"
+                        />
                       )}
                     </div>
                   </div>
 
                   {judgeClashPreview?.hasClash && previewJudge && (
-                    <div className="px-3 py-2 bg-red-50 border-b border-red-200">
+                    <div id={clashPreviewId} className="border-b border-danger-border bg-danger-subtle px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                        <span className="font-bold text-red-800">
-                          {previewJudge.name} clashes in this debate:
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />
+                        <span className="font-semibold text-danger">
+                          {t("tabroom.allocation.previewClashes", { name: previewJudge.name })}
                         </span>
                         {judgeClashPreview.hasInstitutionalClash && (
-                          <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 font-semibold">
-                            Institutional
-                          </span>
+                          <Badge tone="warning">{t("tabroom.allocation.clashInstitutional")}</Badge>
                         )}
                         {judgeClashPreview.hasHistoryClash && (
-                          <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
-                            History
-                          </span>
+                          <Badge tone="info">{t("tabroom.allocation.clashHistory")}</Badge>
                         )}
                         {judgeClashPreview.hasPersonalClash && (
-                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-semibold">
-                            Personal
-                          </span>
+                          <Badge tone="danger">{t("tabroom.allocation.clashPersonal")}</Badge>
                         )}
-                        <span className="text-red-700">{judgeClashPreview.reasons.join("; ")}</span>
+                        {judgeClashPreview.hasAdjudicatorClash && (
+                          <Badge tone="danger">{t("tabroom.allocation.clashAdjudicator")}</Badge>
+                        )}
+                        <span className="text-fg">{judgeClashPreview.reasons.join("; ")}</span>
                       </div>
                     </div>
                   )}
 
+                  {showDiversity && panelMembers.length > 0 && (
+                    <PanelDiversityLine members={panelMembers} institutionsById={institutionsById} />
+                  )}
+
                   {chairConflicts.length > 0 && (
-                    <div className="px-3 py-1.5 bg-red-50 border-b border-red-200">
-                      <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-red-700">
-                        <AlertTriangle className="w-3 h-3 text-red-600" />
-                        <span>Clash: {chairConflicts.join("; ")}</span>
+                    <div className="border-b border-danger-border bg-danger-subtle px-3 py-1.5">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger">
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        <span>{t("tabroom.allocation.chairClash", { reasons: chairConflicts.join("; ") })}</span>
                       </span>
                     </div>
                   )}
 
-                  {/* Drag-and-Drop Allocation Slots */}
-                  <div className="p-4 space-y-3">
+                  {/* Allocation Slots: drop zones, and place targets while a judge is picked */}
+                  <div className="space-y-2 p-3">
                     {/* Chair Slot */}
                     <div
                       onDragOver={(e) => handleDragOverJudgeSlot(e, chairDropKey)}
                       onDragLeave={(e) => handleDragLeaveJudgeSlot(e, chairDropKey)}
                       onDrop={(e) => handleDropJudgeSlot(e, debate.id, "chair")}
-                      className={`p-2.5 rounded-lg border transition ${
-                        isChairHovered
-                          ? dragJudgeClashPreview.length > 0
-                            ? "bg-red-50 border-red-500 border-dashed ring-2 ring-red-300"
-                            : "bg-blue-50 border-blue-500 border-dashed ring-2 ring-blue-300"
-                          : "bg-blue-50/40 border-blue-200"
-                      }`}
+                      className={cn(
+                        "rounded-md border p-2 transition-colors",
+                        dropZoneClass(isChairHovered, dragJudgeClashPreview.length > 0, "border-border bg-surface")
+                      )}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-blue-900 uppercase text-[10px] tracking-wide bg-blue-200 px-1.5 py-0.5 rounded">
-                            Chair
-                          </span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                          <Badge tone="accent">
+                            <Crown className="h-3 w-3" aria-hidden="true" />
+                            {t("role.chair")}
+                          </Badge>
                           {debate.adjudicators?.chairName ? (
-                            <div
-                              draggable
-                              onDragEnd={() => setDraggingJudge(null)}
-                              onDragStart={(e) =>
-                                handleDragStartJudge(e, {
-                                  type: "judge",
-                                  sourceType: "chair",
-                                  adjId: debate.adjudicators.chairId!,
-                                  adjName: debate.adjudicators.chairName!,
-                                  sourceDebateId: debate.id,
-                                })
-                              }
-                              className="cursor-grab active:cursor-grabbing inline-flex items-center space-x-1.5 bg-white px-2 py-0.5 rounded border border-blue-300 text-xs font-bold text-gray-900"
-                            >
-                              <GripVertical className="w-3 h-3 text-gray-400" />
-                              <span>{debate.adjudicators.chairName}</span>
-                              {adjsMap.get(debate.adjudicators.chairId!)?.institutionName && (
-                                <span className="text-[10px] text-gray-500 font-normal">
-                                  ({adjsMap.get(debate.adjudicators.chairId!)?.institutionName})
-                                </span>
-                              )}
-                              <span className="font-mono text-[10px] text-blue-600">
-                                {effectiveAdjScore(
-                                  adjsMap.get(debate.adjudicators.chairId!)!,
-                                  feedbackScores
-                                ).toFixed(1)}
-                              </span>
-                            </div>
+                            <PlacedJudgeChip
+                              {...chipProps}
+                              adjId={debate.adjudicators.chairId!}
+                              name={debate.adjudicators.chairName}
+                              adjudicator={chairAdj}
+                              role="chair"
+                              clashes={[]}
+                              score={chairAdj ? formatDecimal(scoreOf(chairAdj), 1) : undefined}
+                              isPicked={picked?.adjId === debate.adjudicators.chairId}
+                              className="min-w-0 flex-1"
+                            />
                           ) : (
-                            <span className="text-red-500 italic text-xs">
-                              {isChairHovered
-                                ? dragJudgeClashPreview.length > 0
-                                  ? `⚠️ Clash Detected: ${dragJudgeClashPreview.join(", ")}`
-                                  : "Drop to Assign as Chair"
-                                : "No chair assigned (drag judge here)"}
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 text-xs italic",
+                                isChairHovered && dragJudgeClashPreview.length > 0 ? "font-medium text-danger" : "text-danger"
+                              )}
+                            >
+                              {isChairHovered ? (
+                                dragJudgeClashPreview.length > 0 ? (
+                                  <>
+                                    <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                                    {t("tabroom.allocation.clashDetected", { reasons: dragJudgeClashPreview.join(", ") })}
+                                  </>
+                                ) : (
+                                  t("tabroom.allocation.dropChair")
+                                )
+                              ) : (
+                                <>
+                                  <CircleAlert className="h-3 w-3" aria-hidden="true" />
+                                  {t("tabroom.allocation.noChair")}
+                                </>
+                              )}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center space-x-2">
-                          {selectedAdjForManual && (
-                            <button
-                              onClick={() => assignChair(debate.id, selectedAdjForManual)}
-                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-[11px] transition"
-                            >
-                              Assign Selected
-                            </button>
-                          )}
-                          {debate.adjudicators?.chairId && (
-                            <button
-                              onClick={() => removeChair(debate.id)}
-                              className="p-1 text-gray-400 hover:text-red-600 rounded"
-                              title="Unassign Chair"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                        {showTarget("chair") && picked && (
+                          <PlaceTargetButton
+                            label={
+                              debate.adjudicators?.chairName
+                                ? t("tabroom.allocation.replaceChair")
+                                : t("tabroom.allocation.placeChair")
+                            }
+                            ariaLabel={
+                              debate.adjudicators?.chairName
+                                ? t("tabroom.allocation.replaceChairAria", {
+                                    name: picked.adjName,
+                                    room: roomLabel,
+                                    previous: debate.adjudicators.chairName,
+                                  })
+                                : t("tabroom.allocation.placeChairAria", { name: picked.adjName, room: roomLabel })
+                            }
+                            describedBy={clashDescribedBy}
+                            icon={<Crown aria-hidden="true" />}
+                            onClick={() => placeHere(debate.id, "chair")}
+                          />
+                        )}
                       </div>
                     </div>
 
-                    {/* Panellists Drop Zone */}
+                    {/* Panellists Drop Zone (hidden when the position is off, unless someone still sits there) */}
+                    {(panellistsOpen || panellistIds.length > 0) && (
                     <div
-                      onDragOver={(e) => handleDragOverJudgeSlot(e, panellistDropKey)}
-                      onDragLeave={(e) => handleDragLeaveJudgeSlot(e, panellistDropKey)}
-                      onDrop={(e) => handleDropJudgeSlot(e, debate.id, "panellist")}
-                      className={`p-2.5 rounded-lg border transition ${
-                        isPanellistHovered
-                          ? dragJudgeClashPreview.length > 0
-                            ? "bg-red-50 border-red-500 border-dashed ring-2 ring-red-300"
-                            : "bg-indigo-50 border-indigo-500 border-dashed ring-2 ring-indigo-300"
-                          : "bg-gray-50/50 border-gray-200"
-                      }`}
+                      onDragOver={panellistsOpen ? (e) => handleDragOverJudgeSlot(e, panellistDropKey) : undefined}
+                      onDragLeave={panellistsOpen ? (e) => handleDragLeaveJudgeSlot(e, panellistDropKey) : undefined}
+                      onDrop={panellistsOpen ? (e) => handleDropJudgeSlot(e, debate.id, "panellist") : undefined}
+                      className={cn(
+                        "rounded-md border p-2 transition-colors",
+                        dropZoneClass(isPanellistHovered, dragJudgeClashPreview.length > 0, "border-border bg-background")
+                      )}
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wide">
-                          Panellists ({(debate.adjudicators?.panellistIds || []).length})
+                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                          {t("tabroom.allocation.panellistsHeading", { count: panellistIds.length })}
                         </span>
-                        {selectedAdjForManual && (
-                          <button
-                            onClick={() => addPanellist(debate.id, selectedAdjForManual)}
-                            className="inline-flex items-center space-x-1 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200"
-                          >
-                            <UserPlus className="w-3 h-3" />
-                            <span>Add {selectedAdjForManual.name}</span>
-                          </button>
+                        {showTarget("panellist") && picked && (
+                          <PlaceTargetButton
+                            label={t("tabroom.allocation.addPanellist")}
+                            ariaLabel={t("tabroom.allocation.addPanellistAria", { name: picked.adjName, room: roomLabel })}
+                            describedBy={clashDescribedBy}
+                            icon={<UserPlus aria-hidden="true" />}
+                            onClick={() => placeHere(debate.id, "panellist")}
+                          />
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {(debate.adjudicators?.panellistIds || []).map((pId, pIdx) => {
-                          const pName = debate.adjudicators.panellistNames[pIdx];
+                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                        {panellistIds.map((pId, pIdx) => {
                           const pAdj = adjsMap.get(pId);
-                          const pClashes = pAdj
-                            ? calculateAdjDebateConflict(
-                                pAdj,
-                                debateTeams,
-                                pastAdjudicatorTeams
-                              ).reasons
-                            : [];
-
                           return (
-                            <div
+                            <PlacedJudgeChip
                               key={pId}
-                              draggable
-                              onDragEnd={() => setDraggingJudge(null)}
-                              onDragStart={(e) =>
-                                handleDragStartJudge(e, {
-                                  type: "judge",
-                                  sourceType: "panellist",
-                                  adjId: pId,
-                                  adjName: pName,
-                                  sourceDebateId: debate.id,
-                                })
-                              }
-                              className={`flex items-center justify-between p-1.5 rounded border text-xs cursor-grab active:cursor-grabbing bg-white ${
-                                pClashes.length > 0 ? "border-red-400 bg-red-50/50" : "border-gray-200"
-                              }`}
-                            >
-                              <div className="flex items-center space-x-1.5">
-                                <GripVertical className="w-3 h-3 text-gray-400" />
-                                <div>
-                                  <span className="font-semibold text-gray-900">{pName}</span>
-                                  {pAdj?.institutionName && (
-                                    <span className="text-[10px] text-gray-500 block">
-                                      {pAdj.institutionName}
-                                    </span>
-                                  )}
-                                  {pAdj && (
-                                    <span className="text-[10px] font-mono text-blue-600">
-                                      {effectiveAdjScore(pAdj, feedbackScores).toFixed(1)}
-                                    </span>
-                                  )}
-                                  {pClashes.length > 0 && (
-                                    <span className="text-[10px] text-red-600 font-bold block">
-                                      ⚠️ Clash: {pClashes.join(", ")}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => removePanellist(debate.id, pId)}
-                                className="p-0.5 text-gray-400 hover:text-red-600 rounded"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                              {...chipProps}
+                              adjId={pId}
+                              name={debate.adjudicators.panellistNames[pIdx]}
+                              adjudicator={pAdj}
+                              role="panellist"
+                              clashes={clashesOf(pAdj)}
+                              score={pAdj ? formatDecimal(scoreOf(pAdj), 1) : undefined}
+                              isPicked={picked?.adjId === pId}
+                            />
                           );
                         })}
 
-                        {(debate.adjudicators?.panellistIds || []).length === 0 && (
-                          <div className="col-span-2 py-2 border border-dashed border-gray-300 rounded text-center text-[11px] text-gray-400 italic">
-                            {isPanellistHovered ? "Drop to Add as Panellist" : "Drag judges here to add panellists"}
+                        {panellistIds.length === 0 && (
+                          <div className="rounded-md border border-dashed border-border-strong py-2 text-center text-[11px] italic text-fg-muted sm:col-span-2">
+                            {isPanellistHovered ? t("tabroom.allocation.dropPanellist") : t("tabroom.allocation.noPanellists")}
                           </div>
                         )}
                       </div>
+                      {!panellistsOpen && (
+                        <p className="mt-1.5 text-[11px] text-fg-muted">{t("tabroom.allocation.panellistPositionClosed")}</p>
+                      )}
                     </div>
+                    )}
 
-                    {/* Trainees Drop Zone */}
+                    {/* Trainees Drop Zone (hidden when the position is off, unless someone still sits there) */}
+                    {(traineesOpen || traineeIds.length > 0) && (
                     <div
-                      onDragOver={(e) => handleDragOverJudgeSlot(e, traineeDropKey)}
-                      onDragLeave={(e) => handleDragLeaveJudgeSlot(e, traineeDropKey)}
-                      onDrop={(e) => handleDropJudgeSlot(e, debate.id, "trainee")}
-                      className={`p-2 rounded-lg border transition ${
-                        isTraineeHovered
-                          ? "bg-amber-50 border-amber-500 border-dashed ring-2 ring-amber-300"
-                          : "bg-gray-50/30 border-gray-100"
-                      }`}
+                      onDragOver={traineesOpen ? (e) => handleDragOverJudgeSlot(e, traineeDropKey) : undefined}
+                      onDragLeave={traineesOpen ? (e) => handleDragLeaveJudgeSlot(e, traineeDropKey) : undefined}
+                      onDrop={traineesOpen ? (e) => handleDropJudgeSlot(e, debate.id, "trainee") : undefined}
+                      className={cn(
+                        "rounded-md border p-2 transition-colors",
+                        dropZoneClass(isTraineeHovered, false, "border-border bg-background")
+                      )}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
-                          Trainees ({(debate.adjudicators?.traineeIds || []).length})
+                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+                          {t("tabroom.allocation.traineesHeading", { count: traineeIds.length })}
                         </span>
-                        {selectedAdjForManual && (
-                          <button
-                            onClick={() => addTrainee(debate.id, selectedAdjForManual)}
-                            disabled={!selectedAdjForManual.trainee}
-                            className="text-[10px] text-amber-800 font-semibold hover:underline"
-                          >
-                            {selectedAdjForManual.trainee ? "+ Add as Trainee" : "Only marked trainees can be assigned here"}
-                          </button>
+                        {showTarget("trainee") && picked && (
+                          <PlaceTargetButton
+                            label={t("tabroom.allocation.addTrainee")}
+                            ariaLabel={t("tabroom.allocation.addTraineeAria", { name: picked.adjName, room: roomLabel })}
+                            describedBy={clashDescribedBy}
+                            icon={<GraduationCap aria-hidden="true" />}
+                            onClick={() => placeHere(debate.id, "trainee")}
+                          />
                         )}
                       </div>
 
                       <div className="flex flex-wrap gap-1.5">
-                        {(debate.adjudicators?.traineeIds || []).map((tId, tIdx) => {
-                          const tName = debate.adjudicators.traineeNames[tIdx];
+                        {traineeIds.map((tId, tIdx) => {
+                          const tAdj = adjsMap.get(tId);
                           return (
-                            <div
+                            <PlacedJudgeChip
                               key={tId}
-                              draggable
-                              onDragEnd={() => setDraggingJudge(null)}
-                              onDragStart={(e) =>
-                                handleDragStartJudge(e, {
-                                  type: "judge",
-                                  sourceType: "trainee",
-                                  adjId: tId,
-                                  adjName: tName,
-                                  sourceDebateId: debate.id,
-                                })
-                              }
-                              className="inline-flex items-center space-x-1 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px] text-amber-900 cursor-grab"
-                            >
-                              <GripVertical className="w-2.5 h-2.5 text-amber-500" />
-                              <span>{tName}</span>
-                              <button
-                                onClick={() => removeTrainee(debate.id, tId)}
-                                className="text-amber-600 hover:text-red-600 ml-1"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
+                              {...chipProps}
+                              adjId={tId}
+                              name={debate.adjudicators.traineeNames[tIdx]}
+                              adjudicator={tAdj}
+                              role="trainee"
+                              clashes={clashesOf(tAdj)}
+                              score={undefined}
+                              isPicked={picked?.adjId === tId}
+                            />
                           );
                         })}
 
-                        {(debate.adjudicators?.traineeIds || []).length === 0 && (
-                          <span className="text-[10px] text-gray-400 italic">No trainees allocated.</span>
+                        {traineeIds.length === 0 && (
+                          <span className="text-[11px] italic text-fg-muted">
+                            {isTraineeHovered ? t("tabroom.allocation.dropTrainee") : t("tabroom.allocation.noTrainees")}
+                          </span>
                         )}
                       </div>
+                      {!traineesOpen && (
+                        <p className="mt-1.5 text-[11px] text-fg-muted">{t("tabroom.allocation.traineePositionClosed")}</p>
+                      )}
                     </div>
+                    )}
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
-        </div>
+        </section>
       </div>
+
+      {pendingPrioritise && (
+        <ConfirmActionDialog
+          title={t(
+            pendingPrioritise === "bracket"
+              ? "tabroom.allocation.prioritiseByBracket"
+              : "tabroom.allocation.prioritiseByLiveness"
+          )}
+          description={t(
+            pendingPrioritise === "bracket"
+              ? "tabroom.allocation.prioritiseBracketDescription"
+              : "tabroom.allocation.prioritiseLivenessDescription",
+            { round: activeRound?.name ?? "" }
+          )}
+          confirmLabel={t("tabroom.allocation.prioritiseConfirm")}
+          variant="primary"
+          isBusy={isPrioritising}
+          onConfirm={() => void handleConfirmPrioritise()}
+          onCancel={() => setPendingPrioritise(null)}
+          cancelLabel={t("tabroom.common.noCancel")}
+          busyLabel={t("tabroom.common.saving")}
+          closeLabel={t("tabroom.common.closeDialog")}
+        />
+      )}
+      {confirmingClear && (
+        <ConfirmActionDialog
+          title={t("tabroom.allocation.clearConfirmTitle")}
+          description={t("tabroom.allocation.clearConfirmDescription", { round: activeRound?.name ?? "" })}
+          confirmLabel={t("tabroom.allocation.clear")}
+          variant="danger"
+          isBusy={isClearing}
+          onConfirm={() => void handleConfirmClear()}
+          onCancel={() => setConfirmingClear(false)}
+          cancelLabel={t("tabroom.common.noCancel")}
+          busyLabel={t("tabroom.common.saving")}
+          closeLabel={t("tabroom.common.closeDialog")}
+        />
+      )}
     </div>
   );
 }

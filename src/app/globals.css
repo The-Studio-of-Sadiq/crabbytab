@@ -2,10 +2,146 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens (see docs/design-system.md).
+ * Colours are stored as space-separated RGB channels so Tailwind can apply
+ * opacity modifiers, e.g. `bg-accent/10`.
+ *
+ * Light tokens live on :root and on `.theme-light` (a scope that forces the
+ * light palette, used for pages that have not been migrated yet). Dark tokens
+ * apply inside `.themed` when <html data-theme="dark"> is set by the theme
+ * script in the root layout.
+ */
+:root,
+.theme-light {
+  --color-background: 250 250 250;
+  --color-surface: 255 255 255;
+  --color-muted: 244 244 245;
+  --color-border: 228 228 231;
+  --color-border-strong: 212 212 216;
+  --color-fg: 9 9 11;
+  --color-fg-muted: 82 82 91;
+  --color-fg-subtle: 113 113 122;
+
+  --color-accent: 79 70 229;
+  --color-accent-hover: 67 56 202;
+  --color-accent-fg: 255 255 255;
+  --color-accent-subtle: 238 242 255;
+  --color-accent-text: 67 56 202;
+
+  --color-success: 21 128 61;
+  --color-success-subtle: 240 253 244;
+  --color-success-border: 187 247 208;
+  --color-warning: 180 83 9;
+  --color-warning-subtle: 255 251 235;
+  --color-warning-border: 253 230 138;
+  --color-danger: 185 28 28;
+  --color-danger-solid: 220 38 38;
+  --color-danger-subtle: 254 242 242;
+  --color-danger-border: 254 202 202;
+  --color-info: 3 105 161;
+  --color-info-subtle: 240 249 255;
+  --color-info-border: 186 230 253;
+
+  --color-overlay: 9 9 11;
+
+  /* Debate sides */
+  --side-og-fg: 207 34 46;
+  --side-og-bg: 255 235 233;
+  --side-og-border: 255 193 188;
+  --side-oo-fg: 9 105 218;
+  --side-oo-bg: 221 244 255;
+  --side-oo-border: 156 210 255;
+  --side-cg-fg: 154 103 0;
+  --side-cg-bg: 255 248 197;
+  --side-cg-border: 238 217 138;
+  --side-co-fg: 130 80 223;
+  --side-co-bg: 251 239 255;
+  --side-co-border: 220 196 255;
+  --side-aff-fg: 26 127 55;
+  --side-aff-bg: 218 251 225;
+  --side-aff-border: 166 233 182;
+  --side-neg-fg: 82 82 91;
+  --side-neg-bg: 244 244 245;
+  --side-neg-border: 212 212 216;
+
+  color-scheme: light;
+}
+
 :root {
-  --tabby-nav-bg: #24292e;
-  --tabby-sidebar-bg: #f6f8fa;
-  --tabby-border: #d0d7de;
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Layout */
+  --topbar-height: 3rem;
+  --sidebar-width: 15rem;
+  --page-gutter: 1rem;
+  --page-gutter-lg: 1.5rem;
+  --content-max: 80rem;
+
+  /* Type scale (font-size / line-height) */
+  --text-caption: 0.6875rem;   /* 11px — table headers, meta */
+  --text-body-sm: 0.75rem;     /* 12px — dense tables, help text */
+  --text-body: 0.8125rem;      /* 13px — default UI text */
+  --text-title: 0.9375rem;     /* 15px — card titles */
+  --text-heading: 1.25rem;     /* 20px — page titles */
+  --text-display: 1.5rem;      /* 24px — stat values */
+}
+
+html[data-theme="dark"] .themed:not(.theme-light) {
+  --color-background: 9 9 11;
+  --color-surface: 17 17 19;
+  --color-muted: 30 30 34;
+  --color-border: 39 39 42;
+  --color-border-strong: 63 63 70;
+  --color-fg: 244 244 245;
+  --color-fg-muted: 161 161 170;
+  --color-fg-subtle: 130 130 140;
+
+  --color-accent: 99 102 241;
+  --color-accent-hover: 129 140 248;
+  --color-accent-fg: 255 255 255;
+  --color-accent-subtle: 30 27 75;
+  --color-accent-text: 165 180 252;
+
+  --color-success: 74 222 128;
+  --color-success-subtle: 5 46 22;
+  --color-success-border: 20 83 45;
+  --color-warning: 251 191 36;
+  --color-warning-subtle: 51 25 5;
+  --color-warning-border: 120 53 15;
+  --color-danger: 248 113 113;
+  --color-danger-solid: 220 38 38;
+  --color-danger-subtle: 54 12 12;
+  --color-danger-border: 127 29 29;
+  --color-info: 56 189 248;
+  --color-info-subtle: 8 37 56;
+  --color-info-border: 7 89 133;
+
+  --color-overlay: 0 0 0;
+
+  --side-og-fg: 248 113 113;
+  --side-og-bg: 59 13 13;
+  --side-og-border: 127 29 29;
+  --side-oo-fg: 96 165 250;
+  --side-oo-bg: 12 31 61;
+  --side-oo-border: 30 58 138;
+  --side-cg-fg: 251 191 36;
+  --side-cg-bg: 51 36 10;
+  --side-cg-border: 120 53 15;
+  --side-co-fg: 192 132 252;
+  --side-co-bg: 42 18 64;
+  --side-co-border: 88 28 135;
+  --side-aff-fg: 74 222 128;
+  --side-aff-bg: 5 46 22;
+  --side-aff-border: 20 83 45;
+  --side-neg-fg: 212 212 216;
+  --side-neg-bg: 39 39 42;
+  --side-neg-border: 63 63 70;
+
+  color-scheme: dark;
 }
 
 body {
@@ -13,6 +149,16 @@ body {
   background-color: #f6f8fa;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Surfaces built on the design system carry their own colours. */
+.themed {
+  background-color: rgb(var(--color-background));
+  color: rgb(var(--color-fg));
+}
+
+.theme-light {
+  color: rgb(var(--color-fg));
 }
 
 html,
@@ -34,44 +180,53 @@ textarea {
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #c1c7d0;
-  border-radius: 3px;
+  background: rgb(var(--color-border-strong));
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a0a6b0;
+  background: rgb(var(--color-fg-subtle));
 }
 
-/* Tabbycat Table Styles */
+@media (prefers-reduced-motion: reduce) {
+  .themed *,
+  .themed *::before,
+  .themed *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Legacy table class, kept for pages not yet migrated to <Table>. */
 .tabby-table th {
-  background-color: #f6f8fa;
-  color: #57606a;
-  font-size: 0.75rem;
+  background-color: rgb(var(--color-muted));
+  color: rgb(var(--color-fg-muted));
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   font-weight: 600;
-  border-bottom: 1px solid #d0d7de;
+  border-bottom: 1px solid rgb(var(--color-border));
   padding: 0.5rem 0.75rem;
 }
 
 .tabby-table td {
-  padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid #eaeef2;
-  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgb(var(--color-border));
+  font-size: 0.8125rem;
 }
 
 .tabby-table tr:hover td {
-  background-color: #f3f6f9;
+  background-color: rgb(var(--color-muted) / 0.6);
 }
 
 @media (max-width: 640px) {
-  table {
+  table:not(.ui-table) {
     display: block;
     max-width: 100%;
     overflow-x: auto;
@@ -86,48 +241,359 @@ textarea {
 
 /* Side Badges */
 .side-badge-og {
-  background-color: #ffebe9;
-  color: #cf222e;
-  border: 1px solid #ff8182;
+  background-color: rgb(var(--side-og-bg));
+  color: rgb(var(--side-og-fg));
+  border: 1px solid rgb(var(--side-og-border));
 }
 
 .side-badge-oo {
-  background-color: #ddf4ff;
-  color: #0969da;
-  border: 1px solid #54aeff;
+  background-color: rgb(var(--side-oo-bg));
+  color: rgb(var(--side-oo-fg));
+  border: 1px solid rgb(var(--side-oo-border));
 }
 
 .side-badge-cg {
-  background-color: #fff8c5;
-  color: #9a6700;
-  border: 1px solid #d4a72c;
+  background-color: rgb(var(--side-cg-bg));
+  color: rgb(var(--side-cg-fg));
+  border: 1px solid rgb(var(--side-cg-border));
 }
 
 .side-badge-co {
-  background-color: #fbefff;
-  color: #8250df;
-  border: 1px solid #c297ff;
+  background-color: rgb(var(--side-co-bg));
+  color: rgb(var(--side-co-fg));
+  border: 1px solid rgb(var(--side-co-border));
 }
 
 .side-badge-aff {
-  background-color: #dafbe1;
-  color: #1a7f37;
-  border: 1px solid #4ac26b;
+  background-color: rgb(var(--side-aff-bg));
+  color: rgb(var(--side-aff-fg));
+  border: 1px solid rgb(var(--side-aff-border));
 }
 
 .side-badge-neg {
-  background-color: #f6f8fa;
-  color: #24292f;
-  border: 1px solid #d0d7de;
+  background-color: rgb(var(--side-neg-bg));
+  color: rgb(var(--side-neg-fg));
+  border: 1px solid rgb(var(--side-neg-border));
 }
 
 /* Print Optimization */
+.print-only {
+  display: none !important;
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
 @media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-only,
+  .print-only * {
+    visibility: visible !important;
+  }
+  .print-only {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
   .no-print {
     display: none !important;
+  }
+  .screen-only {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .barcode-sheet {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .barcode-sheet h1 {
+    font-size: 18pt;
+    margin-bottom: 4mm;
+  }
+  .barcode-sheet > p {
+    font-size: 9pt;
+    margin-bottom: 6mm;
+  }
+  .barcode-label-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm;
+  }
+  .barcode-label {
+    break-inside: avoid;
+    border: 1px solid #888;
+    padding: 3mm;
+    min-height: 20mm;
+  }
+  .barcode-label strong {
+    display: block;
+    font-size: 9pt;
+    margin-bottom: 2mm;
+  }
+  .private-url-slips {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm;
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .private-url-slip {
+    display: flex;
+    gap: 3mm;
+    align-items: center;
+    break-inside: avoid;
+    border: 1px dashed #666;
+    padding: 3mm;
+  }
+  .private-url-slip-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1mm;
+    min-width: 0;
+    font-size: 8pt;
+  }
+  .private-url-slip-text strong {
+    font-size: 11pt;
+  }
+  .private-url-slip-text code {
+    font-size: 7pt;
+    word-break: break-all;
+  }
+  .printable-ballots {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .print-ballot {
+    box-sizing: border-box;
+    break-after: page;
+    min-height: 270mm;
+    padding: 2mm;
+  }
+  .print-ballot:last-child {
+    break-after: auto;
+  }
+  .ballot-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 8mm;
+    border-bottom: 2px solid black;
+    padding-bottom: 4mm;
+  }
+  .ballot-header h1 {
+    font-size: 17pt;
+    margin: 0 0 2mm;
+  }
+  .ballot-header p,
+  .ballot-room span {
+    display: block;
+    font-size: 10pt;
+    margin: 1mm 0;
+  }
+  .ballot-room {
+    display: flex;
+    flex-direction: column;
+    text-align: right;
+  }
+  .ballot-room strong {
+    font-size: 13pt;
+  }
+  .ballot-sheet-id {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6mm;
+    margin-top: 3mm;
+    font-size: 9pt;
+  }
+  .ballot-sheet-id svg {
+    width: 75mm;
+    height: 13mm;
+  }
+  .ballot-sheet-id span {
+    text-align: right;
+  }
+  .ballot-intro {
+    margin: 4mm 0;
+    font-size: 9pt;
+  }
+  .ballot-score-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 7mm;
+    font-size: 10pt;
+  }
+  .ballot-score-table th,
+  .ballot-score-table td {
+    border: 1px solid black;
+    padding: 3mm;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .ballot-score-table thead th {
+    background: #eee !important;
+  }
+  .ballot-score-table tbody td span {
+    display: block;
+    margin-top: 1mm;
+  }
+  .ballot-score-table .blank-score {
+    min-width: 28mm;
+  }
+  .ballot-notes {
+    margin-top: 8mm;
+    font-size: 10pt;
+  }
+  .ballot-notes div {
+    height: 15mm;
+    border-bottom: 1px solid #777;
+  }
+  .ballot-footer {
+    display: grid;
+    gap: 4mm;
+    margin-top: 10mm;
+    font-size: 9pt;
+  }
+  .printable-feedback {
+    color: black;
+    font-family: Arial, sans-serif;
+  }
+  .print-feedback-sheet {
+    box-sizing: border-box;
+    break-after: page;
+    min-height: 270mm;
+    padding: 2mm;
+  }
+  .print-feedback-sheet:last-child {
+    break-after: auto;
+  }
+  .print-feedback-sheet header {
+    border-bottom: 2px solid black;
+    padding-bottom: 3mm;
+  }
+  .print-feedback-sheet h1 {
+    font-size: 16pt;
+    margin: 0 0 2mm;
+  }
+  .print-feedback-sheet header p,
+  .feedback-print-question,
+  .feedback-print-score {
+    font-size: 10pt;
+    margin: 4mm 0;
+  }
+  .print-feedback-sheet dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4mm;
+    margin: 4mm 0;
+  }
+  .print-feedback-sheet dl div {
+    border-bottom: 1px solid black;
+    padding: 2mm 0;
+  }
+  .print-feedback-sheet dt {
+    font-size: 8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  .print-feedback-sheet dd {
+    margin: 1mm 0 0;
+  }
+  .feedback-print-question {
+    break-inside: avoid;
+  }
+  .feedback-print-question p {
+    margin: 2mm 0;
+  }
+  .feedback-print-writing {
+    min-height: 12mm;
+    border-bottom: 1px solid #777;
+  }
+  .feedback-print-writing-tall {
+    min-height: 35mm;
+  }
+  .feedback-print-confidential {
+    border-top: 1px solid #777;
+    margin-top: 7mm;
+    padding-top: 2mm;
+    font-size: 8pt;
+  }
+  input,
+  select,
+  textarea {
+    color: black !important;
+    background: white !important;
+    box-shadow: none !important;
   }
   body {
     background: white;
     color: black;
   }
+}
+
+/*
+ * High-contrast projector palette for the general-assembly display (/[slug]/display): pure black
+ * canvas, white text, a yellow accent, and saturated side colours with visible borders, so a draw
+ * stays legible on washed-out projectors and from the back of a hall. It applies regardless of the
+ * viewer's light/dark choice.
+ */
+.theme-projector {
+  --color-background: 0 0 0;
+  --color-surface: 16 16 18;
+  --color-muted: 39 39 42;
+  --color-border: 82 82 91;
+  --color-border-strong: 161 161 170;
+  --color-fg: 255 255 255;
+  --color-fg-muted: 228 228 231;
+  --color-fg-subtle: 190 190 198;
+
+  --color-accent: 250 204 21;
+  --color-accent-hover: 253 224 71;
+  --color-accent-fg: 0 0 0;
+  --color-accent-subtle: 66 52 4;
+  --color-accent-text: 253 224 71;
+
+  --color-success: 74 222 128;
+  --color-success-subtle: 5 46 22;
+  --color-success-border: 34 197 94;
+  --color-warning: 253 224 71;
+  --color-warning-subtle: 66 52 4;
+  --color-warning-border: 202 138 4;
+  --color-danger: 252 165 165;
+  --color-danger-solid: 220 38 38;
+  --color-danger-subtle: 69 10 10;
+  --color-danger-border: 239 68 68;
+  --color-info: 125 211 252;
+  --color-info-subtle: 8 37 56;
+  --color-info-border: 14 165 233;
+
+  --color-overlay: 0 0 0;
+
+  --side-og-fg: 254 202 202;
+  --side-og-bg: 127 29 29;
+  --side-og-border: 248 113 113;
+  --side-oo-fg: 191 219 254;
+  --side-oo-bg: 30 58 138;
+  --side-oo-border: 96 165 250;
+  --side-cg-fg: 254 240 138;
+  --side-cg-bg: 113 63 18;
+  --side-cg-border: 250 204 21;
+  --side-co-fg: 233 213 255;
+  --side-co-bg: 88 28 135;
+  --side-co-border: 192 132 252;
+  --side-aff-fg: 187 247 208;
+  --side-aff-bg: 20 83 45;
+  --side-aff-border: 74 222 128;
+  --side-neg-fg: 244 244 245;
+  --side-neg-bg: 63 63 70;
+  --side-neg-border: 212 212 216;
+
+  color-scheme: dark;
+  background-color: rgb(var(--color-background));
+  color: rgb(var(--color-fg));
 }

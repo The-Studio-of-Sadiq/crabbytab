@@ -1,0 +1,689 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tournament name="BP Uneven Open" short="bp-uneven" style="bp">
+  <round name="Round 1" abbreviation="R1" elimination="false" feedback-weight="0">
+    <debate id="D1_1" chair="A1" adjudicators="A1 A5" venue="V1" motion="M1">
+      <side team="T11">
+        <ballot adjudicators="A1 A5" rank="3">143</ballot>
+        <speech speaker="S21" reply="false"><ballot adjudicators="A1 A5">70</ballot></speech>
+        <speech speaker="S22" reply="false"><ballot adjudicators="A1 A5">73</ballot></speech>
+      </side>
+      <side team="T5">
+        <ballot adjudicators="A1 A5" rank="1">155</ballot>
+        <speech speaker="S9" reply="false"><ballot adjudicators="A1 A5">76</ballot></speech>
+        <speech speaker="S10" reply="false"><ballot adjudicators="A1 A5">79</ballot></speech>
+      </side>
+      <side team="T4">
+        <ballot adjudicators="A1 A5" rank="2">144</ballot>
+        <speech speaker="S7" reply="false"><ballot adjudicators="A1 A5">72</ballot></speech>
+        <speech speaker="S8" reply="false"><ballot adjudicators="A1 A5">72</ballot></speech>
+      </side>
+      <side team="T25">
+        <ballot adjudicators="A1 A5" rank="4">138</ballot>
+        <speech speaker="S49" reply="false"><ballot adjudicators="A1 A5">69</ballot></speech>
+        <speech speaker="S50" reply="false"><ballot adjudicators="A1 A5">69</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D1_2" chair="A8" adjudicators="A8 A4" venue="V2" motion="M1">
+      <side team="T18">
+        <ballot adjudicators="A8 A4" rank="4">153</ballot>
+        <speech speaker="S35" reply="false"><ballot adjudicators="A8 A4">76</ballot></speech>
+        <speech speaker="S36" reply="false"><ballot adjudicators="A8 A4">77</ballot></speech>
+      </side>
+      <side team="T21">
+        <ballot adjudicators="A8 A4" rank="1">157</ballot>
+        <speech speaker="S41" reply="false"><ballot adjudicators="A8 A4">78</ballot></speech>
+        <speech speaker="S42" reply="false"><ballot adjudicators="A8 A4">79</ballot></speech>
+      </side>
+      <side team="T2">
+        <ballot adjudicators="A8 A4" rank="2">156</ballot>
+        <speech speaker="S3" reply="false"><ballot adjudicators="A8 A4">76</ballot></speech>
+        <speech speaker="S4" reply="false"><ballot adjudicators="A8 A4">80</ballot></speech>
+      </side>
+      <side team="T22">
+        <ballot adjudicators="A8 A4" rank="3">154</ballot>
+        <speech speaker="S43" reply="false"><ballot adjudicators="A8 A4">78</ballot></speech>
+        <speech speaker="S44" reply="false"><ballot adjudicators="A8 A4">76</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D1_3" chair="A3" adjudicators="A3" venue="V3" motion="M1">
+      <side team="T16">
+        <ballot adjudicators="A3" rank="3">147</ballot>
+        <speech speaker="S31" reply="false"><ballot adjudicators="A3">73</ballot></speech>
+        <speech speaker="S32" reply="false"><ballot adjudicators="A3">74</ballot></speech>
+      </side>
+      <side team="T19">
+        <ballot adjudicators="A3" rank="1">151</ballot>
+        <speech speaker="S37" reply="false"><ballot adjudicators="A3">75</ballot></speech>
+        <speech speaker="S38" reply="false"><ballot adjudicators="A3">76</ballot></speech>
+      </side>
+      <side team="T17">
+        <ballot adjudicators="A3" rank="4">146</ballot>
+        <speech speaker="S33" reply="false"><ballot adjudicators="A3">73</ballot></speech>
+        <speech speaker="S34" reply="false"><ballot adjudicators="A3">73</ballot></speech>
+      </side>
+      <side team="T13">
+        <ballot adjudicators="A3" rank="2">149</ballot>
+        <speech speaker="S25" reply="false"><ballot adjudicators="A3">73</ballot></speech>
+        <speech speaker="S26" reply="false"><ballot adjudicators="A3">76</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D1_4" chair="A6" adjudicators="A6" venue="V4" motion="M1">
+      <side team="T8">
+        <ballot adjudicators="A6" rank="2">158</ballot>
+        <speech speaker="S15" reply="false"><ballot adjudicators="A6">79</ballot></speech>
+        <speech speaker="S16" reply="false"><ballot adjudicators="A6">79</ballot></speech>
+      </side>
+      <side team="T3">
+        <ballot adjudicators="A6" rank="3">156</ballot>
+        <speech speaker="S5" reply="false"><ballot adjudicators="A6">78</ballot></speech>
+        <speech speaker="S6" reply="false"><ballot adjudicators="A6">78</ballot></speech>
+      </side>
+      <side team="T1">
+        <ballot adjudicators="A6" rank="1">160</ballot>
+        <speech speaker="S1" reply="false"><ballot adjudicators="A6">80</ballot></speech>
+        <speech speaker="S2" reply="false"><ballot adjudicators="A6">80</ballot></speech>
+      </side>
+      <side team="T14">
+        <ballot adjudicators="A6" rank="4">151</ballot>
+        <speech speaker="S27" reply="false"><ballot adjudicators="A6">77</ballot></speech>
+        <speech speaker="S28" reply="false"><ballot adjudicators="A6">74</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D1_5" chair="A7" adjudicators="A7" venue="V5" motion="M1">
+      <side team="T7">
+        <ballot adjudicators="A7" rank="2">150</ballot>
+        <speech speaker="S13" reply="false"><ballot adjudicators="A7">73</ballot></speech>
+        <speech speaker="S14" reply="false"><ballot adjudicators="A7">77</ballot></speech>
+      </side>
+      <side team="T24">
+        <ballot adjudicators="A7" rank="4">144</ballot>
+        <speech speaker="S47" reply="false"><ballot adjudicators="A7">72</ballot></speech>
+        <speech speaker="S48" reply="false"><ballot adjudicators="A7">72</ballot></speech>
+      </side>
+      <side team="T20">
+        <ballot adjudicators="A7" rank="1">154</ballot>
+        <speech speaker="S39" reply="false"><ballot adjudicators="A7">77</ballot></speech>
+        <speech speaker="S40" reply="false"><ballot adjudicators="A7">77</ballot></speech>
+      </side>
+      <side team="T9">
+        <ballot adjudicators="A7" rank="3">147</ballot>
+        <speech speaker="S17" reply="false"><ballot adjudicators="A7">70</ballot></speech>
+        <speech speaker="S18" reply="false"><ballot adjudicators="A7">77</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D1_6" chair="A2" adjudicators="A2" venue="V6" motion="M1">
+      <side team="T23">
+        <ballot adjudicators="A2" rank="3">155</ballot>
+        <speech speaker="S45" reply="false"><ballot adjudicators="A2">80</ballot></speech>
+        <speech speaker="S46" reply="false"><ballot adjudicators="A2">75</ballot></speech>
+      </side>
+      <side team="T26">
+        <ballot adjudicators="A2" rank="4">148</ballot>
+        <speech speaker="S51" reply="false"><ballot adjudicators="A2">74</ballot></speech>
+        <speech speaker="S52" reply="false"><ballot adjudicators="A2">74</ballot></speech>
+      </side>
+      <side team="T12">
+        <ballot adjudicators="A2" rank="2">156</ballot>
+        <speech speaker="S23" reply="false"><ballot adjudicators="A2">76</ballot></speech>
+        <speech speaker="S24" reply="false"><ballot adjudicators="A2">80</ballot></speech>
+      </side>
+      <side team="T10">
+        <ballot adjudicators="A2" rank="1">157</ballot>
+        <speech speaker="S19" reply="false"><ballot adjudicators="A2">79</ballot></speech>
+        <speech speaker="S20" reply="false"><ballot adjudicators="A2">78</ballot></speech>
+      </side>
+    </debate>
+    <bye>T6</bye>
+    <bye>T15</bye>
+  </round>
+  <round name="Round 2" abbreviation="R2" elimination="false" feedback-weight="0">
+    <debate id="D2_1" chair="A5" adjudicators="A5 A3" venue="V1" motion="M2">
+      <side team="T10">
+        <ballot adjudicators="A5 A3" rank="2">154</ballot>
+        <speech speaker="S19" reply="false"><ballot adjudicators="A5 A3">78</ballot></speech>
+        <speech speaker="S20" reply="false"><ballot adjudicators="A5 A3">76</ballot></speech>
+      </side>
+      <side team="T1">
+        <ballot adjudicators="A5 A3" rank="3">153</ballot>
+        <speech speaker="S1" reply="false"><ballot adjudicators="A5 A3">75</ballot></speech>
+        <speech speaker="S2" reply="false"><ballot adjudicators="A5 A3">78</ballot></speech>
+      </side>
+      <side team="T5">
+        <ballot adjudicators="A5 A3" rank="1">162</ballot>
+        <speech speaker="S9" reply="false"><ballot adjudicators="A5 A3">82</ballot></speech>
+        <speech speaker="S9" reply="false" ghost="true"><ballot adjudicators="A5 A3">80</ballot></speech>
+      </side>
+      <side team="T21">
+        <ballot adjudicators="A5 A3" rank="4">152</ballot>
+        <speech speaker="S41" reply="false"><ballot adjudicators="A5 A3">75</ballot></speech>
+        <speech speaker="S42" reply="false"><ballot adjudicators="A5 A3">77</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D2_2" chair="A9" adjudicators="A9 A7" venue="V2" motion="M2">
+      <side team="T19">
+        <ballot adjudicators="A9 A7" rank="4">144</ballot>
+        <speech speaker="S37" reply="false"><ballot adjudicators="A9 A7">70</ballot></speech>
+        <speech speaker="S38" reply="false"><ballot adjudicators="A9 A7">74</ballot></speech>
+      </side>
+      <side team="T8">
+        <ballot adjudicators="A9 A7" rank="1">159</ballot>
+        <speech speaker="S15" reply="false"><ballot adjudicators="A9 A7">81</ballot></speech>
+        <speech speaker="S16" reply="false"><ballot adjudicators="A9 A7">78</ballot></speech>
+      </side>
+      <side team="T20">
+        <ballot adjudicators="A9 A7" rank="3">146</ballot>
+        <speech speaker="S39" reply="false"><ballot adjudicators="A9 A7">71</ballot></speech>
+        <speech speaker="S40" reply="false"><ballot adjudicators="A9 A7">75</ballot></speech>
+      </side>
+      <side team="T12">
+        <ballot adjudicators="A9 A7" rank="2">150</ballot>
+        <speech speaker="S23" reply="false"><ballot adjudicators="A9 A7">74</ballot></speech>
+        <speech speaker="S24" reply="false"><ballot adjudicators="A9 A7">76</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D2_3" chair="A2" adjudicators="A2" venue="V3" motion="M2">
+      <side team="T4">
+        <ballot adjudicators="A2" rank="2">144</ballot>
+        <speech speaker="S7" reply="false"><ballot adjudicators="A2">72</ballot></speech>
+        <speech speaker="S8" reply="false"><ballot adjudicators="A2">72</ballot></speech>
+      </side>
+      <side team="T7">
+        <ballot adjudicators="A2" rank="4">141</ballot>
+        <speech speaker="S13" reply="false"><ballot adjudicators="A2">71</ballot></speech>
+        <speech speaker="S14" reply="false"><ballot adjudicators="A2">70</ballot></speech>
+      </side>
+      <side team="T13">
+        <ballot adjudicators="A2" rank="3">142</ballot>
+        <speech speaker="S25" reply="false"><ballot adjudicators="A2">72</ballot></speech>
+        <speech speaker="S26" reply="false"><ballot adjudicators="A2">70</ballot></speech>
+      </side>
+      <side team="T2">
+        <ballot adjudicators="A2" rank="1">154</ballot>
+        <speech speaker="S3" reply="false"><ballot adjudicators="A2">75</ballot></speech>
+        <speech speaker="S4" reply="false"><ballot adjudicators="A2">79</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D2_4" chair="A6" adjudicators="A6" venue="V4" motion="M2">
+      <side team="T23">
+        <ballot adjudicators="A6" rank="1">155</ballot>
+        <speech speaker="S45" reply="false"><ballot adjudicators="A6">79</ballot></speech>
+        <speech speaker="S46" reply="false"><ballot adjudicators="A6">76</ballot></speech>
+      </side>
+      <side team="T16">
+        <ballot adjudicators="A6" rank="4">144</ballot>
+        <speech speaker="S31" reply="false"><ballot adjudicators="A6">73</ballot></speech>
+        <speech speaker="S32" reply="false"><ballot adjudicators="A6">71</ballot></speech>
+      </side>
+      <side team="T22">
+        <ballot adjudicators="A6" rank="3">148</ballot>
+        <speech speaker="S43" reply="false"><ballot adjudicators="A6">73</ballot></speech>
+        <speech speaker="S44" reply="false"><ballot adjudicators="A6">75</ballot></speech>
+      </side>
+      <side team="T3">
+        <ballot adjudicators="A6" rank="2">152</ballot>
+        <speech speaker="S5" reply="false"><ballot adjudicators="A6">79</ballot></speech>
+        <speech speaker="S6" reply="false"><ballot adjudicators="A6">73</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D2_5" chair="A8" adjudicators="A8" venue="V5" motion="M2">
+      <side team="T18">
+        <ballot adjudicators="A8" rank="2">152</ballot>
+        <speech speaker="S35" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+        <speech speaker="S36" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+      </side>
+      <side team="T14">
+        <ballot adjudicators="A8" rank="1">156</ballot>
+        <speech speaker="S27" reply="false"><ballot adjudicators="A8">78</ballot></speech>
+        <speech speaker="S28" reply="false"><ballot adjudicators="A8">78</ballot></speech>
+      </side>
+      <side team="T9">
+        <ballot adjudicators="A8" rank="3">145</ballot>
+        <speech speaker="S17" reply="false"><ballot adjudicators="A8">75</ballot></speech>
+        <speech speaker="S18" reply="false"><ballot adjudicators="A8">70</ballot></speech>
+      </side>
+      <side team="T11">
+        <ballot adjudicators="A8" rank="4">139</ballot>
+        <speech speaker="S21" reply="false"><ballot adjudicators="A8">70</ballot></speech>
+        <speech speaker="S22" reply="false"><ballot adjudicators="A8">69</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D2_6" chair="A4" adjudicators="A4" venue="V6" motion="M2">
+      <side team="T25">
+        <ballot adjudicators="A4" rank="2">145</ballot>
+        <speech speaker="S49" reply="false"><ballot adjudicators="A4">72</ballot></speech>
+        <speech speaker="S50" reply="false"><ballot adjudicators="A4">73</ballot></speech>
+      </side>
+      <side team="T26">
+        <ballot adjudicators="A4" rank="3">144</ballot>
+        <speech speaker="S51" reply="false"><ballot adjudicators="A4">73</ballot></speech>
+        <speech speaker="S52" reply="false"><ballot adjudicators="A4">71</ballot></speech>
+      </side>
+      <side team="T24">
+        <ballot adjudicators="A4" rank="4">138</ballot>
+        <speech speaker="S47" reply="false"><ballot adjudicators="A4">69</ballot></speech>
+        <speech speaker="S48" reply="false"><ballot adjudicators="A4">69</ballot></speech>
+      </side>
+      <side team="T17">
+        <ballot adjudicators="A4" rank="1">151</ballot>
+        <speech speaker="S33" reply="false"><ballot adjudicators="A4">77</ballot></speech>
+        <speech speaker="S34" reply="false"><ballot adjudicators="A4">74</ballot></speech>
+      </side>
+    </debate>
+    <bye>T15</bye>
+    <bye>T6</bye>
+  </round>
+  <round name="Round 3" abbreviation="R3" elimination="false" feedback-weight="0">
+    <debate id="D3_1" chair="A1" adjudicators="A1 A5" venue="V1" motion="M3">
+      <side team="T5">
+        <ballot adjudicators="A1 A5" rank="3">156</ballot>
+        <speech speaker="S9" reply="false"><ballot adjudicators="A1 A5">76</ballot></speech>
+        <speech speaker="S10" reply="false"><ballot adjudicators="A1 A5">80</ballot></speech>
+      </side>
+      <side team="T2">
+        <ballot adjudicators="A1 A5" rank="2">158</ballot>
+        <speech speaker="S3" reply="false"><ballot adjudicators="A1 A5">77</ballot></speech>
+        <speech speaker="S4" reply="false"><ballot adjudicators="A1 A5">81</ballot></speech>
+      </side>
+      <side team="T8">
+        <ballot adjudicators="A1 A5" rank="1">160</ballot>
+        <speech speaker="S15" reply="false"><ballot adjudicators="A1 A5">79</ballot></speech>
+        <speech speaker="S16" reply="false"><ballot adjudicators="A1 A5">81</ballot></speech>
+      </side>
+      <side team="T10">
+        <ballot adjudicators="A1 A5" rank="4">153</ballot>
+        <speech speaker="S19" reply="false"><ballot adjudicators="A1 A5">75</ballot></speech>
+        <speech speaker="S20" reply="false"><ballot adjudicators="A1 A5">78</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D3_2" chair="A7" adjudicators="A7 A2" venue="V2" motion="M3">
+      <side team="T1">
+        <ballot adjudicators="A7 A2" rank="3">151</ballot>
+        <speech speaker="S1" reply="false"><ballot adjudicators="A7 A2">76</ballot></speech>
+        <speech speaker="S2" reply="false"><ballot adjudicators="A7 A2">75</ballot></speech>
+      </side>
+      <side team="T12">
+        <ballot adjudicators="A7 A2" rank="2">153</ballot>
+        <speech speaker="S23" reply="false"><ballot adjudicators="A7 A2">75</ballot></speech>
+        <speech speaker="S24" reply="false"><ballot adjudicators="A7 A2">78</ballot></speech>
+      </side>
+      <side team="T20">
+        <ballot adjudicators="A7 A2" rank="4">144</ballot>
+        <speech speaker="S39" reply="false"><ballot adjudicators="A7 A2">71</ballot></speech>
+        <speech speaker="S40" reply="false"><ballot adjudicators="A7 A2">73</ballot></speech>
+      </side>
+      <side team="T23">
+        <ballot adjudicators="A7 A2" rank="1">157</ballot>
+        <speech speaker="S45" reply="false"><ballot adjudicators="A7 A2">77</ballot></speech>
+        <speech speaker="S46" reply="false"><ballot adjudicators="A7 A2">80</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D3_3" chair="A3" adjudicators="A3" venue="V3" motion="M3">
+      <side team="T14">
+        <ballot adjudicators="A3" rank="4">147</ballot>
+        <speech speaker="S27" reply="false"><ballot adjudicators="A3">75</ballot></speech>
+        <speech speaker="S28" reply="false"><ballot adjudicators="A3">72</ballot></speech>
+      </side>
+      <side team="T4">
+        <ballot adjudicators="A3" rank="3">151</ballot>
+        <speech speaker="S7" reply="false"><ballot adjudicators="A3">73</ballot></speech>
+        <speech speaker="S8" reply="false"><ballot adjudicators="A3">78</ballot></speech>
+      </side>
+      <side team="T3">
+        <ballot adjudicators="A3" rank="2">152</ballot>
+        <speech speaker="S5" reply="false"><ballot adjudicators="A3">74</ballot></speech>
+        <speech speaker="S6" reply="false"><ballot adjudicators="A3">78</ballot></speech>
+      </side>
+      <side team="T21">
+        <ballot adjudicators="A3" rank="1">156</ballot>
+        <speech speaker="S41" reply="false"><ballot adjudicators="A3">76</ballot></speech>
+        <speech speaker="S42" reply="false"><ballot adjudicators="A3">80</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D3_4" chair="A4" adjudicators="A4" venue="V4" motion="M3">
+      <side team="T13">
+        <ballot adjudicators="A4" rank="1">156</ballot>
+        <speech speaker="S25" reply="false"><ballot adjudicators="A4">78</ballot></speech>
+        <speech speaker="S26" reply="false"><ballot adjudicators="A4">78</ballot></speech>
+      </side>
+      <side team="T19">
+        <ballot adjudicators="A4" rank="4">146</ballot>
+        <speech speaker="S37" reply="false"><ballot adjudicators="A4">71</ballot></speech>
+        <speech speaker="S38" reply="false"><ballot adjudicators="A4">75</ballot></speech>
+      </side>
+      <side team="T18">
+        <ballot adjudicators="A4" rank="3">150</ballot>
+        <speech speaker="S35" reply="false"><ballot adjudicators="A4">75</ballot></speech>
+        <speech speaker="S36" reply="false"><ballot adjudicators="A4">75</ballot></speech>
+      </side>
+      <side team="T17">
+        <ballot adjudicators="A4" rank="2">153</ballot>
+        <speech speaker="S33" reply="false"><ballot adjudicators="A4">80</ballot></speech>
+        <speech speaker="S34" reply="false"><ballot adjudicators="A4">73</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D3_5" chair="A6" adjudicators="A6" venue="V5" motion="M3">
+      <side team="T25">
+        <ballot adjudicators="A6" rank="4">139</ballot>
+        <speech speaker="S49" reply="false"><ballot adjudicators="A6">70</ballot></speech>
+        <speech speaker="S50" reply="false"><ballot adjudicators="A6">69</ballot></speech>
+      </side>
+      <side team="T22">
+        <ballot adjudicators="A6" rank="1">156</ballot>
+        <speech speaker="S43" reply="false"><ballot adjudicators="A6">75</ballot></speech>
+        <speech speaker="S44" reply="false"><ballot adjudicators="A6">81</ballot></speech>
+      </side>
+      <side team="T7">
+        <ballot adjudicators="A6" rank="3">141</ballot>
+        <speech speaker="S13" reply="false"><ballot adjudicators="A6">70</ballot></speech>
+        <speech speaker="S14" reply="false"><ballot adjudicators="A6">71</ballot></speech>
+      </side>
+      <side team="T9">
+        <ballot adjudicators="A6" rank="2">147</ballot>
+        <speech speaker="S17" reply="false"><ballot adjudicators="A6">75</ballot></speech>
+        <speech speaker="S18" reply="false"><ballot adjudicators="A6">72</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D3_6" chair="A8" adjudicators="A8" venue="V6" motion="M3">
+      <side team="T11">
+        <ballot adjudicators="A8" rank="3">147</ballot>
+        <speech speaker="S21" reply="false"><ballot adjudicators="A8">74</ballot></speech>
+        <speech speaker="S22" reply="false"><ballot adjudicators="A8">73</ballot></speech>
+      </side>
+      <side team="T24">
+        <ballot adjudicators="A8" rank="4">146</ballot>
+        <speech speaker="S47" reply="false"><ballot adjudicators="A8">72</ballot></speech>
+        <speech speaker="S48" reply="false"><ballot adjudicators="A8">74</ballot></speech>
+      </side>
+      <side team="T15">
+        <ballot adjudicators="A8" rank="1">154</ballot>
+        <speech speaker="S29" reply="false"><ballot adjudicators="A8">77</ballot></speech>
+        <speech speaker="S30" reply="false"><ballot adjudicators="A8">77</ballot></speech>
+      </side>
+      <side team="T16">
+        <ballot adjudicators="A8" rank="2">150</ballot>
+        <speech speaker="S31" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+        <speech speaker="S32" reply="false"><ballot adjudicators="A8">74</ballot></speech>
+      </side>
+    </debate>
+    <bye>T6</bye>
+  </round>
+  <round name="Round 4" abbreviation="R4" elimination="false" feedback-weight="0">
+    <debate id="D4_1" chair="A3" adjudicators="A3 A4" venue="V1" motion="M4">
+      <side team="T8">
+        <ballot adjudicators="A3 A4" rank="2">154</ballot>
+        <speech speaker="S15" reply="false"><ballot adjudicators="A3 A4">77</ballot></speech>
+        <speech speaker="S16" reply="false"><ballot adjudicators="A3 A4">77</ballot></speech>
+      </side>
+      <side team="T23">
+        <ballot adjudicators="A3 A4" rank="4">152</ballot>
+        <speech speaker="S45" reply="false"><ballot adjudicators="A3 A4">77</ballot></speech>
+        <speech speaker="S46" reply="false"><ballot adjudicators="A3 A4">75</ballot></speech>
+      </side>
+      <side team="T2">
+        <ballot adjudicators="A3 A4" rank="3">153</ballot>
+        <speech speaker="S3" reply="false"><ballot adjudicators="A3 A4">78</ballot></speech>
+        <speech speaker="S4" reply="false"><ballot adjudicators="A3 A4">75</ballot></speech>
+      </side>
+      <side team="T5">
+        <ballot adjudicators="A3 A4" rank="1">158</ballot>
+        <speech speaker="S9" reply="false"><ballot adjudicators="A3 A4">81</ballot></speech>
+        <speech speaker="S10" reply="false"><ballot adjudicators="A3 A4">77</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D4_2" chair="A1" adjudicators="A1 A2" venue="V2" motion="M4">
+      <side team="T1">
+        <ballot adjudicators="A1 A2" rank="4">149</ballot>
+        <speech speaker="S1" reply="false"><ballot adjudicators="A1 A2">73</ballot></speech>
+        <speech speaker="S2" reply="false"><ballot adjudicators="A1 A2">76</ballot></speech>
+      </side>
+      <side team="T13">
+        <ballot adjudicators="A1 A2" rank="2">151</ballot>
+        <speech speaker="S25" reply="false"><ballot adjudicators="A1 A2">77</ballot></speech>
+        <speech speaker="S26" reply="false"><ballot adjudicators="A1 A2">74</ballot></speech>
+      </side>
+      <side team="T12">
+        <ballot adjudicators="A1 A2" rank="1">160</ballot>
+        <speech speaker="S23" reply="false"><ballot adjudicators="A1 A2">80</ballot></speech>
+        <speech speaker="S23" reply="false" ghost="true"><ballot adjudicators="A1 A2">80</ballot></speech>
+      </side>
+      <side team="T21">
+        <ballot adjudicators="A1 A2" rank="3">150</ballot>
+        <speech speaker="S41" reply="false"><ballot adjudicators="A1 A2">75</ballot></speech>
+        <speech speaker="S42" reply="false"><ballot adjudicators="A1 A2">75</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D4_3" chair="A5" adjudicators="A5" venue="V3" motion="M4">
+      <side team="T17">
+        <ballot adjudicators="A5" rank="2">157</ballot>
+        <speech speaker="S33" reply="false"><ballot adjudicators="A5">79</ballot></speech>
+        <speech speaker="S34" reply="false"><ballot adjudicators="A5">78</ballot></speech>
+      </side>
+      <side team="T22">
+        <ballot adjudicators="A5" rank="3">154</ballot>
+        <speech speaker="S43" reply="false"><ballot adjudicators="A5">78</ballot></speech>
+        <speech speaker="S44" reply="false"><ballot adjudicators="A5">76</ballot></speech>
+      </side>
+      <side team="T10">
+        <ballot adjudicators="A5" rank="1">162</ballot>
+        <speech speaker="S19" reply="false"><ballot adjudicators="A5">82</ballot></speech>
+        <speech speaker="S20" reply="false"><ballot adjudicators="A5">80</ballot></speech>
+      </side>
+      <side team="T3">
+        <ballot adjudicators="A5" rank="4">148</ballot>
+        <speech speaker="S5" reply="false"><ballot adjudicators="A5">75</ballot></speech>
+        <speech speaker="S6" reply="false"><ballot adjudicators="A5">73</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D4_4" chair="A9" adjudicators="A9" venue="V4" motion="M4">
+      <side team="T9">
+        <ballot adjudicators="A9" rank="3">144</ballot>
+        <speech speaker="S17" reply="false"><ballot adjudicators="A9">70</ballot></speech>
+        <speech speaker="S18" reply="false"><ballot adjudicators="A9">74</ballot></speech>
+      </side>
+      <side team="T18">
+        <ballot adjudicators="A9" rank="1">153</ballot>
+        <speech speaker="S35" reply="false"><ballot adjudicators="A9">77</ballot></speech>
+        <speech speaker="S36" reply="false"><ballot adjudicators="A9">76</ballot></speech>
+      </side>
+      <side team="T20">
+        <ballot adjudicators="A9" rank="4">142</ballot>
+        <speech speaker="S39" reply="false"><ballot adjudicators="A9">70</ballot></speech>
+        <speech speaker="S40" reply="false"><ballot adjudicators="A9">72</ballot></speech>
+      </side>
+      <side team="T4">
+        <ballot adjudicators="A9" rank="2">151</ballot>
+        <speech speaker="S7" reply="false"><ballot adjudicators="A9">77</ballot></speech>
+        <speech speaker="S8" reply="false"><ballot adjudicators="A9">74</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D4_5" chair="A6" adjudicators="A6" venue="V5" motion="M4">
+      <side team="T16">
+        <ballot adjudicators="A6" rank="3">149</ballot>
+        <speech speaker="S31" reply="false"><ballot adjudicators="A6">78</ballot></speech>
+        <speech speaker="S32" reply="false"><ballot adjudicators="A6">71</ballot></speech>
+      </side>
+      <side team="T19">
+        <ballot adjudicators="A6" rank="4">145</ballot>
+        <speech speaker="S37" reply="false"><ballot adjudicators="A6">76</ballot></speech>
+        <speech speaker="S38" reply="false"><ballot adjudicators="A6">69</ballot></speech>
+      </side>
+      <side team="T7">
+        <ballot adjudicators="A6" rank="1">155</ballot>
+        <speech speaker="S13" reply="false"><ballot adjudicators="A6">77</ballot></speech>
+        <speech speaker="S14" reply="false"><ballot adjudicators="A6">78</ballot></speech>
+      </side>
+      <side team="T14">
+        <ballot adjudicators="A6" rank="2">151</ballot>
+        <speech speaker="S27" reply="false"><ballot adjudicators="A6">77</ballot></speech>
+        <speech speaker="S28" reply="false"><ballot adjudicators="A6">74</ballot></speech>
+      </side>
+    </debate>
+    <debate id="D4_6" chair="A8" adjudicators="A8" venue="V6" motion="M4">
+      <side team="T25">
+        <ballot adjudicators="A8" rank="4">140</ballot>
+        <speech speaker="S49" reply="false"><ballot adjudicators="A8">69</ballot></speech>
+        <speech speaker="S50" reply="false"><ballot adjudicators="A8">71</ballot></speech>
+      </side>
+      <side team="T26">
+        <ballot adjudicators="A8" rank="2">148</ballot>
+        <speech speaker="S51" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+        <speech speaker="S52" reply="false"><ballot adjudicators="A8">72</ballot></speech>
+      </side>
+      <side team="T11">
+        <ballot adjudicators="A8" rank="1">153</ballot>
+        <speech speaker="S21" reply="false"><ballot adjudicators="A8">77</ballot></speech>
+        <speech speaker="S22" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+      </side>
+      <side team="T15">
+        <ballot adjudicators="A8" rank="3">147</ballot>
+        <speech speaker="S29" reply="false"><ballot adjudicators="A8">71</ballot></speech>
+        <speech speaker="S30" reply="false"><ballot adjudicators="A8">76</ballot></speech>
+      </side>
+    </debate>
+    <bye>T24</bye>
+    <bye>T6</bye>
+  </round>
+  <round name="Round 5" abbreviation="R5" elimination="false" feedback-weight="0">
+  </round>
+  <participants>
+    <team id="T1" name="University A A" break-eligibilities="BC1">
+      <speaker id="S1" institutions="I1">Speaker 1</speaker>
+      <speaker id="S2" institutions="I1">Speaker 2</speaker>
+    </team>
+    <team id="T2" name="University A B" break-eligibilities="BC1">
+      <speaker id="S3" institutions="I1">Speaker 3</speaker>
+      <speaker id="S4" institutions="I1">Speaker 4</speaker>
+    </team>
+    <team id="T3" name="University A C" break-eligibilities="BC1">
+      <speaker id="S5" institutions="I1">Speaker 5</speaker>
+      <speaker id="S6" institutions="I1">Speaker 6</speaker>
+    </team>
+    <team id="T4" name="University A D" break-eligibilities="BC1">
+      <speaker id="S7" institutions="I1">Speaker 7</speaker>
+      <speaker id="S8" institutions="I1">Speaker 8</speaker>
+    </team>
+    <team id="T5" name="University B A" break-eligibilities="BC1">
+      <speaker id="S9" institutions="I2">Speaker 9</speaker>
+      <speaker id="S10" institutions="I2">Speaker 10</speaker>
+    </team>
+    <team id="T6" name="University B B" break-eligibilities="BC1">
+      <speaker id="S11" institutions="I2">Speaker 11</speaker>
+      <speaker id="S12" institutions="I2">Speaker 12</speaker>
+    </team>
+    <team id="T7" name="University B C" break-eligibilities="BC1">
+      <speaker id="S13" institutions="I2">Speaker 13</speaker>
+      <speaker id="S14" institutions="I2">Speaker 14</speaker>
+    </team>
+    <team id="T8" name="University B D" break-eligibilities="BC1">
+      <speaker id="S15" institutions="I2">Speaker 15</speaker>
+      <speaker id="S16" institutions="I2">Speaker 16</speaker>
+    </team>
+    <team id="T9" name="University C A" break-eligibilities="BC1">
+      <speaker id="S17" institutions="I3">Speaker 17</speaker>
+      <speaker id="S18" institutions="I3">Speaker 18</speaker>
+    </team>
+    <team id="T10" name="University C B" break-eligibilities="BC1">
+      <speaker id="S19" institutions="I3">Speaker 19</speaker>
+      <speaker id="S20" institutions="I3">Speaker 20</speaker>
+    </team>
+    <team id="T11" name="University C C" break-eligibilities="BC1">
+      <speaker id="S21" institutions="I3">Speaker 21</speaker>
+      <speaker id="S22" institutions="I3">Speaker 22</speaker>
+    </team>
+    <team id="T12" name="University D A" break-eligibilities="BC1">
+      <speaker id="S23" institutions="I4">Speaker 23</speaker>
+      <speaker id="S24" institutions="I4">Speaker 24</speaker>
+    </team>
+    <team id="T13" name="University D B" break-eligibilities="BC1">
+      <speaker id="S25" institutions="I4">Speaker 25</speaker>
+      <speaker id="S26" institutions="I4">Speaker 26</speaker>
+    </team>
+    <team id="T14" name="University D C" break-eligibilities="BC1">
+      <speaker id="S27" institutions="I4">Speaker 27</speaker>
+      <speaker id="S28" institutions="I4">Speaker 28</speaker>
+    </team>
+    <team id="T15" name="University E A" break-eligibilities="BC1">
+      <speaker id="S29" institutions="I5">Speaker 29</speaker>
+      <speaker id="S30" institutions="I5">Speaker 30</speaker>
+    </team>
+    <team id="T16" name="University E B" break-eligibilities="BC1">
+      <speaker id="S31" institutions="I5">Speaker 31</speaker>
+      <speaker id="S32" institutions="I5">Speaker 32</speaker>
+    </team>
+    <team id="T17" name="University E C" break-eligibilities="BC1 BC2">
+      <speaker id="S33" institutions="I5">Speaker 33</speaker>
+      <speaker id="S34" institutions="I5">Speaker 34</speaker>
+    </team>
+    <team id="T18" name="University F A" break-eligibilities="BC1 BC2">
+      <speaker id="S35" institutions="I6">Speaker 35</speaker>
+      <speaker id="S36" institutions="I6">Speaker 36</speaker>
+    </team>
+    <team id="T19" name="University F B" break-eligibilities="BC1 BC2">
+      <speaker id="S37" institutions="I6">Speaker 37</speaker>
+      <speaker id="S38" institutions="I6">Speaker 38</speaker>
+    </team>
+    <team id="T20" name="University G A" break-eligibilities="BC1 BC2">
+      <speaker id="S39" institutions="I7">Speaker 39</speaker>
+      <speaker id="S40" institutions="I7">Speaker 40</speaker>
+    </team>
+    <team id="T21" name="University G B" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S41" institutions="I7">Speaker 41</speaker>
+      <speaker id="S42" institutions="I7">Speaker 42</speaker>
+    </team>
+    <team id="T22" name="University H A" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S43" institutions="I8">Speaker 43</speaker>
+      <speaker id="S44" institutions="I8">Speaker 44</speaker>
+    </team>
+    <team id="T23" name="University H B" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S45" institutions="I8">Speaker 45</speaker>
+      <speaker id="S46" institutions="I8">Speaker 46</speaker>
+    </team>
+    <team id="T24" name="University I A" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S47" institutions="I9">Speaker 47</speaker>
+      <speaker id="S48" institutions="I9">Speaker 48</speaker>
+    </team>
+    <team id="T25" name="University I B" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S49" institutions="I9">Speaker 49</speaker>
+      <speaker id="S50" institutions="I9">Speaker 50</speaker>
+    </team>
+    <team id="T26" name="University J A" break-eligibilities="BC1 BC2 BC3">
+      <speaker id="S51" institutions="I10">Speaker 51</speaker>
+      <speaker id="S52" institutions="I10">Speaker 52</speaker>
+    </team>
+    <adjudicator id="A1" name="Adjudicator 1" institutions="I1" score="3.2" team-conflicts="T3"/>
+    <adjudicator id="A2" name="Adjudicator 2" institutions="I2" score="2.3" adjudicator-conflicts="A3"/>
+    <adjudicator id="A3" name="Adjudicator 3" score="3.6"/>
+    <adjudicator id="A4" name="Adjudicator 4" institutions="I4" score="4.5" team-conflicts="T11"/>
+    <adjudicator id="A5" name="Adjudicator 5" institutions="I5" score="3.7"/>
+    <adjudicator id="A6" name="Adjudicator 6" score="3.6"/>
+    <adjudicator id="A7" name="Adjudicator 7" institutions="I7" score="4.6"/>
+    <adjudicator id="A8" name="Adjudicator 8" institutions="I8" score="4.4"/>
+    <adjudicator id="A9" name="Adjudicator 9" score="2.9"/>
+  </participants>
+  <institution id="I1" reference="UA">University A</institution>
+  <institution id="I2" reference="UB">University B</institution>
+  <institution id="I3" reference="UC">University C</institution>
+  <institution id="I4" reference="UD">University D</institution>
+  <institution id="I5" reference="UE">University E</institution>
+  <institution id="I6" reference="UF">University F</institution>
+  <institution id="I7" reference="UG">University G</institution>
+  <institution id="I8" reference="UH">University H</institution>
+  <institution id="I9" reference="UI">University I</institution>
+  <institution id="I10" reference="UJ">University J</institution>
+  <motion id="M1" reference="Motion 1">This House would test round 1</motion>
+  <motion id="M2" reference="Motion 2">This House would test round 2</motion>
+  <motion id="M3" reference="Motion 3">This House would test round 3</motion>
+  <motion id="M4" reference="Motion 4">This House would test round 4</motion>
+  <motion id="M5" reference="Motion 5">This House would test round 5</motion>
+  <venue id="V1" priority="100">Room 1</venue>
+  <venue id="V2" priority="99">Room 2</venue>
+  <venue id="V3" priority="98">Room 3</venue>
+  <venue id="V4" priority="97">Room 4</venue>
+  <venue id="V5" priority="96">Room 5</venue>
+  <venue id="V6" priority="95">Room 6</venue>
+  <venue id="V7" priority="94">Room 7</venue>
+  <venue id="V8" priority="93">Room 8</venue>
+  <break-category id="BC1" break-size="8" reserve-size="2" priority="3" general="true">Open</break-category>
+  <break-category id="BC2" break-size="4" reserve-size="1" priority="2">ESL</break-category>
+  <break-category id="BC3" break-size="2" reserve-size="0" priority="1">EFL</break-category>
+</tournament>

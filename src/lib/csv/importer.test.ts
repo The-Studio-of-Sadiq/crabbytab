@@ -2,6 +2,16 @@ import { describe, it, expect } from "vitest";
 import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv, parseVenuesCsv } from "./importer";
 
 describe("CSV Importer (csv/importer)", () => {
+  it("reads optional adjudicator gender and region columns", () => {
+    const [withFields, withoutFields] = parseAdjudicatorsCsv(
+      "name,gender,region\nJudge A, Female ,South Asia\nJudge B,,",
+      "t1"
+    );
+    expect(withFields).toMatchObject({ gender: "Female", region: "South Asia" });
+    expect(withoutFields.gender).toBeUndefined();
+    expect(withoutFields.region).toBeUndefined();
+  });
+
   it("parses teams with standard and alias headers", () => {
     const csvWithStandardHeaders = `name,institution,speaker1,speaker2,category
 Harvard A,Harvard,Alice,Bob,ESL
@@ -25,6 +35,43 @@ Oxford A,Oxford,Emma,Frank`;
     expect(teams2[0].institutionName).toBe("Oxford");
     expect(teams2[0].speakers[0].name).toBe("Emma");
     expect(teams2[0].speakers[1].name).toBe("Frank");
+  });
+
+  it("imports team division IDs and names", () => {
+    const teams = parseTeamsCsv(
+      "name,division_id,division\nTeam A,north,North Division",
+      "t1"
+    );
+    expect(teams[0]).toMatchObject({
+      divisionId: "north",
+      divisionName: "North Division",
+    });
+  });
+
+  it("imports standing venue requirements for teams, adjudicators, and institutions", () => {
+    const team = parseTeamsCsv(
+      "name,requires_accessible_venue,requires_near_tab_room,min_venue_capacity\nTeam A,yes,1,40",
+      "t1"
+    )[0];
+    const adjudicator = parseAdjudicatorsCsv(
+      "name,required_venue_category,requires_online_venue\nJudge A,Quiet,no",
+      "t1"
+    )[0];
+    const institution = parseInstitutionsCsv(
+      "name,venue_category,venue_accessible\nInstitution A,Quiet,yes",
+      "t1"
+    )[0];
+    expect(team.venueRequirements).toEqual({
+      category: undefined,
+      minimumCapacity: 40,
+      accessible: true,
+      online: undefined,
+      nearTabRoom: true,
+    });
+    expect(adjudicator.venueRequirements?.category).toBe("Quiet");
+    expect(adjudicator.venueRequirements?.online).toBe(false);
+    expect(institution.venueRequirements?.category).toBe("Quiet");
+    expect(institution.venueRequirements?.accessible).toBe(true);
   });
 
   it("parses adjudicators with scores, boolean flags, and alias headers", () => {
@@ -71,6 +118,18 @@ Room 102,10,Tutorial`;
         { capacity: 120, accessible: true, online: false },
         { capacity: 20, accessible: false, online: true },
       ]);
+  });
+
+  it("imports room links and refuses non-http(s) ones", () => {
+    const [venue] = parseVenuesCsv("name,url\nOnline 1,https://meet.example.org/abc", "t1");
+    expect(venue.url).toBe("https://meet.example.org/abc");
+    expect(parseVenuesCsv("name\nRoom A", "t1")[0].url).toBeUndefined();
+    expect(() => parseVenuesCsv("name,url\nBad,javascript:alert(1)", "t1")).toThrow(/row 2/);
+  });
+
+  it("imports the near-tab-room venue capability", () => {
+    const [venue] = parseVenuesCsv("name,near_tab_room\nRoom A,true", "t1");
+    expect(venue.nearTabRoom).toBe(true);
   });
 
   it("rejects invalid venue capacities and capability flags", () => {
