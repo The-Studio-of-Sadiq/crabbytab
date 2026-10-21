@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Testing · CrabbyTab guide</title>
+<meta name="description" content="Testing: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html" aria-current="page">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="testing">Testing<a class="anchor" href="#testing" aria-label="Link to this section">#</a></h1>
+<p>CrabbyTab&#39;s tests are <a href="https://vitest.dev/">Vitest</a> unit tests. They run in Node, need no browser, no Firebase
+project and no credentials, and are deterministic. This page covers how to run them, where they live, the
+differential harness against Tabbycat, the translation checks, and what is not covered.</p>
+<h2 id="running-the-checks">Running the checks<a class="anchor" href="#running-the-checks" aria-label="Link to this section">#</a></h2>
+<p>The scripts in <code>package.json</code>:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Command</th>
+<th scope="col">What it runs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>npm run test</code> (or <code>npm test</code>)</td>
+<td><code>vitest run</code>: every <code>*.test.ts</code> file once</td>
+</tr>
+<tr>
+<td><code>npm run lint</code></td>
+<td><code>next lint</code> with <code>.eslintrc.json</code> (<code>next/core-web-vitals</code>)</td>
+</tr>
+<tr>
+<td><code>npm run build</code></td>
+<td><code>next build</code>, the production build</td>
+</tr>
+<tr>
+<td><code>npm run i18n:check</code></td>
+<td>the translation catalogue tests (see <a href="#translation-checks">below</a>)</td>
+</tr>
+<tr>
+<td><code>npm run i18n:new -- &lt;code&gt;</code></td>
+<td>creates a new language catalogue from English</td>
+</tr>
+</tbody></table></div>
+<p>Other useful commands (not scripts, run through <code>npx</code>):</p>
+<pre tabindex="0"><code class="language-sh">npx vitest                                   # watch mode
+npx vitest run src/lib/draw                  # one folder
+npx vitest run src/lib/ballots/result.test.ts   # one file
+npx vitest run -t &quot;low-point&quot;                # tests whose name matches
+npx tsc --noEmit                             # full type check, tests included</code></pre>
+<p><code>tsconfig.json</code> includes every <code>.ts</code> and <code>.tsx</code> file, so <code>tsc --noEmit</code> type-checks the tests and the <code>tools/</code>
+folder too.</p>
+<h3 id="continuous-integration">Continuous integration<a class="anchor" href="#continuous-integration" aria-label="Link to this section">#</a></h3>
+<p><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a>
+runs on every push and pull request, on Node 22:</p>
+<p><code>npm ci</code> → <code>npm run lint</code> → <code>npx tsc --noEmit</code> → <code>npm run test</code> → <code>npm run build</code></p>
+<p>All five must pass. CI needs no Firebase project, Docker or Python.</p>
+<h2 id="setup">Setup<a class="anchor" href="#setup" aria-label="Link to this section">#</a></h2>
+<p><code>vitest.config.ts</code>:</p>
+<ul>
+<li><code>environment: &quot;node&quot;</code> (there is no DOM; nothing renders React),</li>
+<li><code>globals: true</code> (<code>describe</code>, <code>it</code>, <code>expect</code> without imports, though most files import them from <code>vitest</code>),</li>
+<li>the <code>@</code> alias points to <code>src/</code>, as in the app.</li>
+</ul>
+<p>There is no include pattern, so Vitest&#39;s default applies: every <code>*.test.ts</code> file in the repository outside
+<code>node_modules</code>, including <code>tools/</code>. There are about 250 test files.</p>
+<h2 id="where-tests-live">Where tests live<a class="anchor" href="#where-tests-live" aria-label="Link to this section">#</a></h2>
+<p>Tests sit next to the code they test, named <code>&lt;module&gt;.test.ts</code>. The main groups:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Folder</th>
+<th scope="col">Covers</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/lib/draw/</code></td>
+<td>draw generation: two-team and BP power pairing, brackets and pull-ups, conflict avoidance, minimum-cost and blossom matching, side allocation, round robin, eliminations, N teams per room, venue and adjudicator allocation, seeded reproducibility</td>
+</tr>
+<tr>
+<td><code>src/lib/standings/</code>, <code>src/lib/breakqual/</code></td>
+<td>standings, precedence and tie handling, break qualification rules</td>
+</tr>
+<tr>
+<td><code>src/lib/ballots/</code>, <code>src/lib/scoring/</code></td>
+<td>ballot validation and aggregation, winner rules, voting and individual ballots</td>
+</tr>
+<tr>
+<td><code>src/lib/csv/</code>, <code>src/lib/participants/</code>, <code>src/lib/registration/</code></td>
+<td>CSV import and export, participant validation, registration</td>
+</tr>
+<tr>
+<td><code>src/lib/publicView/</code>, <code>src/lib/seo/</code></td>
+<td>the public projection, release rules, caching, sitemap and robots rules</td>
+</tr>
+<tr>
+<td><code>src/lib/email/</code>, <code>src/lib/api/v1/</code></td>
+<td>email recipients and templates, the REST API</td>
+</tr>
+<tr>
+<td><code>src/lib/*.test.ts</code></td>
+<td>private URLs and passcodes, rate limits, staff permissions, tournament access, audit chain, security headers, Firestore rule text (below)</td>
+</tr>
+<tr>
+<td><code>src/features/tournament/application/</code></td>
+<td>the application commands: draws and regeneration, ballots and confirmation, breaks, round completion, live sync, cloud sync and conflicts, backups, DebateXML import and export, whole-tournament lifecycles (<code>lifecycle.bp.test.ts</code>, <code>lifecycle.wsdc.test.ts</code>)</td>
+</tr>
+<tr>
+<td><code>src/features/tournament/infrastructure/</code></td>
+<td>Firestore repositories against an in-memory fake, including <code>uploadScale.test.ts</code> (a synthetic 1000-team upload)</td>
+</tr>
+<tr>
+<td><code>src/app/api/**/</code></td>
+<td>a few route handlers, with Firebase Admin mocked</td>
+</tr>
+<tr>
+<td><code>src/lib/i18n/</code>, <code>tools/i18n/</code></td>
+<td>translations</td>
+</tr>
+<tr>
+<td><code>tools/tabbycat-diff/</code></td>
+<td>the differential test against Tabbycat</td>
+</tr>
+</tbody></table></div>
+<p>Sample CSV files for manual testing of the import pages are in <code>testdata/</code> (institutions, teams, adjudicators,
+venues, motions). No automated test uses them.</p>
+<h2 id="writing-tests">Writing tests<a class="anchor" href="#writing-tests" aria-label="Link to this section">#</a></h2>
+<p><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/AGENTS.md">AGENTS.md</a> section 11 sets the expectations.
+In practice:</p>
+<ul>
+<li>Test pure functions and application commands with explicit inputs. Keep tournament logic out of React components
+so it can be tested here.</li>
+<li>Mock external services. Commands take a repository or dependencies object; tests pass in-memory fakes or
+<code>vi.mock</code> the Firebase modules. Never require a live Firebase project.</li>
+<li>For anything random, pass a fixed seed and assert that the same inputs and seed give the same output.</li>
+<li>Test invalid and infeasible cases, not only the happy path: no feasible draw, side limits, duplicate records,
+missing results (not zero), malformed CSV, quoted fields and embedded newlines.</li>
+<li>Keep tests independent of execution order and of the clock; inject timestamps.</li>
+<li>When a test pins a Tabbycat behaviour, say so in the test name or a comment and point at the Tabbycat source.</li>
+</ul>
+<h2 id="differential-testing-against-tabbycat">Differential testing against Tabbycat<a class="anchor" href="#differential-testing-against-tabbycat" aria-label="Link to this section">#</a></h2>
+<p><code>tools/tabbycat-diff/</code> runs the same tournaments through the official
+<a href="https://github.com/TabbycatDebate/tabbycat">Tabbycat</a> (v2.12.1) and through CrabbyTab&#39;s own libraries, and compares
+the results rule by rule. Full documentation:
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/tools/tabbycat-diff/README.md">tools/tabbycat-diff/README.md</a>;
+latest findings:
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/tools/tabbycat-diff/report/REPORT.md">report/REPORT.md</a>.</p>
+<h3 id="what-it-compares">What it compares<a class="anchor" href="#what-it-compares" aria-label="Link to this section">#</a></h3>
+<p>For each fixture, <code>tabbycatDiff.test.ts</code> imports the fixture&#39;s DebateXML with CrabbyTab&#39;s importer, applies
+Tabbycat&#39;s effective preferences (from the golden file), and computes through the real libraries:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Area</th>
+<th scope="col">Compared</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Standings</td>
+<td>every team and speaker metric both engines compute, ranks and the reply tab, after every round. Tabbycat&#39;s <code>null</code> (no results) never equals a CrabbyTab <code>0</code>.</td>
+</tr>
+<tr>
+<td>Draws</td>
+<td>a draw for every round from the rounds before it, over eight seeds: room count, coverage, bracket composition, pull-ups, side imbalance, institution clashes, repeat pairings, side-cap violations, BP position cost and byes. Draws often have several valid answers, so they are compared by these properties, not room by room.</td>
+</tr>
+<tr>
+<td>Breaks</td>
+<td>breaking and reserve teams per category, in priority order, and break ranks</td>
+</tr>
+<tr>
+<td>Adjudicator allocation</td>
+<td>hard conflicts, chairs, panel sizes, history repeats and the sum of chair scores, using CrabbyTab&#39;s ports of Tabbycat&#39;s Voting and Consensus Hungarian allocators</td>
+</tr>
+</tbody></table></div>
+<p>Every discrepancy must have a human verdict in <code>known-differences.json</code>: <em>rule difference</em>, <em>CrabbyTab defect</em>,
+<em>configuration difference</em> or <em>valid alternative</em>. The test fails when a discrepancy has no verdict, or when the
+set of discrepancies or verdicts differs from the committed <code>report/report.json</code> (something was fixed or
+something regressed). It also fails if a fixture has no golden file.</p>
+<p>Two smaller tests sit beside it: <code>compare.test.ts</code> (the comparison rules themselves) and <code>tieOrder.test.ts</code>
+(given Tabbycat&#39;s fixed tie order, CrabbyTab pairs exactly Tabbycat&#39;s rooms and byes in the <code>twoteam-odd-ties</code>
+fixture).</p>
+<p>Not compared: elimination rounds, feedback, motions and venues. Debate importance is 0 on both sides.</p>
+<h3 id="fixtures-and-golden-files">Fixtures and golden files<a class="anchor" href="#fixtures-and-golden-files" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Path</th>
+<th scope="col">What it is</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>fixtures/&lt;name&gt;/tournament.xml</code>, <code>config.json</code></td>
+<td>the tournament (DebateXML) plus what DebateXML cannot carry</td>
+</tr>
+<tr>
+<td><code>fixtures/generate.ts</code></td>
+<td>the seeded generator that writes the fixtures</td>
+</tr>
+<tr>
+<td><code>golden/&lt;name&gt;.tabbycat.json</code></td>
+<td>Tabbycat&#39;s output, committed so CI needs no Docker or Python</td>
+</tr>
+<tr>
+<td><code>tabbycat/</code></td>
+<td>the Tabbycat runner (<code>run_tabbycat.py</code>), <code>Dockerfile</code>, <code>docker-compose.yml</code>, <code>run-native.sh</code></td>
+</tr>
+</tbody></table></div>
+<p>The three fixtures are <code>bp-uneven</code> (BP, 26 teams with byes, three break categories, iron-person speeches),
+<code>australs-voting</code> (Australs two-team rules, voting panels with splits, replies) and <code>twoteam-odd-ties</code> (19 teams,
+wins only, many ties).</p>
+<h3 id="regenerating">Regenerating<a class="anchor" href="#regenerating" aria-label="Link to this section">#</a></h3>
+<p>All commands run from the repository root. In order:</p>
+<ol>
+<li><p><strong>Fixtures</strong> (only after editing <code>FIXTURES</code> in <code>fixtures/generate.ts</code>):</p>
+<pre tabindex="0"><code class="language-sh">node tools/tabbycat-diff/fixtures/generate.ts</code></pre>
+<p>This runs a TypeScript file directly, so it needs a Node version with type stripping on by default (22.18 or
+later). The output is byte-identical for the same seed. Node prints a harmless <code>MODULE_TYPELESS_PACKAGE_JSON</code>
+warning.</p>
+</li>
+<li><p><strong>Golden files</strong> (Tabbycat&#39;s side; after changing fixtures or the Tabbycat version). With Docker:</p>
+<pre tabindex="0"><code class="language-sh">docker compose -f tools/tabbycat-diff/tabbycat/docker-compose.yml run --rm --build tabbycat
+docker compose -f tools/tabbycat-diff/tabbycat/docker-compose.yml down -v</code></pre>
+<p>Without Docker you need Python 3.11, git and the PostgreSQL binaries:</p>
+<pre tabindex="0"><code class="language-sh">PG_BIN=&quot;/c/Program Files/PostgreSQL/18/bin&quot; tools/tabbycat-diff/tabbycat/run-native.sh</code></pre>
+<p>The native script clones Tabbycat into <code>~/.cache/crabbytab-tabbycat-diff</code> (override with <code>TABBYCAT_DIFF_WORK</code>)
+and runs a throwaway local PostgreSQL cluster on port 54329, deleted afterwards. The first run takes about seven
+minutes. The committed golden files came from the native route; the Docker route has not been run yet.</p>
+</li>
+<li><p><strong>Report</strong> (after reviewing a change in the discrepancies, and adding verdicts for new ones to
+<code>known-differences.json</code>):</p>
+<pre tabindex="0"><code class="language-sh">TABBYCAT_DIFF_WRITE=1 npx vitest run tools/tabbycat-diff</code></pre>
+<p>This rewrites <code>report/REPORT.md</code> and <code>report/report.json</code>. Do not edit them by hand. On PowerShell, set the
+variable first: <code>$env:TABBYCAT_DIFF_WRITE = &quot;1&quot;; npx vitest run tools/tabbycat-diff</code>.</p>
+</li>
+</ol>
+<p>None of these is an npm script.</p>
+<h2 id="translation-checks">Translation checks<a class="anchor" href="#translation-checks" aria-label="Link to this section">#</a></h2>
+<p><code>npm run i18n:check</code> runs <code>vitest run src/lib/i18n</code>:</p>
+<ul>
+<li><code>catalogues.test.ts</code>: every catalogue has every English key and no unknown keys, every plural category the
+language needs, and the same <code>{placeholders}</code> and <code>&lt;tags&gt;</code> as English;</li>
+<li><code>config.test.ts</code>: locale matching, selection order, text direction and the pre-paint script;</li>
+<li><code>translate.test.ts</code>: loading, fallback, interpolation, plurals, rich text and formatting.</li>
+</ul>
+<p>The same tests run in <code>npm test</code>, so adding an English string without adding the key to every other catalogue
+fails CI. <code>npm run i18n:new -- &lt;code&gt;</code> writes <code>src/lib/i18n/messages/locales/&lt;code&gt;.json</code> through
+<code>tools/i18n/newLanguage.test.ts</code>; in a normal test run that file only checks the template builder. See
+<a href="Languages-and-Translations.html">Languages and translations</a>.</p>
+<h2 id="firestore-rules">Firestore rules<a class="anchor" href="#firestore-rules" aria-label="Link to this section">#</a></h2>
+<p>There is <strong>no Firestore emulator setup</strong> and the rules are not executed in CI (the emulator needs Java and
+<code>firebase-tools</code>). Two tests read <code>firestore.rules</code> as text instead:</p>
+<ul>
+<li><code>src/lib/liveRules.test.ts</code> keeps the field lists data-entry staff may write directly (live ballots, check-ins)
+equal to <code>ASSISTANT_LIVE_BALLOT_FIELDS</code> / <code>ASSISTANT_LIVE_CHECK_IN_FIELDS</code> in <code>src/lib/dataEntrySync.ts</code>;</li>
+<li><code>src/lib/serverOnlyRules.test.ts</code> checks that the <code>serverOnly</code> namespace (invitations, registration, custom
+permission groups) is excluded from the administrator rule and denied to every client.</li>
+</ul>
+<p>Before deploying rule changes, check them by hand in the Firebase console&#39;s Rules Playground with the cases listed
+in <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md#firestore-rules">live-collaboration.md</a>.</p>
+<h2 id="not-covered">Not covered<a class="anchor" href="#not-covered" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>No React component tests (the environment is Node, and no DOM testing library is installed).</li>
+<li>No end-to-end browser tests. Check UI changes by hand with <code>npm run dev</code>.</li>
+<li>No executed Firestore rules tests (see above).</li>
+<li>Tabbycat differential coverage is limited to the three fixtures and the areas listed above.</li>
+</ul>
+<p>A passing build and test run do not prove tournament logic is correct or fair; add a test for the rule you changed.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Architecture.html" rel="prev"><span>Previous</span>Architecture</a><a class="pager-next" href="Contributing.html" rel="next"><span>Next</span>Contributing</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Testing.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#running-the-checks">Running the checks</a></li><li><a href="#setup">Setup</a></li><li><a href="#where-tests-live">Where tests live</a></li><li><a href="#writing-tests">Writing tests</a></li><li><a href="#differential-testing-against-tabbycat">Differential testing against Tabbycat</a></li><li><a href="#translation-checks">Translation checks</a></li><li><a href="#firestore-rules">Firestore rules</a></li><li><a href="#not-covered">Not covered</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

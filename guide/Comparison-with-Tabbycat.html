@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparison with Tabbycat · CrabbyTab guide</title>
+<meta name="description" content="Comparison with Tabbycat: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html" aria-current="page">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="comparison-with-tabbycat">Comparison with Tabbycat<a class="anchor" href="#comparison-with-tabbycat" aria-label="Link to this section">#</a></h1>
+<p><a href="https://github.com/TabbycatDebate/tabbycat">Tabbycat</a> is the established open-source tab system. CrabbyTab is an
+independent project, not affiliated with Tabbycat. It follows Tabbycat&#39;s rules, algorithms and terms closely, but runs
+on free serverless hosting and does its computation in the browser.</p>
+<p>This page compares CrabbyTab on the current <code>beta</code> branch with <strong>Tabbycat v2.12.1</strong>. The full record, including every
+audited row, is in
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tabbycat-parity-plan.md"><code>docs/tabbycat-parity-plan.md</code></a>.</p>
+<h2 id="how-the-comparison-was-made">How the comparison was made<a class="anchor" href="#how-the-comparison-was-made" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Source audits.</strong> Tabbycat v2.12.1&#39;s preferences, routes, REST API, models, management commands and algorithms were
+extracted from its source and checked one by one against CrabbyTab&#39;s code. This was done twice. The second audit was
+run by agents that had not written the fixes, had to cite code paths, and, for algorithms, ran Tabbycat&#39;s own Python
+against CrabbyTab on hand-made cases. It found about 60 bugs, which were fixed with regression tests. The rows are
+in <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/tree/beta/docs/parity-audit"><code>docs/parity-audit/</code></a> (first
+audit) and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/tree/beta/docs/parity-audit/second-pass"><code>docs/parity-audit/second-pass/</code></a>
+(second audit). Statuses there are recorded <em>before</em> the fixes.</li>
+<li><strong>Differential tests.</strong> The same tournaments are run through real Tabbycat and through CrabbyTab, and the outputs are
+compared (<a href="#differential-test-harness">below</a>).</li>
+</ul>
+<h2 id="architecture">Architecture<a class="anchor" href="#architecture" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col"></th>
+<th scope="col">Tabbycat</th>
+<th scope="col">CrabbyTab</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Hosting</td>
+<td>Django + PostgreSQL server (Heroku, Docker, etc.)</td>
+<td>Next.js on Vercel + Firebase (free tiers)</td>
+</tr>
+<tr>
+<td>Where computation runs</td>
+<td>Server</td>
+<td>Browser: draws, allocation, standings and breaks (draws and allocation in a Web Worker)</td>
+</tr>
+<tr>
+<td>Tab-room data</td>
+<td>One shared database</td>
+<td>A working copy in each browser. Ballots, debates, teams and adjudicators sync live between administrator devices; everything else goes up with <strong>Upload now</strong>. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</td>
+</tr>
+<tr>
+<td>Offline</td>
+<td>Needs the server</td>
+<td>The tab room keeps working offline; live changes are queued and sent on reconnect</td>
+</tr>
+<tr>
+<td>Public site</td>
+<td>Rendered from the live database</td>
+<td>A public snapshot built when you publish, cached on the CDN. See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</td>
+</tr>
+</tbody></table></div>
+<h2 id="what-matches-tabbycat">What matches Tabbycat<a class="anchor" href="#what-matches-tabbycat" aria-label="Link to this section">#</a></h2>
+<p>Unless a difference is listed in the next section, these follow Tabbycat&#39;s behaviour and option names.</p>
+<ul>
+<li><strong>Formats and presets.</strong> BP, UADC, Australs, WSDC, custom two-team, and <em>N teams per room</em> (Tabbycat&#39;s
+<code>teams_in_debate</code> other than 2 or 4). All eleven Tabbycat rules presets: Australs, BP, Canadian Parliamentary,
+Australian Easters, NZ Easters, Joynt Scroll, UADC, WSDC, APDA, Karl Popper and Public Speaking. Side names
+(Aff/Neg, Gov/Opp, Prop/Opp and others). See <a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</li>
+<li><strong>N teams per room.</strong> The same scope as Tabbycat: random and manual draws, poly ballots (ranked on totals, advancing
+teams, or scores-only voting ballots), byes; power-paired, seeded, round-robin and generated elimination draws are
+refused, as in Tabbycat. See <a href="Rounds-and-Draws.html#n-teams-per-room">Rounds and draws</a>.</li>
+<li><strong>Draws.</strong> Two-team power pairing (odd-bracket methods, pull-up restriction, fold/slide/adjacent/random pairing,
+one-up-one-down, minimum-cost and minimum-cost-with-pull-ups), Tabbycat&#39;s Hungarian BP draw with its position costs
+and pull-up distribution, random, seeded and manual draws, Berger round robin by seed (two-team) and Tabbycat&#39;s BP
+round-robin tables, preallocated sides, sides chosen on the ballot, byes, swing teams, elimination draws with partial
+eliminations, and the draw stages <em>draft → confirmed → released to teams → released</em>. See
+<a href="Rounds-and-Draws.html">Rounds and draws</a>.</li>
+<li><strong>Adjudicators.</strong> Tabbycat&#39;s voting and consensus Hungarian allocators (as options), conflicts of every kind,
+preformed panels including from an anticipated draw, break liveness and prioritise by bracket/liveness, feedback
+weighting, base and test scores, feedback questions and paths. See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>
+and <a href="Feedback.html">Feedback</a>.</li>
+<li><strong>Results.</strong> Consensus and voting ballots, per-stage ballot mode, double entry (review or blind), iron-person
+(ghost) speeches, motion selection and vetoes, forfeits, self-split ballots, results-only ballots, postponed debates,
+ballots from private URLs and public forms. See <a href="Ballots-and-Results.html">Ballots and results</a>.</li>
+<li><strong>Standings and breaks.</strong> Tabbycat&#39;s team and speaker metrics (including who-beat-whom, ballots carried, iron-person
+count, draw strength variants, trimmed mean), standings as of a round, break categories with priority, AIDA 1996 /
+2016 / Easters rules, break ranks with ties shared, reserves and remarks, in-category ranking, speaker categories with
+public tabs, adjudicator break. See <a href="Standings-and-Metrics.html">Standings and metrics</a> and
+<a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</li>
+<li><strong>Public site and participants.</strong> Public draw, results, standings, tabs, break, motions and motion statistics,
+participants, institutions, adjudication core, projector, code names, private URLs, self check-in and barcodes,
+self-registration, email notifications. See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>,
+<a href="Private-URLs-and-Portals.html">Private URLs and portals</a> and <a href="Check-ins-and-Availability.html">Check-ins and availability</a>.</li>
+<li><strong>Staff.</strong> Tabbycat&#39;s assistant role as <em>data-entry staff</em> with permission groups (including Equity and Adjudication
+Core) and custom groups. See <a href="Staff-and-Roles.html">Staff and roles</a>.</li>
+<li><strong>REST API.</strong> Tabbycat&#39;s v1 read and write resources, except site-wide users, global institutions, web-push
+registration and tournament listing/creation (a token belongs to one tournament). See <a href="API-and-Tokens.html">API and tokens</a>.</li>
+<li><strong>Paper ballots.</strong> Printed ballot sheets with barcodes and a ballot intake board (Tabbycat&#39;s ballot check-ins). See
+<a href="Printing-and-Display.html">Printing and display</a>.</li>
+<li><strong>Data.</strong> DebateXML import and export, compatible with Tabbycat archives.</li>
+<li><strong>Languages.</strong> The same languages as Tabbycat (25 plus English). Every non-English catalogue is machine-drafted and
+marked so in the language switcher; messages from shared library code, server errors and emails are still English.
+See <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/internationalization.md"><code>docs/internationalization.md</code></a>.</li>
+</ul>
+<h2 id="still-different-from-tabbycat">Still different from Tabbycat<a class="anchor" href="#still-different-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<p>Deliberate differences and things left out:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Area</th>
+<th scope="col">Tabbycat</th>
+<th scope="col">CrabbyTab</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ties inside a standings tier</td>
+<td>Ordered by database order (institution, then reference); this decides byes and pairings among tied teams</td>
+<td>Ordered by the draw&#39;s seeded random order. Given Tabbycat&#39;s order, CrabbyTab pairs the same rooms.</td>
+</tr>
+<tr>
+<td>Missing standings values</td>
+<td>Counted as 0 on its Python sort path (who-beat-whom, draw strength, average individual speaks)</td>
+<td>Rank last in every precedence</td>
+</tr>
+<tr>
+<td>Ties at the break cutoff</td>
+<td>All tied teams break (its code then marks them reserves, an upstream bug)</td>
+<td>Held out; the tab director resolves them with break overrides</td>
+</tr>
+<tr>
+<td>Swing teams</td>
+<td>Left to the tab director</td>
+<td>Excluded from standings, liveness and the break automatically</td>
+</tr>
+<tr>
+<td>Elimination sides</td>
+<td>Random, confirmed later</td>
+<td>Default <em>by seed</em> for existing tournaments; Tabbycat&#39;s random sides are an option</td>
+</tr>
+<tr>
+<td>BP voting ballots with <em>margin includes dissenters</em></td>
+<td>Allowed (stores no points)</td>
+<td>Not offered; BP ballots are consensus</td>
+</tr>
+<tr>
+<td>Teams-only draw release</td>
+<td>Also listed on the public draw page, without adjudicators</td>
+<td>Shown on team private URLs only</td>
+</tr>
+<tr>
+<td>N teams per room, short last room</td>
+<td>Consensus ballots fail</td>
+<td>Scored on the room&#39;s own teams</td>
+</tr>
+<tr>
+<td>N teams per room, anticipated draw</td>
+<td>Brute-forces every finishing order</td>
+<td>Rooms of more than 8 teams get no bracket range</td>
+</tr>
+<tr>
+<td>Availability default</td>
+<td>Nobody is in until checked in</td>
+<td>Anyone without an availability record counts as available</td>
+</tr>
+<tr>
+<td>Staff membership through API tokens</td>
+<td>Writable</td>
+<td>Not writable (a leaked token must not grant access)</td>
+</tr>
+<tr>
+<td>Equity / Adjudication Core groups</td>
+<td>Tabbycat&#39;s permission sets</td>
+<td>Narrower: Equity cannot see participant contact details; Adjudication Core cannot edit motions, feedback questions or releases</td>
+</tr>
+<tr>
+<td>Notifications</td>
+<td>Email and browser push</td>
+<td>Email, plus an optional SMS webhook relay; no browser push</td>
+</tr>
+<tr>
+<td>Audit log</td>
+<td>Stores IP addresses</td>
+<td>No IP addresses (privacy); hash-chained and publicly verifiable</td>
+</tr>
+<tr>
+<td>Institutions</td>
+<td>Global</td>
+<td>Per tournament</td>
+</tr>
+<tr>
+<td>Anonymous ballot/feedback creation</td>
+<td>Through the REST API</td>
+<td>Through the public forms, not the REST API</td>
+</tr>
+<tr>
+<td>Allocating adjudicators on a draft draw</td>
+<td>Only after the draw is confirmed</td>
+<td>Allowed</td>
+</tr>
+</tbody></table></div>
+<p>Smaller gaps: CSV and API serializers do not yet carry team references, composite-team fields, pronouns or last names;
+checking in a speaker through the API checks in the whole team; slug reservation is checked in the client only.</p>
+<h2 id="where-crabbytab-goes-further">Where CrabbyTab goes further<a class="anchor" href="#where-crabbytab-goes-further" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Local-first working copy</strong> that keeps the tab room working offline, with explicit cloud sync, conflict review and
+per-record baselines (<a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>).</li>
+<li><strong>Publish-time public snapshots</strong> with CDN caching, so a busy public site costs few database reads.</li>
+<li><strong>Hash-chained audit log</strong> that the public can verify, and a <strong>rule engine</strong> where every overridden rule needs a
+recorded reason, in the UI and the API (<a href="Audit-Log.html">Audit log</a>).</li>
+<li><strong>Draw checks and side caps.</strong> Exact minimum-cost random two-team draws; BP random draws that avoid institution
+clashes and balance positions; side caps enforced for every conflict-avoidance method (Tabbycat only in its graph
+mode, with a bug that checks one team&#39;s side count twice); BP eliminations from any even field.</li>
+<li><strong>Allocation.</strong> An extra panel allocator, an optimal room allocator with hard requirements and ranked soft room
+preferences (<a href="Venues-and-Constraints.html">Venues and constraints</a>), and a configurable trimmed mean.</li>
+<li><strong>Feedback.</strong> More expressive feedback paths and weights per source role.</li>
+<li><strong>API tokens</strong> scoped per tournament, stored hashed, revocable and rate-limited, with an allocate-adjudicators
+endpoint and transactional, versioned writes (<a href="API-and-Tokens.html">API and tokens</a>).</li>
+<li><strong>A differential test harness against Tabbycat itself</strong> (next section).</li>
+</ul>
+<h2 id="differential-test-harness">Differential test harness<a class="anchor" href="#differential-test-harness" aria-label="Link to this section">#</a></h2>
+<p><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/tree/beta/tools/tabbycat-diff"><code>tools/tabbycat-diff</code></a> runs the
+same tournaments through Tabbycat v2.12.1 and through CrabbyTab&#39;s own libraries and compares the outputs by rule.</p>
+<p><strong>Fixtures</strong> (generated from a seed by <code>fixtures/generate.ts</code>, stored as DebateXML plus a <code>config.json</code>):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Fixture</th>
+<th scope="col">Covers</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>bp-uneven</code></td>
+<td>BP, 26 teams with byes, Open/ESL/EFL break categories with priorities, iron-person speeches, adjudicator conflicts</td>
+</tr>
+<tr>
+<td><code>australs-voting</code></td>
+<td>Australs rules, uneven institutions, 3-judge voting panels with split decisions, replies</td>
+</tr>
+<tr>
+<td><code>twoteam-odd-ties</code></td>
+<td>Two-team, 19 teams (a bye every round), ranked on wins only (many ties, including at the break), side cap</td>
+</tr>
+</tbody></table></div>
+<p><strong>What is compared.</strong> For each fixture CrabbyTab imports the archive, applies Tabbycat&#39;s effective preferences, and
+computes standings after every round, a draw for every round (eight seeds), the break for every category and an
+adjudicator allocation:</p>
+<ul>
+<li><strong>Standings and breaks</strong> value by value: every metric both engines compute, ranks, and breaking/reserve sets.</li>
+<li><strong>Draws and allocations</strong> by the properties the rules constrain, because several answers can be valid: coverage,
+brackets, pull-ups, side imbalance, institution clashes, repeat pairings, side-cap violations, BP position cost and
+byes; for allocation, chairs present, hard conflicts, panel sizes and history repeats. The allocation is compared
+against CrabbyTab&#39;s ports of Tabbycat&#39;s Hungarian allocators, not CrabbyTab&#39;s own default strategy.</li>
+</ul>
+<p>Every discrepancy must be classified in <code>known-differences.json</code> as a rule difference, a CrabbyTab defect, a
+configuration difference or a valid alternative. A difference counts as a valid alternative only when CrabbyTab is no
+worse than Tabbycat on average and in its worst seed. The latest
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/tools/tabbycat-diff/report/REPORT.md">report</a> shows all
+standings checks agreeing (2800/2800, 2496/2496, 2644/2644), no CrabbyTab defect and no configuration difference; the
+remaining rule differences are the tie-order and break-cutoff differences above.</p>
+<p><strong>Running it.</strong> Tabbycat&#39;s output is committed as golden files, so the comparison needs no Docker or Python and runs as
+part of <code>npm test</code>:</p>
+<pre tabindex="0"><code class="language-sh">npx vitest run tools/tabbycat-diff                       # compare against the golden files
+TABBYCAT_DIFF_WRITE=1 npx vitest run tools/tabbycat-diff # regenerate the report after reviewing a change</code></pre>
+<p>The test fails when a discrepancy has no verdict, or when the set of discrepancies differs from the committed report.
+Regenerating the golden files needs Tabbycat itself, through Docker or a native script with Python 3.11 and
+PostgreSQL; see the harness
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/tools/tabbycat-diff/README.md">README</a>. Limits: one
+Tabbycat version; elimination rounds, feedback, motions and venues are not compared; debate importance is 0 on both
+sides. See also <a href="Testing.html">Testing</a>.</p>
+<h2 id="migrating-from-tabbycat">Migrating from Tabbycat<a class="anchor" href="#migrating-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Export the tournament from Tabbycat as a <strong>DebateXML archive</strong>.</li>
+<li>In CrabbyTab, as a global administrator: <strong>Tournaments hub → Or import a DebateXML archive</strong>. Choose the file and
+review the preview (errors block the import; warnings explain what was inferred). Set the name and slug, then
+<strong>Create tournament from this file</strong>. The style&#39;s rules preset is applied as Tabbycat&#39;s importer does.</li>
+<li>Check the format, speaker counts and score ranges under <strong>Admin → Configuration</strong> (they are inferred from the
+archive), then upload.</li>
+<li>Generate private URLs and re-enter emails if you need them; DebateXML carries neither.</li>
+</ol>
+<p>Imported draws are drafts and motions and results are unreleased, so nothing becomes public until you release it. See
+<a href="Participants-and-Imports.html#debatexml-import">Participants and imports</a> for exactly what is read.</p>
+<p>To go the other way, use the account menu → <strong>Export DebateXML archive</strong>. It uses Tabbycat&#39;s DebateXML schema, so
+Tabbycat can import it. Emails, private URLs, passcodes and feedback comments are left out.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Glossary.html" rel="prev"><span>Previous</span>Glossary</a><a class="pager-next" href="Caching-Indexing-and-Performance.html" rel="next"><span>Next</span>Caching, indexing and performance</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Comparison-with-Tabbycat.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#how-the-comparison-was-made">How the comparison was made</a></li><li><a href="#architecture">Architecture</a></li><li><a href="#what-matches-tabbycat">What matches Tabbycat</a></li><li><a href="#still-different-from-tabbycat">Still different from Tabbycat</a></li><li><a href="#where-crabbytab-goes-further">Where CrabbyTab goes further</a></li><li><a href="#differential-test-harness">Differential test harness</a></li><li><a href="#migrating-from-tabbycat">Migrating from Tabbycat</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

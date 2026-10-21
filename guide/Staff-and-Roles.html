@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staff and roles · CrabbyTab guide</title>
+<meta name="description" content="Staff and roles: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html" aria-current="page">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="staff-and-roles">Staff and roles<a class="anchor" href="#staff-and-roles" aria-label="Link to this section">#</a></h1>
+<p>CrabbyTab uses Firebase Authentication (email and password). There is <strong>no open sign-up</strong>: an account is created either by the site operator in the Firebase console or by accepting a <strong>staff invitation</strong> (below). Users sign in at <code>/login</code>, reset a forgotten password at <code>/forgot-password</code> and change it at <code>/account/password</code> (account menu).</p>
+<h2 id="roles">Roles<a class="anchor" href="#roles" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Role</th>
+<th scope="col">How someone gets it</th>
+<th scope="col">Can do</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Global administrator</strong></td>
+<td>UID listed in the server variable <code>FIREBASE_ADMIN_UIDS</code></td>
+<td>Everything, on every tournament. The only role that can <strong>create tournaments</strong>, import a DebateXML archive and open the demo (Tournaments hub).</td>
+</tr>
+<tr>
+<td><strong>Tournament owner</strong></td>
+<td>Created the tournament (or first uploaded it)</td>
+<td>Everything on that tournament, including changing its <code>admins</code> list.</td>
+</tr>
+<tr>
+<td><strong>Tournament administrator</strong></td>
+<td>In the tournament&#39;s admins list, or given <em>Tournament administrator</em> on <strong>Tournament access</strong></td>
+<td>Everything on that tournament (Tabbycat&#39;s tab director): setup, draws, allocation, results, releases, private URLs, email, API tokens, backups, audit log. Cannot change the owner or the admins list.</td>
+</tr>
+<tr>
+<td><strong>Data-entry staff</strong></td>
+<td>Given <em>Data-entry staff</em> on <strong>Tournament access</strong></td>
+<td>What their <strong>permission groups</strong> allow (below), capped by the tournament&#39;s staff access level.</td>
+</tr>
+<tr>
+<td><strong>Participant</strong> (no account)</td>
+<td>Private URL (and passcode)</td>
+<td>Own draw, ballots, feedback, self check-in. See <a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</td>
+</tr>
+<tr>
+<td><strong>Public</strong> (no account)</td>
+<td>—</td>
+<td>Released public pages and enabled public forms only. See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</td>
+</tr>
+</tbody></table></div>
+<p>Signed-out visitors are never administrators, even for a tournament saved on their device.</p>
+<h3 id="global-administrators">Global administrators<a class="anchor" href="#global-administrators" aria-label="Link to this section">#</a></h3>
+<p>On every sign-in the server compares the account&#39;s UID with <code>FIREBASE_ADMIN_UIDS</code> and adds or removes the <code>globalAdmin</code> custom claim; <code>firestore.rules</code> trust that claim. After changing the variable, redeploy and have the person sign in again.</p>
+<h2 id="giving-people-access">Giving people access<a class="anchor" href="#giving-people-access" aria-label="Link to this section">#</a></h2>
+<p>Everything is on <strong>Admin → Assistants</strong> (the page is titled <em>Tournament access</em>, also at <code>/{slug}/staff</code>), administrators only. Staff roles live in the cloud, so the tournament must have been uploaded.</p>
+<h3 id="invite-by-email-works-with-or-without-an-account">Invite by email (works with or without an account)<a class="anchor" href="#invite-by-email-works-with-or-without-an-account" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Under <strong>Invite by email</strong>, enter up to 50 addresses (separated by spaces, commas, semicolons or new lines), pick the role and how long the link stays valid (1–30 days, default 7), then <strong>Send invitations</strong>.</li>
+<li>Each address receives a single-use link to <code>/invite</code>. The invitee signs in (existing account) or chooses a name and password (at least 8 characters); the server creates the account for exactly the invited address and grants the role in one step. A role is granted only to an account with the invited email; an existing higher role is never lowered.</li>
+<li>The list shows open invitations (pending or expired) with delivery status. <strong>Resend</strong> issues a new link (the old one stops working) and restarts the expiry; <strong>Revoke</strong> stops it at once.</li>
+</ol>
+<p>If an email cannot be sent (no SMTP, or the provider refused it), the invitation is still created and its link is shown <strong>once</strong> so you can share it another way. Only a hash of the link is stored; to get a new link, resend. The staff list does not refresh by itself when someone accepts; reload the page.</p>
+<h3 id="assign-existing-accounts">Assign existing accounts<a class="anchor" href="#assign-existing-accounts" aria-label="Link to this section">#</a></h3>
+<p>Under <strong>Assign existing accounts</strong>, enter up to 100 email addresses of existing accounts, choose <strong>Data-entry staff</strong> (default) or <strong>Tournament administrator</strong>, and <strong>Assign selected access</strong>. Unknown addresses are reported as not found; no account directory is exposed. Assigned staff see the tournament on the Tournaments hub.</p>
+<p>Removing someone (bin icon, then confirm) deletes only their staff assignment; the owner and the tournament&#39;s <code>admins</code> list are not changed here. Uploads never change the owner or administrators of a cloud tournament.</p>
+<h2 id="permissions">Permissions<a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
+<p>Each data-entry staff member has one or more permission groups (tick them under the person in <strong>Assigned to this tournament</strong>, then <strong>Save groups</strong>). A member with no group ticked gets the Tabulation assistant set. Changes apply to the person&#39;s next request.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Permission</th>
+<th scope="col">Allows</th>
+<th scope="col">Enforced by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Enter ballots (<code>results.enter</code>)</td>
+<td>Enter ballots; they are always stored unconfirmed</td>
+<td>data-entry sync route, Firestore rules (live ballot create)</td>
+</tr>
+<tr>
+<td>Confirm others&#39; ballots (<code>results.confirm_others</code>)</td>
+<td>Confirm, or blind-check, a ballot someone else entered</td>
+<td>assistant-ballots route</td>
+</tr>
+<tr>
+<td>Receive paper ballots (<code>ballots.intake</code>)</td>
+<td>Record paper ballots arriving</td>
+<td>data-entry sync route</td>
+</tr>
+<tr>
+<td>Enter feedback (<code>feedback.enter</code>)</td>
+<td>Enter feedback</td>
+<td>data-entry sync route</td>
+</tr>
+<tr>
+<td>Check-ins and availability (<code>checkins.edit</code>)</td>
+<td>Check-in and availability of teams and adjudicators; check existing rooms in</td>
+<td>data-entry sync route, Firestore rules (live check-in update)</td>
+</tr>
+<tr>
+<td>Edit participants (<code>participants.edit</code>)</td>
+<td>Add and edit teams, adjudicators and institutions (break/speaker categories and scores only when creating a record)</td>
+<td>data-entry sync route</td>
+</tr>
+<tr>
+<td>Draw display before release (<code>draw.display</code>)</td>
+<td>See confirmed draws before release and project them on <code>/display</code></td>
+<td>assistant-data route</td>
+</tr>
+<tr>
+<td>Motions before release (<code>motions.display</code>)</td>
+<td>See a round&#39;s motions before release and reveal them on <code>/display</code></td>
+<td>assistant-data route</td>
+</tr>
+<tr>
+<td>See conflicts (<code>conflicts.view</code>)</td>
+<td>Adjudicator and team–institution conflicts</td>
+<td>assistant-data route</td>
+</tr>
+<tr>
+<td>Edit conflicts (<code>conflicts.edit</code>)</td>
+<td>Change those conflicts (only with <code>conflicts.view</code>)</td>
+<td>data-entry sync route</td>
+</tr>
+<tr>
+<td>See feedback and adjudicator scores (<code>feedback.view</code>)</td>
+<td>Feedback scores, comments and answers; adjudicators&#39; base/test scores, score history, breaking and adjudication-core flags</td>
+<td>assistant-data route</td>
+</tr>
+<tr>
+<td>Edit adjudicator scores and breaking (<code>adjudicators.scores_edit</code>)</td>
+<td>Change base and test scores (also in bulk), breaking status and the tester flag; recorded in the score history</td>
+<td>data-entry sync route</td>
+</tr>
+<tr>
+<td>Edit adjudicator allocations (<code>allocation.edit</code>)</td>
+<td>Change panels of draws they can see, including unrevealed panels</td>
+<td>data-entry sync route (one transaction per round), assistant-data route</td>
+</tr>
+<tr>
+<td>See standings, break and analytics (<code>standings.view</code>)</td>
+<td>Standings, break and analytics pages, and results of silent and unreleased rounds</td>
+<td>assistant-data route</td>
+</tr>
+</tbody></table></div>
+<h3 id="groups">Groups<a class="anchor" href="#groups" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Group</th>
+<th scope="col">Permissions</th>
+<th scope="col">Tabbycat equivalent</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tabulation assistant (default)</td>
+<td>The first eight permissions above (fixed: new permissions never widen it)</td>
+<td>Tabulation Assistant</td>
+</tr>
+<tr>
+<td>Ballot desk</td>
+<td>Enter ballots, confirm others&#39; ballots, receive paper ballots</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Check-in desk</td>
+<td>Check-ins and availability</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Feedback desk</td>
+<td>Enter feedback</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Equity</td>
+<td>See conflicts, edit conflicts</td>
+<td>Equity</td>
+</tr>
+<tr>
+<td>Adjudication core</td>
+<td>See feedback and scores, edit scores and breaking, edit allocations, see conflicts, draw display, motions before release, see standings</td>
+<td>Adjudication Core</td>
+</tr>
+</tbody></table></div>
+<p><strong>Custom permission groups</strong> (same page): give a group a name and any set of the permissions above. Names must be unique and <code>conflicts.edit</code> needs <code>conflicts.view</code>. Saving recomputes every data-entry member&#39;s permissions at once. A member of a deleted group keeps the group id but gets nothing from it.</p>
+<h3 id="staff-access-level">Staff access level<a class="anchor" href="#staff-access-level" aria-label="Link to this section">#</a></h3>
+<p><strong>Staff access and private-URL ballots → Data-entry staff access</strong> caps every data-entry member. It is a tournament setting, so it reaches the server with the next upload.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Level</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>All areas (default)</td>
+<td>No cap</td>
+</tr>
+<tr>
+<td>Results entry and draw display</td>
+<td>Removes <em>Motions before release</em></td>
+</tr>
+<tr>
+<td>Results entry only</td>
+<td>Also removes <em>Draw display before release</em> and <em>Edit adjudicator allocations</em></td>
+</tr>
+<tr>
+<td>No access</td>
+<td>Every data-entry account is refused by every staff route and by the Firestore rules</td>
+</tr>
+</tbody></table></div>
+<p>The same card holds the private-URL ballot and feedback switches; see <a href="Ballots-and-Results.html">Ballots and results</a> and <a href="Private-URLs-and-Portals.html">Private URLs and portals</a>. Public form settings on this page are covered in <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="what-data-entry-staff-see-and-do">What data-entry staff see and do<a class="anchor" href="#what-data-entry-staff-see-and-do" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Data.</strong> Staff receive a filtered copy of the tournament from the server: no owner/admin details, no private URL keys or passcodes, no speaker or adjudicator emails or phone numbers, no audit log. Conflicts, scores and feedback contents only with the matching permission. Unreleased motions only with <em>Motions before release</em>; draft draws never; confirmed unreleased draws only with <em>Draw display before release</em> (otherwise only released or confirmed rounds for ballot entry); unrevealed panels only with <em>Edit adjudicator allocations</em>.</li>
+<li><strong>Results.</strong> Ballots and debate points reach their device only for rounds they may see: every round with <code>standings.view</code>; rounds whose results are released; for ballot staff also rounds still being entered and completed rounds that are not silent.</li>
+<li><strong>Sidebar.</strong> Links follow their permissions: Setup (Institutions, Teams, Adjudicators, Diversity, Code names, and Conflicts with <code>conflicts.view</code>); the round&#39;s Availability (<code>checkins.edit</code>), Allocation (<code>allocation.edit</code>) and Display (<code>draw.display</code>); Results; Feedback (<code>feedback.enter</code> or <code>feedback.view</code>); Standings, Break and Analytics (<code>standings.view</code>). Pages are also checked when opened directly.</li>
+<li><strong>Administrator-only pages:</strong> Draw, Configuration, Assistants, Private URLs, Email, Audit log, Data exports, Rehearsal, API access, Registration, Schedule, and the Venues, Motions, Speaker categories, Adjudicator requirements and Room preferences setup pages. On the Break page, changing categories, generating the break and overrides stay administrator work; preformed panels too.</li>
+<li><strong>Ballot confirmation.</strong> Staff with <em>Confirm others&#39; ballots</em> confirm on the Results page by review or by blind re-entry (confirmed only if it matches). Nobody confirms their own entry. Refused: unpublished draws, cancelled or completed rounds, advanced eliminations and rounds whose results are released, and a version that is no longer the latest. Staff confirmations are recorded on the ballot, not in the audit log.</li>
+<li><strong>Syncing.</strong> Their <strong>Upload</strong> sends only the records their permissions cover. A record changed by someone else in the meantime, or made from an outdated copy, is refused and kept on their device; allocations are checked per round (no adjudicator twice, no change to closed rounds or confirmed debates) and all-or-nothing per round.</li>
+</ul>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Server enforcement: the three staff routes (<code>assistant-data</code>, <code>data-entry-sync</code>, <code>assistant-ballots</code>) re-read the staff record inside each write transaction, so narrowing someone&#39;s groups applies to their next write. The Firestore rules check the same permissions on the two direct live writes staff make (ballot create, check-in update). Hidden links are never the only barrier. See <a href="Security-Model.html">Security model</a>.</li>
+<li>Invitation links are <code>{tournament}.{invitation}.{secret}</code> in the URL fragment (never sent to server logs); wrong tokens are throttled (30 failures per hour per address) and account creation is limited to 10 per address per hour. For defence in depth, turn off client sign-up in the Firebase console (Authentication → Settings → User actions).</li>
+<li>Invitations are only for cloud tournaments. Deleting a tournament does not delete its server-only records (invitations, custom groups).</li>
+<li>API tokens cannot change staff or group membership. See <a href="API-and-Tokens.html">API and tokens</a>.</li>
+</ul>
+<h2 id="differences-from-tabbycat">Differences from Tabbycat<a class="anchor" href="#differences-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Equity leaves out room-constraint and participant-contact permissions (room preferences, emails and phone numbers stay administrator-only).</li>
+<li>Adjudication core cannot edit motions, feedback questions or releases; make those people administrators.</li>
+<li>Data-entry staff cannot merge individual ballots, and cannot clear a test score (only change it).</li>
+</ul>
+<p>More: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-access.md">staff-access.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-invitations.md">staff-invitations.md</a>.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Email-and-Notifications.html" rel="prev"><span>Previous</span>Email and notifications</a><a class="pager-next" href="Backups-Restore-and-Cloud-Sync.html" rel="next"><span>Next</span>Backups, restore and cloud sync</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Staff-and-Roles.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#roles">Roles</a></li><li><a href="#giving-people-access">Giving people access</a></li><li><a href="#permissions">Permissions</a></li><li><a href="#what-data-entry-staff-see-and-do">What data-entry staff see and do</a></li><li><a href="#details">Details</a></li><li><a href="#differences-from-tabbycat">Differences from Tabbycat</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

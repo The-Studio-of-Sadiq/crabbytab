@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ballots and results · CrabbyTab guide</title>
+<meta name="description" content="Ballots and results: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html" aria-current="page">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="ballots-and-results">Ballots and results<a class="anchor" href="#ballots-and-results" aria-label="Link to this section">#</a></h1>
+<p>Results are entered as <strong>ballots</strong>. A debate can have several ballot <em>versions</em>; the one confirmed, non-discarded version is the result. Standings are calculated live from confirmed ballots.</p>
+<p>Where things are:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Task</th>
+<th scope="col">Where</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Enter, check and confirm ballots</td>
+<td>Sidebar <strong>Results → Results</strong> (page <em>Results &amp; ballot entry</em>): pick the round, then <strong>Enter ballot</strong> / <strong>Edit ballot</strong> on a debate</td>
+</tr>
+<tr>
+<td>Print ballot sheets, scan paper ballots</td>
+<td><strong>Print ballot sheets</strong> and <strong>Ballot intake</strong> links on the Results page (see <a href="Printing-and-Display.html">Printing and display</a>)</td>
+</tr>
+<tr>
+<td>Ballot settings</td>
+<td><strong>Admin → Configuration → Scoring &amp; ballots</strong>, card <em>Ballot rules and options</em></td>
+</tr>
+<tr>
+<td>Private-URL ballots, individual ballots, self-split</td>
+<td><strong>Admin → Assistants</strong> (page <em>Tournament access</em>), card <em>Staff access and private-URL ballots</em></td>
+</tr>
+<tr>
+<td>Public (non-private-URL) ballot form</td>
+<td>Same page, card <em>Public forms</em> (see <a href="Public-Pages-and-Releases.html">Public pages and releases</a>)</td>
+</tr>
+<tr>
+<td>Motion preferences</td>
+<td><strong>Setup → Motions</strong>, card <em>Motion settings</em></td>
+</tr>
+</tbody></table></div>
+<p>Deep reference: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/results-and-ballots.md">results-and-ballots.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/ballot-intake.md">ballot-intake.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-access.md">staff-access.md</a>.</p>
+<h2 id="ballot-settings">Ballot settings<a class="anchor" href="#ballot-settings" aria-label="Link to this section">#</a></h2>
+<p>All on <strong>Configuration → Scoring &amp; ballots</strong> unless stated.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Default</th>
+<th scope="col">What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Minimum / maximum speaker score, score step; reply minimum / maximum</td>
+<td>format preset</td>
+<td>Range and step every speech is checked against</td>
+</tr>
+<tr>
+<td>Ballot introduction/explanation</td>
+<td>empty</td>
+<td>Text shown on the tab-room ballot page, printed ballots, private-URL and public ballot forms</td>
+</tr>
+<tr>
+<td>Margin includes dissenters</td>
+<td>off</td>
+<td>Voting ballots: scores, totals and margins come from the whole panel instead of the majority</td>
+</tr>
+<tr>
+<td>Team score includes ghosts</td>
+<td>on for new tournaments</td>
+<td>Iron-person (ghost) speeches count towards the team total</td>
+</tr>
+<tr>
+<td>Require double-entry ballot verification</td>
+<td>off</td>
+<td>A second person must check each tab-room ballot (see below)</td>
+</tr>
+<tr>
+<td>How ballots are checked</td>
+<td>Review</td>
+<td><em>Review</em> or <em>Blind</em> double entry</td>
+</tr>
+<tr>
+<td>Ballots per debate, preliminary rounds</td>
+<td>Consensus</td>
+<td><em>Consensus</em> (one ballot per panel) or <em>Voting</em> (one sheet per voting adjudicator). Two-team formats only; BP is always consensus</td>
+</tr>
+<tr>
+<td>Ballots per debate, elimination rounds</td>
+<td>Same as preliminary</td>
+<td>Locked once an elimination ballot exists</td>
+</tr>
+<tr>
+<td>Record motion vetoes</td>
+<td>format preset</td>
+<td>Each team may record the motion it vetoed</td>
+</tr>
+<tr>
+<td>Allow forfeits</td>
+<td>off</td>
+<td>Two-team only: record a debate as forfeited by one side</td>
+</tr>
+<tr>
+<td>Allow motion reuse</td>
+<td>on</td>
+<td>Reuse a motion in another round</td>
+</tr>
+<tr>
+<td>Deciding the winner</td>
+<td>from the scores</td>
+<td>See <a href="#deciding-the-winner">Deciding the winner</a></td>
+</tr>
+<tr>
+<td>Ballots ask for speaker scores</td>
+<td>Always</td>
+<td><em>Always</em>, <em>Preliminary rounds only</em> or <em>Never</em> (<a href="#results-only-ballots">results-only ballots</a>)</td>
+</tr>
+<tr>
+<td>Speech ranks</td>
+<td>Do not rank</td>
+<td>Consensus ballots rank every substantive speech (adds the <em>Speech ranks (sum)</em> speaker metric)</td>
+</tr>
+<tr>
+<td>Panel score aggregation (voting ballots)</td>
+<td>Mean</td>
+<td><em>Mean</em> or <em>Median</em></td>
+</tr>
+<tr>
+<td>Maximum margin</td>
+<td>0 (no limit)</td>
+<td>Two-team: no scoresheet may have a bigger margin</td>
+</tr>
+<tr>
+<td>Reply score step</td>
+<td>half the speaker step</td>
+<td>Step for reply scores</td>
+</tr>
+<tr>
+<td>Reply speaker must have given a substantive speech</td>
+<td>on</td>
+<td>The last substantive speaker can never reply either way</td>
+</tr>
+<tr>
+<td>Side names</td>
+<td>Affirmative/Negative</td>
+<td>Two-team formats: Government/Opposition, Proposition/Opposition, Pro/Con, Team 1/Team 2 and others; used everywhere sides are shown</td>
+</tr>
+<tr>
+<td>Record motions on ballots</td>
+<td>on</td>
+<td>Off: ballots and printed scoresheets do not ask for the motion or vetoes</td>
+</tr>
+<tr>
+<td>Score criteria</td>
+<td>none</td>
+<td>Weighted criteria (e.g. WSDC Style/Content/Strategy); a speech&#39;s score is the weighted sum</td>
+</tr>
+<tr>
+<td>Bye team results (<em>Draw rules</em>)</td>
+<td>Absent</td>
+<td><em>Win</em> gives a bye team a win (see <a href="#byes">Byes</a>)</td>
+</tr>
+</tbody></table></div>
+<p><strong>Locked once ballots exist:</strong> the format, teams per debate, substantive speakers, reply scoring, preliminary ballot mode, <em>Ballots ask for speaker scores</em> and score criteria (existing ballots would no longer fit). Changing a scoring setting after ballots exist asks for confirmation; see <a href="#recalculating-stored-ballots-when-scoring-changes">Recalculating stored ballots</a>.</p>
+<h2 id="consensus-and-voting-ballots">Consensus and voting ballots<a class="anchor" href="#consensus-and-voting-ballots" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col"></th>
+<th scope="col">Consensus</th>
+<th scope="col">Voting</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Formats</td>
+<td>All</td>
+<td>Two-team formats, and N-team rooms (<a href="#n-teams-per-room">see below</a>); never BP</td>
+</tr>
+<tr>
+<td>Sheets</td>
+<td>One ballot for the whole panel</td>
+<td>One scoresheet per voting adjudicator: chair and panellists; trainees never vote</td>
+</tr>
+<tr>
+<td>Winner</td>
+<td>From the scores / declared, per <em>Deciding the winner</em></td>
+<td>Each sheet votes; the majority wins</td>
+</tr>
+<tr>
+<td>Speaker scores</td>
+<td>As entered</td>
+<td>Combined per speech over the relevant sheets (majority, or the whole panel with <em>Margin includes dissenters</em>)</td>
+</tr>
+<tr>
+<td>Team totals and margin</td>
+<td>Own total − opponent total (two-team); BP has no margin</td>
+<td>Mean of the relevant sheets&#39; own totals and margins</td>
+</tr>
+</tbody></table></div>
+<p><strong>Points.</strong> BP: 1st = 3, 2nd = 2, 3rd = 1, 4th = 0. Two-team: win = 1. N-team rooms: teams in the room − rank. Preliminary round points are multiplied by the round&#39;s weight (<em>Round settings</em>); wins and speaks are not.</p>
+<p><strong>Voting ballots in practice</strong></p>
+<ol>
+<li>Allocate a chair (the page says <em>Allocate a chair before entering voting ballots</em>).</li>
+<li>The speaker order is set on the chair&#39;s sheet and shared by every sheet.</li>
+<li>Enter each adjudicator&#39;s scores. Every sheet must produce a winner.</li>
+<li>A tied panel (e.g. 1–1) is decided by the chair&#39;s sheet. With no chair sheet the ballot is refused.</li>
+<li><strong>Fill from private-URL ballots</strong> copies each adjudicator&#39;s latest private-URL sheet into the ballot and warns about disagreements and missing adjudicators.</li>
+</ol>
+<p><strong>Mean or median.</strong> <em>Mean</em> is exact (not rounded). <em>Median</em> follows Tabbycat: an odd panel takes the median; an even panel takes the mean rounded up to a whole number (75 and 76 give 76). With score criteria each criterion is combined separately. Team totals and margins are always the mean of the sheets&#39; totals.</p>
+<h2 id="deciding-the-winner">Deciding the winner<a class="anchor" href="#deciding-the-winner" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Option</th>
+<th scope="col">Two-team</th>
+<th scope="col">BP</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>From the scores (default)</td>
+<td>Higher total wins; tied totals invalid</td>
+<td>Ranks follow totals; tied totals invalid</td>
+</tr>
+<tr>
+<td>Declared, as a check</td>
+<td>Declared winner must have the higher total</td>
+<td>As &quot;from the scores&quot;</td>
+</tr>
+<tr>
+<td>Declared, to break ties</td>
+<td>Equal totals allowed; declared winner may not have the lower total</td>
+<td>Entered ranks may order teams with equal totals</td>
+</tr>
+<tr>
+<td>Declared, overriding the scores</td>
+<td>Low-point wins allowed</td>
+<td>Any ranks accepted</td>
+</tr>
+</tbody></table></div>
+<p>This replaces the old <em>Allow low-point wins</em> switch (still read for older tournaments). It applies to every voting sheet as well.</p>
+<h2 id="validation">Validation<a class="anchor" href="#validation" aria-label="Link to this section">#</a></h2>
+<p>A ballot is checked before it saves; the page lists every problem.</p>
+<ul>
+<li><strong>Speeches:</strong> exactly the configured number of substantive speeches per team, in order, by speakers on the team&#39;s roster.</li>
+<li><strong>Scores:</strong> within range and on the step (or each criterion within its own range and step).</li>
+<li><strong>Ranks / winner:</strong> see above. BP needs each rank 1st–4th once.</li>
+<li><strong>Maximum margin</strong>, when set.</li>
+<li><strong>Replies</strong> (two-team, reply scoring on): one per team, not by the last substantive speaker, and (by default) by someone who gave a counted substantive speech.</li>
+<li><strong>Speech ranks</strong>, when on: no ties; with &quot;ranks must follow the scores&quot;, a higher score may not be ranked below a lower one.</li>
+<li><strong>Motion and vetoes:</strong> the motion must be one of the round&#39;s motions; a veto must be another of the round&#39;s motions.</li>
+</ul>
+<h3 id="iron-person-ghost-speeches">Iron-person (ghost) speeches<a class="anchor" href="#iron-person-ghost-speeches" aria-label="Link to this section">#</a></h3>
+<p>If a speaker appears twice the ballot is refused until the extra speech is marked <strong>Ghost</strong> (the button next to the speech). Ghost speeches never count in the speaker tab; they count towards the team total only with <em>Team score includes ghosts</em>.</p>
+<h2 id="self-split-ballots">Self-split ballots<a class="anchor" href="#self-split-ballots" aria-label="Link to this section">#</a></h2>
+<p><em>Allow self-split ballots for solo adjudicators</em> (Assistants page, Tabbycat&#39;s Karl Popper rule). In a two-team <strong>voting</strong> round, when a debate has exactly one voting adjudicator, the ballot page shows <strong>This was a 2:1 split decision (self-declared)</strong>.</p>
+<ul>
+<li>The winner is recorded with 2 votes and the loser 1, out of 3. Scores, winner and margin do not change.</li>
+<li>In standings the <em>votes/ballots carried</em> metric credits 2/3 and 1/3 of a panel.</li>
+<li>With <em>Show splitting adjudicators</em> on, the public site marks the adjudicator as splitting.</li>
+<li>Refused when the setting is off, the panel has more than one voting adjudicator, or the round uses consensus ballots. The checkbox is also on that adjudicator&#39;s private-URL ballot.</li>
+<li>Turning the setting off does not change saved ballots.</li>
+</ul>
+<h2 id="motions-vetoes-and-preferences-on-ballots">Motions, vetoes and preferences on ballots<a class="anchor" href="#motions-vetoes-and-preferences-on-ballots" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Motion debated.</strong> With one motion in the round it is recorded automatically. With several, the ballot asks which was debated; private-URL and public-form ballots must answer (checked on the server, never defaulted).</li>
+<li><strong>Vetoes</strong> (<em>Record motion vetoes</em>): one optional veto per team, from the round&#39;s other motions. Also offered on private-URL and public-form ballots. Vetoes appear in the motion statistics on <strong>Analytics</strong>, and publicly only once the veto statistics are released (see <a href="Public-Pages-and-Releases.html">Public pages and releases</a>).</li>
+<li><strong>Motion preferences</strong> (<em>Record ranked motion preferences</em>, Motions page): each team&#39;s ranking of the round&#39;s motions, most preferred first. A ranking may not repeat a motion or put its vetoed motion first. Tab-room entry only.</li>
+<li><strong>Record motions on ballots</strong> off: ballots, portals and printed sheets stop asking for the motion or vetoes.</li>
+</ul>
+<h2 id="results-only-ballots">Results-only ballots<a class="anchor" href="#results-only-ballots" aria-label="Link to this section">#</a></h2>
+<p><em>Ballots ask for speaker scores</em> = <em>Preliminary rounds only</em> or <em>Never</em>: affected ballots record only the result (<em>This round&#39;s ballots record the result only</em>).</p>
+<ul>
+<li>Two-team: the winner (or each adjudicator&#39;s declared winner on voting ballots). BP: the ranks.</li>
+<li>Points and wins count; team speaks, margins and the speaker tab leave the debate out.</li>
+<li>Rounds without speaker scores do not count against speakers for &quot;speeches missable&quot;.</li>
+</ul>
+<h2 id="forfeits">Forfeits<a class="anchor" href="#forfeits" aria-label="Link to this section">#</a></h2>
+<p>With <em>Allow forfeits</em> (two-team only), choose <strong>{team} forfeited</strong> on the ballot. The other team wins with 1 point; no speaker scores, margin 0. Forfeits are left out of speaks, margins and motion statistics.</p>
+<h2 id="byes">Byes<a class="anchor" href="#byes" aria-label="Link to this section">#</a></h2>
+<p>A bye needs no ballot. With <em>Bye team results</em> = <em>Win</em>, the team gets 1 point and a win in every format (in BP that counts as a third place), with <strong>no speaker scores and no margin</strong>. With <em>Absent</em> (default) nothing is added.</p>
+<blockquote>
+<p>The bye notice on the ballot page still says the win comes &quot;with prior average speaker scores&quot;. That text is out of date: standings award no speaker scores for a bye.</p>
+</blockquote>
+<h2 id="postponed-debates">Postponed debates<a class="anchor" href="#postponed-debates" aria-label="Link to this section">#</a></h2>
+<p>On the Draw page a debate can be marked <strong>postponed</strong>. Postponed debates are left out of standings, feedback and draw history and block round completion until resolved.</p>
+<h2 id="versions-confirming-and-discarding">Versions, confirming and discarding<a class="anchor" href="#versions-confirming-and-discarding" aria-label="Link to this section">#</a></h2>
+<p>Every save is a new <strong>version</strong>. The <em>Ballot versions</em> list on the entry page shows each with its status (<em>Confirmed</em>, <em>Discarded</em>, <em>Awaiting check</em>), the submitter (<em>Tab room</em>, <em>Public form</em>, <em>Adjudicator (private URL)</em>) and time, with <strong>Edit as new version</strong>, <strong>Confirm vN</strong> and <strong>Discard vN</strong>.</p>
+<ul>
+<li><strong>Confirming</strong> a version unconfirms the previously confirmed one; drafts and other versions are left as they are (Tabbycat&#39;s behaviour). It writes the points and totals onto the debate and records who confirmed it.</li>
+<li>A ballot whose teams no longer match the current draw cannot be confirmed (protects regenerated draws).</li>
+<li>A confirmed or discarded version is never edited in place: corrections are saved as a new version.</li>
+<li>An unconfirmed new version leaves the existing confirmed result in force until it is confirmed.</li>
+<li><strong>Discarding the confirmed version</strong> clears the result (you are warned). The debate goes back to <em>draft</em> if other versions remain, else <em>none</em>.</li>
+<li>Confirming or discarding a result <strong>withdraws the round&#39;s published results and team speaks</strong> so nothing stale stays public. Publish again when ready.</li>
+<li>Changing a result in a completed round asks for confirmation; results of an elimination round whose teams have advanced, or of a cancelled round, cannot change.</li>
+</ul>
+<p><strong>Two devices.</strong> On cloud tournaments, ballots of the active round sync live between administrator devices. If two devices confirm different versions before seeing each other, the sync status shows &quot;N double confirmations&quot;; discard the version that should not count. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<h2 id="double-entry">Double entry<a class="anchor" href="#double-entry" aria-label="Link to this section">#</a></h2>
+<p>With <em>Require double-entry ballot verification</em>:</p>
+<ul>
+<li><strong>Review</strong> (default): the first person uses <strong>Save for checking</strong>. A different person sees <em>Version N, entered by …, is waiting for your check</em>, compares it with the paper and confirms or discards it. If they change anything they can only <strong>Save corrected version (needs another check)</strong>.</li>
+<li><strong>Blind:</strong> the checker re-enters the paper ballot without seeing the first entry (its scores are <em>Hidden during blind check</em> in the history). Matching entries confirm the result and the checked entry is discarded. If they differ, <em>The two entries do not match</em> lists the differences (motion, forfeit, vetoes, sides, ranks/winners, self-split, every speech, or every sheet) and lets the checker record either entry; the other is kept as a discarded version.</li>
+</ul>
+<p><strong>Who counts as &quot;a different person&quot;.</strong> The signed-in account. Confirming your own entry is a rule a tab director can override with a recorded reason (see <a href="Audit-Log.html">Audit log</a>). On a signed-out single device people cannot be told apart, so the check is not applied. Data-entry staff with <em>Confirm others&#39; ballots</em> are always held to the same-person rule, double entry or not.</p>
+<p>Ballots from adjudicators&#39; private URLs are their own record, not tab-room data entry, so double entry does not apply to them; use <em>The tab room confirms</em> (below) if you want to review them.</p>
+<h2 id="ballots-from-adjudicators">Ballots from adjudicators<a class="anchor" href="#ballots-from-adjudicators" aria-label="Link to this section">#</a></h2>
+<p>Adjudicators submit from their <a href="Private-URLs-and-Portals.html">private URL</a> if they are the chair or a voting panellist of the debate (trainees cannot). Turn it off with <em>Ballot submissions from adjudicators through private URLs</em> (then the server refuses them). A <strong>public ballot form</strong> is a separate switch.</p>
+<p>The server re-checks every ballot with the same rules as the tab room. Private-URL ballots support ghost speeches, the motion, vetoes, results-only rounds and self-split; forfeits and motion preferences are tab-room only.</p>
+<p><em>Ballots submitted through private URLs</em>:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Option</th>
+<th scope="col">Behaviour</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>The tab room confirms</strong> (default for new tournaments, as Tabbycat)</td>
+<td>Every private-URL ballot is stored unconfirmed and waits for the tab room or staff with <em>Confirm others&#39; ballots</em></td>
+</tr>
+<tr>
+<td><strong>The chair confirms</strong> (tournaments created before the setting)</td>
+<td>A chair&#39;s ballot counts at once and replaces earlier ballots of the debate</td>
+</tr>
+</tbody></table></div>
+<p>Either way, a debate whose result the <strong>tab room confirmed</strong> is never overridden by a later chair ballot, and rounds that are completed, published or advanced do not accept automatic results: the new ballot waits as an unconfirmed version.</p>
+<p><strong>Voting rounds.</strong> A private URL records only the submitter&#39;s own sheet. If they are the debate&#39;s only voting adjudicator, that sheet becomes the voting ballot. Otherwise:</p>
+<ul>
+<li>Without <em>Individual ballots from every voting adjudicator</em>, the ballot is stored unconfirmed and the tab room enters the panel (Fill from private-URL ballots takes it).</li>
+<li>With it, each voting adjudicator&#39;s latest sheet is merged into one voting ballot. Sheets must agree on speakers, motion, vetoes and sides; disagreeing fields are cleared and flagged, never guessed. With <em>The chair confirms</em> a clean merge is confirmed when the last sheet arrives; with <em>The tab room confirms</em> use <strong>Fill from private-URL ballots</strong> and confirm.</li>
+</ul>
+<p>Public-form ballots are <strong>always</strong> unconfirmed. Ballot receipts can be emailed (<a href="Email-and-Notifications.html">Email and notifications</a>).</p>
+<h2 id="data-entry-staff">Data-entry staff<a class="anchor" href="#data-entry-staff" aria-label="Link to this section">#</a></h2>
+<p>Staff with <em>Enter ballots</em> save unconfirmed ballots only, may overwrite only their own unconfirmed ballots, and only for rounds whose draw is released and still running. Staff with <em>Confirm others&#39; ballots</em> can confirm or blind-check someone else&#39;s entry, but not where a tab-room override would be needed (completed, cancelled or released rounds, advanced eliminations). See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<h2 id="recalculating-stored-ballots-when-scoring-changes">Recalculating stored ballots when scoring changes<a class="anchor" href="#recalculating-stored-ballots-when-scoring-changes" aria-label="Link to this section">#</a></h2>
+<p>Team totals, margins and voting aggregates are stored on each ballot. If you change <em>Team score includes ghosts</em>, <em>Margin includes dissenters</em> or <em>Panel score aggregation</em> after ballots exist, saving asks you to confirm (&quot;the stored team totals of every entered ballot will be recalculated&quot;). CrabbyTab then recalculates every live ballot (Tabbycat&#39;s <code>resaveballots</code>), updates the debates and writes a <code>ballots.resaved</code> audit entry listing ballots changed, ballots whose <strong>result</strong> changed (a winner decided by totals can flip) and ballots skipped (forfeits, results-only ballots, individual sheets, ballots that no longer fit the ballot mode). Other scoring settings (ranges, winner rule, forfeits, bye results, speech ranks, maximum margin) also ask for confirmation but are not recalculated.</p>
+<p>Limitation: changing these settings through the REST API does not recalculate.</p>
+<h2 id="n-teams-per-room">N teams per room<a class="anchor" href="#n-teams-per-room" aria-label="Link to this section">#</a></h2>
+<p>For tournaments with rooms of other than 2 or 4 teams (e.g. the <em>Public Speaking</em> preset), ballots follow Tabbycat&#39;s &quot;poly&quot; rules:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Ballot</th>
+<th scope="col">What is recorded</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Consensus with speaker scores</td>
+<td>Teams ranked by total, highest first; tied totals refused. Points = teams in the room − rank. Nobody &quot;wins&quot;; no margin. Ranks always follow totals</td>
+</tr>
+<tr>
+<td>Consensus without speaker scores</td>
+<td>The advancing teams: exactly two, or one in the final round</td>
+</tr>
+<tr>
+<td>Voting</td>
+<td>Only with <em>Margin includes dissenters</em> on, and only with speaker scores. Scores only: each speech is the panel mean or median, each team total the mean of sheets; no ranks, points or winner</td>
+</tr>
+</tbody></table></div>
+<p>A short last room is scored on its own teams. Each private-URL sheet in a voting round records scores only. Elimination rooms advance the declared teams, or the top two by rank (one in the final); a scores-only voting ballot cannot decide who advances. Forfeits and self-split are two-team only. Motion statistics are not computed for these tournaments.</p>
+<h2 id="publishing-results-and-completing-a-round">Publishing results and completing a round<a class="anchor" href="#publishing-results-and-completing-a-round" aria-label="Link to this section">#</a></h2>
+<p>On the Results page, card <em>Round publication</em>:</p>
+<ul>
+<li><strong>Publish round results</strong> and <strong>Publish team speaks</strong> are separate; both stay disabled until every debate has a confirmed ballot or is a bye. Unpublishing is always allowed.</li>
+<li><strong>Silent round</strong> hides this round&#39;s results from the public tab.</li>
+<li><strong>Complete round</strong> (preliminary rounds) needs a draw, no postponed debates and a confirmed ballot for every non-bye debate. It can be reopened. Completion feeds break liveness and which rounds released tabs cover; standings do not wait for it.</li>
+<li>Elimination rounds use <strong>Proceed to next round</strong> instead (see <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>).</li>
+</ul>
+<p>What the public sees is covered in <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Rehearsal results:</strong> <em>Admin → Rehearsal tools</em> can generate simulated ballots that satisfy every ballot rule in force.</li>
+<li><strong>Paper intake:</strong> each printed sheet has a barcode id; the intake board tracks Missing → Received → Entered/Awaiting check → Confirmed, with <em>Disputed</em> for disagreeing entries.</li>
+<li><strong>Not done:</strong> per-criterion scores are not shown on public scoresheets. BP voting ballots are not offered (Tabbycat stores no points for them either).</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Venues-and-Constraints.html" rel="prev"><span>Previous</span>Venues and constraints</a><a class="pager-next" href="Feedback.html" rel="next"><span>Next</span>Feedback</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Ballots-and-Results.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#ballot-settings">Ballot settings</a></li><li><a href="#consensus-and-voting-ballots">Consensus and voting ballots</a></li><li><a href="#deciding-the-winner">Deciding the winner</a></li><li><a href="#validation">Validation</a></li><li><a href="#self-split-ballots">Self-split ballots</a></li><li><a href="#motions-vetoes-and-preferences-on-ballots">Motions, vetoes and preferences on ballots</a></li><li><a href="#results-only-ballots">Results-only ballots</a></li><li><a href="#forfeits">Forfeits</a></li><li><a href="#byes">Byes</a></li><li><a href="#postponed-debates">Postponed debates</a></li><li><a href="#versions-confirming-and-discarding">Versions, confirming and discarding</a></li><li><a href="#double-entry">Double entry</a></li><li><a href="#ballots-from-adjudicators">Ballots from adjudicators</a></li><li><a href="#data-entry-staff">Data-entry staff</a></li><li><a href="#recalculating-stored-ballots-when-scoring-changes">Recalculating stored ballots when scoring changes</a></li><li><a href="#n-teams-per-room">N teams per room</a></li><li><a href="#publishing-results-and-completing-a-round">Publishing results and completing a round</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

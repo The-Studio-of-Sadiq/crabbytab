@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ and troubleshooting · CrabbyTab guide</title>
+<meta name="description" content="FAQ and troubleshooting: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html" aria-current="page">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="faq-and-troubleshooting">FAQ and troubleshooting<a class="anchor" href="#faq-and-troubleshooting" aria-label="Link to this section">#</a></h1>
+<p>Common questions from organisers, and what to do when something looks wrong. Each answer links to the page with the
+full explanation.</p>
+<h2 id="accounts-and-access">Accounts and access<a class="anchor" href="#accounts-and-access" aria-label="Link to this section">#</a></h2>
+<p><strong>I signed in but cannot create a tournament.</strong>
+Only global administrators can create, import or load a demo tournament. Your account&#39;s UID must be in
+<code>FIREBASE_ADMIN_UIDS</code> on the server, the server needs Firebase Admin credentials, and the current <code>firestore.rules</code>
+must be deployed. After the variable changes, redeploy and sign out and in again. See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>How do people get an account?</strong>
+There is no open sign-up. Either create the account in the Firebase console, or invite people from the tournament&#39;s
+<strong>Staff</strong> page: they get an email link, choose a name and password, and receive the role in one step. If email is not
+set up, the invitation link is shown once on the Staff page so you can send it yourself. See
+<a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Adding a staff member says the account was not found.</strong>
+Assigning directly only works for an existing account. Send an invitation instead.</p>
+<p><strong>A staff member cannot see the tournament.</strong>
+The tournament must have been uploaded at least once, and the person must have a role on it. Ask them to reload
+<code>/tournaments</code>. The Staff page does not refresh by itself when someone accepts an invitation; reload it.</p>
+<p><strong>A data-entry staff member cannot see the draw, motions or standings.</strong>
+Their permission groups and the tournament&#39;s staff access level decide what they see. Check them on
+<strong>Tournament access</strong>, then upload (the access level is a tournament setting). See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<h2 id="working-offline-uploading-and-syncing">Working offline, uploading and syncing<a class="anchor" href="#working-offline-uploading-and-syncing" aria-label="Link to this section">#</a></h2>
+<p><strong>Does CrabbyTab work without internet?</strong>
+Yes, for the tab room. Each device keeps a full working copy in the browser and computes draws, allocations and
+standings itself. Offline changes stay on the device (live changes are queued and sent on reconnect). What needs the
+internet: uploading, releases (they are refused while offline), public pages, private URLs and email. See
+<a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<p><strong>My changes are not on the public page.</strong>
+Public pages show the last <strong>published</strong> cloud copy, not your device. Check, in order:</p>
+<ol>
+<li>The cloud status pill in the top bar. <em>N changes not uploaded</em> means they are only on this device: use
+<strong>Upload now</strong>. <em>N upload conflicts</em> or <em>Upload incomplete</em> means nothing was published; resolve or upload again.</li>
+<li>That the thing is released. Draws, results, motions, tabs and breaks each need their own release, and the
+matching switch under Configuration → Public visibility must be on. See
+<a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</li>
+<li>Open public pages check for updates every 45 seconds. Reload to see a change at once.</li>
+</ol>
+<p>Account menu → <strong>Republish public pages</strong> rebuilds the public pages from the cloud copy. If this device has changes
+that are not uploaded, it asks whether to upload them first.</p>
+<p><strong>Changes from another device are missing.</strong>
+Ballots, draws, allocations and check-ins sync live between administrator devices for the <strong>active round</strong>, within
+seconds. Everything else (settings, rounds and their releases, motions, rooms, breaks, feedback) needs an <strong>Upload
+now</strong> on the other device, then <strong>Download and compare</strong> or a reload here. Corrections to earlier rounds also arrive
+only after a reload or download. Check the pill says <strong>Live</strong> and that live updates are not paused on either device.</p>
+<p><strong>The pill shows sync conflicts.</strong>
+A record changed both here and in the cloud. Open <strong>Resolve sync conflicts</strong> (cloud status menu or account menu),
+compare the two versions, and pick <strong>Keep mine</strong> or <strong>Use cloud</strong> for each. Then upload. Nothing is lost: every
+replaced cloud version is archived, and account menu → <strong>Export sync recovery</strong> downloads them all.</p>
+<p><strong>The pill shows double confirmations.</strong>
+Two devices confirmed different ballots for the same debate before seeing each other&#39;s. Open that debate&#39;s ballots
+and discard the version that should not count. CrabbyTab never picks one for you.</p>
+<p><strong>&quot;The new draw is saved on this device, but updating the cloud copy did not finish.&quot;</strong>
+Press <strong>Upload now</strong>. The upload completes the change.</p>
+<p><strong>&quot;Could not save … locally&quot;.</strong>
+The browser&#39;s storage is full or blocked (some private-browsing modes do this). Export a backup (account menu), upload
+if you can, then free disk space or use a normal window. CrabbyTab retries with the next change.</p>
+<p><strong>I cleared my browser data or changed computers.</strong>
+If the tournament was uploaded, sign in and open it again: the cloud copy loads. Otherwise restore your last JSON
+backup (account menu → <strong>Restore tournament backup</strong>). Export backups regularly during the event.</p>
+<h2 id="public-pages-and-private-urls">Public pages and private URLs<a class="anchor" href="#public-pages-and-private-urls" aria-label="Link to this section">#</a></h2>
+<p><strong>The public link shows nothing or &quot;not found&quot;.</strong>
+A tournament that has never been uploaded exists only on your device. Upload it once; then the public URL works for
+everyone.</p>
+<p><strong>Participants&#39; private links do not work.</strong>
+Private URLs read the cloud copy, so new or regenerated links work only after you upload. <strong>Regenerate all private
+keys</strong> stops every link already handed out. See <a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</p>
+<p><strong>A private link says too many requests.</strong>
+Links are rate-limited (per link, and failed passcodes per network). Wait for the retry time shown. A whole venue on
+one network typing wrong passcodes can trigger the network limit.</p>
+<p><strong>Teams cannot see the motion on their portal.</strong>
+Release the motions for the round on the Motions page and make sure the release has been uploaded (releases upload
+and publish in one step when you are online).</p>
+<p><strong>Emailing private URLs is refused.</strong>
+Either a participant has no private URL or passcode yet (generate them on the Private URLs page), or one email
+address belongs to two different participants. Fix the duplicate address and try again.</p>
+<p><strong>Will search engines index our tournament or participants&#39; links?</strong>
+Private URLs, the projector and every tab-room page are excluded from crawling and marked <code>noindex</code>. For public
+pages, choose <strong>Search engines</strong> under Configuration → Public visibility: every page, only the public homepage, or
+none. Search engines may ignore <code>noindex</code>, so it is not a privacy control, and the sitemap is refreshed at most every
+six hours. See <a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a>.</p>
+<h2 id="draws">Draws<a class="anchor" href="#draws" aria-label="Link to this section">#</a></h2>
+<p><strong>&quot;Number of teams (…) must be divisible by …&quot;.</strong>
+Mark the right teams available for the round, add a swing team (Draw page, <strong>Swing teams</strong>), or set <em>Bye team
+selection method</em> to <em>Lowest ranked</em> or <em>Random</em>. See <a href="Rounds-and-Draws.html">Rounds and draws</a>.</p>
+<p><strong>The draw failed because of a side limit.</strong>
+<em>Maximum allowed side imbalance</em> is a hard limit. Raise it (0 turns it off) or adjust the draw by hand.
+<em>Maximum times per side</em> does not block a draw.</p>
+<p><strong>&quot;Every team needs a seed for a seeded draw.&quot;</strong>
+Seeded and round-robin draws need a seed for every team. Set them in the draw setup panel on the Draw page, or import
+them with the team seed column.</p>
+<p><strong>Can I regenerate a draw?</strong>
+Yes. If ballots exist you are warned that they will be discarded (kept in history, no longer counting). A confirmed
+or released draw needs a reason. Only regenerate if the round was not debated as drawn.</p>
+<p><strong>Can I run a format with three, five or six teams per room?</strong>
+Yes: the <em>N teams per room</em> format. As in Tabbycat, it supports random and manual draws only; power-paired, seeded
+and round-robin draws, side rules and generated elimination draws are refused. A random draw puts any remainder in
+a short last room, or gives byes if a bye method is set. See <a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</p>
+<h2 id="results">Results<a class="anchor" href="#results" aria-label="Link to this section">#</a></h2>
+<p><strong>I can&#39;t confirm a ballot I entered.</strong>
+With double entry on, a different person must check it.</p>
+<p><strong>&quot;… is declared the winner with a lower total. Low-point wins are not allowed.&quot;</strong>
+Fix the scores, or set <em>Deciding the winner</em> (tournament settings, results rules) to allow low-point wins if your
+rules permit them. See <a href="Ballots-and-Results.html">Ballots and results</a>.</p>
+<p><strong>&quot;… speaks more than once&quot;.</strong>
+Mark the extra speech as an iron-person (ghost) speech.</p>
+<p><strong>Published results disappeared from the public page.</strong>
+Confirming a changed ballot, or discarding the confirmed one, withdraws the round&#39;s results and team speaks release.
+Check the result and release it again.</p>
+<p><strong>An adjudicator&#39;s private-URL ballot does not show up.</strong>
+Private-URL ballots go to the cloud. For the active round they reach administrator devices live; for other rounds use
+<strong>Download and compare</strong> or reload. Depending on <em>Ballots submitted through private URLs</em>, a chair&#39;s ballot either
+counts at once or waits unconfirmed for the tab room. It never replaces a ballot the tab room already confirmed.</p>
+<h2 id="language">Language<a class="anchor" href="#language" aria-label="Link to this section">#</a></h2>
+<p><strong>How do I change the interface language?</strong>
+For yourself: account menu → language (or the language menu on public pages). For participants: Configuration →
+Public visibility → <strong>Public pages and portals language</strong>; a viewer&#39;s own choice still wins. All languages other than
+English are machine-drafted and need review. Emails and some server messages are still in English. See
+<a href="Languages-and-Translations.html">Languages and translations</a>.</p>
+<h2 id="hosting-and-quota">Hosting and quota<a class="anchor" href="#hosting-and-quota" aria-label="Link to this section">#</a></h2>
+<p><strong>Are we within the free Firestore quota?</strong>
+Public audience size barely matters: public pages are served from cached snapshots. Reads come mainly from opening
+the tournament on admin devices, uploads, downloads and private-URL use. A 100-team event with a few admin devices
+stays well inside Spark&#39;s 50,000 reads a day. A 1000-team event&#39;s first upload is about 10,000 writes, so plan on the
+Blaze plan for events that size. Upload when you need to, not constantly. See
+<a href="Deploying-to-Vercel-and-Firebase.html#staying-inside-the-spark-budget">Deploying to Vercel and Firebase</a> and
+<a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a>.</p>
+<p><strong>Can I run it without Firebase?</strong>
+Without Firebase configured nobody can sign in, so no tournament can be created, and there are no public pages,
+private URLs, staff accounts or email. In practice a Firebase project is required.</p>
+<p>Still stuck? Open an issue on <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">GitHub</a>. Never include
+participant data or credentials.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Security-Model.html" rel="prev"><span>Previous</span>Security model</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/FAQ-and-Troubleshooting.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#accounts-and-access">Accounts and access</a></li><li><a href="#working-offline-uploading-and-syncing">Working offline, uploading and syncing</a></li><li><a href="#public-pages-and-private-urls">Public pages and private URLs</a></li><li><a href="#draws">Draws</a></li><li><a href="#results">Results</a></li><li><a href="#language">Language</a></li><li><a href="#hosting-and-quota">Hosting and quota</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

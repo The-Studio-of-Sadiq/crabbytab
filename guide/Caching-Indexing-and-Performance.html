@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caching, indexing and performance · CrabbyTab guide</title>
+<meta name="description" content="Caching, indexing and performance: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html" aria-current="page">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="caching-indexing-and-performance">Caching, indexing and performance<a class="anchor" href="#caching-indexing-and-performance" aria-label="Link to this section">#</a></h1>
+<p>How CrabbyTab keeps public pages fast and inside the Firestore free tier (Spark: 50,000 document reads
+per day), how search engines see a tournament, and what is known about very large (1000-team) events.</p>
+<h2 id="for-organisers">For organisers<a class="anchor" href="#for-organisers" aria-label="Link to this section">#</a></h2>
+<h3 id="public-pages-show-the-last-published-copy">Public pages show the last published copy<a class="anchor" href="#public-pages-show-the-last-published-copy" aria-label="Link to this section">#</a></h3>
+<p>Public pages, the projector (<code>/{slug}/display</code>) and private-URL portals never read your device. They
+read a <strong>public snapshot</strong> that the server builds from the cloud copy when you publish.</p>
+<ul>
+<li><strong>Releasing something publishes it.</strong> Releasing or unreleasing a draw, results, team speaks, a motion,
+a tab, a break or a participant list uploads this device&#39;s pending changes and publishes public pages
+in one step. If the upload or the publish fails, the dialog says the change is saved on this device
+but <strong>not public yet</strong>.</li>
+<li><strong>Upload now</strong> also publishes after the upload, unless the upload left sync conflicts (publishing then
+would mix your changes with older versions). Resolve the conflicts first.</li>
+<li><strong>Republish public pages</strong> (in the top-bar menu, with Tournament settings and the backup actions) publishes again without other changes, for example
+after changing a public-visibility setting.</li>
+<li>Changes made only by data-entry staff reach public pages after the next administrator upload or publish.</li>
+<li>A tournament that has <strong>never been published</strong> is built live from its cloud collections and cached for
+five minutes. That is expensive for large events, so publish once before you share links.</li>
+</ul>
+<h3 id="how-quickly-the-public-sees-a-change">How quickly the public sees a change<a class="anchor" href="#how-quickly-the-public-sees-a-change" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Who is looking</th>
+<th scope="col">When they see the new version</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Someone opening or reloading a public page</td>
+<td>Within about 15 seconds (the CDN cache of the main response)</td>
+</tr>
+<tr>
+<td>A public page or projector left open</td>
+<td>At the next version check, every 45 seconds while the tab is visible</td>
+</tr>
+<tr>
+<td>Check-in status page</td>
+<td>Within about 15 seconds of the next publish</td>
+</tr>
+<tr>
+<td>Schedule page / calendar feed</td>
+<td>Within about 2 / 5 minutes</td>
+</tr>
+</tbody></table></div>
+<p>Public pages open with the latest round straight away and load earlier rounds after it, so standings and
+results can fill in a moment later on big tournaments.</p>
+<h3 id="search-engines">Search engines<a class="anchor" href="#search-engines" aria-label="Link to this section">#</a></h3>
+<p><strong>Admin → Configuration → Public visibility → Public homepage → Search engines</strong> (Tabbycat&#39;s
+<code>search_engine_indexing</code>) has three choices:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Choice</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Allow every public page to be indexed (default)</td>
+<td>Public pages are indexable; the sitemap lists the public tab plus the schedule and check-in pages when they are switched on.</td>
+</tr>
+<tr>
+<td>Only the public tab homepage</td>
+<td>Only <code>/{slug}/public</code> is indexable; every other public page gets <code>noindex, nofollow</code>. The sitemap lists the public tab only.</td>
+</tr>
+<tr>
+<td>No pages</td>
+<td>Every public page gets <code>noindex, nofollow</code>; the tournament is left out of the sitemap.</td>
+</tr>
+</tbody></table></div>
+<p>Gotchas:</p>
+<ul>
+<li><code>noindex</code> is a request; well-behaved search engines follow it, others may not. <strong>It is not a privacy
+control</strong> — anyone with the link can still open a public page. Hide information with the public
+visibility settings instead.</li>
+<li>The setting takes effect when you publish (it is read from the public snapshot).</li>
+<li>The cross-tournament motion statistics page (<code>/tournaments/motions/public</code>) is <code>noindex</code> whenever any
+tournament pooled there has a setting other than &quot;all&quot;.</li>
+<li>Link previews (title, description, image when a link is pasted into chat apps) are produced whatever
+the setting. The description is the first paragraph of your public homepage (as plain text), else
+your welcome message, shortened to 160 characters, or a generated sentence.</li>
+<li>The tab room, projector, private URLs, sign-in, invitation and account pages are always <code>noindex</code>.</li>
+</ul>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<h3 id="what-costs-firestore-reads">What costs Firestore reads<a class="anchor" href="#what-costs-firestore-reads" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Activity</th>
+<th scope="col">Reads</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A visitor opening a public page</td>
+<td>Normally none: served from the CDN or the Vercel Data Cache. A cache miss costs one read per snapshot chunk it needs.</td>
+</tr>
+<tr>
+<td>Version checks from open public pages</td>
+<td>None after the first per publish (cached).</td>
+</tr>
+<tr>
+<td>A publish</td>
+<td>A few aggregation reads to check whether anything changed (skipped publish ≈ 3 reads + one per source collection); otherwise one full read of every public collection (<code>feedback</code> only when a public feature needs it) plus writes of the changed sections.</td>
+</tr>
+<tr>
+<td>An administrator device opening a cloud tournament</td>
+<td>One read of every collection, then live listeners: about 325 reads for a 100-team BP event, plus about one read per change per other administrator device.</td>
+</tr>
+<tr>
+<td>A private-URL portal load</td>
+<td>Only that participant&#39;s debates, their teams and their ballots (about 10 debates for a team at a 1000-team BP event), via the <code>participantIds</code> index.</td>
+</tr>
+<tr>
+<td>Sitemap</td>
+<td>At most one read per published tournament every six hours.</td>
+</tr>
+<tr>
+<td>Pooled motion statistics</td>
+<td>About one read per contributing tournament per hour.</td>
+</tr>
+</tbody></table></div>
+<p>Anonymous visitors never open Firestore listeners; only administrator devices do (see
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md#cost-spark-tier">live-collaboration.md</a>).</p>
+<h3 id="publish-time-snapshots-srclibpublicview">Publish-time snapshots (<code>src/lib/publicView/*</code>)<a class="anchor" href="#publish-time-snapshots-srclibpublicview" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><code>projection.ts</code> decides what is public (an allowlist: hidden values never reach a snapshot, a cache or
+a browser). <code>derived.ts</code> computes tabs and aggregates at publish time. See <a href="Security-Model.html">Security model</a>.</li>
+<li><code>snapshot.ts</code> splits the view into <strong>sections</strong>: base sections (<code>tournament</code>, <code>rounds</code>, <code>teams</code>,
+<code>adjudicators</code>, <code>venues</code>, <code>motions</code>, <code>breakCategories</code>, <code>institutions</code>, <code>checkins</code>, <code>tabs</code>, <code>derived</code>)
+and one <code>round-{roundId}</code> section per public round with that round&#39;s debates and ballots. Each
+section is hashed (<code>hash.ts</code>) and chunked into documents of at most about 700 KB.</li>
+<li><code>store.ts</code> (<code>publishPublicView</code>, called by <code>POST /api/tournaments/[id]/public-view</code>):<ol>
+<li>Skips the rebuild when the device&#39;s public fingerprint and the cloud source token (aggregation
+counts and <code>syncVersion</code> sums) both match the last publish.</li>
+<li>Otherwise reads the source collections, writes only the sections whose hash changed to
+<code>publicViews/{slug}/chunks/{section}-{hash}-{i}</code>, then switches the root <code>publicViews/{slug}</code>
+over in one write, then deletes chunks the new root no longer uses.</li>
+<li>Retires views published under an older slug and calls <code>revalidateTag(publicViewTag(slug))</code>
+(tag <code>public-view:{slug}</code>).</li>
+</ol>
+</li>
+<li>The root also stores a small <code>seo</code> summary and, when motion statistics are released, a
+<code>motionSummary</code>, so the sitemap and pooled motion page never read whole snapshots.</li>
+</ul>
+<h3 id="vercel-data-cache">Vercel Data Cache<a class="anchor" href="#vercel-data-cache" aria-label="Link to this section">#</a></h3>
+<p>Server reads go through <code>unstable_cache</code> (Next.js 15; <code>&quot;use cache&quot;</code> is not used):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Entry</th>
+<th scope="col">Key</th>
+<th scope="col">Revalidate</th>
+<th scope="col">Invalidated by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public view root</td>
+<td><code>public-view-root</code>, slug</td>
+<td>1 hour</td>
+<td>tag <code>public-view:{slug}</code> on every publish</td>
+</tr>
+<tr>
+<td>Section</td>
+<td>slug, section, hash, chunk count</td>
+<td>24 hours</td>
+<td>never needed: content-addressed by hash</td>
+</tr>
+<tr>
+<td>Never-published fallback</td>
+<td><code>public-view-live</code>, slug</td>
+<td>5 minutes</td>
+<td>tag <code>public-view:{slug}</code> on first publish</td>
+</tr>
+<tr>
+<td>Sitemap sources</td>
+<td><code>public-sitemap-sources</code></td>
+<td>6 hours</td>
+<td>tag <code>public-sitemap</code> (publishes deliberately do not clear it)</td>
+</tr>
+<tr>
+<td>Pooled motion summaries</td>
+<td><code>public-motion-summaries</code></td>
+<td>1 hour</td>
+<td>none</td>
+</tr>
+</tbody></table></div>
+<p>Because sections are cached separately and keyed by hash, publishing one round&#39;s results invalidates
+only the root and the sections that actually changed; every entry stays well below the cache&#39;s 2 MB limit.</p>
+<h3 id="cdn-headers">CDN headers<a class="anchor" href="#cdn-headers" aria-label="Link to this section">#</a></h3>
+<p><code>publicCacheHeaders(sMaxAge, staleWhileRevalidate)</code> sends
+<code>Cache-Control: public, max-age=0, s-maxage=…, stale-while-revalidate=…</code>: browsers always revalidate,
+the CDN absorbs refresh storms.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Route (<code>/api/public/...</code>)</th>
+<th scope="col"><code>s-maxage</code> / <code>stale-while-revalidate</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>tournaments/[slug]</code> (base + latest round)</td>
+<td>15 s / 30 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]?round={id}&amp;h={hash}</code> with the current hash</td>
+<td>1 day / 1 hour (a content address)</td>
+</tr>
+<tr>
+<td>same with a stale or missing hash</td>
+<td>15 s / 30 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/version</code></td>
+<td>10 s / 20 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/checkins</code>, <code>/forms</code></td>
+<td>15 s / 30 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/registration</code></td>
+<td>30 s / 60 s (60 s / 120 s when closed)</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/audit</code> (release status)</td>
+<td>60 s / 300 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/schedule</code></td>
+<td>120 s / 600 s</td>
+</tr>
+<tr>
+<td><code>tournaments/[slug]/schedule/ical</code></td>
+<td>300 s / 900 s</td>
+</tr>
+<tr>
+<td><code>motions</code> (pooled statistics)</td>
+<td>600 s / 3600 s</td>
+</tr>
+</tbody></table></div>
+<h3 id="version-polling-and-per-round-paging">Version polling and per-round paging<a class="anchor" href="#version-polling-and-per-round-paging" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Public pages and the projector poll <code>/version</code> every 45 s (<code>PUBLIC_VIEW_POLL_MILLISECONDS</code>), only while
+the browser tab is visible, and refetch the projection only when the version changed.</li>
+<li>The main response holds every base section, the latest public round, and <code>roundSections</code>
+(round id → hash). Public pages then load the other rounds three at a time; the projector loads only
+the round it shows; private portals load every round first (<code>fetchCompletePublicProjection</code>). Rounds
+whose hash did not change are kept.</li>
+<li>Views published before per-round sections are still served (split by round when read) until the
+next publish rewrites them.</li>
+</ul>
+<h3 id="robotstxt-sitemapxml-and-metadata">robots.txt, sitemap.xml and metadata<a class="anchor" href="#robotstxt-sitemapxml-and-metadata" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong><code>src/app/robots.ts</code></strong> returns <code>buildRobotsRules(resolveSiteUrl())</code> from <code>src/lib/seo/robotsRules.ts</code>:
+one rule for every crawler that allows <code>/</code> and the public pages (<code>/*/public</code>, <code>/*/public/…</code>,
+<code>/*/schedule/public</code>, <code>/*/checkins/public</code>, <code>/*/audit/public</code>) and disallows <code>/api/</code> (including
+<code>/api/public/</code>), <code>/login</code>, <code>/invite</code>, <code>/account</code>, <code>/forgot-password</code>, <code>/tournaments/new|import|demo</code>,
+private URLs (<code>/*/private/</code>), the projector (<code>/*/display</code>) and every tab-room section from
+<code>TOURNAMENT_STAFF_SECTIONS</code>. Because crawlers apply the longest matching rule, each disallowed section
+has a longer Allow for its public twin. It points to <code>{site}/sitemap.xml</code>. A test fails if a route
+folder under <code>src/app/[tournamentSlug]/</code> is missing from the section list.</li>
+<li><strong><code>src/app/sitemap.ts</code></strong> is rendered per request (<code>force-dynamic</code>, so a build without credentials does
+not bake in an empty sitemap). It lists the site home page plus <code>publicSitemapEntries</code> for every
+<strong>published</strong> tournament (<code>publicViews/{slug}</code> roots, at most 15,000): nothing under &quot;none&quot;, the public
+tab (priority 0.8) under &quot;homepage only&quot;, and under &quot;all&quot; also the schedule (0.5) and check-in (0.3)
+pages when switched on, with <code>lastModified</code> from the publish time. Without Firebase admin credentials
+or on a Firestore error it lists only the home page. Record pages, the audit log and the registration
+form are not listed but stay crawlable through links.</li>
+<li><strong>Metadata.</strong> <code>src/app/[tournamentSlug]/layout.tsx</code> sets <code>noindex, nofollow</code> for everything under a
+tournament. Public pages override it in <code>generateMetadata</code> via <code>publicPageMetadata</code>
+(<code>src/lib/publicView/robots.ts</code>), which reads only the cached <code>tournament</code> section and returns a
+title (<code>{page} · {tournament} | CrabbyTab</code>), description, canonical URL, Open Graph and Twitter cards
+with <code>/og-image.png</code>, and robots from <code>robotsForPublicPage</code>. This covers the public tab (the
+&quot;homepage&quot;), team and adjudicator record pages, the public ballot and feedback forms
+(<code>/public/ballots</code>, <code>/public/feedback</code>), the schedule, check-in and audit pages, and the
+registration form. An unknown tournament is <code>noindex</code>; any other read error
+keeps the page indexable so a transient failure does not drop it from search results.</li>
+<li>Absolute URLs use <code>NEXT_PUBLIC_APP_URL</code>, else <code>https://$VERCEL_URL</code>, else <code>http://localhost:3000</code>
+(<code>src/lib/seo/site.ts</code>). Set <code>NEXT_PUBLIC_APP_URL</code> in production so the sitemap and canonical URLs use
+your real domain.</li>
+</ul>
+<h3 id="large-tournaments-1000-teams">Large tournaments (1000 teams)<a class="anchor" href="#large-tournaments-1000-teams" aria-label="Link to this section">#</a></h3>
+<p>From <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md">storage-and-scale.md</a>:</p>
+<ul>
+<li><strong>Device storage.</strong> The working copy is in IndexedDB (a 1000-team working copy is 7–13 MB, beyond
+localStorage&#39;s ~5 MB). Without IndexedDB (some private-browsing modes) it falls back to localStorage
+and its limit.</li>
+<li><strong>Uploads</strong> send only records changed since the last sync, in transactions of up to 150 records.
+An initial upload of a 1000-team BP event is about 10,000 reads and 10,300 writes; uploading again with
+nothing changed is about 4 reads. Spark allows 20,000 writes a day, so <strong>plan on the Blaze plan</strong> for
+events of this size.</li>
+<li><strong>Public snapshot</strong> after 9 rounds: about 5 MB (BP) or 8.4 MB (WSDC) in 18 sections, the largest under
+900 KB; the first public response is 0.9–1.3 MB.</li>
+<li><strong>Speed.</strong> Draws take up to about 3 s a round, standings under 0.1 s; auto-allocation is the slowest
+step (seconds per round) and runs in a Web Worker so the page stays usable. Large rounds can be split
+into shards on the allocation board.</li>
+<li>The benchmark (<code>src/features/tournament/application/scale.test.ts</code>) plays 2 rounds by default;
+<code>CRABBYTAB_SCALE=full</code> plays all 9 and <code>CRABBYTAB_SCALE=off</code> skips it. See <a href="Testing.html">Testing</a>.</li>
+</ul>
+<h3 id="known-limits">Known limits<a class="anchor" href="#known-limits" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Publishing reads every public collection once (unless nothing changed), so publish when something is
+ready rather than continuously on very large events.</li>
+<li>Never-published tournaments are built live and may be too large to cache.</li>
+<li>A second browser tab sees another tab&#39;s changes to the same tournament only after a reload.</li>
+</ul>
+<p>See also: <a href="Architecture.html">Architecture</a>, <a href="Public-Pages-and-Releases.html">Public pages and releases</a>,
+<a href="Settings-Reference.html">Settings reference</a>, <a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a>, and
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md">public-pages-and-notifications.md</a>.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Comparison-with-Tabbycat.html" rel="prev"><span>Previous</span>Comparison with Tabbycat</a><a class="pager-next" href="Architecture.html" rel="next"><span>Next</span>Architecture</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Caching-Indexing-and-Performance.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

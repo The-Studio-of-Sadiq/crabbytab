@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breaks and eliminations · CrabbyTab guide</title>
+<meta name="description" content="Breaks and eliminations: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html" aria-current="page">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="breaks-and-eliminations">Breaks and eliminations<a class="anchor" href="#breaks-and-eliminations" aria-label="Link to this section">#</a></h1>
+<p>The <strong>Break</strong> page (sidebar → <strong>Results</strong> → <strong>Break</strong>) manages break categories, calculates and generates each category&#39;s break, and links to <strong>Edit eligibility</strong> and <strong>Breaking adjudicators</strong>. Elimination rounds then run from the <strong>Draw</strong> and <strong>Results</strong> pages. Staff with <code>standings.view</code> can see the Break page; changing it is for administrators.</p>
+<p>Developer reference: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/standings-and-breaks.md">standings-and-breaks.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/draw-generation.md">draw-generation.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tournament-rules-enforcement.md">tournament-rules-enforcement.md</a>. Code: <code>src/lib/breakqual/</code>, <code>src/lib/draw/elimination.ts</code>, <code>src/features/tournament/application/breaks.ts</code>.</p>
+<h2 id="step-by-step">Step by step<a class="anchor" href="#step-by-step" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>Create the elimination rounds</strong> (the setup wizard does this from your largest break size, or add them from the round menu). A break needs enough non-cancelled elimination rounds for its size.</li>
+<li><strong>Add break categories</strong> on the Break page (<em>Add break category</em>), e.g. Open, ESL, Novice.</li>
+<li><strong>Set eligibility</strong>: <em>Edit eligibility</em> on the Break page, the team&#39;s own record, the <code>break_categories</code> CSV column, or a speaker-category rule (below).</li>
+<li>When the preliminary rounds are done, check each category&#39;s calculated break, resolve any <strong>cutoff tie</strong> or <strong>too few eligible</strong> error, then press <strong>Generate Break</strong>.</li>
+<li><strong>Release</strong> the break in the <strong>Public release</strong> panel (Standings page) when you announce it.</li>
+<li>Draw each elimination round on the <strong>Draw</strong> page, enter ballots, then <strong>Proceed to next round</strong> on the <strong>Results</strong> page.</li>
+</ol>
+<h2 id="break-categories">Break categories<a class="anchor" href="#break-categories" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Field</th>
+<th scope="col">Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Category name</td>
+<td>e.g. &quot;ESL Break&quot;.</td>
+</tr>
+<tr>
+<td>Break size</td>
+<td>Teams that break. Two-team: at least 2. BP: even and at least 4. N teams per room: at least 1. It need not be a power of two (see partial eliminations).</td>
+</tr>
+<tr>
+<td>Reserve size</td>
+<td>Reserves listed after the breaking teams (R1, R2, …). 0 or more.</td>
+</tr>
+<tr>
+<td>Priority order (higher takes precedence)</td>
+<td>Categories are processed from the highest priority down. A team that breaks in a category is left out of every <strong>lower-priority</strong> category (&quot;Different break&quot;). Categories of <strong>equal priority</strong> do not exclude each other, so a team can break in both (as in Tabbycat).</td>
+</tr>
+<tr>
+<td>General category</td>
+<td>Every team is eligible (like an Open break) unless marked <em>Ineligible</em>. Otherwise only teams marked eligible for this category.</td>
+</tr>
+<tr>
+<td>Break qualification rule</td>
+<td>See below.</td>
+</tr>
+<tr>
+<td>Maximum qualifiers per institution</td>
+<td>0 = no limit. Applies to breaking teams and reserves, <strong>Standard rule only</strong> (excluded teams show as &quot;Capped (institution limit)&quot;).</td>
+</tr>
+<tr>
+<td>Public tab limit</td>
+<td>The public team tab for this category shows only teams ranked this high or better (ties at the limit are kept, and the page says &quot;Showing the top N only&quot;). 0 = every team.</td>
+</tr>
+</tbody></table></div>
+<p>A category cannot be deleted while it has a generated break or an elimination round using it has been drawn.</p>
+<h3 id="eligibility">Eligibility<a class="anchor" href="#eligibility" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Edit eligibility</strong> (<code>/break/eligibility</code>) is a team × category checkbox grid with a whole-column checkbox per category (for the teams the search shows). A <strong>general</strong> category&#39;s column sets the <em>Ineligible</em> override instead of membership. Changes are a draft until saved; regenerate a break to use them.</li>
+<li><strong>Eligibility from speaker categories</strong> (panel on the Break page, non-general categories): a rule such as &quot;every speaker&quot; or &quot;at least N speakers&quot; in a speaker category (e.g. ESL). The page shows how many teams would gain or lose eligibility and applies it only when you confirm, as one batch with an audit event. It is not re-applied automatically, so later manual edits are kept until the next apply.</li>
+</ul>
+<h2 id="qualification-rules">Qualification rules<a class="anchor" href="#qualification-rules" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Rule</th>
+<th scope="col">Formats</th>
+<th scope="col">Behaviour</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Standard</strong> (default)</td>
+<td>All</td>
+<td>Highest-ranked eligible teams; the per-institution limit applies.</td>
+</tr>
+<tr>
+<td><strong>AIDA 1996</strong></td>
+<td>All</td>
+<td>At most three teams per institution.</td>
+</tr>
+<tr>
+<td><strong>AIDA 2016 Australs</strong></td>
+<td>Two-team</td>
+<td>Only teams with at least the wins of the team in the last breaking place can break <strong>or be reserves</strong>. A team is capped if it is its institution&#39;s 2nd or later team below the natural cutoff, or its institution&#39;s 4th or later team. If the break comes up short, capped teams are reinserted in rank order, teams tied on every metric together.</td>
+</tr>
+<tr>
+<td><strong>AIDA 2016 Easters</strong></td>
+<td>Two-team</td>
+<td>As Australs, but capped teams within their institution&#39;s top three are reinserted first.</td>
+</tr>
+<tr>
+<td><strong>AIDA 2019 Australs (open, dynamic cap)</strong></td>
+<td>Two-team</td>
+<td>AIDA 2016 Australs with an institution cap of 3, plus one for every 8 teams the break exceeds 16 (3 up to 23, 4 for 24–31, 5 for 32–39, …).</td>
+</tr>
+</tbody></table></div>
+<p>The AIDA 2016/2019 rules need wins, so they are refused for BP. <strong>Institution rank</strong> (the AIDA rules&#39; &quot;nth team of its institution&quot;) is counted over every team in the category&#39;s standings, including ineligible, excluded and already-broken teams, and teams tied in the standings share it. Institutions are matched by id, falling back to the name.</p>
+<h2 id="ranking-within-a-category">Ranking within a category<a class="anchor" href="#ranking-within-a-category" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>A <strong>general</strong> category ranks every team on the overall standings and keeps overall ranks (column &quot;Tab rank&quot;).</li>
+<li>A <strong>non-general</strong> category ranks only its own teams (eligible plus manually included) among themselves: ranks restart at 1 (column &quot;Category rank&quot;) and who-beat-whom compares teams tied within the category. Teams that broke in a higher-priority category stay in this ranking, so the first ESL breaker can be ranked 2nd. Other metrics (draw strength included) are tournament-wide values.</li>
+</ul>
+<h2 id="overrides">Overrides<a class="anchor" href="#overrides" aria-label="Link to this section">#</a></h2>
+<p>Under <strong>Manual overrides</strong>, each team can get one override per category:</p>
+<ul>
+<li><strong>Manually included</strong>: takes a break place first, bypassing eligibility and caps. A team still never breaks in two categories of different priority.</li>
+<li><strong>Ineligible</strong>, <strong>Withdrawn</strong>, <strong>Different break</strong>, <strong>Disqualified</strong>, <strong>Lost coin toss</strong>: remove the team from this category.</li>
+</ul>
+<p>The list of excluded teams shows every manual exclusion, plus rule-based exclusions (different break, capped) of teams ranked above the last breaking team. Overrides (remarks) are never published.</p>
+<h2 id="ties-at-the-cutoff">Ties at the cutoff<a class="anchor" href="#ties-at-the-cutoff" aria-label="Link to this section">#</a></h2>
+<p>When teams level on every precedence metric straddle the last breaking place or the last reserve place, CrabbyTab <strong>holds the whole tied group out</strong> and <strong>refuses to generate the break</strong> until you decide. It never settles a tie by name or any other arbitrary order, and never makes a break larger than its size (the elimination bracket depends on it).</p>
+<ul>
+<li>The Break page lists the tied teams as &quot;Tied&quot; and explains the fix; <em>Generate Break</em> stays disabled.</li>
+<li>Resolve it (for example by coin toss) with overrides: <strong>Manually included</strong> for the team(s) that go through (the others stay in the running for reserve places), or <strong>Lost coin toss</strong> for the others.</li>
+<li>Reserve places after a tied group are counted from the end of the group, as Tabbycat does: a break of 3 + 2 reserves with three teams tied for 2 places leaves one reserve place.</li>
+</ul>
+<p>This differs from Tabbycat, which lets every tied team through and leaves it to the tab director.</p>
+<p><strong>Break ranks.</strong> The <em>Seed</em> column shows each breaking team&#39;s break rank as Tabbycat does: teams tied on every metric (for example two manually included teams) share it, shown as &quot;=2&quot;. The bracket still uses a unique seed per team. Reserves show R1, R2, ….</p>
+<h2 id="generating-the-break">Generating the break<a class="anchor" href="#generating-the-break" aria-label="Link to this section">#</a></h2>
+<p><strong>Generate Break</strong> (or <strong>Regenerate Break</strong>) for one category:</p>
+<ul>
+<li>is refused (hard rules) when there are <strong>too few eligible teams</strong> for the break size, when a <strong>cutoff tie</strong> is unresolved, or when an elimination round the change would touch has already been drawn or advanced;</li>
+<li>warns (a soft rule you can override with a recorded reason) when preliminary rounds are not finished;</li>
+<li>needs a valid break size and enough pre-created, non-cancelled elimination rounds;</li>
+<li>assigns categories to elimination rounds by schedule: smaller breaks join later rounds (with N teams per room, every category is in every elimination round);</li>
+<li>marks this category&#39;s teams <em>breaking</em> (teams that break in no category become <em>eliminated</em>); other categories keep their own generated break;</li>
+<li>stores a snapshot of the break and writes an audit event, then makes the category&#39;s first elimination round the active round.</li>
+</ul>
+<p>If standings, settings or overrides change afterwards, the page warns that the calculated break differs from the generated one; regenerate to apply it. A generated break can also be cleared through the API (refused once one of its rounds has a draw); see <a href="API-and-Tokens.html">API and tokens</a>.</p>
+<p>The break is not public until you release that category in the <strong>Public release</strong> panel on the Standings page; see <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="elimination-draws">Elimination draws<a class="anchor" href="#elimination-draws" aria-label="Link to this section">#</a></h2>
+<p>Draw the elimination round on the <strong>Draw</strong> page as usual (see <a href="Rounds-and-Draws.html">Rounds and draws</a>).</p>
+<ul>
+<li><strong>Seeds</strong> are the teams&#39; places in the category&#39;s break; each team keeps its bracket position throughout.</li>
+<li><strong>Bracket positions carry forward</strong>: later rounds inherit the position of the room a team came from instead of re-seeding.</li>
+<li><strong>Full fields</strong> (two-team 2ᵏ, BP 4 × 2ᵏ) use standard seeded brackets, e.g. two-team 16: 1v16, 8v9, 4v13, 5v12, 2v15, 7v10, 3v14, 6v11; BP 16: [1,8,9,16], [4,5,12,13], [2,7,10,15], [3,6,11,14].</li>
+<li><strong>Sides</strong> follow <strong>Configuration → Draw rules → Sides in elimination rounds</strong>: <em>By seed</em> (default; the higher seed takes Affirmative / Opening Government and sides are final) or <em>Random</em> (as Tabbycat; drawn with the draw&#39;s seed and left unconfirmed, and two-team ballots record the sides taken).</li>
+<li><strong>N teams per room</strong>: elimination draws are not generated (as in Tabbycat). Set the round&#39;s draw type to manual and draw it by hand.</li>
+</ul>
+<h3 id="partial-eliminations">Partial eliminations<a class="anchor" href="#partial-eliminations" aria-label="Link to this section">#</a></h3>
+<p>A break that does not halve cleanly (e.g. 12 two-team teams, or 24 or 6 BP teams) starts with a <strong>partial elimination round</strong>. With T the largest full field below N, the top 2T − N seeds get an elimination <strong>bye</strong> (they advance without a ballot), and the remaining seeds are folded: two-team, best remaining against weakest; BP room j holds seeds B+j, T+1−j, T+j, N+1−j. The Break page shows &quot;Partial elimination: the top N seeds get a bye&quot;.</p>
+<h2 id="advancing">Advancing<a class="anchor" href="#advancing" aria-label="Link to this section">#</a></h2>
+<p>When every non-bye debate has a confirmed ballot, press <strong>Proceed to next round</strong> on the <strong>Results</strong> page of the elimination round. It:</p>
+<ul>
+<li>checks the round has a draw, every eligible team is in a debate, no team that did not qualify for this stage is in the round, and every ballot names the draw&#39;s current teams;</li>
+<li>advances the winner (two-team), the top two of each room (BP; the winner only in the final), or for N teams per room the top two by rank (one in the final) or the teams a results-only ballot declares advancing;</li>
+<li>marks the rest eliminated, marks the round completed, and activates the next elimination round.</li>
+</ul>
+<p>Elimination rounds never count in standings.</p>
+<h2 id="breaking-adjudicators">Breaking adjudicators<a class="anchor" href="#breaking-adjudicators" aria-label="Link to this section">#</a></h2>
+<p><strong>Breaking adjudicators</strong> (<code>/break/adjudicators</code>) lists every adjudicator with a search, a <em>Breaking only</em> filter and an inline breaking toggle (also available from the feedback overview). There is no adjudicator break calculation; releasing the public list is a separate switch in the Public release panel.</p>
+<h2 id="details-and-differences-from-tabbycat">Details and differences from Tabbycat<a class="anchor" href="#details-and-differences-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Cutoff ties are held out for the tab director instead of all breaking.</li>
+<li>Swing teams never break and are left out of liveness counts.</li>
+<li>Elimination sides default to <em>By seed</em> (Tabbycat randomises); choose <em>Random</em> to match Tabbycat.</li>
+<li>BP eliminations work from any even field of at least 4 teams, using partial elimination rounds.</li>
+<li>WADL is not a Tabbycat break rule and is not offered.</li>
+<li>Break liveness (safe / live / dead) is described on <a href="Standings-and-Metrics.html#break-liveness">Standings and metrics</a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Standings-and-Metrics.html" rel="prev"><span>Previous</span>Standings and metrics</a><a class="pager-next" href="Public-Pages-and-Releases.html" rel="next"><span>Next</span>Public pages and releases</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Breaks-and-Eliminations.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#step-by-step">Step by step</a></li><li><a href="#break-categories">Break categories</a></li><li><a href="#qualification-rules">Qualification rules</a></li><li><a href="#ranking-within-a-category">Ranking within a category</a></li><li><a href="#overrides">Overrides</a></li><li><a href="#ties-at-the-cutoff">Ties at the cutoff</a></li><li><a href="#generating-the-break">Generating the break</a></li><li><a href="#elimination-draws">Elimination draws</a></li><li><a href="#advancing">Advancing</a></li><li><a href="#breaking-adjudicators">Breaking adjudicators</a></li><li><a href="#details-and-differences-from-tabbycat">Details and differences from Tabbycat</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

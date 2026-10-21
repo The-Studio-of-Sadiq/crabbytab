@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Participants and imports · CrabbyTab guide</title>
+<meta name="description" content="Participants and imports: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html" aria-current="page">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="participants-and-imports">Participants and imports<a class="anchor" href="#participants-and-imports" aria-label="Link to this section">#</a></h1>
+<p>Participants are managed under <strong>Setup</strong> in the sidebar:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Page</th>
+<th scope="col">What it is for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Institutions</strong></td>
+<td>Institutions, their codes, regions, coaches and representatives</td>
+</tr>
+<tr>
+<td><strong>Teams</strong></td>
+<td>Teams and their speakers</td>
+</tr>
+<tr>
+<td><strong>Adjudicators</strong></td>
+<td>Adjudicators, scores, flags and conflicts</td>
+</tr>
+<tr>
+<td><strong>Diversity</strong></td>
+<td>Gender and region of speakers and adjudicators, with statistics</td>
+</tr>
+<tr>
+<td><strong>Registration</strong></td>
+<td>Public self-registration, representative links and team invitations (administrators)</td>
+</tr>
+<tr>
+<td><strong>Conflicts</strong></td>
+<td>Conflicts CSV import, the list of every conflict, team–institution conflicts</td>
+</tr>
+<tr>
+<td><strong>Code names</strong></td>
+<td>Code-name decoder (real name next to each code name)</td>
+</tr>
+<tr>
+<td><strong>Speaker categories</strong></td>
+<td>ESL, novice and similar categories, with optional public tabs</td>
+</tr>
+<tr>
+<td><strong>Adjudicator requirement</strong></td>
+<td>Teams and adjudicators per institution (Tabbycat&#39;s N-1 rule)</td>
+</tr>
+<tr>
+<td><strong>Venues</strong>, <strong>Room preferences</strong></td>
+<td>See <a href="Venues-and-Constraints.html">Venues and constraints</a></td>
+</tr>
+<tr>
+<td><strong>Motions</strong>, <strong>Schedule</strong></td>
+<td>Motions and their release; round times; see <a href="Rounds-and-Draws.html">Rounds and draws</a></td>
+</tr>
+</tbody></table></div>
+<p>Data-entry staff see a reduced Setup section (the code-name decoder, and only the pages their permissions allow).</p>
+<h2 id="recommended-order">Recommended order<a class="anchor" href="#recommended-order" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><strong>Break categories</strong> (Results → <strong>Break</strong>) and <strong>speaker categories</strong> (Setup → Speaker categories), so imports can refer to them.</li>
+<li><strong>Institutions</strong> — teams and adjudicators are linked by institution name or code.</li>
+<li><strong>Teams</strong></li>
+<li><strong>Adjudicators</strong> — an adjudicator linked to an institution (and not marked independent) automatically conflicts with it.</li>
+<li><strong>Venues</strong>, <strong>Room preferences</strong> and <strong>Motions</strong>.</li>
+<li><strong>Conflicts</strong> (CSV or by hand).</li>
+</ol>
+<p>Exact column names and aliases: <a href="CSV-Formats.html">CSV formats</a>. Sample files are in <code>testdata/</code>.</p>
+<h2 id="importing-institutions-teams-and-adjudicators-csv">Importing institutions, teams and adjudicators (CSV)<a class="anchor" href="#importing-institutions-teams-and-adjudicators-csv" aria-label="Link to this section">#</a></h2>
+<p>On the Institutions, Teams or Adjudicators page, choose <strong>Import CSV</strong>, upload a file or paste text, then <strong>Preview import</strong>. Nothing is saved until you press <strong>Import</strong>.</p>
+<p>The preview lists every row with what will happen:</p>
+<ul>
+<li><strong>Errors</strong> (row cannot be imported): missing name, invalid email, score or yes/no flag, unknown break category, a speaker email or categories without a speaker name, wrong number of cells. A file with errors is refused unless you tick <strong>Import the valid rows only</strong>.</li>
+<li><strong>Warnings</strong>: no speakers (placeholder speakers &quot;Team Speaker 1&quot;… are created; rename them), fewer speakers than the format uses, a speaker email already used, an adjudicator with the same name at another institution.</li>
+<li><strong>Duplicates</strong> are detected instead of created twice. Institutions match by name or code, teams by name, adjudicators by email (else name and institution). A match defaults to <strong>Skip</strong>; switch it to <strong>Update existing</strong> (only filled cells change; speakers keep their ids) or <strong>Create</strong>.</li>
+<li><strong>New institutions</strong> named in the file are listed with a suggested code you can edit; untick one to keep the name as text without linking it. <code>Independent</code>, <code>Unaffiliated</code>, <code>None</code> and <code>-</code> mean no institution.</li>
+<li><strong>New speaker categories</strong> named in <code>speakerN_categories</code> are created (not public) and listed.</li>
+<li><strong>Columns that will be ignored</strong> are listed.</li>
+</ul>
+<p>Whole-file problems stop the import: files over 5 MB, an empty file, a header with no rows, repeated column names, a missing <code>name</code> column or an unclosed quote. Formulas and markup are kept as text, never evaluated.</p>
+<p><strong>Team seeds.</strong> The <em>Team seed column</em> setting at the top of the team import decides what a <code>seed</code> column means: <em>Do not ask</em> (default; the column is ignored), a number (0–99,999, higher is stronger) or a <em>seed title</em> (Unseeded, Free seed, Half seed, Full seed). Seeds are used by seeded and round-robin draws.</p>
+<p><strong>Venues</strong> and <strong>motions</strong> import directly from CSV, without this preview.</p>
+<p>Each import is one audit-log event. For cloud tournaments, teams and adjudicators are written live like any other edit.</p>
+<h2 id="teams">Teams<a class="anchor" href="#teams" aria-label="Link to this section">#</a></h2>
+<p>Setup → <strong>Teams</strong> lists every team with links to its <strong>private URL</strong> and its <strong>team record</strong>. <strong>Add team</strong> or the edit button opens the team dialog:</p>
+<ul>
+<li><strong>Team name</strong> and <strong>Institution affiliation</strong> (or <em>Unaffiliated / independent</em>: no institutional clash constraints).</li>
+<li><strong>Tabbycat name</strong> (optional): build the name from a reference, see below.</li>
+<li><strong>Composite team</strong>: speakers from more than one institution, see below.</li>
+<li><strong>Code name</strong> and <strong>Emoji</strong>, shown publicly when code names are on.</li>
+<li><strong>Break eligibility</strong> for each non-general break category (every team is in the general ones).</li>
+<li><strong>Speakers</strong>: name, email, speaker categories, code name, last name, pronoun and <em>Anonymous on public pages</em>. <strong>Add speaker</strong> adds a slot; <strong>Remove</strong> removes one.</li>
+</ul>
+<p>Set elsewhere: <strong>seeds</strong> on the Draw page (or the CSV <code>seed</code> column), <strong>divisions</strong> from the CSV <code>division</code> / <code>division_id</code> columns, <strong>venue requirements</strong> from the CSV requirement columns.</p>
+<h3 id="adding-and-removing-speakers">Adding and removing speakers<a class="anchor" href="#adding-and-removing-speakers" aria-label="Link to this section">#</a></h3>
+<p>A speaker can be removed only if they have no speeches on a live ballot, a score or any adjudicator&#39;s scoresheet. Otherwise the button is disabled with the reason, and the save is refused (also through the API). Rename the speaker instead, or discard those ballots first.</p>
+<h3 id="team-names-references-and-prefixes">Team names: references and prefixes<a class="anchor" href="#team-names-references-and-prefixes" aria-label="Link to this section">#</a></h3>
+<p>A team can be named the Tabbycat way: a <strong>reference</strong> (&quot;1&quot;, &quot;A&quot;), an optional <strong>short reference</strong>, and <strong>Prefix with the institution</strong>. Its long name is &quot;institution name + reference&quot; (&quot;Victoria 1&quot;); its short name &quot;institution code + short reference&quot; (&quot;VUW 1&quot;). Admin → Configuration → <em>Format &amp; teams</em> → <strong>Team names</strong> chooses which one teams show, offers <strong>Update team names</strong> after an institution is renamed, and <strong>Preview conversion</strong> to convert existing teams (a team called &quot;Auckland 1&quot; from Auckland becomes reference &quot;1&quot; with the prefix on). Teams without a reference keep the name as typed.</p>
+<h3 id="composite-teams">Composite teams<a class="anchor" href="#composite-teams" aria-label="Link to this section">#</a></h3>
+<p>Tick <em>Speakers from more than one institution</em> and the other institutions. A composite team is an ordinary team in draws, standings and breaks; its other institutions count as its own for same-institution draw avoidance and for adjudicator institution conflicts. (A swing team, which stands in for a missing team in one round, is different; see <a href="Rounds-and-Draws.html#swing-teams">Rounds and draws</a>.)</p>
+<h3 id="code-names-and-emoji">Code names and emoji<a class="anchor" href="#code-names-and-emoji" aria-label="Link to this section">#</a></h3>
+<p><em>Admin → Configuration → Public visibility</em> sets the <em>Team code names</em> mode (off, real names with code names as tooltips, code names publicly, code names everywhere) and <em>Speaker and adjudicator code names</em>. The same page reports how many teams lack a code name or emoji and offers <strong>Generate missing code names</strong> (<em>Code name standard</em>: emoji names or speakers&#39; last names) and <strong>Assign missing emoji</strong>. Under code-name modes only the code name leaves the server; a team without one appears without a name.</p>
+<p>Setup → <strong>Code names</strong> lists each team&#39;s code name next to its real name, institution and speakers. Teams added by hand get no code name automatically, and saving a team clears a code name that equals its own real name.</p>
+<h3 id="team-record">Team record<a class="anchor" href="#team-record" aria-label="Link to this section">#</a></h3>
+<p>Each team row links to <code>/{slug}/team/{teamId}</code> (administrators): details and speakers, private URL, every debate including unreleased results and unconfirmed ballots, the panel and each speech, adjudicator conflicts with the reason, and feedback the team submitted.</p>
+<h2 id="speakers">Speakers<a class="anchor" href="#speakers" aria-label="Link to this section">#</a></h2>
+<p>Speakers carry name, email, speaker categories, code name, optional <strong>last name</strong> (used by the last-name code-name generator; otherwise the last word of the name) and optional <strong>pronoun</strong> (printed after the name on ballots, e.g. &quot;Alex Kim (they/them)&quot;). Phone and gender can also come from registration. Pronouns, last names, phones and emails are never published.</p>
+<p><strong>Speaker categories</strong> (Setup → Speaker categories): name, slug, order, <em>Public tab</em> and <em>Public limit</em>. A category can be deleted only when no speaker is in it. Break eligibility can be derived from speaker categories on Results → Break → Eligibility. Older free-text speaker labels are shown as &quot;From labels, not saved&quot; until the list is saved.</p>
+<h2 id="adjudicators">Adjudicators<a class="anchor" href="#adjudicators" aria-label="Link to this section">#</a></h2>
+<p>The adjudicator dialog holds: name, institution (or independent), email, <strong>Base rating (1–10)</strong>, <em>Trainee judge</em>, <em>Adjudication core</em>, <em>Breaking adjudicator</em>, <em>Tester</em> (always on for the adjudication core), <em>Anonymous on public pages</em>, gender, region, code name, last name, pronoun, and <strong>Conflicts</strong> (team, adjudicator and other institution conflicts). Test scores, base-score history and the tester and breaking columns are also on the Feedback pages. Each adjudicator&#39;s name links to their <strong>adjudicator record</strong> (rounds and roles, scores and history, feedback received, conflicts) for administrators and staff with feedback or score access.</p>
+<p>See <a href="Adjudicator-Allocation.html#conflicts">Adjudicator allocation</a> for how conflicts are used.</p>
+<h2 id="institutions-and-coaches">Institutions and coaches<a class="anchor" href="#institutions-and-coaches" aria-label="Link to this section">#</a></h2>
+<p>An institution has a name, code, region and optional venue requirements. Its dialog also lists <strong>coaches and representatives</strong> (name and email). Coaches are organiser-only and receive emails sent to the <em>Institution coaches and representatives</em> group. Registration → Representatives → <strong>Save representatives as coaches</strong> copies every active representative into their institution&#39;s coaches.</p>
+<h2 id="conflicts">Conflicts<a class="anchor" href="#conflicts" aria-label="Link to this section">#</a></h2>
+<p>Setup → <strong>Conflicts</strong> (administrators and staff with conflict access):</p>
+<ul>
+<li><strong>Import conflicts</strong> from CSV. Each row fills exactly two of <code>adjudicator</code>, <code>team</code>, <code>institution</code>, <code>other_adjudicator</code>: adjudicator–team, adjudicator–adjudicator, adjudicator–institution or team–institution. Unknown or ambiguous names are errors; conflicts already recorded are skipped. Preview first, as with the participant imports.</li>
+<li><strong>Recorded conflicts</strong> lists every conflict and removes one (adjudicator–adjudicator conflicts from both sides).</li>
+<li><strong>Add a team–institution conflict</strong>: adjudicators from that institution should not judge the team.</li>
+<li><strong>Export conflicts CSV</strong>.</li>
+</ul>
+<p>Conflicts are never shown publicly.</p>
+<h2 id="diversity-and-institution-reports">Diversity and institution reports<a class="anchor" href="#diversity-and-institution-reports" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Diversity</strong> is an inline editor for speaker and adjudicator gender and region (administrators; saved when you leave a field), with summary statistics and <strong>gender by institution</strong> (speakers by their team&#39;s institution; independent adjudicators excluded). Genders are free text, grouped ignoring case and spaces. Diversity is shown as badges on the Allocation page; it is not an allocation constraint.</li>
+<li><strong>Adjudicator requirement</strong> shows teams and adjudicators per institution, registered and per drawn preliminary round (chairs, panellists, trainees). An institution with N teams that provides fewer than N−1 adjudicators is flagged with an icon and text.</li>
+</ul>
+<h2 id="registration">Registration<a class="anchor" href="#registration" aria-label="Link to this section">#</a></h2>
+<p>Setup → <strong>Registration</strong> (administrators; the tournament must be uploaded first) lets teams, adjudicators and institutions register on a public form at <code>/register/{slug}</code>. Nothing a registrant submits reaches the tournament directly unless you choose automatic acceptance.</p>
+<ul>
+<li><strong>Settings</strong>: accept registrations and an optional window; which kinds may register and through which channel (open form, representative links); speakers per team; speaker categories offered; per-institution and tournament-wide limits; custom questions (also per speaker, for institutions and for coaches); per-form messages; generated team names and code names; which person fields are asked; confirmation (<em>Always</em>, <em>Only open registrations</em>, <em>Never</em>).</li>
+<li><strong>Optional team fields</strong> (none by default): <em>Prefix the team name with the institution</em>, <strong>break categories</strong> (non-general ones), <strong>seed</strong> (number or seed title, following the team import&#39;s seed setting) and <strong>emoji</strong>. The break-category list and seed mode are copied when the settings are saved, so save them again after changing break categories.</li>
+<li><strong>Representatives</strong>: give an institution&#39;s representative a personal link that fixes the institution and shows the places left. <strong>New link</strong> replaces it, <strong>Revoke</strong> stops it. Representatives can request place transfers, which you approve on this tab.</li>
+<li><strong>Team invitations</strong> (Representatives tab): a link for one existing team (<code>/register/{slug}/join#…</code>), shown once to copy, through which speakers add themselves to that team. <strong>New link</strong> replaces it, <strong>Withdraw</strong> stops it. Joining needs no review, but respects the registration window, the maximum speakers per team, and refuses a repeated name or email.</li>
+<li><strong>Review queue</strong>: each submission with possible duplicates flagged; <strong>Approve</strong> creates the team or adjudicator (with private URL keys, matching or creating the institution), <strong>Edit</strong>, <strong>Reject</strong> (optional reason, not emailed), <strong>Reopen</strong>. Use <strong>Refresh</strong> to see new submissions.</li>
+</ul>
+<p>With <em>Email registrants</em> on (Email page), registrants get &quot;Registration received&quot; and &quot;Registration approved&quot; emails. Full details, limits and abuse protection: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/registration.md"><code>docs/registration.md</code></a>.</p>
+<h2 id="deleting">Deleting<a class="anchor" href="#deleting" aria-label="Link to this section">#</a></h2>
+<p>Deleting a team, adjudicator, institution, venue, motion or break category asks for confirmation. Records still in use cannot be deleted:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Refused while referenced by</th>
+<th scope="col">Instead</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Team</td>
+<td>a debate (including a bye), a ballot or feedback</td>
+<td>Mark the team unavailable</td>
+</tr>
+<tr>
+<td>Adjudicator</td>
+<td>a panel, a ballot or feedback</td>
+<td>Mark the adjudicator unavailable</td>
+</tr>
+<tr>
+<td>Venue</td>
+<td>a debate</td>
+<td>Mark the venue unavailable</td>
+</tr>
+<tr>
+<td>Institution</td>
+<td>a team or adjudicator</td>
+<td>Move or delete those first</td>
+</tr>
+<tr>
+<td>Break category</td>
+<td>a generated break or a drawn elimination round</td>
+<td>—</td>
+</tr>
+</tbody></table></div>
+<p>For cloud tournaments, deleted teams and adjudicators are soft-deleted in Firestore at once (content kept); other records are queued as cloud deletions for the next upload.</p>
+<h2 id="debatexml-import">DebateXML import<a class="anchor" href="#debatexml-import" aria-label="Link to this section">#</a></h2>
+<p><strong>Tournaments hub → Or import a DebateXML archive</strong> (global administrators) creates a <strong>new</strong> tournament from a DebateXML file, such as a Tabbycat export or a CrabbyTab archive. It never merges into an existing tournament.</p>
+<ol>
+<li>Choose the file (up to 10 MB). It is validated before anything is saved.</li>
+<li>Review <strong>What will be imported</strong> (counts), <strong>errors</strong> (which block the import) and <strong>warnings</strong>, each pointing at the element, e.g. <code>round &quot;Round 1&quot; › debate &quot;D3&quot; › side 2</code>.</li>
+<li>Set the name, short name and slug, and choose <strong>Create tournament from this file</strong>. It is saved on this device; upload when ready.</li>
+</ol>
+<p>Imported: institutions, teams and speakers (categories, gender), adjudicators (score, trainee, independent, gender, conflicts), venues, motions with info slides, break and speaker categories, divisions, feedback questions, rounds, debates with sides and panels, results (consensus or voting), byes and confirmed feedback. The style&#39;s rules preset is applied as Tabbycat&#39;s importer does.</p>
+<p>Notes:</p>
+<ul>
+<li>The format comes from the archive&#39;s <code>style</code> if it is a CrabbyTab format, otherwise from the debates (4 sides = BP). Speakers per team and reply scoring are inferred; score ranges are widened to fit the imported scores (the preview says so).</li>
+<li>Imported draws are drafts and motions and results are unreleased, so nothing becomes public until you release it.</li>
+<li>Private URLs, emails and check-ins are not part of DebateXML.</li>
+<li>Panels only distinguish the chair; other members become trainees if flagged <code>trainee</code>, otherwise panellists.</li>
+<li>The file is treated as untrusted: DOCTYPE and entity declarations are refused and record counts are capped.</li>
+</ul>
+<h2 id="exports">Exports<a class="anchor" href="#exports" aria-label="Link to this section">#</a></h2>
+<p>Admin → <strong>Data exports</strong> downloads teams, speakers, adjudicators, institutions, availability, break eligibility and conflicts as CSV, built in the browser. Private URL keys and passcodes are never exported; the files do contain email addresses.</p>
+<h2 id="limitations">Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>CSV and API serializers do not yet carry team references, composite fields, pronouns or last names.</li>
+<li>Divisions and venue requirements of teams and adjudicators can only be set by CSV (and the API), not in the dialogs.</li>
+<li>Institutions are per tournament.</li>
+</ul>
+<p>Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/participants.md"><code>docs/participants.md</code></a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/data-import-export.md"><code>docs/data-import-export.md</code></a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/registration.md"><code>docs/registration.md</code></a>.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Tournament-Setup-and-Formats.html" rel="prev"><span>Previous</span>Tournament setup and formats</a><a class="pager-next" href="Check-ins-and-Availability.html" rel="next"><span>Next</span>Check-ins and availability</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Participants-and-Imports.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#recommended-order">Recommended order</a></li><li><a href="#importing-institutions-teams-and-adjudicators-csv">Importing institutions, teams and adjudicators (CSV)</a></li><li><a href="#teams">Teams</a></li><li><a href="#speakers">Speakers</a></li><li><a href="#adjudicators">Adjudicators</a></li><li><a href="#institutions-and-coaches">Institutions and coaches</a></li><li><a href="#conflicts">Conflicts</a></li><li><a href="#diversity-and-institution-reports">Diversity and institution reports</a></li><li><a href="#registration">Registration</a></li><li><a href="#deleting">Deleting</a></li><li><a href="#debatexml-import">DebateXML import</a></li><li><a href="#exports">Exports</a></li><li><a href="#limitations">Limitations</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

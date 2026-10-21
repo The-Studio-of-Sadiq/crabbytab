@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data model · CrabbyTab guide</title>
+<meta name="description" content="Data model: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html" aria-current="page">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="data-model">Data model<a class="anchor" href="#data-model" aria-label="Link to this section">#</a></h1>
+<p>A map of CrabbyTab&#39;s records for contributors: what each record is, its key fields, how records point at each other, and where they are stored. It is not a field-by-field dump; the source of truth is <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/src/types/index.ts"><code>src/types/index.ts</code></a>. Storage and sync are covered in depth in <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md">storage-and-scale.md</a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md">live-collaboration.md</a>.</p>
+<h2 id="the-big-picture">The big picture<a class="anchor" href="#the-big-picture" aria-label="Link to this section">#</a></h2>
+<pre tabindex="0"><code>Tournament (settings in preferences)
+├── Round ─────────────── Debate ── team slots by side ── Team ── Speaker[]
+│                           ├── panel ── Adjudicator (conflicts[])
+│                           ├── Venue
+│                           ├── Motion
+│                           ├── BallotSubmission (versions) ── speaker ids
+│                           ├── FeedbackSubmission
+│                           └── BallotIntakeRecord (paper sheets received)
+├── Institution ◄── Team.institutionId, Adjudicator.institutionId
+├── BreakCategory ◄── Team.breakCategories
+└── AuditEvent (append-only)</code></pre>
+<p>Standings, the team and speaker tabs and most statistics are <strong>never stored</strong>: they are computed from rounds, debates and confirmed ballots whenever they are needed. The public site stores a pre-computed copy (see <a href="#4-public-snapshots">Public snapshots</a>).</p>
+<h2 id="tournament-and-settings">Tournament and settings<a class="anchor" href="#tournament-and-settings" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Tournament</strong></td>
+<td><code>id</code>, <code>name</code>, <code>shortName</code>, <code>slug</code>, <code>format</code>, <code>ownerId</code>, <code>admins</code> (uid → true), <code>preferences</code>, <code>active</code>, <code>createdAt</code>, <code>updatedAt</code></td>
+<td><code>format</code> is <code>bp</code>, <code>uadc</code>, <code>australs</code>, <code>wsdc</code>, <code>custom_2team</code> or <code>poly</code> (N teams per room)</td>
+</tr>
+<tr>
+<td><strong>TournamentPreferences</strong></td>
+<td><code>teamsInDebate</code>, <code>substantiveSpeakers</code>, score ranges, draw rules, ballot rules, feedback paths, standings precedence, public-site and release flags</td>
+<td>All settings; see <a href="Settings-Reference.html">Settings reference</a></td>
+</tr>
+</tbody></table></div>
+<p>Several small lists live <strong>inside <code>preferences</code></strong>, not in their own collections:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">List</th>
+<th scope="col">Type</th>
+<th scope="col">Used for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>speakerCategories</code></td>
+<td><code>SpeakerCategory</code> (<code>id</code>, <code>name</code>, <code>slug</code>, <code>seq</code>, <code>public</code>, <code>limit</code>)</td>
+<td>ESL, novice, … speaker tabs and break rules</td>
+</tr>
+<tr>
+<td><code>teamFeedbackQuestions</code>, <code>adjudicatorFeedbackQuestions</code>, <code>feedbackQuestions</code></td>
+<td><code>FeedbackQuestion</code> (<code>id</code>, <code>label</code>, <code>type</code>, <code>required</code>, <code>options</code>, <code>min</code>, <code>max</code>)</td>
+<td>Custom feedback questions</td>
+</tr>
+<tr>
+<td><code>scoreCriteria</code></td>
+<td><code>ScoreCriterion</code> (<code>id</code>, <code>name</code>, <code>weight</code>, <code>minScore</code>, <code>maxScore</code>, <code>step</code>, <code>speechType</code>)</td>
+<td>Weighted speaker-score criteria</td>
+</tr>
+<tr>
+<td><code>scheduleEvents</code></td>
+<td><code>ScheduleEvent</code> (<code>id</code>, <code>type</code>, <code>startTime</code>, <code>endTime</code>, <code>roundId</code>)</td>
+<td>Tournament schedule</td>
+</tr>
+<tr>
+<td><code>venueCategories</code></td>
+<td><code>VenueCategoryInfo</code> (<code>name</code>, <code>description</code>, <code>displayInName</code>)</td>
+<td>Room-category display options</td>
+</tr>
+<tr>
+<td><code>currentRoundId</code>, <code>releasedBreakCategoryIds</code></td>
+<td>ids</td>
+<td>Public &quot;current round&quot; and released breaks</td>
+</tr>
+</tbody></table></div>
+<p>There is no separate <strong>division</strong> record: teams carry <code>divisionId</code> / <code>divisionName</code>, and a round may carry <code>divisionId</code>.</p>
+<h2 id="rounds">Rounds<a class="anchor" href="#rounds" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Round</strong></td>
+<td><code>seq</code>, <code>name</code>, <code>abbreviation</code>, <code>stage</code> (<code>preliminary</code> / <code>elimination</code>), <code>drawType</code> (<code>random</code>, <code>power_paired</code>, <code>round_robin</code>, <code>seeded</code>, <code>elimination</code>, <code>manual</code>), <code>drawStatus</code>, <code>motionsStatus</code> (+ derived <code>motionsReleased</code>), <code>adjudicatorsRevealed</code>, <code>resultsReleased</code>, <code>teamSpeaksReleased</code>, <code>silent</code>, <code>completed</code>, <code>cancelled</code>, <code>feedbackWeight</code>, <code>feedbackEnabled</code>, <code>weight</code>, <code>scheduleGroup</code>, <code>startsAt</code>, <code>breakCategoryIds</code>, <code>eliminationAdvanced</code>, <code>divisionId</code>, <code>drawSeed</code>, <code>preallocatedSides</code>, <code>preformedPanels[]</code>, <code>roundRobinAlgorithm</code></td>
+</tr>
+<tr>
+<td><strong>PreformedPanel</strong> (inside a round)</td>
+<td><code>id</code>, <code>chairId</code>, <code>panellistIds</code>, <code>traineeIds</code>, <code>importance</code>, anticipated-draw notes (<code>roomRank</code>, <code>bracketMin/Max</code>, <code>liveness</code>)</td>
+</tr>
+</tbody></table></div>
+<p><code>drawStatus</code> is <code>none</code>, <code>draft</code>, <code>locked</code> (confirmed, not public), <code>teams_released</code>, <code>confirmed</code> or <code>released</code>. <code>confirmed</code> and <code>released</code> both mean public (older data); read it through <code>drawStageOf()</code> in <code>src/lib/draw/drawStatus.ts</code>.</p>
+<h2 id="participants">Participants<a class="anchor" href="#participants" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Institution</strong></td>
+<td><code>name</code>, <code>code</code>, <code>region</code>, <code>venueRequirements</code>, <code>venueConstraints</code>, <code>coaches[]</code> (<code>id</code>, <code>name</code>, <code>email</code>; organiser-only)</td>
+</tr>
+<tr>
+<td><strong>Team</strong></td>
+<td><code>name</code>, <code>institutionId</code> (+ copied <code>institutionName</code>), <code>speakers[]</code>, <code>codeName</code>, <code>emoji</code>, <code>seed</code>, <code>breakCategories</code> (eligible category ids), <code>speakerCategories</code> (legacy labels), <code>institutionConflictIds</code>, <code>divisionId</code> / <code>divisionName</code>, check-in fields, <code>venueRequirements</code>, <code>venueConstraints</code>, <code>privateUrlKey</code>, <code>privatePasscode</code>, <code>speakerUrlKeys</code></td>
+</tr>
+<tr>
+<td>Team, Tabbycat naming</td>
+<td><code>reference</code>, <code>shortReference</code>, <code>useInstitutionPrefix</code>, derived <code>longName</code> / <code>shortName</code></td>
+</tr>
+<tr>
+<td>Team, special kinds</td>
+<td><code>isSwing</code> + <code>swingRoundIds</code> (left out of standings and breaks); <code>isComposite</code> + <code>compositeInstitutionIds</code> (a normal team with several institutions)</td>
+</tr>
+<tr>
+<td>Team, break result</td>
+<td><code>breakStatus</code> (<code>breaking</code> / <code>eliminated</code>), <code>breakCategoryIds</code>, <code>eliminatedInRoundId</code></td>
+</tr>
+<tr>
+<td><strong>Speaker</strong> (inside a team)</td>
+<td><code>id</code>, <code>name</code>, <code>lastName</code>, <code>pronoun</code>, <code>email</code>, <code>gender</code>, <code>region</code>, <code>categories</code> (speaker-category ids), <code>phone</code>, <code>roundAvailability</code>, <code>anonymous</code>, <code>codeName</code>, <code>privateUrlKey</code>, <code>privatePasscode</code>, <code>swingSourceSpeakerId</code></td>
+</tr>
+<tr>
+<td><strong>Adjudicator</strong></td>
+<td><code>name</code>, <code>lastName</code>, <code>pronoun</code>, <code>email</code>, <code>institutionId</code> (+ <code>institutionName</code>), <code>baseScore</code>, <code>testScore</code>, <code>scoreHistory[]</code>, <code>trainee</code>, <code>independent</code>, <code>conflicts[]</code>, <code>adjCore</code>, <code>breaking</code>, <code>isTester</code>, <code>preformedPanelId</code>, <code>gender</code>, <code>region</code>, <code>phone</code>, check-in fields, <code>venueRequirements</code>, <code>venueConstraints</code>, <code>anonymous</code>, <code>codeName</code>, <code>privateUrlKey</code>, <code>privatePasscode</code></td>
+</tr>
+<tr>
+<td><strong>AdjudicatorConflict</strong> (inside an adjudicator)</td>
+<td>exactly one of <code>teamId</code>, <code>adjudicatorId</code>, <code>institutionId</code>; <code>type</code> = <code>personal</code>, <code>institution</code> or <code>history</code></td>
+</tr>
+<tr>
+<td><strong>Venue</strong></td>
+<td><code>name</code>, <code>priority</code> (higher = better), <code>category</code> + <code>categories[]</code>, <code>capacity</code>, <code>accessible</code>, <code>online</code>, <code>nearTabRoom</code>, <code>url</code>, <code>available</code>, <code>roundAvailability</code>, <code>checkedIn</code>, <code>checkedInAt</code></td>
+</tr>
+</tbody></table></div>
+<p>Check-in fields shared by teams and adjudicators: <code>checkedIn</code>, <code>checkedInAt</code>, <code>roundAvailability</code> (round id → available), <code>roundAvailabilityAt</code>, <code>checkInHistory[]</code> (<code>at</code>, <code>roundId</code>, <code>available</code>, <code>source</code>, <code>by</code>).</p>
+<p>Team–institution conflicts are on the team (<code>institutionConflictIds</code>); every other conflict is on the adjudicator. A mutual adjudicator–adjudicator conflict may be stored on one side only.</p>
+<h2 id="debates-the-draw">Debates (the draw)<a class="anchor" href="#debates-the-draw" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Debate</strong></td>
+<td><code>roundId</code>, <code>roundSeq</code>, <code>teams</code> (side → slot), <code>adjudicators</code> (panel), <code>venueId</code> (+ <code>venueName</code>), <code>motionId</code> (+ <code>motionText</code>), <code>bracket</code>, <code>roomRank</code>, <code>importance</code>, <code>resultStatus</code> (<code>none</code> / <code>draft</code> / <code>confirmed</code>), <code>sidesConfirmed</code>, <code>flags</code>, <code>byeTeamId</code> + <code>byeResult</code>, <code>breakCategoryId</code>, <code>postponed</code>, <code>postponedReason</code>, <code>scheduledTime</code>, required-room fields (<code>requiredVenueCategory</code>, <code>requiredVenueCapacity</code>, <code>requiresAccessibleVenue</code>, …)</td>
+</tr>
+<tr>
+<td><strong>DebateTeamSlot</strong></td>
+<td><code>teamId</code>, <code>teamName</code>, <code>side</code>, <code>points</code>, <code>speakerScoreTotal</code>, <code>pulledUp</code>, <code>flags</code> (Tabbycat draw flags), <code>bracketPosition</code> (eliminations)</td>
+</tr>
+<tr>
+<td><strong>DebateAdjudicatorSlot</strong></td>
+<td><code>chairId</code> / <code>chairName</code>, <code>panellistIds</code> / <code>panellistNames</code>, <code>traineeIds</code> / <code>traineeNames</code></td>
+</tr>
+</tbody></table></div>
+<p><strong>Sides</strong> are the keys of <code>Debate.teams</code>, and the same keys are used in ballots:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Format</th>
+<th scope="col">Sides</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BP</td>
+<td><code>OG</code>, <code>OO</code>, <code>CG</code>, <code>CO</code></td>
+</tr>
+<tr>
+<td>Two-team formats</td>
+<td><code>AFF</code>, <code>NEG</code> (displayed with the tournament&#39;s side names)</td>
+</tr>
+<tr>
+<td>N-team (<code>poly</code>)</td>
+<td><code>P1</code> … <code>PN</code>, where N is <code>preferences.teamsInDebate</code> (any whole number other than 2 and 4). A short last room may use fewer positions</td>
+</tr>
+</tbody></table></div>
+<p>With the <code>manual_ballot</code> side rule, <code>sidesConfirmed</code> stays false until a confirmed ballot records which team took which side.</p>
+<h2 id="results">Results<a class="anchor" href="#results" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>BallotSubmission</strong></td>
+<td><code>debateId</code>, <code>roundId</code>, <code>version</code>, <code>confirmed</code>, <code>discarded</code>, <code>submitterType</code> (<code>tabroom</code> / <code>judge</code> / <code>public</code>), <code>submitterId</code>, <code>speakerScores</code> (side → <code>SpeakerScoreEntry[]</code>), <code>teamScores</code> (side → <code>TeamScoreEntry</code>), <code>sheets[]</code> (voting ballots), <code>motionId</code>, <code>vetoes</code>, <code>motionPreferences</code>, <code>forfeitSide</code>, <code>noSpeakerScores</code>, <code>singleAdjudicator</code>, <code>mergedFromIds</code>, <code>selfSplit</code>, <code>checksVersion</code>, confirm/discard audit fields</td>
+</tr>
+<tr>
+<td><strong>SpeakerScoreEntry</strong></td>
+<td><code>speakerId</code>, <code>speakerName</code>, <code>position</code>, <code>score</code>, <code>ghost</code> (iron-person speech), <code>rank</code>, <code>criteria</code> (criterion id → score)</td>
+</tr>
+<tr>
+<td><strong>TeamScoreEntry</strong></td>
+<td><code>teamId</code>, <code>side</code>, <code>points</code>, <code>totalSpeakerScore</code>, <code>win</code>, <code>margin</code>, <code>rank</code> (BP and N-team), <code>votes</code>, <code>forfeit</code></td>
+</tr>
+<tr>
+<td><strong>AdjudicatorSheet</strong> (voting)</td>
+<td><code>adjudicatorId</code>, <code>speakerScores</code>, <code>declaredWinner</code></td>
+</tr>
+<tr>
+<td><strong>BallotIntakeRecord</strong></td>
+<td><code>debateId</code>, <code>roundId</code>, <code>sheetCode</code>, <code>adjudicatorId</code> (voting sheets), <code>receivedAt</code>, <code>receivedBy</code>. The id is derived from the sheet, so scanning one sheet on two devices gives one record</td>
+</tr>
+<tr>
+<td><strong>FeedbackSubmission</strong></td>
+<td><code>debateId</code>, <code>roundId</code>, <code>sourceType</code> (<code>team</code> / <code>adjudicator</code>) + <code>sourceId</code>, <code>targetType</code> (<code>adjudicator</code> / <code>team</code>) + target id, <code>score</code>, <code>agreeWithDecision</code>, <code>comments</code>, <code>answers</code> (question id → answer), <code>confirmed</code>, <code>ignored</code></td>
+</tr>
+<tr>
+<td><strong>Motion</strong></td>
+<td><code>text</code>, <code>reference</code>, <code>infoSlide</code>, <code>rounds[]</code> (round ids), <code>seq</code>, <code>roundSeq</code> (round id → order), <code>released</code></td>
+</tr>
+</tbody></table></div>
+<p>A debate&#39;s result is its <strong>one confirmed, non-discarded ballot</strong>. Older versions stay as history. A ballot whose teams no longer match the debate&#39;s slots never counts. Voting ballots hold the aggregated result at the top level and each adjudicator&#39;s sheet in <code>sheets</code>.</p>
+<h2 id="breaks-and-audit">Breaks and audit<a class="anchor" href="#breaks-and-audit" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Record</th>
+<th scope="col">Key fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>BreakCategory</strong></td>
+<td><code>name</code>, <code>slug</code>, <code>seq</code>, <code>breakSize</code>, <code>reserveSize</code>, <code>isGeneral</code>, <code>priority</code>, <code>maxPerInstitution</code>, <code>limit</code>, <code>qualificationRule</code>, <code>teamOverrides</code> (team id → <code>include</code> / <code>ineligible</code> / <code>withdrawn</code> / …), <code>speakerCategoryRule</code>, <code>generatedBreak</code> (<code>breakingTeamIds</code>, <code>reserveTeamIds</code>, <code>generatedAt</code>)</td>
+</tr>
+<tr>
+<td><strong>AuditEvent</strong></td>
+<td><code>timestamp</code>, <code>actorType</code> (<code>user</code> / <code>system</code> / <code>public</code>), <code>actorId</code>, <code>action</code>, <code>category</code>, <code>summary</code>, <code>details</code>, <code>roundId</code>, <code>debateId</code>, and once released <code>sequence</code>, <code>previousHash</code>, <code>hash</code></td>
+</tr>
+</tbody></table></div>
+<p>Generating a break writes the result twice: on each team (<code>breakStatus</code>, <code>breakCategoryIds</code>) and as a snapshot on the category (<code>generatedBreak</code>).</p>
+<h2 id="identifiers-and-references">Identifiers and references<a class="anchor" href="#identifiers-and-references" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Ids are opaque strings, unique within a tournament. New records get a prefix plus a random UUID from <code>createEntityId</code> (<code>team-…</code>, <code>spk-…</code>, <code>adj-…</code>, <code>inst-…</code>, <code>ven-…</code>, <code>motion-…</code>, <code>bc-…</code>); rounds, debates and ballots use their own patterns (<code>round-…</code>, <code>debate-{roundId}-…</code>, <code>ballot-{debateId}-…</code>). Never parse meaning from an id.</li>
+<li>Every tournament record has <code>id</code> and <code>tournamentId</code>. Speakers, conflicts and preformed panels are nested and have no <code>tournamentId</code>.</li>
+<li>Records point at each other <strong>by id</strong>. Names are copied next to ids (<code>teamName</code>, <code>chairName</code>, <code>venueName</code>, <code>institutionName</code>, <code>motionText</code>, …) for display; the id wins when they disagree.</li>
+<li><strong>Speaker ids must stay stable</strong>: ballots refer to speakers by id. Imports and edits update speakers in place; a speaker with scores cannot be removed.</li>
+</ul>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Field</th>
+<th scope="col">Points to</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Team.institutionId</code>, <code>Adjudicator.institutionId</code>, <code>Team.institutionConflictIds</code>, <code>Team.compositeInstitutionIds</code></td>
+<td>Institution</td>
+</tr>
+<tr>
+<td><code>Team.breakCategories</code>, <code>Team.breakCategoryIds</code>, <code>Round.breakCategoryIds</code>, <code>Debate.breakCategoryId</code></td>
+<td>BreakCategory</td>
+</tr>
+<tr>
+<td><code>Speaker.categories</code>, <code>BreakCategory.speakerCategoryRule.speakerCategoryId</code></td>
+<td><code>preferences.speakerCategories</code> (older data may hold names or slugs; resolved by id, slug or name)</td>
+</tr>
+<tr>
+<td><code>AdjudicatorConflict.teamId</code> / <code>adjudicatorId</code> / <code>institutionId</code></td>
+<td>Team / Adjudicator / Institution</td>
+</tr>
+<tr>
+<td><code>Debate.roundId</code>, <code>Motion.rounds[]</code>, <code>Team.swingRoundIds</code>, <code>roundAvailability</code> keys</td>
+<td>Round</td>
+</tr>
+<tr>
+<td><code>Debate.teams[side].teamId</code>, <code>Debate.byeTeamId</code></td>
+<td>Team</td>
+</tr>
+<tr>
+<td><code>Debate.adjudicators.*Ids</code>, <code>PreformedPanel.*Ids</code></td>
+<td>Adjudicator</td>
+</tr>
+<tr>
+<td><code>Debate.venueId</code></td>
+<td>Venue</td>
+</tr>
+<tr>
+<td><code>Debate.motionId</code>, <code>BallotSubmission.motionId</code>, <code>vetoes</code> values</td>
+<td>Motion</td>
+</tr>
+<tr>
+<td><code>BallotSubmission.debateId</code>, <code>FeedbackSubmission.debateId</code>, <code>BallotIntakeRecord.debateId</code></td>
+<td>Debate</td>
+</tr>
+<tr>
+<td><code>SpeakerScoreEntry.speakerId</code></td>
+<td>Speaker (inside the team in that slot)</td>
+</tr>
+<tr>
+<td><code>FeedbackSubmission.answers</code> keys</td>
+<td>Feedback question ids in <code>preferences</code></td>
+</tr>
+</tbody></table></div>
+<h2 id="where-data-is-stored">Where data is stored<a class="anchor" href="#where-data-is-stored" aria-label="Link to this section">#</a></h2>
+<h3 id="1-the-working-copy-on-the-device">1. The working copy on the device<a class="anchor" href="#1-the-working-copy-on-the-device" aria-label="Link to this section">#</a></h3>
+<p>Each tournament&#39;s working copy is in <strong>IndexedDB</strong> (database <code>crabbytab</code>, store <code>kv</code>; <code>src/lib/offline/localStore.ts</code>). Keys are <code>crabbytab_t_{slug}_{suffix}</code>, each holding a JSON string:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Suffix</th>
+<th scope="col">Holds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>meta</code></td>
+<td>The Tournament record</td>
+</tr>
+<tr>
+<td><code>rounds</code>, <code>teams</code>, <code>adjudicators</code>, <code>venues</code>, <code>motions</code>, <code>debates</code>, <code>ballots</code>, <code>feedback</code>, <code>institutions</code>, <code>auditEvents</code>, <code>ballotIntake</code></td>
+<td>One array per collection</td>
+</tr>
+<tr>
+<td><code>breaks</code></td>
+<td>Break categories (collection <code>breakCategories</code>)</td>
+</tr>
+<tr>
+<td><code>syncBaseline</code>, <code>syncTombstones</code>, <code>syncOverwrites</code>, <code>syncDiverged</code>, <code>syncUploadIssue</code>, <code>privateSyncQueue</code></td>
+<td>Sync bookkeeping</td>
+</tr>
+<tr>
+<td><code>verifiedRole</code>, <code>liveSyncDisabled</code></td>
+<td>Per-device state</td>
+</tr>
+</tbody></table></div>
+<p>If IndexedDB is unavailable the same keys fall back to localStorage. Theme, language and remembered portal passcodes stay in localStorage. Separately, the Firebase SDK keeps its own persistent IndexedDB cache for live listeners and offline writes (<code>src/lib/firebase.ts</code>).</p>
+<p>Local-only tournaments never leave the device. Cloud tournaments sync as described in <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<h3 id="2-firestore">2. Firestore<a class="anchor" href="#2-firestore" aria-label="Link to this section">#</a></h3>
+<p>The synced collections (<code>CLOUD_COLLECTIONS</code> in <code>src/features/tournament/collections.ts</code>) are <code>rounds</code>, <code>teams</code>, <code>adjudicators</code>, <code>venues</code>, <code>motions</code>, <code>breakCategories</code>, <code>debates</code>, <code>ballots</code>, <code>feedback</code>, <code>institutions</code>, <code>auditEvents</code> and <code>ballotIntake</code>. On administrator devices, <code>ballots</code>, <code>debates</code>, <code>teams</code> and <code>adjudicators</code> are also written and read live, record by record.</p>
+<p>&quot;Admin&quot; below means a tournament administrator: the owner, a uid in <code>admins</code>, a <code>staff</code> member with role <code>admin</code>, or a global admin (custom claim <code>globalAdmin</code>). &quot;Server&quot; means server routes using the Admin SDK, which bypass the rules.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Path</th>
+<th scope="col">Holds</th>
+<th scope="col">Client access (firestore.rules)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>tournaments/{tournamentId}</code></td>
+<td>Tournament (with <code>preferences</code>)</td>
+<td>Read: admins and data-entry assistants. Create: global admins. Update: admins, but only the owner changes <code>admins</code> and nobody changes <code>ownerId</code></td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/{collection}/{recordId}</code> for the 12 synced collections</td>
+<td>One record per document, plus <code>syncVersion</code> and, when deleted, <code>deletedAt</code></td>
+<td>Admins. Assistants may also create their own unconfirmed ballots and change only check-in fields on teams and adjudicators (with the matching staff permission)</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/staff/{uid}</code></td>
+<td>Staff assignment: <code>email</code>, <code>displayName</code>, <code>role</code> (<code>admin</code> / <code>dataEntry</code>), <code>addedAt</code>, <code>addedBy</code>; for data entry also <code>groups</code>, <code>extraPermissions</code>, <code>permissions</code></td>
+<td>Admins</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/syncConflicts/{id}</code></td>
+<td>Archived versions replaced or deleted by an upload (<code>collectionName</code>, <code>recordId</code>, <code>record</code>, <code>resolution</code>, <code>archivedAt</code>)</td>
+<td>Admins read and create; never update or delete</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/auditEvents/{id}</code></td>
+<td>Audit events</td>
+<td>Admins read; create only own events; never update or delete</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/auditReleases/current</code> and <code>…/auditReleases/{releaseId}/events/{seq}</code></td>
+<td>Released, hash-chained public audit log</td>
+<td>Server only</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/apiTokens/{id}</code></td>
+<td><code>name</code>, <code>scopes</code>, <code>tokenHash</code>, <code>createdAt</code>, <code>createdBy</code> (the secret is never stored)</td>
+<td>Admins (generic rule); written by the server</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/emailCampaigns/{id}</code></td>
+<td>Email history</td>
+<td>Admins (generic rule); written by the server</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/notificationLog/{event-round}</code></td>
+<td>Automatic-notification claims (one per event and round)</td>
+<td>Admins (generic rule); written by the server</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/data/participantIndex</code></td>
+<td>Marker (<code>{ version: 1 }</code>) that every debate carries <code>participantIds</code></td>
+<td>Admins</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/serverOnly/…</code></td>
+<td>See below</td>
+<td>Never (server only)</td>
+</tr>
+<tr>
+<td><code>tournamentSlugs/{slug}</code></td>
+<td><code>{ tournamentId }</code>, reserves a slug</td>
+<td>Read: signed-in users. Written with the tournament, checked against it</td>
+</tr>
+<tr>
+<td><code>publicViews/{slug}</code> and <code>…/chunks/{section}-{hash}-{i}</code></td>
+<td>Published public snapshot</td>
+<td>Never (server only)</td>
+</tr>
+<tr>
+<td><code>apiRateLimits/{key}</code></td>
+<td>Private-URL and API throttling counters</td>
+<td>Server only (catch-all rule: global admins)</td>
+</tr>
+<tr>
+<td><code>users/{uid}</code></td>
+<td>Allowed by the rules for the user themselves; no current code reads or writes it</td>
+<td>Own document only</td>
+</tr>
+</tbody></table></div>
+<p>Debates in Firestore also carry a derived <code>participantIds</code> array (every team and adjudicator in the room) so private portals can query only their own debates. It is cloud-only: downloads strip it and sync hashing ignores it.</p>
+<p>Cloud deletions are <strong>soft</strong>: the document stays with <code>deletedAt</code> set and a higher <code>syncVersion</code>, and the previous version is archived in <code>syncConflicts</code>.</p>
+<h3 id="3-server-only-documents">3. Server-only documents<a class="anchor" href="#3-server-only-documents" aria-label="Link to this section">#</a></h3>
+<p>Under <code>tournaments/{id}/serverOnly/</code>, read and written only by server routes:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Document</th>
+<th scope="col">Holds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>registration</code></td>
+<td>Registration settings; subcollections <code>submissions</code>, <code>representatives</code>, <code>transfers</code>, <code>teamInvitations</code></td>
+</tr>
+<tr>
+<td><code>registrationCounters</code></td>
+<td>Registration quota counters</td>
+</tr>
+<tr>
+<td><code>staffInvitations/items/{id}</code></td>
+<td>Staff invitations</td>
+</tr>
+<tr>
+<td><code>staffPermissionGroups</code></td>
+<td>Custom staff permission groups</td>
+</tr>
+<tr>
+<td><code>emailSettings</code></td>
+<td>Email sender settings</td>
+</tr>
+<tr>
+<td><code>publicForms</code></td>
+<td>The public ballot/feedback form password</td>
+</tr>
+</tbody></table></div>
+<h3 id="4-public-snapshots">4. Public snapshots<a class="anchor" href="#4-public-snapshots" aria-label="Link to this section">#</a></h3>
+<p>Public pages never read the tournament collections. When an admin publishes (normally right after an upload), a server route reads the cloud copy and builds a <strong>projection</strong> (<code>src/lib/publicView/projection.ts</code>): an allowlist of fields from released data only (never emails, private URLs, passcodes or phone numbers), plus pre-computed tabs and aggregates (<code>derived.ts</code>). It is stored by <code>src/lib/publicView/store.ts</code>:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Document</th>
+<th scope="col">Holds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>publicViews/{slug}</code></td>
+<td><code>PublicViewRoot</code>: <code>tournamentId</code>, <code>slug</code>, <code>version</code> (combined hash), <code>sections</code> (name → hash and chunk count), <code>roundIds</code>, <code>publishedAt</code>, <code>motionSummary</code>, <code>seo</code></td>
+</tr>
+<tr>
+<td><code>publicViews/{slug}/chunks/…</code></td>
+<td>Section JSON. Base sections: <code>tournament</code>, <code>rounds</code>, <code>teams</code>, <code>adjudicators</code>, <code>venues</code>, <code>motions</code>, <code>breakCategories</code>, <code>institutions</code>, <code>checkins</code>, <code>tabs</code>, <code>derived</code>; plus one <code>round-{roundId}</code> section (debates and ballots) per public round</td>
+</tr>
+</tbody></table></div>
+<p>Sections are content-addressed, so an unchanged section is neither rewritten nor re-downloaded, and reads are served through the Vercel Data Cache. See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="sync-fields">Sync fields<a class="anchor" href="#sync-fields" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Field</th>
+<th scope="col">Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>syncVersion</code></td>
+<td>Cloud version of a record; bumped on every cloud write. A device refuses to overwrite a newer cloud version (the conflict is archived instead)</td>
+</tr>
+<tr>
+<td><code>deletedAt</code></td>
+<td>Soft-deleted in the cloud</td>
+</tr>
+<tr>
+<td><code>participantIds</code></td>
+<td>Cloud-only debate index for private portals</td>
+</tr>
+</tbody></table></div>
+<h2 id="file-formats">File formats<a class="anchor" href="#file-formats" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Format</th>
+<th scope="col">Contents</th>
+<th scope="col">Page</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JSON backup <code>crabbytab-tournament-backup-v1</code></td>
+<td>The tournament and every synced collection</td>
+<td><a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a></td>
+</tr>
+<tr>
+<td>Sync recovery file <code>crabbytab-sync-recovery-v1</code></td>
+<td>Archived conflict versions</td>
+<td><a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a></td>
+</tr>
+<tr>
+<td>Settings file <code>crabbytab.tournament-config</code> v1</td>
+<td>Format and preferences only</td>
+<td><a href="Settings-Reference.html">Settings reference</a></td>
+</tr>
+<tr>
+<td>DebateXML</td>
+<td>Tabbycat&#39;s archive schema (import creates a new tournament)</td>
+<td><a href="Participants-and-Imports.html">Participants and imports</a></td>
+</tr>
+<tr>
+<td>CSV</td>
+<td>Participant imports and exports</td>
+<td><a href="CSV-Formats.html">CSV formats</a></td>
+</tr>
+</tbody></table></div>
+<h2 id="changing-the-data-model">Changing the data model<a class="anchor" href="#changing-the-data-model" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Add new fields as <strong>optional</strong> and treat &quot;absent&quot; as the old behaviour: existing tournaments, backups and cloud documents do not have them. Many types document their &quot;Absent = …&quot; default in a comment.</li>
+<li>Older values stay readable (for example <code>drawStatus: &quot;confirmed&quot;</code>, speaker categories stored as names, <code>Venue.category</code> without <code>categories</code>). Read through the helper named in the type&#39;s comment rather than the raw field.</li>
+<li>A new collection needs entries in <code>CLOUD_COLLECTIONS</code>, the backup validator, the device keys and, if public, the projection; check <code>firestore.rules</code> and the assistant and public projections for private fields.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="CSV-Formats.html" rel="prev"><span>Previous</span>CSV formats</a><a class="pager-next" href="Glossary.html" rel="next"><span>Next</span>Glossary</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Data-Model.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#the-big-picture">The big picture</a></li><li><a href="#tournament-and-settings">Tournament and settings</a></li><li><a href="#rounds">Rounds</a></li><li><a href="#participants">Participants</a></li><li><a href="#debates-the-draw">Debates (the draw)</a></li><li><a href="#results">Results</a></li><li><a href="#breaks-and-audit">Breaks and audit</a></li><li><a href="#identifiers-and-references">Identifiers and references</a></li><li><a href="#where-data-is-stored">Where data is stored</a></li><li><a href="#sync-fields">Sync fields</a></li><li><a href="#file-formats">File formats</a></li><li><a href="#changing-the-data-model">Changing the data model</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

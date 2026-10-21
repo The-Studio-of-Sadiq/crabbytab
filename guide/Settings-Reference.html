@@ -1,0 +1,1372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings reference · CrabbyTab guide</title>
+<meta name="description" content="Settings reference: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html" aria-current="page">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="settings-reference">Settings reference<a class="anchor" href="#settings-reference" aria-label="Link to this section">#</a></h1>
+<p>Every tournament setting: where to change it, its default and what it does. Settings are stored as tournament preferences (<code>Tournament.preferences</code>, type <code>TournamentPreferences</code> in <code>src/types/index.ts</code>); the debate format is stored on the tournament itself. There are 167 preferences. This page lists all of them.</p>
+<ul>
+<li><a href="#where-settings-live">Where settings live</a></li>
+<li><a href="#saving-checks-and-locks">Saving, checks and locks</a></li>
+<li><a href="#defaults-and-format-presets">Defaults and format presets</a></li>
+<li>Configuration pages: <a href="#draw-rules">Draw rules</a> · <a href="#round-settings">Round settings</a> · <a href="#format-and-teams">Format and teams</a> · <a href="#scoring-and-ballots">Scoring and ballots</a> · <a href="#standings-rules">Standings rules</a> · <a href="#public-visibility">Public visibility</a></li>
+<li><a href="#not-shown-in-the-configuration-pages">Not shown in the configuration pages</a></li>
+<li><a href="#details">Details</a></li>
+</ul>
+<h2 id="where-settings-live">Where settings live<a class="anchor" href="#where-settings-live" aria-label="Link to this section">#</a></h2>
+<p>Most settings are under <strong>Admin → Configuration</strong> in the sidebar (owners and admins only). It has six pages, at <code>/{slug}/config/{page}</code>:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Sidebar entry</th>
+<th scope="col">Page</th>
+<th scope="col">What it covers</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Draw rules</td>
+<td><code>/config/draw</code></td>
+<td>Adjudicator allocation, team clashes, sides, two-team pairing, BP draw rules, byes</td>
+</tr>
+<tr>
+<td>Round settings</td>
+<td><code>/config/rounds</code></td>
+<td>Number of preliminary rounds, feedback per round, points weight per round, deleting a round</td>
+</tr>
+<tr>
+<td>Format and teams</td>
+<td><code>/config/format</code></td>
+<td>Format, speakers, reply speeches, team names, configuration file and rules presets</td>
+</tr>
+<tr>
+<td>Scoring and ballots</td>
+<td><code>/config/scoring</code></td>
+<td>Score ranges, ballot rules, adjudicator feedback</td>
+</tr>
+<tr>
+<td>Standings rules</td>
+<td><code>/config/standings</code></td>
+<td>Ranking precedence, extra columns, trimmed mean, eligibility</td>
+</tr>
+<tr>
+<td>Public visibility</td>
+<td><code>/config/visibility</code></td>
+<td>Public pages, check-ins, language, public site options, search engines</td>
+</tr>
+</tbody></table></div>
+<p>Some settings sit on the page where they are used (Assistants, Email, Standings, Schedule, and others). They are listed under <a href="#not-shown-in-the-configuration-pages">Not shown in the configuration pages</a>.</p>
+<h2 id="saving-checks-and-locks">Saving, checks and locks<a class="anchor" href="#saving-checks-and-locks" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Each configuration page has a <strong>Save tournament settings</strong> button. It saves only the settings you changed on the page. Settings you did not touch stay as stored, and a default shown in the form is never written just because you saved.</li>
+<li>Saving is refused, with a message, when:<ul>
+<li>substantive speakers is not a whole number of at least 1;</li>
+<li>a speaker, reply (when reply speeches are on) or feedback (when feedback is on) minimum is not below its maximum, or one is empty;</li>
+<li>the speaker score step is not above 0;</li>
+<li>the minimum adjudicator score to vote is empty;</li>
+<li>the Rényi order or BP position cost exponent is below 0 or empty;</li>
+<li>a custom feedback question or a score criterion is invalid.</li>
+</ul>
+</li>
+<li>Every save (from these pages, other pages or the REST API&#39;s <code>PATCH /preferences</code>) is also checked against <code>src/lib/setup/preferenceValidation.ts</code>: each preference must have the right type, and an option must be one of its listed values. Ranges are given in the tables below.</li>
+<li><strong>Locks once ballots exist.</strong> After the first ballot is entered, the format, teams per room, substantive speakers, reply speeches, ballot mode (preliminary), &quot;Ballots ask for speaker scores&quot; and score criteria cannot change, because existing ballots would no longer fit. The elimination ballot mode locks once the first elimination ballot is entered.</li>
+<li><strong>Scoring changes after ballots.</strong> Changing score ranges, ghosts, margins, low-point wins, forfeits, bye results, winner declaration, aggregation, speech ranks, maximum margin, reply step or the reply-speaker rule after ballots exist raises a warning (a soft rule). Where team totals are affected, every entered ballot&#39;s totals are recalculated. See <a href="Ballots-and-Results.html">Ballots and results</a>.</li>
+<li><strong>Saved here, live after upload.</strong> Saving changes your working copy. Public pages, private URLs and other devices only see the change after you upload to the cloud. After saving, a notice offers to upload and publish. See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</li>
+</ul>
+<h2 id="defaults-and-format-presets">Defaults and format presets<a class="anchor" href="#defaults-and-format-presets" aria-label="Link to this section">#</a></h2>
+<p>The <strong>Default</strong> column is the value CrabbyTab uses when the setting has never been saved. The configuration pages show this value.</p>
+<p>New tournaments do not always start with these defaults. The setup wizard writes its own values (see <a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Wizard value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Speaker and reply score ranges</td>
+<td>By format: BP 50–100 (reply 25–50, unused); UADC and Australs 70–80, reply 35–40; WSDC 60–80, reply 30–40; custom two-team 68–84, reply 34–42; N teams per room 50–99. Step 1.</td>
+</tr>
+<tr>
+<td>Team score includes ghosts</td>
+<td>On</td>
+</tr>
+<tr>
+<td>Ballots submitted through private URLs</td>
+<td>The tab room confirms</td>
+</tr>
+<tr>
+<td>Record motion vetoes</td>
+<td>On</td>
+</tr>
+<tr>
+<td>Draw method (<code>drawRule</code>)</td>
+<td>Chosen in the wizard; always random for N teams per room</td>
+</tr>
+<tr>
+<td>Public draw</td>
+<td>&quot;Current round only&quot; when the wizard&#39;s public information option is on</td>
+</tr>
+<tr>
+<td>Participant data entry</td>
+<td>Private URLs, public forms, or tab staff only, as chosen (sets the private-URL and public-form switches)</td>
+</tr>
+<tr>
+<td>Round robin</td>
+<td>Avoid same institution and avoid team history off; team seed column numeric</td>
+</tr>
+</tbody></table></div>
+<p>A <strong>rules preset</strong> (Tabbycat&#39;s preference presets) sets a bundle of these settings. You can pick one in the wizard or later on <strong>Format and teams → Configuration file and rules presets</strong>: Australs, British Parliamentary, Canadian Parliamentary, Australian Easters, NZ Easters (2 vs 2 Impromptu), Joynt Scroll (3 vs 3 Prepared), UADC, World Schools (WSDC), APDA, Karl Popper (Czechia), Public Speaking. Applying a preset shows every change before it is saved.</p>
+<h2 id="draw-rules">Draw rules<a class="anchor" href="#draw-rules" aria-label="Link to this section">#</a></h2>
+<p><code>/config/draw</code>. See <a href="Rounds-and-Draws.html">Rounds and draws</a> and <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</p>
+<h3 id="adjudicator-allocation-and-panel-rules">Adjudicator allocation and panel rules<a class="anchor" href="#adjudicator-allocation-and-panel-rules" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Adjudicator allocation strategy</td>
+<td><code>adjudicatorPanelStrategy</code></td>
+<td>Preset 1 (<code>crabbytab_v1</code>)</td>
+<td><strong>Preset 1</strong>: current CrabbyTab strength ranking. <strong>Panel average</strong> (<code>panel_average</code>): matches each voting panel&#39;s average strength to the debate&#39;s priority; the strongest member chairs. <strong>Tabbycat voting</strong> (<code>tabbycat_voting</code>): solo chairs in top rooms, panels of three below. <strong>Tabbycat consensus</strong> (<code>tabbycat_consensus</code>): spreads voters evenly. The two Tabbycat strategies ignore the panel size setting.</td>
+</tr>
+<tr>
+<td>Allocate preformed panels as a unit</td>
+<td><code>usePreformedPanels</code></td>
+<td>Off</td>
+<td>Auto-allocation places each preformed panel (Allocation → Preformed panels) whole, higher importance into higher-priority debates, skipping unavailable members. Other debates are filled normally.</td>
+</tr>
+<tr>
+<td>Placing preformed panels (shown when the above is on)</td>
+<td><code>preformedPanelPlacement</code></td>
+<td>Optimised (<code>optimise</code>)</td>
+<td><strong>Optimised</strong>: match panels to debates by importance, conflicts and history. <strong>By room rank</strong> (<code>direct</code>): panel ranked 1 goes to the debate ranked 1, and so on, with no optimisation; conflicts are still reported.</td>
+</tr>
+<tr>
+<td>Minimum adjudicator score to vote</td>
+<td><code>minAdjScoreToVote</code></td>
+<td>1.5</td>
+<td>Only adjudicators at or above this score are given voting seats. Any number.</td>
+</tr>
+<tr>
+<td>Adjudicator conflict penalty</td>
+<td><code>adjConflictPenalty</code></td>
+<td>1,000,000</td>
+<td>Allocator cost per conflict. ≥ 0.</td>
+</tr>
+<tr>
+<td>Adjudicator history penalty</td>
+<td><code>adjHistoryPenalty</code></td>
+<td>10,000</td>
+<td>Allocator cost for an adjudicator seeing a team again. ≥ 0.</td>
+</tr>
+<tr>
+<td>Importance mismatch penalty</td>
+<td><code>importanceMismatchPenalty</code></td>
+<td>10,000,000</td>
+<td>Cost of a priority mismatch when placing preformed panels. ≥ 0.</td>
+</tr>
+<tr>
+<td>Skip adjudicator check-ins</td>
+<td><code>skipAdjCheckins</code></td>
+<td>Off</td>
+<td>All adjudicators are available in every round.</td>
+</tr>
+<tr>
+<td>No panellist adjudicators</td>
+<td><code>noPanellistAdjs</code></td>
+<td>Off</td>
+<td>Hides panellist positions and does not allocate them.</td>
+</tr>
+<tr>
+<td>No trainee adjudicators</td>
+<td><code>noTraineeAdjs</code></td>
+<td>Off</td>
+<td>Hides trainee positions and does not allocate them.</td>
+</tr>
+</tbody></table></div>
+<h3 id="team-conflicts-and-clashes">Team conflicts and clashes<a class="anchor" href="#team-conflicts-and-clashes" aria-label="Link to this section">#</a></h3>
+<p>These apply to two-team draws. BP power-paired draws ignore institutions and history, as Tabbycat and WUDC rules do.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Avoid same institution</td>
+<td><code>avoidSameInstitution</code></td>
+<td>On</td>
+<td>Try not to pair teams from the same institution.</td>
+</tr>
+<tr>
+<td>Avoid team history</td>
+<td><code>avoidTeamHistory</code></td>
+<td>On</td>
+<td>Try to avoid rematches, including in later random rounds.</td>
+</tr>
+<tr>
+<td>Team institution penalty</td>
+<td><code>teamInstitutionPenalty</code></td>
+<td>200</td>
+<td>Cost of a same-institution room for one-up-one-down and minimum-cost conflict avoidance. ≥ 0. Tabbycat&#39;s default is 1.</td>
+</tr>
+<tr>
+<td>Team history penalty</td>
+<td><code>teamHistoryPenalty</code></td>
+<td>1000</td>
+<td>Cost per previous meeting. ≥ 0.</td>
+</tr>
+<tr>
+<td>Previously saw pull-up penalty</td>
+<td><code>previouslySawPullupPenalty</code></td>
+<td>0</td>
+<td>Minimum-cost only: a room mixing brackets costs this much per earlier debate either team had with a pull-up. ≥ 0.</td>
+</tr>
+</tbody></table></div>
+<h3 id="side-allocations-and-balancing">Side allocations and balancing<a class="anchor" href="#side-allocations-and-balancing" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Side allocations method</td>
+<td><code>sideAllocationRule</code></td>
+<td>Balanced</td>
+<td><strong>Balanced</strong>: in two-team draws the team that has been affirmative more often goes negative (ties at random); in BP, positions minimise the position cost. <strong>Random</strong>. <strong>Preallocated</strong> (two-team): sides set per round on the Draw page. <strong>Chosen on the ballot</strong> (<code>manual_ballot</code>, two-team only): the draw pairs teams without sides and each ballot records who took which side.</td>
+</tr>
+<tr>
+<td>Sides in elimination rounds</td>
+<td><code>eliminationSideRule</code></td>
+<td>By seed</td>
+<td><strong>By seed</strong>: the higher seed takes the first side (affirmative, or OG in BP) and sides are final. <strong>Random, confirmed later</strong> (Tabbycat&#39;s behaviour): sides drawn with the draw&#39;s seed; in two-team formats each ballot records the sides.</td>
+</tr>
+<tr>
+<td>Maximum number of times per side</td>
+<td><code>maxTimesPerSide</code></td>
+<td>5</td>
+<td>Used only by minimum-cost pairing with a side balance penalty: pairings that put a team on one side more often than this are avoided. It never blocks a draw; a team past it is reported as a warning. 0 turns it off. Not used for BP. Whole number ≥ 0.</td>
+</tr>
+<tr>
+<td>Maximum allowed side imbalance</td>
+<td><code>maxAllowedSideImbalance</code></td>
+<td>0 (no limit)</td>
+<td>Hard limit on the gap between a team&#39;s most- and least-used sides. A draw that would break it fails with an error. Whole number ≥ 0.</td>
+</tr>
+<tr>
+<td>Side balance penalty</td>
+<td><code>sideBalancePenalty</code></td>
+<td>0</td>
+<td>Minimum-cost only (two-team, balanced sides): cost when both teams lean to the same side. ≥ 0.</td>
+</tr>
+<tr>
+<td>Pairing deviation penalty</td>
+<td><code>pairingDeviationPenalty</code></td>
+<td>0</td>
+<td>Minimum-cost only: weight for straying from the pairing method. At 0 the method only breaks ties between equally clash-free pairings. ≥ 0.</td>
+</tr>
+</tbody></table></div>
+<h3 id="two-team-bracket-pairing-and-conflict-avoidance">Two-team bracket pairing and conflict avoidance<a class="anchor" href="#two-team-bracket-pairing-and-conflict-avoidance" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Options</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Pairing method</td>
+<td><code>pairingMethod</code></td>
+<td>Fold</td>
+<td>Fold (1 v 10, 2 v 9), Slide (1 v 6, 2 v 7), Adjacent (1 v 2, 3 v 4), Fold top room then adjacent, Random within bracket</td>
+</tr>
+<tr>
+<td>Conflict avoidance method</td>
+<td><code>conflictAvoidance</code></td>
+<td>One-up-one-down</td>
+<td>One-up-one-down (swap with the room above or below); Minimum-cost matching (pull-ups chosen first); Minimum-cost matching including pull-ups (<code>min_cost_with_pullups</code>: matches the whole field at once and chooses who is pulled up, between adjacent brackets only; ignores intermediate brackets and the pull-up restriction); Off. Random rounds avoid clashes unless this is off.</td>
+</tr>
+<tr>
+<td>Odd bracket resolution method</td>
+<td><code>oddBracketMethod</code></td>
+<td>Pull up the top team (<code>pullup_top</code>)</td>
+<td>Intermediate brackets with bubble-up-bubble-down; Intermediate brackets; Intermediate brackets 1 / 2 (preallocated sides); Pull up the top / bottom / middle / a random team; Pull up the lowest draw strength by rank; Pull up the least pulled-up, then lowest draw strength by rank. The two draw-strength methods need minimum-cost matching including pull-ups. Tabbycat&#39;s default is intermediate brackets with bubble-up-bubble-down.</td>
+</tr>
+<tr>
+<td>Pull-up restriction</td>
+<td><code>pullupRestriction</code></td>
+<td>No restriction</td>
+<td>Fewest pull-ups so far; Lowest draw strength (speaks); Lowest draw strength (wins, using opponents&#39; points as Tabbycat). Only for the pull-up methods; no effect on intermediate brackets, min-cost including pull-ups, or BP.</td>
+</tr>
+<tr>
+<td>Pull-up penalty</td>
+<td><code>pullupPenalty</code></td>
+<td>0</td>
+<td><strong>BP</strong>: added once per previous pull-up when a team is placed above its bracket, so teams pulled up less often are preferred (set high, e.g. 100000, to outweigh position costs). <strong>Two-team min-cost including pull-ups</strong>: multiplied by the team&#39;s place in the odd-bracket order. ≥ 0.</td>
+</tr>
+</tbody></table></div>
+<h3 id="british-parliamentary-bp-draw-rules">British Parliamentary (BP) draw rules<a class="anchor" href="#british-parliamentary-bp-draw-rules" aria-label="Link to this section">#</a></h3>
+<p>Power-paired BP rounds assign every team to a room and position in one Hungarian assignment, as Tabbycat does.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BP pull-up distribution</td>
+<td><code>bpPullupDistribution</code></td>
+<td>Anywhere in bracket</td>
+<td>Anywhere (WUDC-compliant), top room(s) or bottom room(s) of the bracket.</td>
+</tr>
+<tr>
+<td>BP position cost</td>
+<td><code>bpPositionCost</code></td>
+<td>Rényi entropy</td>
+<td>Rényi entropy; sum of squared deviations; simple (times already in the position).</td>
+</tr>
+<tr>
+<td>Rényi order (BP)</td>
+<td><code>renyiOrder</code></td>
+<td>1.0</td>
+<td>α for Rényi entropy (1 Shannon, 0 Hartley, 2 collision). ≥ 0.</td>
+</tr>
+<tr>
+<td>BP position cost exponent</td>
+<td><code>bpPositionCostExponent</code></td>
+<td>4.0</td>
+<td>The position cost is raised to this power; higher values prefer fixing a few large imbalances. ≥ 0.</td>
+</tr>
+<tr>
+<td>BP assignment method</td>
+<td><code>bpAssignmentMethod</code></td>
+<td>Hungarian with preshuffling</td>
+<td>Hungarian with preshuffling (WUDC-compliant; random among equally good draws); Hungarian without preshuffling (ties by standings order, same draw for every seed; not WUDC-compliant); Random positions within brackets.</td>
+</tr>
+</tbody></table></div>
+<h3 id="scheduling-and-byes">Scheduling and byes<a class="anchor" href="#scheduling-and-byes" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Bye team results</td>
+<td><code>byeTeamResults</code></td>
+<td>Treat bye teams as absent</td>
+<td>Or <strong>Award a win</strong> (no speaker scores) to a team that was available but sat out.</td>
+</tr>
+<tr>
+<td>Bye team selection method</td>
+<td><code>byeTeamSelectionMethod</code></td>
+<td>Don&#39;t choose bye teams</td>
+<td>With a field that does not divide evenly: lowest ranked team or random team gets the bye.</td>
+</tr>
+</tbody></table></div>
+<h2 id="round-settings">Round settings<a class="anchor" href="#round-settings" aria-label="Link to this section">#</a></h2>
+<p><code>/config/rounds</code>. These act at once (no Save button) and change rounds, not preferences.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Control</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Number of preliminary rounds (0–20) + <strong>Update round count</strong></td>
+<td>Lowering it cancels the extra rounds; their ballots are kept and they come back if you raise the count. Elimination rounds are not affected.</td>
+</tr>
+<tr>
+<td>Feedback by round</td>
+<td>A switch per round (<code>Round.feedbackEnabled</code>) overriding the tournament feedback setting. An elimination round without its own value follows <em>Collect feedback in elimination rounds</em>.</td>
+</tr>
+<tr>
+<td>Points weight by round</td>
+<td>Team points earned in a round are multiplied by its weight (<code>Round.weight</code>, default 1, whole number ≥ 0). Wins, speaks and who-beat-whom are not weighted.</td>
+</tr>
+<tr>
+<td>Delete an individual round</td>
+<td>After confirmation, permanently deletes the round, its debates and ballots, and its motion assignments.</td>
+</tr>
+</tbody></table></div>
+<h2 id="format-and-teams">Format and teams<a class="anchor" href="#format-and-teams" aria-label="Link to this section">#</a></h2>
+<p><code>/config/format</code>. See <a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</p>
+<h3 id="debate-format-and-team-structure">Debate format and team structure<a class="anchor" href="#debate-format-and-team-structure" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Parliamentary format</td>
+<td><code>format</code> (on the tournament)</td>
+<td>From the wizard</td>
+<td>BP; Asian Parliamentary (UADC); Australs; World Schools (WSDC); N teams per room. Choosing BP sets 4 teams, 2 speakers, no reply; UADC/Australs/WSDC set 2 teams, 3 speakers, reply on; N teams per room sets 6 teams, 1 speaker, no reply. The custom two-team format (from the wizard or a DebateXML import) is not offered here. Locked once ballots exist.</td>
+</tr>
+<tr>
+<td>Teams per room (N teams per room only)</td>
+<td><code>teamsInDebate</code></td>
+<td>4 (BP), 2 (two-team), 6 (N teams)</td>
+<td>Any whole number except 2 and 4. For BP and two-team formats it is fixed by the format. Locked once ballots exist; a configuration file or preset cannot change it once a draw exists.</td>
+</tr>
+<tr>
+<td>Substantive speakers per team</td>
+<td><code>substantiveSpeakers</code></td>
+<td>2 (BP), 3 (others)</td>
+<td>The field allows 1–5; validation accepts 1–10 (the API can store up to 10).</td>
+</tr>
+<tr>
+<td>Enable reply speech scoring</td>
+<td><code>replyScoresEnabled</code></td>
+<td>Off when unset (set by the format)</td>
+<td>Adds a reply speech per team.</td>
+</tr>
+</tbody></table></div>
+<h3 id="team-names">Team names<a class="anchor" href="#team-names" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Teams with a reference show</td>
+<td><code>teamNameDisplay</code></td>
+<td>Long name</td>
+<td>For teams with a reference (&quot;1&quot;, &quot;A&quot;): <strong>Long</strong> = institution name + reference (&quot;Victoria 1&quot;); <strong>Short</strong> = institution code + reference (&quot;VUW 1&quot;). Saved with <strong>Save and rename</strong>, separately from the main Save button.</td>
+</tr>
+</tbody></table></div>
+<p>The card also offers <strong>Update team names</strong> (after renaming an institution) and <strong>Convert existing names</strong> (Tabbycat&#39;s <code>convertteamnames</code>), both with a preview.</p>
+<h3 id="configuration-file-and-rules-presets">Configuration file and rules presets<a class="anchor" href="#configuration-file-and-rules-presets" aria-label="Link to this section">#</a></h3>
+<p>Not a setting: <strong>Export settings</strong> downloads the preferences as a JSON file; <strong>Load settings from a file…</strong> and <strong>Rules preset</strong> show a preview of every change before applying it. Settings that are locked (ballots entered, or teams per room once a draw exists) are listed and left unchanged. Tournament state never travels: the current round, release switches, released break categories and the schedule. See <a href="CSV-Formats.html">CSV formats</a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/data-import-export.md">data-import-export.md</a>.</p>
+<h2 id="scoring-and-ballots">Scoring and ballots<a class="anchor" href="#scoring-and-ballots" aria-label="Link to this section">#</a></h2>
+<p><code>/config/scoring</code>. See <a href="Ballots-and-Results.html">Ballots and results</a>.</p>
+<h3 id="speaker-scoring-parameters">Speaker scoring parameters<a class="anchor" href="#speaker-scoring-parameters" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Minimum speaker score</td>
+<td><code>minSpeakerScore</code></td>
+<td>68</td>
+<td>Lowest substantive score accepted. Must be below the maximum.</td>
+</tr>
+<tr>
+<td>Maximum speaker score</td>
+<td><code>maxSpeakerScore</code></td>
+<td>84</td>
+<td>Highest substantive score.</td>
+</tr>
+<tr>
+<td>Score step increment</td>
+<td><code>stepSpeakerScore</code></td>
+<td>1</td>
+<td>Allowed increments, e.g. 1, 0.5 or 0.25. Must be above 0.</td>
+</tr>
+<tr>
+<td>Minimum reply score (reply on)</td>
+<td><code>minReplyScore</code></td>
+<td>34</td>
+<td>Must be below the maximum.</td>
+</tr>
+<tr>
+<td>Maximum reply score (reply on)</td>
+<td><code>maxReplyScore</code></td>
+<td>42</td>
+<td></td>
+</tr>
+</tbody></table></div>
+<h3 id="ballot-rules-and-options">Ballot rules and options<a class="anchor" href="#ballot-rules-and-options" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ballot introduction/explanation</td>
+<td><code>ballotIntroExplanation</code></td>
+<td>Empty</td>
+<td>Text shown above the ballot form, e.g. the speaker scale. Up to 20,000 characters.</td>
+</tr>
+<tr>
+<td>Margin includes dissenters</td>
+<td><code>marginIncludesDissenters</code></td>
+<td>Off</td>
+<td>Voting ballots: dissenting adjudicators count towards the winning margin. Needed for voting ballots in N-teams-per-room tournaments.</td>
+</tr>
+<tr>
+<td>Team score includes ghosts</td>
+<td><code>teamScoreIncludesGhosts</code></td>
+<td>Off when unset (new tournaments: on)</td>
+<td>Duplicate (iron-person) speeches count towards the team total.</td>
+</tr>
+<tr>
+<td>Require double-entry ballot verification</td>
+<td><code>ballotDoubleEntry</code></td>
+<td>Off</td>
+<td>A ballot only counts once a second person has checked it.</td>
+</tr>
+<tr>
+<td>How ballots are checked (double entry on)</td>
+<td><code>ballotCheckMode</code></td>
+<td>Review</td>
+<td><strong>Review</strong>: the checker compares with the paper ballot and confirms. <strong>Blind</strong>: the checker re-enters without seeing the first entry.</td>
+</tr>
+<tr>
+<td>Ballots per debate, preliminary rounds (not BP)</td>
+<td><code>ballotMode</code></td>
+<td>Consensus</td>
+<td><strong>Consensus</strong>: one ballot per panel. <strong>Voting</strong>: one sheet per voting adjudicator; majority decides, recorded speaker scores are the majority&#39;s average, the chair breaks a tied panel. BP is always consensus. Locked once ballots exist.</td>
+</tr>
+<tr>
+<td>Ballots per debate, elimination rounds (not BP)</td>
+<td><code>eliminationBallotMode</code></td>
+<td>Same as preliminary rounds</td>
+<td>Consensus or voting for elimination rounds. Locked once an elimination ballot exists.</td>
+</tr>
+<tr>
+<td>Record motion vetoes</td>
+<td><code>enableMotionVetoes</code></td>
+<td>Off when unset (new tournaments: on)</td>
+<td>Ballots record each team&#39;s veto; vetoes appear in motion statistics.</td>
+</tr>
+<tr>
+<td>Allow forfeits (two-team only)</td>
+<td><code>enableForfeits</code></td>
+<td>Off</td>
+<td>A debate can be recorded as a forfeit: the other team wins, no speaker scores.</td>
+</tr>
+<tr>
+<td>Allow motion reuse</td>
+<td><code>enableMotionReuse</code></td>
+<td>On</td>
+<td>Motions can be reused across rounds (the round&#39;s motion panel offers other rounds&#39; motions and a copy from the previous round). Tabbycat&#39;s default is off.</td>
+</tr>
+<tr>
+<td>Deciding the winner</td>
+<td><code>winnersInBallots</code></td>
+<td>From the scores (<code>none</code>)</td>
+<td><strong>From the scores</strong>: higher total wins; totals may not tie. <strong>Declared, as a check</strong> (<code>high-points</code>): the declared winner must have the higher total. <strong>Declared, to break ties</strong> (<code>tied-points</code>). <strong>Declared, overriding the scores</strong> (<code>low-points</code>): low-point wins allowed. In BP these control how ranks and totals relate. Replaces the older <code>allowLowPointWins</code>.</td>
+</tr>
+<tr>
+<td>Ballots ask for speaker scores</td>
+<td><code>speakersInBallots</code></td>
+<td>Always</td>
+<td>Always; preliminary rounds only; never. Results-only debates count for points and wins but not speaks, margins or the speaker tab. Locked once ballots exist.</td>
+</tr>
+<tr>
+<td>Speech ranks</td>
+<td><code>speakerRanks</code></td>
+<td>Do not rank speeches</td>
+<td>Rank every speech independently of scores (<code>any</code>), or ranks must follow the scores (<code>high-points</code>). Consensus ballots only; adds the &quot;Speech ranks (sum)&quot; speaker metric. Replies are not ranked.</td>
+</tr>
+<tr>
+<td>Panel score aggregation (voting, two-team)</td>
+<td><code>scoreAggregation</code></td>
+<td>Mean</td>
+<td>Mean or median (even panels: mean rounded up) of a speech&#39;s scores. Team totals are always the mean.</td>
+</tr>
+<tr>
+<td>Maximum margin (two-team)</td>
+<td><code>maximumMargin</code></td>
+<td>0 (no limit)</td>
+<td>Largest winning margin on one scoresheet. ≥ 0.</td>
+</tr>
+<tr>
+<td>Reply score step (two-team, reply on)</td>
+<td><code>stepReplyScore</code></td>
+<td>Half the speaker score step</td>
+<td>E.g. 1 or 0.5. Must be above 0.</td>
+</tr>
+<tr>
+<td>Reply speaker must have given a substantive speech (two-team, reply on)</td>
+<td><code>requireSubstantiveForReply</code></td>
+<td>On</td>
+<td>The last substantive speaker can never reply.</td>
+</tr>
+<tr>
+<td>Side names (two-team)</td>
+<td><code>sideNames</code></td>
+<td>Affirmative, Negative</td>
+<td>Also Government/Opposition, Proposition/Opposition, Pro/Con, Appellant/Respondent, Team 1/Team 2, Plaintiff/Prosecution/Defense. Used on ballots, the draw, printing and public pages. BP positions are not renamed.</td>
+</tr>
+<tr>
+<td>Record motions on ballots</td>
+<td><code>enableMotions</code></td>
+<td>On</td>
+<td>Off: ballots and printed scoresheets do not ask for the motion or vetoes.</td>
+</tr>
+<tr>
+<td>Score criteria</td>
+<td><code>scoreCriteria</code></td>
+<td>None</td>
+<td>Optional list (up to 20) of criteria with name (≤ 20 characters), speeches (all, substantive, reply), weight, min, max, step and required. Adjudicators score each criterion and the speech score is the weighted sum (e.g. WSDC Style/Content/Strategy). Locked once ballots exist.</td>
+</tr>
+</tbody></table></div>
+<h3 id="adjudicator-feedback">Adjudicator feedback<a class="anchor" href="#adjudicator-feedback" aria-label="Link to this section">#</a></h3>
+<p>See <a href="Feedback.html">Feedback</a>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Enable adjudicator feedback submission</td>
+<td><code>feedbackEnabled</code></td>
+<td>On</td>
+<td>Turns feedback (and its sidebar entry) on. The settings below show only when it is on.</td>
+</tr>
+<tr>
+<td>Minimum feedback score</td>
+<td><code>feedbackMinScore</code></td>
+<td>1</td>
+<td>Must be below the maximum.</td>
+</tr>
+<tr>
+<td>Maximum feedback score</td>
+<td><code>feedbackMaxScore</code></td>
+<td>10</td>
+<td></td>
+</tr>
+<tr>
+<td>Feedback score step</td>
+<td><code>feedbackScoreStep</code></td>
+<td>1</td>
+<td>E.g. 0.5 for half points. Must be above 0.</td>
+</tr>
+<tr>
+<td>Important feedback threshold</td>
+<td><code>feedbackImportantThreshold</code></td>
+<td>2</td>
+<td>Feedback this far from the adjudicator&#39;s base score is listed as important. ≥ 0.</td>
+</tr>
+<tr>
+<td>Feedback introduction</td>
+<td><code>feedbackIntroduction</code></td>
+<td>Empty</td>
+<td>Shown above every feedback form in the private portals. Up to 2,000 characters in the field.</td>
+</tr>
+<tr>
+<td>Show unexpected feedback</td>
+<td><code>showUnexpectedFeedback</code></td>
+<td>On</td>
+<td>Lists submissions no feedback path expected (marked ?) in feedback progress.</td>
+</tr>
+<tr>
+<td>Custom feedback questions: Team feedback</td>
+<td><code>teamFeedbackQuestions</code></td>
+<td>None</td>
+<td>Questions teams answer. Types: short text, long text, whole number box, decimal number box, integer scale, number in range, yes/no, checkbox, select one, select many. A question needs a label; select types need options; scales need min &lt; max.</td>
+</tr>
+<tr>
+<td>Custom feedback questions: Adjudicator feedback</td>
+<td><code>adjudicatorFeedbackQuestions</code></td>
+<td>None</td>
+<td>Questions adjudicators answer about each other.</td>
+</tr>
+<tr>
+<td>Feedback paths (preliminary, or all rounds)</td>
+<td><code>feedbackPaths</code></td>
+<td>Teams on the chair; chair on panellists and trainees; panellists and trainees on the chair</td>
+<td><strong>Teams give feedback on</strong>: the chair only; the orallist; any voting adjudicator allowed (orallist expected); any adjudicator allowed (orallist expected); every voting adjudicator; every adjudicator; nobody. Plus switches for chair on panellists, chair on trainees, panellists on chair, trainees on chair, panellists on each other, every adjudicator on every other, and feedback on teams (never counted in adjudicator scores). The paths decide what portals offer, what progress expects and which forms are printed.</td>
+</tr>
+<tr>
+<td>Collect feedback in elimination rounds</td>
+<td><code>feedbackInEliminationRounds</code></td>
+<td>On</td>
+<td>Default for elimination rounds&#39; feedback switch (Round settings).</td>
+</tr>
+<tr>
+<td>Use different paths in elimination rounds</td>
+<td><code>eliminationFeedbackPaths</code></td>
+<td>Off (same paths)</td>
+<td>When ticked, a second set of paths for elimination rounds.</td>
+</tr>
+</tbody></table></div>
+<h2 id="standings-rules">Standings rules<a class="anchor" href="#standings-rules" aria-label="Link to this section">#</a></h2>
+<p><code>/config/standings</code>. Metric definitions and format defaults: <a href="Standings-and-Metrics.html">Standings and metrics</a>. The precedence also drives power-pairing brackets and break qualification (<a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>).</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Team ranking precedence chain</td>
+<td><code>teamStandingsPrecedence</code></td>
+<td>Format default (shown under the editor)</td>
+<td>Up to 8 metrics, most important first. Who-beat-whom may appear more than once. Metrics that do not fit the format are disabled.</td>
+</tr>
+<tr>
+<td>Extra team metrics (displayed, not ranked on)</td>
+<td><code>teamStandingsExtra</code></td>
+<td>None</td>
+<td>Extra columns.</td>
+</tr>
+<tr>
+<td>Speaker ranking precedence chain</td>
+<td><code>speakerStandingsPrecedence</code></td>
+<td>Default chain (shown under the editor)</td>
+<td>Up to 8 metrics. Team metrics count every debate of the speaker&#39;s team.</td>
+</tr>
+<tr>
+<td>Extra speaker metrics (displayed, not ranked on)</td>
+<td><code>speakerStandingsExtra</code></td>
+<td>None</td>
+<td>Extra columns.</td>
+</tr>
+<tr>
+<td>Speaker score trim (for speaks_trimmed_mean)</td>
+<td><code>speakerTrim</code></td>
+<td>1</td>
+<td>Scores dropped from <strong>each</strong> end for the trimmed mean (Tabbycat&#39;s high-low drop). With too few scores it is the plain average. Whole number ≥ 0.</td>
+</tr>
+<tr>
+<td>Speeches a speaker may miss</td>
+<td><code>standingsMissedDebates</code></td>
+<td>-1 (no limit)</td>
+<td>A speaker who missed more preliminary rounds (with results) than this is listed on the speaker tab but not ranked.</td>
+</tr>
+<tr>
+<td>Replies a speaker may miss</td>
+<td><code>standingsMissedReplies</code></td>
+<td>-1 (no limit)</td>
+<td>The same for the replies tab.</td>
+</tr>
+</tbody></table></div>
+<h2 id="public-visibility">Public visibility<a class="anchor" href="#public-visibility" aria-label="Link to this section">#</a></h2>
+<p><code>/config/visibility</code>. Nothing is public until it is also released (per round or per item). See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h3 id="public-pages-check-ins-and-language">Public pages, check-ins and language<a class="anchor" href="#public-pages-check-ins-and-language" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public results and scores</td>
+<td><code>publicResults</code></td>
+<td>On</td>
+<td>Released results of non-silent rounds appear on public pages.</td>
+</tr>
+<tr>
+<td>Public standings tab</td>
+<td><code>publicStandings</code></td>
+<td>On</td>
+<td>Team and speaker leaderboards on the public pages.</td>
+</tr>
+<tr>
+<td>Public motions page</td>
+<td><code>publicMotions</code></td>
+<td>On</td>
+<td>Released motions and info slides appear publicly.</td>
+</tr>
+<tr>
+<td>Public check-in counts</td>
+<td><code>publicCheckInStatus</code></td>
+<td>Off</td>
+<td>Publishes round totals only, no names.</td>
+</tr>
+<tr>
+<td>Self check-in from private URLs</td>
+<td><code>allowSelfCheckIn</code></td>
+<td>Off</td>
+<td>Teams and adjudicators mark themselves available for the current round from their portal. See <a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</td>
+</tr>
+<tr>
+<td>Check-in expiry (hours; 0 means never)</td>
+<td><code>checkInExpiresAfterHours</code></td>
+<td>0</td>
+<td>Timestamped check-ins older than this stop counting. ≥ 0.</td>
+</tr>
+<tr>
+<td>Room check-in expiry (hours; 0 means never)</td>
+<td><code>venueCheckInExpiresAfterHours</code></td>
+<td>0</td>
+<td>Older room check-ins show as expired. ≥ 0.</td>
+</tr>
+<tr>
+<td>Public pages and portals language</td>
+<td><code>publicLanguage</code></td>
+<td>Each viewer&#39;s browser language</td>
+<td>Default language for public pages and portals. Viewers can still pick their own. Machine-drafted languages are marked. See <a href="Languages-and-Translations.html">Languages and translations</a>.</td>
+</tr>
+</tbody></table></div>
+<p>Tabbycat difference: Tabbycat&#39;s public pages default to off. CrabbyTab&#39;s four public switches default to on, because every item also needs an explicit release.</p>
+<h3 id="draw-and-tabs">Draw and tabs<a class="anchor" href="#draw-and-tabs" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public draw</td>
+<td><code>publicDrawMode</code></td>
+<td>All released rounds (Off if the older <code>publicDraw</code> is off)</td>
+<td>Off; current round only; all released rounds. Saving also keeps the older <code>publicDraw</code> switch in step.</td>
+</tr>
+<tr>
+<td>Adjudicator tab shows</td>
+<td><code>adjudicatorTabShows</code></td>
+<td>Final (feedback-blended) score only</td>
+<td>Base score only (<code>test</code>); final only; base, final and per-round feedback (<code>all</code>). The tab itself is released on the Standings page.</td>
+</tr>
+<tr>
+<td>Team tab: top N</td>
+<td><code>teamTabLimit</code></td>
+<td>0 (all)</td>
+<td>Public tab shows only the top N ranks. With a limit, ranks below the cutoff cannot be worked out from published results. Whole number ≥ 0.</td>
+</tr>
+<tr>
+<td>Speaker tab: top N</td>
+<td><code>speakerTabLimit</code></td>
+<td>0 (all)</td>
+<td>As above.</td>
+</tr>
+<tr>
+<td>Replies tab: top N</td>
+<td><code>repliesTabLimit</code></td>
+<td>0 (all)</td>
+<td>As above.</td>
+</tr>
+<tr>
+<td>Break page metrics</td>
+<td><code>publicBreakMetrics</code></td>
+<td>-1 (all)</td>
+<td>How many precedence metrics the public break page shows; 0 none.</td>
+</tr>
+<tr>
+<td>Show break categories on the participants page</td>
+<td><code>publicBreakCategories</code></td>
+<td>Off</td>
+<td>Break eligibility on the public participants page.</td>
+</tr>
+<tr>
+<td>Motions order</td>
+<td><code>publicMotionsOrder</code></td>
+<td>Earliest round first</td>
+<td>Or latest round first.</td>
+</tr>
+<tr>
+<td>Show motions in results</td>
+<td><code>showMotionsInResults</code></td>
+<td>Off</td>
+<td>The released motion each debate used, on public results and record pages.</td>
+</tr>
+</tbody></table></div>
+<h3 id="names-and-anonymity">Names and anonymity<a class="anchor" href="#names-and-anonymity" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Team code names</td>
+<td><code>teamCodeNames</code></td>
+<td>Off</td>
+<td>Real names with code names as tooltips (<code>all-tooltips</code>); code names publicly, real names for staff (<code>admin-tooltips-code</code>); code names publicly, staff see both (<code>admin-tooltips-real</code>); code names everywhere. Code-name modes publish only the code name.</td>
+</tr>
+<tr>
+<td>Speaker and adjudicator code names</td>
+<td><code>participantCodeNames</code></td>
+<td>Off</td>
+<td>Or code names on public pages. Code names are set in the participant directory.</td>
+</tr>
+<tr>
+<td>Show team institutions</td>
+<td><code>showTeamInstitutions</code></td>
+<td>On</td>
+<td></td>
+</tr>
+<tr>
+<td>Show adjudicator institutions</td>
+<td><code>showAdjudicatorInstitutions</code></td>
+<td>On</td>
+<td></td>
+</tr>
+<tr>
+<td>Show which adjudicators are always trainees (unaccredited)</td>
+<td><code>showUnaccredited</code></td>
+<td>Off</td>
+<td>Adds an &quot;Always trainee&quot; column to adjudicator tables.</td>
+</tr>
+<tr>
+<td>Show team emoji</td>
+<td><code>showEmoji</code></td>
+<td>On</td>
+<td></td>
+</tr>
+<tr>
+<td>Show speakers in the draw</td>
+<td><code>showSpeakersInDraw</code></td>
+<td>On</td>
+<td></td>
+</tr>
+<tr>
+<td>Show splitting adjudicators</td>
+<td><code>showSplittingAdjudicators</code></td>
+<td>Off</td>
+<td>Marks voting adjudicators whose sheet chose the losing team.</td>
+</tr>
+</tbody></table></div>
+<p>Below these are tools (not settings) to generate missing code names (emoji or speakers&#39; last names) and assign missing emoji. Individual speakers and adjudicators are made anonymous in the participant directory.</p>
+<h3 id="public-homepage">Public homepage<a class="anchor" href="#public-homepage" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Search engines</td>
+<td><code>searchEngineIndexing</code></td>
+<td>Allow every public page to be indexed (<code>all</code>)</td>
+<td>Or only the public tab homepage (<code>homepage-only</code>), or no pages (<code>none</code>). Adds a <code>noindex</code> flag; search engines may ignore it, so it is not a privacy control. See <a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a>.</td>
+</tr>
+<tr>
+<td>Welcome message</td>
+<td><code>welcomeMessage</code></td>
+<td>Empty</td>
+<td>Plain text on the public Home tab, shown while the public homepage is empty.</td>
+</tr>
+<tr>
+<td>Public homepage</td>
+<td><code>publicHomepage</code></td>
+<td>Empty</td>
+<td>Markdown for the public page&#39;s Home tab (at most 20,000 characters), with maths and YouTube embeds; HTML is removed.</td>
+</tr>
+<tr>
+<td>Tournament staff</td>
+<td><code>tournamentStaff</code></td>
+<td>Empty</td>
+<td>Plain-text credits for convenors, adjudication core and tab team.</td>
+</tr>
+</tbody></table></div>
+<h2 id="not-shown-in-the-configuration-pages">Not shown in the configuration pages<a class="anchor" href="#not-shown-in-the-configuration-pages" aria-label="Link to this section">#</a></h2>
+<p>These preferences are changed elsewhere, or have no control at all. &quot;Default&quot; is the value used when unset.</p>
+<h3 id="set-on-other-pages">Set on other pages<a class="anchor" href="#set-on-other-pages" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting (UI label)</th>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Where</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Data-entry staff access</td>
+<td><code>assistantAccess</code></td>
+<td>All areas</td>
+<td>Admin → Assistants</td>
+<td>All areas; results entry and draw display; results entry only; no access. See <a href="Staff-and-Roles.html">Staff and roles</a>.</td>
+</tr>
+<tr>
+<td>Ballot submissions from adjudicators through private URLs</td>
+<td><code>privateUrlBallots</code></td>
+<td>On</td>
+<td>Admin → Assistants</td>
+<td>Off: private URLs no longer accept ballots.</td>
+</tr>
+<tr>
+<td>Feedback submissions through private URLs</td>
+<td><code>privateUrlFeedback</code></td>
+<td>On</td>
+<td>Admin → Assistants</td>
+<td>Off: private URLs no longer accept feedback.</td>
+</tr>
+<tr>
+<td>Ballots submitted through private URLs</td>
+<td><code>privateBallotConfirmation</code></td>
+<td>The chair confirms (new tournaments: the tab room)</td>
+<td>Admin → Assistants</td>
+<td>Chair: a chair&#39;s ballot counts at once. Tab room: every private-URL ballot waits for confirmation.</td>
+</tr>
+<tr>
+<td>Individual ballots from every voting adjudicator</td>
+<td><code>individualBallots</code></td>
+<td>Off</td>
+<td>Admin → Assistants</td>
+<td>Voting rounds: each voting adjudicator submits a sheet; the latest of each is merged. Two-team voting tournaments only.</td>
+</tr>
+<tr>
+<td>Allow self-split ballots for solo adjudicators</td>
+<td><code>allowSelfSplitBallots</code></td>
+<td>Off</td>
+<td>Admin → Assistants</td>
+<td>A solo adjudicator on a voting ballot may record a 2:1 split (Karl Popper rules).</td>
+</tr>
+<tr>
+<td>Public ballot form</td>
+<td><code>publicBallotForm</code></td>
+<td>Off</td>
+<td>Admin → Assistants (Public forms)</td>
+<td>Adjudicators enter ballots on a public page without a private URL; these always wait for confirmation.</td>
+</tr>
+<tr>
+<td>Public feedback form</td>
+<td><code>publicFeedbackForm</code></td>
+<td>Off</td>
+<td>Admin → Assistants (Public forms)</td>
+<td>Feedback from a public page.</td>
+</tr>
+<tr>
+<td>Require the tournament password</td>
+<td><code>publicFormsUsePassword</code></td>
+<td>Off</td>
+<td>Admin → Assistants (Public forms)</td>
+<td>Public forms need the tournament password (stored server-side as a hash, not in preferences).</td>
+</tr>
+<tr>
+<td>Draw released / Team results / Motions released / Ballot confirmed / Ballot receipts</td>
+<td><code>notifyDrawReleased</code>, <code>notifyTeamPoints</code>, <code>notifyMotionsReleased</code>, <code>notifyBallotConfirmed</code>, <code>notifyBallotReceipt</code></td>
+<td>Off</td>
+<td>Public → Email</td>
+<td>Automatic emails. They take effect after the next cloud upload. See <a href="Email-and-Notifications.html">Email and notifications</a>.</td>
+</tr>
+<tr>
+<td>Team tab, Speaker tab, Speaker category tabs, Replies tab, All round results</td>
+<td><code>releaseTeamTab</code>, <code>releaseSpeakerTab</code>, <code>releaseSpeakerCategoryTabs</code>, <code>releaseRepliesTab</code>, <code>releaseAllResults</code></td>
+<td>Hidden (speaker category tabs follow the speaker tab when unset)</td>
+<td>Results → Standings (Public release panel)</td>
+<td>Public tabs over completed preliminary rounds; all results releases every completed round, silent and elimination included.</td>
+</tr>
+<tr>
+<td>Participants list, Institutions list, Adjudication core, Breaking adjudicators</td>
+<td><code>publicParticipants</code>, <code>publicInstitutionsList</code>, <code>publicAdjudicatorCore</code>, <code>publicBreakingAdjudicators</code></td>
+<td>Hidden</td>
+<td>Standings (Public release panel)</td>
+<td>Public lists.</td>
+</tr>
+<tr>
+<td>Adjudicator tab, Scoresheets, Scoresheets on team private URLs, Break category team tabs</td>
+<td><code>releaseAdjudicatorTab</code>, <code>releaseBallots</code>, <code>releasePrivateBallots</code>, <code>releaseBreakCategoryTabs</code></td>
+<td>Hidden</td>
+<td>Standings (Public release panel)</td>
+<td></td>
+</tr>
+<tr>
+<td>Team and adjudicator record pages</td>
+<td><code>publicRecordPages</code></td>
+<td>On</td>
+<td>Standings (Public release panel)</td>
+<td></td>
+</tr>
+<tr>
+<td>Pre-allocated sides, Elimination bracket, Diversity statistics, Motion veto statistics, Feedback progress</td>
+<td><code>publicSideAllocations</code>, <code>publicBracket</code>, <code>publicDiversity</code>, <code>publicVetoStatistics</code>, <code>publicFeedbackProgress</code></td>
+<td>Hidden</td>
+<td>Standings (Public release panel)</td>
+<td>Veto statistics also need <em>Record motion vetoes</em>.</td>
+</tr>
+<tr>
+<td>Motion statistics</td>
+<td><code>motionTabReleased</code></td>
+<td>Follows <em>Public motions page</em></td>
+<td>Standings (Public release panel)</td>
+<td></td>
+</tr>
+<tr>
+<td><em>{category}</em> break</td>
+<td><code>releasedBreakCategoryIds</code></td>
+<td>None</td>
+<td>Standings (Public release panel)</td>
+<td>Which generated breaks are public. The panel also has <strong>Release the tab</strong> (Tabbycat&#39;s tab-release preset).</td>
+</tr>
+<tr>
+<td>Set current round</td>
+<td><code>currentRoundId</code></td>
+<td>Latest publicly released draw</td>
+<td>Draw page</td>
+<td>The round public pages, the projector and portals treat as current. Never makes a draw public by itself.</td>
+</tr>
+<tr>
+<td>Feedback weighting by source</td>
+<td><code>feedbackSourceWeights</code></td>
+<td>1 for every pair</td>
+<td>Results → Feedback</td>
+<td>Multiplier per source (team, chair, panellist, trainee) and target (chair, panellist, trainee); ≥ 0.</td>
+</tr>
+<tr>
+<td>Team seed column</td>
+<td><code>teamSeedMode</code></td>
+<td>Off</td>
+<td>Teams CSV import dialog</td>
+<td>Do not ask; numeric seed; seed title (Unseeded, Free, Half, Full seed). Also shapes the registration form.</td>
+</tr>
+<tr>
+<td>Speaker categories</td>
+<td><code>speakerCategories</code></td>
+<td>None</td>
+<td>Setup → Speaker categories</td>
+<td>ESL, novice, etc.</td>
+</tr>
+<tr>
+<td>Room categories</td>
+<td><code>venueCategories</code></td>
+<td>None</td>
+<td>Setup → Venues</td>
+<td>Category descriptions and display options. See <a href="Venues-and-Constraints.html">Venues and constraints</a>.</td>
+</tr>
+<tr>
+<td>Record ranked motion preferences</td>
+<td><code>enableMotionPreferences</code></td>
+<td>Off</td>
+<td>Setup → Motions (Motion settings)</td>
+<td>Ballots record each team&#39;s ranked motion preferences.</td>
+</tr>
+<tr>
+<td>Parallel preliminary panels: Rounds per slot</td>
+<td><code>preliminaryPanels</code></td>
+<td>1</td>
+<td>Setup → Schedule</td>
+<td>Preliminary rounds per schedule slot (Round 1 (A), Round 1 (B)…).</td>
+</tr>
+<tr>
+<td>Preparation time (minutes)</td>
+<td><code>preparationTime</code></td>
+<td>Off</td>
+<td>Setup → Schedule</td>
+<td>Minutes from motion release to the round&#39;s start; blank turns it off (stored as -1).</td>
+</tr>
+<tr>
+<td>Publish schedule</td>
+<td><code>publicSchedule</code></td>
+<td>Hidden</td>
+<td>Setup → Schedule</td>
+<td>Public schedule page and calendar feed.</td>
+</tr>
+<tr>
+<td>Tournament schedule events</td>
+<td><code>scheduleEvents</code></td>
+<td>None</td>
+<td>Setup → Schedule</td>
+<td>Events with type, round, start and end.</td>
+</tr>
+<tr>
+<td>Return scoresheets to / Ask adjudicators to circle each score&#39;s digits / Leave the motion blank on printed scoresheets</td>
+<td><code>ballotReturnLocation</code>, <code>ballotsConfirmDigits</code>, <code>ballotsHideMotions</code></td>
+<td>Empty / Off / Off</td>
+<td>Print ballots page (Print options)</td>
+<td>Empty or &quot;TBA&quot; hides the return location. See <a href="Printing-and-Display.html">Printing and display</a>.</td>
+</tr>
+<tr>
+<td>Return feedback forms to</td>
+<td><code>feedbackReturnLocation</code></td>
+<td>Empty</td>
+<td>Print feedback page (Print options)</td>
+<td></td>
+</tr>
+</tbody></table></div>
+<h3 id="no-control-in-the-app">No control in the app<a class="anchor" href="#no-control-in-the-app" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Key</th>
+<th scope="col">Default</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>drawRule</code></td>
+<td>Power paired</td>
+<td>Default draw type for new rounds: power paired, random or round robin (<code>bracket</code> is a legacy value treated as random). Set only by the setup wizard.</td>
+</tr>
+<tr>
+<td><code>panelSizingMode</code></td>
+<td>Fixed</td>
+<td>Fixed or by priority. The Allocation page&#39;s panel sizing choice starts from this value but does not save it; it can only be stored by a configuration file or the API.</td>
+</tr>
+<tr>
+<td><code>publicDraw</code></td>
+<td>On</td>
+<td>Older on/off switch, kept in step with <em>Public draw</em> (<code>publicDrawMode</code>).</td>
+</tr>
+<tr>
+<td><code>allowLowPointWins</code></td>
+<td>Off</td>
+<td>Older switch, kept in step with <em>Deciding the winner</em>; still read when <code>winnersInBallots</code> is unset.</td>
+</tr>
+<tr>
+<td><code>feedbackPath</code></td>
+<td>Two-way</td>
+<td>Older preset (<code>chairs_to_panel</code>, <code>two_way</code>, <code>everyone</code>); used only when <code>feedbackPaths</code> is unset.</td>
+</tr>
+<tr>
+<td><code>feedbackQuestions</code></td>
+<td>None</td>
+<td>Older single question list; used only when the team or adjudicator list is unset.</td>
+</tr>
+<tr>
+<td><code>repeatMatchupPenalty</code>, <code>institutionClashPenalty</code></td>
+<td>1000 / 200</td>
+<td>Older names; used only when the team history / institution penalties are unset.</td>
+</tr>
+<tr>
+<td><code>preliminaryPanelsPerScheduleSlot</code></td>
+<td>—</td>
+<td>Deprecated, never read; a stored value is moved into <code>preliminaryPanels</code>.</td>
+</tr>
+</tbody></table></div>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Defaults in code.</strong> The values the configuration pages show for unsaved settings come from <code>configFormDefaults</code> in <code>src/lib/setup/configForm.ts</code> and <code>getPublicSiteSettings</code> in <code>src/lib/publicFeatures.ts</code>. Validation rules are in <code>PREFERENCE_RULES</code> (<code>src/lib/setup/preferenceValidation.ts</code>); text fields allow 20,000 characters (welcome message, staff credits, ballot introduction, feedback introduction) or 500 (return locations).</li>
+<li><strong>Tabbycat differences</strong> in defaults: team institution penalty 200 (Tabbycat 1); odd brackets pull up the top team (Tabbycat intermediate with bubble-up-bubble-down); motion reuse on (Tabbycat off); elimination sides by seed (Tabbycat random, available as an option); public switches on (Tabbycat off, but CrabbyTab also requires a release). BP ballots are always consensus, so Tabbycat&#39;s BP voting with margins including dissenters is not offered. See <a href="Comparison-with-Tabbycat.html">Comparison with Tabbycat</a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tabbycat-parity-plan.md">tabbycat-parity-plan.md</a>.</li>
+<li><strong>Per-round settings</strong> live on the round rather than the tournament: draw type, feedback switch, points weight, silent round, preallocated sides, preformed panels and seed. See <a href="Rounds-and-Draws.html">Rounds and draws</a> and the <a href="Data-Model.html">Data model</a>.</li>
+<li><strong>API.</strong> Preferences can also be read and changed through the REST API (<code>PATCH /tournaments/{slug}/preferences</code>, a partial update where <code>null</code> restores a default) with the same validation and the same save rules. See <a href="API-and-Tokens.html">API and tokens</a>.</li>
+<li>In-repo references: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/draw-generation.md">draw-generation.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/adjudicator-allocation.md">adjudicator-allocation.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/results-and-ballots.md">results-and-ballots.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/standings-and-breaks.md">standings-and-breaks.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md">public-pages-and-notifications.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-access.md">staff-access.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/rounds-schedule-and-motions.md">rounds-schedule-and-motions.md</a>, <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tournament-rules-enforcement.md">tournament-rules-enforcement.md</a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Languages-and-Translations.html" rel="prev"><span>Previous</span>Languages and translations</a><a class="pager-next" href="CSV-Formats.html" rel="next"><span>Next</span>CSV formats</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Settings-Reference.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#where-settings-live">Where settings live</a></li><li><a href="#saving-checks-and-locks">Saving, checks and locks</a></li><li><a href="#defaults-and-format-presets">Defaults and format presets</a></li><li><a href="#draw-rules">Draw rules</a></li><li><a href="#round-settings">Round settings</a></li><li><a href="#format-and-teams">Format and teams</a></li><li><a href="#scoring-and-ballots">Scoring and ballots</a></li><li><a href="#standings-rules">Standings rules</a></li><li><a href="#public-visibility">Public visibility</a></li><li><a href="#not-shown-in-the-configuration-pages">Not shown in the configuration pages</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

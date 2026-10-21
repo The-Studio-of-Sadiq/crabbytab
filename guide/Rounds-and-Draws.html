@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rounds and draws · CrabbyTab guide</title>
+<meta name="description" content="Rounds and draws: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html" aria-current="page">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="rounds-and-draws">Rounds and draws<a class="anchor" href="#rounds-and-draws" aria-label="Link to this section">#</a></h1>
+<p>This page is the organiser&#39;s guide to rounds, the schedule and the draw. The algorithms follow Tabbycat&#39;s draw generators; the full description, with every difference from Tabbycat, is in <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/draw-generation.md"><code>docs/draw-generation.md</code></a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/rounds-schedule-and-motions.md"><code>docs/rounds-schedule-and-motions.md</code></a>.</p>
+<h2 id="rounds">Rounds<a class="anchor" href="#rounds" aria-label="Link to this section">#</a></h2>
+<p>The setup wizard creates the preliminary rounds plus the elimination rounds needed for the largest break (Grand Final, Semifinals, Quarterfinals, Octofinals, Double and Triple Octofinals, then <em>Elimination N</em>). Afterwards:</p>
+<ul>
+<li><strong>Add a round:</strong> round menu in the top bar → <strong>New round…</strong> (<em>Round name</em>, <em>Abbreviation</em>, <em>Round stage</em>: preliminary or elimination). Rounds are added after the existing ones.</li>
+<li><strong>Change the number of preliminary rounds:</strong> <em>Admin → Configuration → Round settings → Number of preliminary rounds</em> (0–20) → <strong>Update round count</strong>. Lowering it <strong>cancels</strong> rounds (a round with ballots cannot be cancelled; one with a draw needs a reason); raising it restores cancelled rounds first. Cancelled rounds are ignored by standings, completion and the public pages.</li>
+<li><strong>Delete a round:</strong> <em>Round settings → Delete an individual round</em>. This permanently deletes its debates and ballots and unassigns its motions. It needs a reason if the round has ballots or a later round was drawn after it, and is refused for an advanced elimination round.</li>
+<li><em>Round settings</em> also has <strong>Feedback by round</strong> (switch feedback on or off per round) and <strong>Points weight by round</strong> (team points earned in the round are multiplied by its weight; default 1).</li>
+</ul>
+<p>Elimination rounds always use the elimination draw type, and only elimination rounds can; a round where stage and draw type do not fit is refused.</p>
+<h2 id="the-schedule-and-concurrent-rounds">The schedule and concurrent rounds<a class="anchor" href="#the-schedule-and-concurrent-rounds" aria-label="Link to this section">#</a></h2>
+<p>Setup → <strong>Schedule</strong> has four parts:</p>
+<ul>
+<li><strong>Rounds and start times:</strong> each round&#39;s <em>Slot</em> and <em>Starts at</em>. Rounds of the same stage in the same slot run <strong>concurrently</strong> (for example &quot;Round 1 (A)&quot; and &quot;Round 1 (B)&quot;).</li>
+<li><strong>Parallel preliminary panels:</strong> <em>Rounds per slot</em> → <strong>Group preliminary rounds</strong> groups the preliminary rounds into slots of that size, renaming default names to &quot;Round k (A)&quot;, &quot;Round k (B)&quot;. Existing rounds are only regrouped when you press the button; rounds added later follow the setting.</li>
+<li><strong>Preparation time</strong> (minutes): releasing a round&#39;s motions sets its start to release time plus preparation time.</li>
+<li><strong>Debate times:</strong> give individual debates their own start time.</li>
+<li><strong>Tournament schedule:</strong> events with types, published with <strong>Publish schedule</strong> to <code>/{slug}/schedule/public</code>, as JSON and as an iCalendar feed.</li>
+</ul>
+<p>Rules for concurrent rounds:</p>
+<ul>
+<li>Power pairing waits only for rounds in <strong>earlier</strong> slots. History (rematches, sides, adjudicator history) comes from earlier slots only.</li>
+<li>Draw generation leaves out rooms already used by a concurrent round; auto-allocation leaves out adjudicators and rooms already used by one.</li>
+<li>Publishing a draw that shares a team, adjudicator or room with a concurrent round needs a recorded reason (<code>concurrent_round_clash</code>).</li>
+<li>Draw, Allocation, Results and Availability show a <strong>Running at the same time</strong> bar to switch between concurrent rounds and see their progress and clashes.</li>
+<li>The projector shows every concurrent round of the shown slot together.</li>
+</ul>
+<h2 id="the-current-round">The current round<a class="anchor" href="#the-current-round" aria-label="Link to this section">#</a></h2>
+<p>By default the <strong>current round</strong> is derived: the latest round whose draw is released to the public. The Draw page shows <em>Current round: … (automatic)</em>. <strong>Make {round} current</strong> sets it by hand; public pages (the &quot;current round only&quot; draw mode, the round they open on, public ballot forms), the projector and private URLs then use that round and the rounds of its slot. <strong>Use automatic current round</strong> clears it. Setting it never publishes an unreleased draw and, unlike Tabbycat, does not mark rounds complete or incomplete.</p>
+<p>Self check-in uses its own rule (the earliest round that is neither cancelled nor completed); see <a href="Check-ins-and-Availability.html#self-check-in">Check-ins and availability</a>.</p>
+<h2 id="round-lifecycle">Round lifecycle<a class="anchor" href="#round-lifecycle" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Step</th>
+<th scope="col">Where</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Generate draw</td>
+<td>Draw page</td>
+<td>The draw is a <strong>Draft</strong>; the seed is recorded.</td>
+</tr>
+<tr>
+<td>Allocate adjudicators</td>
+<td>Allocation page</td>
+<td>See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</td>
+</tr>
+<tr>
+<td>Allocate venues</td>
+<td>Draw page → <strong>Allocate venues</strong></td>
+<td>See <a href="Venues-and-Constraints.html">Venues and constraints</a>.</td>
+</tr>
+<tr>
+<td><strong>Confirm draw</strong> (optional)</td>
+<td>Draw page</td>
+<td><em>Confirmed, not released</em>: tab room only; regenerating or re-pairing needs a reason.</td>
+</tr>
+<tr>
+<td><strong>Release to teams only</strong> (optional)</td>
+<td>Draw page</td>
+<td>Each team&#39;s private URL shows its room, side and opponents without the panel.</td>
+</tr>
+<tr>
+<td><strong>Release draw to public</strong></td>
+<td>Draw page</td>
+<td>Public pages (if <em>Public draw</em> is on), projector, adjudicators&#39; private URLs and remote ballots.</td>
+</tr>
+<tr>
+<td><strong>Reveal Adjudicators</strong></td>
+<td>Allocation page</td>
+<td>Panels become visible to teams and the public.</td>
+</tr>
+<tr>
+<td>Release motions</td>
+<td>Setup → Motions</td>
+<td><em>Not released</em>, <em>Info slides released</em> or <em>Motions released</em>.</td>
+</tr>
+<tr>
+<td>Enter and confirm ballots</td>
+<td>Results</td>
+<td>See <a href="Ballots-and-Results.html">Ballots and results</a>.</td>
+</tr>
+<tr>
+<td>Publish round results / team speaks</td>
+<td>Results</td>
+<td>Separate switches; need every debate finished.</td>
+</tr>
+<tr>
+<td>Complete round (prelims) / Proceed to next round (elims)</td>
+<td>Results</td>
+<td>See below and <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</td>
+</tr>
+</tbody></table></div>
+<p>Releases go through a dialog that uploads and republishes in one step. Draft edits are saved on this device and, for cloud tournaments, sent live to other administrator devices (debates are live; the round&#39;s stage travels with the upload).</p>
+<h2 id="the-draw-page">The Draw page<a class="anchor" href="#the-draw-page" aria-label="Link to this section">#</a></h2>
+<p>Sidebar → <em>Round · R1</em> → <strong>Draw</strong> (administrators). Pick the round with <em>Select round</em>.</p>
+<p>Below the stage controls, the <strong>Draw setup for {round}</strong> panel offers:</p>
+<ul>
+<li><strong>Draw type</strong> for this round: <em>Power-paired</em>, <em>Random</em>, <em>Seeded (by team seed)</em>, <em>Round robin</em> or <em>Manual (empty rooms)</em>. It applies the next time the draw is generated. Power-paired rounds with no results yet are drawn at random.</li>
+<li><strong>Team seeds</strong> (seeded and round-robin draws; seed titles when the team import uses them) → <strong>Save seeds</strong>.</li>
+<li><strong>Preallocated sides</strong> for this round, when the side rule is <em>Preallocated</em> → <strong>Save sides</strong>.</li>
+<li><strong>Division</strong> (when teams have divisions): &quot;This round will draw only teams in the selected division&quot;.</li>
+</ul>
+<p>The <strong>Side pre-allocations, all preliminary rounds</strong> grid (two-team formats with preallocated sides, on preliminary rounds) shows every team × round: rounds without a draw are editable, drawn rounds show the side each team took. <strong>Generate random sides for every round without a draw</strong> fills it (each round half affirmative, each team&#39;s affirmative count within one of the others&#39;; the seed is in the audit log), and <strong>Copy sides from a previous round</strong> applies the same or opposite sides from a drawn round.</p>
+<p>The <strong>Swing teams</strong> panel appears when the available teams do not fill the last room (see <a href="#swing-teams">Swing teams</a>).</p>
+<p><strong>Generating:</strong> <strong>Generate {round} draw</strong>, or <strong>Manually build rooms</strong> for empty rooms. Draws run in a background worker, so the page stays usable; a <strong>Cancel</strong> button stops a long job and saves nothing. If the round changed while computing, nothing is saved and you are asked to try again.</p>
+<p><strong>After generating</strong>, each room card shows the venue (with its link), bracket, live teams, room rank, <em>Sides on ballot</em> when applicable, the draw check&#39;s problems and warnings, a <em>Postponed</em> switch (with optional reason) and the debate&#39;s venue requirements. Header actions: <strong>Add room</strong>, <strong>Allocate venues</strong>, <strong>Draw details</strong>, <strong>Export CSV</strong> (draw with adjudicators and motion), <strong>Print draw sheet</strong>, and a filter by room or team.</p>
+<h3 id="draw-check-and-flags">Draw check and flags<a class="anchor" href="#draw-check-and-flags" aria-label="Link to this section">#</a></h3>
+<p>The <strong>draw check</strong> lists problems (must fix or override to release) and warnings. Each team carries flags; hover or focus one for the full sentence:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Flag</th>
+<th scope="col">Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Met R2, R4</strong></td>
+<td>Rematch, with the rounds they met in</td>
+</tr>
+<tr>
+<td><strong>Same institution</strong></td>
+<td>Both teams share an institution (composite teams count all their institutions)</td>
+</tr>
+<tr>
+<td><strong>AFF ×2, NEG ×1</strong> (BP: each position)</td>
+<td>Sides so far, including sides recorded on ballots</td>
+</tr>
+<tr>
+<td><strong>AFF ×3</strong> (warning)</td>
+<td>This round would leave the team that many times on one side, two or more above its least-used side</td>
+</tr>
+<tr>
+<td><strong>Pulled up</strong>, <strong>Pulled up ×N before</strong></td>
+<td>Pulled up into this bracket; earlier pull-ups</td>
+</tr>
+<tr>
+<td><strong>Swing</strong></td>
+<td>A swing team, not ranked</td>
+</tr>
+</tbody></table></div>
+<p><strong>Draw details</strong> lists each team&#39;s points, this round&#39;s room and opponents, sides by round (<em>TBC</em> when chosen on the ballot), previous opponents, side counts and pull-ups, plus Tabbycat&#39;s generator flags: <em>One-up-one-down (history / institution / to accommodate)</em>, <em>Bubble up / Bubble down (…)</em>, <em>Can&#39;t bubble up/down</em> and <em>Too many swaps</em>. For BP rounds after the first it also shows the <strong>position balance report</strong>: each team&#39;s OG/OO/CG/CO counts before and after, the position cost, and whether the team became balanced or imbalanced.</p>
+<h3 id="editing-a-draw">Editing a draw<a class="anchor" href="#editing-a-draw" aria-label="Link to this section">#</a></h3>
+<p>Drag teams between slots, rooms and the <strong>Unassigned teams pool</strong>, or use the keyboard and touch equivalent: <strong>Move</strong> picks a team, then <strong>Place here</strong> / <strong>Swap here</strong> on a slot, or <strong>Return picked team to pool</strong>. Arrow keys, Home and End move between targets; Escape cancels. Every move is announced to screen readers. A team moved to another room loses its pull-up mark.</p>
+<p>Once a debate has a live ballot, its teams and sides cannot change (discard the ballot first), and its panel changes need a reason. Re-pairing a confirmed or released draw needs a reason too. Changing rooms and venue requirements never does. Manual venue choices refuse rooms that are unavailable, already used or unsuitable.</p>
+<h2 id="draw-stages">Draw stages<a class="anchor" href="#draw-stages" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Stage</th>
+<th scope="col">Who sees it</th>
+<th scope="col">Controls</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>No draw</td>
+<td>—</td>
+<td>Generate, or build manually</td>
+</tr>
+<tr>
+<td><strong>Draft</strong></td>
+<td>Tab room only; freely edited</td>
+<td><strong>Confirm draw</strong>, <strong>Release to teams only</strong>, <strong>Release draw to public</strong></td>
+</tr>
+<tr>
+<td><strong>Confirmed, not released</strong></td>
+<td>Tab room only; regenerating or re-pairing needs a reason</td>
+<td><strong>Back to draft</strong>, <strong>Release to teams only</strong>, <strong>Release draw to public</strong></td>
+</tr>
+<tr>
+<td><strong>Released to teams only</strong></td>
+<td>Each team&#39;s private URL shows its room, side and opponents, without the panel; teams can be emailed their draw. Not on public pages, the projector or adjudicators&#39; private URLs; no remote ballots yet.</td>
+<td><strong>Release draw to public</strong>, <strong>Unrelease draw</strong></td>
+</tr>
+<tr>
+<td><strong>Released to public</strong></td>
+<td>Public pages (per the public draw mode), projector, adjudicators&#39; private URLs, remote ballots</td>
+<td><strong>Unrelease draw</strong> (back to <em>Confirmed</em>)</td>
+</tr>
+</tbody></table></div>
+<p>Releasing to teams or to the public runs the draw check: errors need a recorded reason, warnings never block. Going on from teams-only to public does not re-check what teams already saw. Releases and unreleases upload and republish; confirming and unconfirming are saved on this device and reach other devices with the next upload.</p>
+<p><strong>Difference from Tabbycat:</strong> Tabbycat&#39;s public draw page also lists teams-only releases without adjudicators; CrabbyTab shows them only on team private URLs.</p>
+<h2 id="draw-types">Draw types<a class="anchor" href="#draw-types" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Draw type</th>
+<th scope="col">Formats</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Power-paired</strong></td>
+<td>Two-team, BP</td>
+<td>Brackets by the first team-standings metric (team points by default). Before any results, drawn as random.</td>
+</tr>
+<tr>
+<td><strong>Random</strong></td>
+<td>All</td>
+<td>Two-team: shuffled, then clashes removed by swaps or minimum-cost matching (per conflict avoidance). BP: institutions spread across rooms, positions balanced. N teams per room: dealt into rooms in order.</td>
+</tr>
+<tr>
+<td><strong>Seeded</strong></td>
+<td>Two-team, BP</td>
+<td>Teams ordered by seed, highest first. Two-team: one bracket with the configured pairing and conflict avoidance. BP: one bracket placed by position history. Every team needs a seed.</td>
+</tr>
+<tr>
+<td><strong>Round robin</strong></td>
+<td>Two-team, BP</td>
+<td>Two-team: Tabbycat&#39;s Berger schedule by seed (seed 1 first). BP: Tabbycat&#39;s tables for 16 teams (5 rounds) and 28 teams (9 rounds); seeds must be exactly 1..N. More rounds than one cycle, or other team counts, are reported as errors.</td>
+</tr>
+<tr>
+<td><strong>Manual</strong></td>
+<td>All</td>
+<td>Empty rooms to fill by hand.</td>
+</tr>
+<tr>
+<td><strong>Elimination</strong></td>
+<td>Two-team, BP</td>
+<td>Generated from the break; see <a href="#elimination-draws">Elimination draws</a>.</td>
+</tr>
+</tbody></table></div>
+<h3 id="two-team-power-pairing">Two-team power pairing<a class="anchor" href="#two-team-power-pairing" aria-label="Link to this section">#</a></h3>
+<p>Settings are on <em>Configuration → Draw rules → Two-team bracket pairing and conflict avoidance</em>:</p>
+<ol>
+<li><strong>Odd bracket resolution method</strong>: pull a team up from the bracket below (<em>top</em>, <em>bottom</em>, <em>middle</em>, <em>random</em>, or <em>lowest draw-strength rank</em>, the last two only with min-cost pairing with pull-ups), or form intermediate brackets (<em>intermediate</em>, <em>intermediate with bubble-up/bubble-down</em>; <em>intermediate1</em> / <em>intermediate2</em> for preallocated sides). <strong>Pull-up restriction</strong> can limit candidates to the least-pulled-up teams or the lowest draw strength.</li>
+<li><strong>Pairing method</strong> within a bracket (ten-team examples): fold 1 v 10, slide 1 v 6, adjacent 1 v 2, random, or fold at the top and adjacent elsewhere.</li>
+<li><strong>Conflict avoidance method</strong>: <em>one-up-one-down</em> (default; swaps second teams between adjacent rooms to remove clashes), <em>minimum cost</em> (exact minimum-weight matching per bracket over history, institution, side-balance, pull-up and pairing-deviation penalties), <em>minimum cost with pull-ups</em> (Tabbycat&#39;s single-graph matching over the whole field), or <em>off</em>.</li>
+<li><strong>Sides</strong>, below.</li>
+</ol>
+<p><em>Team conflicts and clashes</em> sets <em>Avoid same institution</em>, <em>Avoid team history</em> and their penalties. Pulled-up teams are marked on the debate and counted by the <code>pullups</code> standings metric.</p>
+<h3 id="bp-power-pairing">BP power pairing<a class="anchor" href="#bp-power-pairing" aria-label="Link to this section">#</a></h3>
+<p>Tabbycat&#39;s Hungarian BP draw (<em>Configuration → Draw rules → British Parliamentary (BP) draw rules</em>): brackets are completed to multiples of four from the bracket below, then one assignment of teams to (room, position) minimises position imbalance. <em>BP pull-up distribution</em> (anywhere, top or bottom rooms), <em>BP position cost</em> (Rényi entropy, variance or simple), <em>Rényi order</em>, <em>BP position cost exponent</em> and <em>BP assignment method</em> (shuffled Hungarian, unshuffled, or random within brackets) match Tabbycat&#39;s options. BP power pairing does not consider institution or history clashes, as in Tabbycat and the WUDC rules.</p>
+<h3 id="side-allocation">Side allocation<a class="anchor" href="#side-allocation" aria-label="Link to this section">#</a></h3>
+<p><em>Configuration → Draw rules → Side allocations and balancing → Side allocations method</em>:</p>
+<ul>
+<li><strong>Balanced</strong> (default): the team that has been affirmative more often goes negative; ties are decided by the seeded random source.</li>
+<li><strong>Random.</strong></li>
+<li><strong>Preallocated</strong> (two-team): sides come from the Draw page (per round, or the all-rounds grid). Missing or uneven allocations are reported, not guessed.</li>
+<li><strong>Chosen on the ballot</strong> (two-team; for example a coin toss): rooms are paired without sides; the draw, portals and printed ballots say &quot;sides chosen at the debate&quot;, and the ballot records which team took which side. Confirming the ballot fixes the sides.</li>
+</ul>
+<p><strong>Maximum allowed side imbalance</strong> (off by default) is a <strong>hard</strong> limit for every method: if neither side fits, the draw fails and names the room. <strong>Maximum number of times per side</strong> (default 5) only steers minimum-cost pairing and never blocks a draw; an excess shows as a warning in the draw check. Neither applies to BP.</p>
+<h3 id="elimination-side-rule">Elimination side rule<a class="anchor" href="#elimination-side-rule" aria-label="Link to this section">#</a></h3>
+<p><em>Sides in elimination rounds</em>:</p>
+<ul>
+<li><strong>By seed</strong> (default): the higher seed takes the first side (affirmative; in BP OG, OO, CG, CO by seed) and sides are final.</li>
+<li><strong>Random, confirmed later</strong> (Tabbycat&#39;s behaviour): each room&#39;s teams are shuffled over its seats with the draw&#39;s seed and left unconfirmed. In two-team formats the ballot records which team took which side. BP ballots cannot record sides, so a BP room keeps its drawn seats, which you can swap in the editor.</li>
+</ul>
+<h2 id="byes">Byes<a class="anchor" href="#byes" aria-label="Link to this section">#</a></h2>
+<p>When the field cannot fill every room, <em>Bye team selection method</em> (<em>None</em>, <em>Lowest ranked</em> or <em>Random</em>) chooses who sits out; with <em>None</em> the draw needs a full field (or swing teams). <em>Bye team results</em> sets whether a bye is <strong>absent</strong> (no standings result) or a <strong>full win</strong> (two-team: a win; BP: 3 points and a first; N teams per room: 1 point). A bye never awards speaker scores, and speaker tabs and averages ignore it. Lowest-ranked ties are broken with the draw&#39;s seed. A swing team never takes a bye.</p>
+<h3 id="swing-teams">Swing teams<a class="anchor" href="#swing-teams" aria-label="Link to this section">#</a></h3>
+<p>When the available teams do not fill the last room, the Draw page&#39;s <strong>Swing teams</strong> panel says how many teams are short and offers a swing team instead of byes: give it a name and speakers (reserves, or registered speakers of other teams, who get separate speaker records so their own tab is unaffected). A swing team is available only in the rounds it is used in, is drawn like any team, never takes a bye, and its results count for its opponents. It and its speakers are left out of team standings, speaker and reply tabs and the break. Earlier swing teams can be reused in a later round.</p>
+<h2 id="elimination-draws">Elimination draws<a class="anchor" href="#elimination-draws" aria-label="Link to this section">#</a></h2>
+<p>Generate the break first (Results → <strong>Break</strong>). Then, on the Draw page for the first elimination round, <strong>Generate draw</strong> builds a seeded bracket from the break. Break sizes that are not a full bracket start with a <strong>partial elimination</strong>: the top seeds advance directly and the rest are folded (best remaining seed against the weakest). BP eliminations work from any even field. Later rounds keep bracket positions, so teams stay in their half. <strong>Proceed to next round</strong> (Results) marks losing teams eliminated and activates the next elimination round. A round&#39;s elimination draw needs its break generated and every earlier elimination round of the category advanced. See <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</p>
+<h2 id="n-teams-per-room">N teams per room<a class="anchor" href="#n-teams-per-room" aria-label="Link to this section">#</a></h2>
+<p>For the <em>N teams per room</em> format (Tabbycat&#39;s Public Speaking preset uses 6):</p>
+<ul>
+<li><strong>Random</strong>: the field is shuffled with the draw&#39;s seed and dealt into rooms of N; the last room holds the remainder (or the remainder gets byes with an automatic bye method). No conflict avoidance, history, institution or side rule applies.</li>
+<li><strong>Manual</strong>: empty rooms of N positions (<em>Team 1</em> … <em>Team N</em>); fill as many as a room needs, without gaps.</li>
+<li>Power-paired, seeded and round-robin draws, generated elimination draws, preallocated sides and sides chosen on the ballot are refused with a clear message, as in Tabbycat. Elimination rounds are added and drawn by hand.</li>
+</ul>
+<h2 id="regenerating-a-draw">Regenerating a draw<a class="anchor" href="#regenerating-a-draw" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>No ballots yet:</strong> you confirm that the existing draw will be overwritten.</li>
+<li><strong>The round has ballots:</strong> you are warned that regenerating will <strong>discard</strong> them; they stay in each ballot&#39;s history but no longer count. Only do this if the round was not debated as drawn.</li>
+<li>A <strong>confirmed</strong> or <strong>released</strong> draw, or one with a later round drawn after it, needs a recorded reason. A completed, cancelled or advanced round cannot be regenerated.</li>
+<li>Each generation creates debates with new ids, so old ballots never attach to new pairings. For cloud tournaments the replaced debates are soft-deleted live.</li>
+<li>Generating a preliminary draw while an earlier slot&#39;s round is unfinished needs a reason: unfinished results do not count towards power pairing.</li>
+</ul>
+<h2 id="reproducibility">Reproducibility<a class="anchor" href="#reproducibility" aria-label="Link to this section">#</a></h2>
+<p>Every random choice (shuffles, random pull-ups, tie-breaks, bye selection, random sides) uses one seeded random source. The seed is stored on the round and in the audit log, so the same inputs and seed reproduce the same draw, also in the background worker. Teams with equal standings, and teams with no standing yet, are ordered randomly with that seed.</p>
+<h2 id="differences-from-tabbycat">Differences from Tabbycat<a class="anchor" href="#differences-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Teams tied in a standings tier are ordered by the draw&#39;s seeded random order, not by database order (institution, then reference).</li>
+<li>In minimum-cost pairing, rematches are a weighted penalty, not forbidden, so a bracket where every option is a rematch still draws.</li>
+<li><em>Maximum allowed side imbalance</em> (CrabbyTab&#39;s own) is a hard limit for every method; <em>maximum times per side</em> never blocks.</li>
+<li>Random side pre-allocation balances each team&#39;s affirmatives across rounds (Tabbycat shuffles each round independently).</li>
+<li>Elimination sides default to <em>by seed</em>; Tabbycat&#39;s random, unconfirmed sides are an option.</li>
+<li>Swing teams are excluded from standings and the break automatically.</li>
+<li>Teams-only draw releases are not listed on the public draw page.</li>
+<li>N teams per room: a short last room is scored on its own teams; the anticipated draw gives rooms of more than 8 teams no bracket range.</li>
+</ul>
+<h2 id="limitations">Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><em>One-up-one-down</em> and <em>intermediate with bubbles</em> are local rules and may leave clashes that a different pairing would avoid.</li>
+<li>With one-up-one-down, pairing happens before sides are known; if two teams cannot take opposite sides within the side-imbalance limit, the bracket is re-paired, and if that fails the draw stops with an error naming them.</li>
+<li>BP and minimum-cost pairing are O(n³); they run in a Web Worker, so a 1000-team round takes a few seconds without freezing the page.</li>
+<li>Divisions only restrict which teams a round draws; there are no per-division standings.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Check-ins-and-Availability.html" rel="prev"><span>Previous</span>Check-ins and availability</a><a class="pager-next" href="Adjudicator-Allocation.html" rel="next"><span>Next</span>Adjudicator allocation and preformed panels</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Rounds-and-Draws.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#rounds">Rounds</a></li><li><a href="#the-schedule-and-concurrent-rounds">The schedule and concurrent rounds</a></li><li><a href="#the-current-round">The current round</a></li><li><a href="#round-lifecycle">Round lifecycle</a></li><li><a href="#the-draw-page">The Draw page</a></li><li><a href="#draw-stages">Draw stages</a></li><li><a href="#draw-types">Draw types</a></li><li><a href="#byes">Byes</a></li><li><a href="#elimination-draws">Elimination draws</a></li><li><a href="#n-teams-per-room">N teams per room</a></li><li><a href="#regenerating-a-draw">Regenerating a draw</a></li><li><a href="#reproducibility">Reproducibility</a></li><li><a href="#differences-from-tabbycat">Differences from Tabbycat</a></li><li><a href="#limitations">Limitations</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

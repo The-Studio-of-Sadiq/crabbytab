@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Printing and display · CrabbyTab guide</title>
+<meta name="description" content="Printing and display: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html" aria-current="page">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="printing-and-display">Printing and display<a class="anchor" href="#printing-and-display" aria-label="Link to this section">#</a></h1>
+<p>Everything printable uses the browser&#39;s print dialog, so you can print directly or save as PDF.
+Ballots and feedback forms are for the <strong>active round</strong> (pick it in the top bar). Without one, the
+pages say <em>Select a round first.</em></p>
+<h2 id="what-you-can-print">What you can print<a class="anchor" href="#what-you-can-print" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Printable</th>
+<th scope="col">Where</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ballot sheets</td>
+<td><strong>Results</strong> → print ballots, or <strong>Results → Ballot intake</strong> (<code>/{slug}/print/ballots</code>)</td>
+<td>See below</td>
+</tr>
+<tr>
+<td>Feedback forms</td>
+<td><strong>Feedback</strong> → print forms (<code>/{slug}/print/feedback</code>)</td>
+<td>See below</td>
+</tr>
+<tr>
+<td>Draw sheet</td>
+<td>Round → <strong>Draw</strong> → <strong>Print draw sheet</strong></td>
+<td>Prints the draw page</td>
+</tr>
+<tr>
+<td>Standings</td>
+<td><strong>Standings</strong> → print button</td>
+<td></td>
+</tr>
+<tr>
+<td>One result</td>
+<td>A debate&#39;s result page → print</td>
+<td></td>
+</tr>
+<tr>
+<td>QR slips for private URLs</td>
+<td><strong>Public → Private URLs</strong> → <strong>Print QR slips</strong></td>
+<td><a href="Private-URLs-and-Portals.html#generating-credentials">Private URLs</a></td>
+</tr>
+<tr>
+<td>Barcode labels</td>
+<td>Round → <strong>Availability</strong> → print barcodes</td>
+<td>For check-in scanners; speakers have labels too. See <a href="Check-ins-and-Availability.html">Check-ins and availability</a>.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Language.</strong> Ballots, feedback forms and barcode labels print in the tournament&#39;s <strong>public pages
+and portals language</strong> (Configuration → Public visibility). The on-screen buttons stay in your own
+language.</p>
+<h2 id="ballot-sheets">Ballot sheets<a class="anchor" href="#ballot-sheets" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>One sheet per debate</strong> for consensus panels. <strong>One sheet per voting adjudicator</strong> for voting
+panels, each named &quot;sheet n of m&quot;. Byes get no sheet.</li>
+<li>Each sheet has the round and room, the motion line (when motions are on), the teams and speakers
+by side with each speaker&#39;s pronoun, and columns that follow the round&#39;s ballot rules: speaker
+scores (none for results-only rounds), one column per scoring criterion, speech ranks, and team
+rank, total or winner. N-team rooms rank the teams, or tick the advancing teams in results-only
+rounds. Then come a notes box, the chair and panel names, and a signature line.</li>
+<li>If the draw did not set sides, the sheet asks the adjudicator to tick the side each team took.</li>
+<li>Each sheet carries a <strong>barcode</strong>. Scan returned sheets on <strong>Results → Ballot intake</strong> to track
+which have come back. Reprint after changing the draw or panels, because changed debates get new
+sheet ids.</li>
+<li>The tournament&#39;s <strong>ballot introduction</strong> text is printed if you set one.</li>
+</ul>
+<p><strong>Print options</strong> (card on the print page, saved with the tournament):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Option</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Return location</td>
+<td>&quot;Return this sheet to …&quot; on every sheet. Empty or &quot;TBA&quot; hides it.</td>
+</tr>
+<tr>
+<td>Digit strip</td>
+<td>A strip of digits beside each score for the adjudicator to circle, so handwriting is unambiguous</td>
+</tr>
+<tr>
+<td>Blank motion line</td>
+<td>Prints an empty motion line, for printing before motions are released</td>
+</tr>
+</tbody></table></div>
+<h2 id="feedback-forms">Feedback forms<a class="anchor" href="#feedback-forms" aria-label="Link to this section">#</a></h2>
+<p>One form per expected submission in the active round, so the printed set matches the feedback
+progress tracker. The page header lists the round&#39;s feedback paths and how many team and
+adjudicator forms there are. Each form has who it is from and about, the room, the overall score
+scale, the questions for that source (teams or adjudicators), a comments box and a confidentiality
+note. A <strong>return location</strong> can be printed too. If the round collects no feedback, or adjudicators
+are not allocated yet, the page says so.</p>
+<h2 id="projector-display">Projector display<a class="anchor" href="#projector-display" aria-label="Link to this section">#</a></h2>
+<p><code>/{slug}/display</code> is made for a projector or big screen. Open it from sidebar → <strong>Round → Display</strong>
+(administrators, and data-entry staff with the <code>draw.display</code> permission). The address itself is
+public, so you can open it on any laptop without signing in.</p>
+<p><strong>Views:</strong></p>
+<ul>
+<li><strong>Draw by room</strong>: one column on phones, two on tablets, the four BP positions side by side on
+wide screens. Shows the chair, panellists and trainees once panels are visible; byes show &quot;Full
+win awarded&quot; or &quot;Absent — no standings result&quot;.</li>
+<li><strong>Draw by team</strong>: alphabetical, with side, room and opponents, so teams find themselves quickly.</li>
+<li><strong>Motion reveal</strong>: a cover slide, then each motion&#39;s information slide (if any) followed by the
+motion, in order. Keys: → / Space / Enter / Page Down advance; ← / Backspace / Page Up go back;
+Home / End jump; Esc returns to the draw. If only the info slides are released, the reveal stops
+at the info slides.</li>
+</ul>
+<p><strong>Controls:</strong> text smaller and larger, <strong>Auto-scroll</strong> (on by default; pause it for long draws),
+and <strong>All current rounds</strong>.</p>
+<p><strong>Concurrent rounds.</strong> When the shown round shares its schedule slot with other rounds (parallel
+panels such as &quot;Round 1 (A)&quot; and &quot;Round 1 (B)&quot;), the projector shows all of them, each under its
+own heading. Untick <strong>All current rounds</strong> to show only the active round.</p>
+<h3 id="what-the-projector-shows-and-to-whom">What the projector shows, and to whom<a class="anchor" href="#what-the-projector-shows-and-to-whom" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Viewer</th>
+<th scope="col">Draw</th>
+<th scope="col">Panels</th>
+<th scope="col">Motions</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Anyone (not signed in, or without projector rights)</td>
+<td>Only rounds on the public draw page, so only <strong>Released to public</strong> draws, under the Public draw setting</td>
+<td>Only after <strong>Reveal Adjudicators</strong></td>
+<td>Only released motions or info slides, and only with the public motions page on</td>
+</tr>
+<tr>
+<td>Administrator</td>
+<td>Every <strong>confirmed</strong> (or later) draw of the slot, before release, from this device&#39;s working copy. Never a draft.</td>
+<td>Always</td>
+<td>Everything, with a &quot;Staff preview: not released&quot; note</td>
+</tr>
+<tr>
+<td>Data-entry staff with <code>draw.display</code> / <code>motions.display</code></td>
+<td>As administrator, from their staff copy (the server sends only what those permissions allow)</td>
+<td>Always</td>
+<td>As administrator, with <code>motions.display</code></td>
+</tr>
+</tbody></table></div>
+<p>Public viewers refresh from the published snapshot every 45 seconds. Staff copies load once. Click
+<strong>Reload staff copy</strong> after changing the draw. A projector laptop that has never opened the
+tournament has no working copy, so it shows the public view even for an administrator.</p>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Projector logic: <code>src/lib/display.ts</code>. Printed-sheet options: <code>src/lib/printOptions.ts</code>.</li>
+<li>Developer detail:
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md">public-pages-and-notifications.md</a>
+(projector, printed forms),
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/ballot-intake.md">ballot-intake.md</a>,
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-access.md#projector">staff-access.md</a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="API-and-Tokens.html" rel="prev"><span>Previous</span>API and tokens</a><a class="pager-next" href="Audit-Log.html" rel="next"><span>Next</span>Audit log</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Printing-and-Display.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#what-you-can-print">What you can print</a></li><li><a href="#ballot-sheets">Ballot sheets</a></li><li><a href="#feedback-forms">Feedback forms</a></li><li><a href="#projector-display">Projector display</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

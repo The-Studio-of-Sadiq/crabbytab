@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSV formats · CrabbyTab guide</title>
+<meta name="description" content="CSV formats: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html" aria-current="page">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="csv-formats">CSV formats<a class="anchor" href="#csv-formats" aria-label="Link to this section">#</a></h1>
+<p>Every CSV file CrabbyTab reads or writes, where to find it, and the exact columns. For the workflow around imports (recommended order, editing participants) see <a href="Participants-and-Imports.html">Participants and imports</a>. Developer detail: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/data-import-export.md">data-import-export.md</a>.</p>
+<p><strong>Tabbycat compatibility.</strong> CrabbyTab&#39;s CSV columns are its own; they are not Tabbycat&#39;s <code>importtournament</code> files. To move a whole tournament between Tabbycat and CrabbyTab use <strong>DebateXML</strong> (see <a href="Participants-and-Imports.html">Participants and imports</a>). For a full copy of a CrabbyTab tournament use the JSON backup (see <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>).</p>
+<h2 id="overview">Overview<a class="anchor" href="#overview" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">File</th>
+<th scope="col">Where (sidebar → page)</th>
+<th scope="col">Preview before saving</th>
+<th scope="col">Duplicates</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="#institutions">Institutions</a></td>
+<td>Setup → Institutions → <strong>Import CSV</strong></td>
+<td>Yes</td>
+<td>Matched; skip, update or create</td>
+</tr>
+<tr>
+<td><a href="#teams">Teams</a></td>
+<td>Setup → Teams → <strong>Import CSV</strong></td>
+<td>Yes</td>
+<td>Matched; skip, update or create</td>
+</tr>
+<tr>
+<td><a href="#adjudicators">Adjudicators</a></td>
+<td>Setup → Adjudicators → <strong>Import CSV</strong></td>
+<td>Yes</td>
+<td>Matched; skip, update or create</td>
+</tr>
+<tr>
+<td><a href="#conflicts">Conflicts</a></td>
+<td>Setup → Conflicts</td>
+<td>Yes</td>
+<td>Existing and repeated conflicts skipped</td>
+</tr>
+<tr>
+<td><a href="#room-preferences">Room preferences</a></td>
+<td>Setup → Room preferences (admins)</td>
+<td>Yes</td>
+<td>A repeat in the file is an error; an existing one is updated</td>
+</tr>
+<tr>
+<td><a href="#venues">Venues</a></td>
+<td>Setup → Venues → <strong>Import CSV</strong></td>
+<td>Parsed list only</td>
+<td>Not checked</td>
+</tr>
+<tr>
+<td><a href="#motions">Motions</a></td>
+<td>Setup → Motions → <strong>Upload CSV</strong></td>
+<td>No</td>
+<td>Not checked</td>
+</tr>
+<tr>
+<td><a href="#bulk-base-scores">Bulk base scores</a></td>
+<td>Results → Feedback → <em>Update base scores in bulk</em></td>
+<td>Yes</td>
+<td>A repeated adjudicator is an error</td>
+</tr>
+</tbody></table></div>
+<p>Exports are listed under <a href="#csv-exports">CSV exports</a>.</p>
+<h2 id="rules-shared-by-the-previewed-imports">Rules shared by the previewed imports<a class="anchor" href="#rules-shared-by-the-previewed-imports" aria-label="Link to this section">#</a></h2>
+<p>These apply to institutions, teams, adjudicators, conflicts and room preferences.</p>
+<ul>
+<li><strong>Input:</strong> upload a <code>.csv</code> file or paste the text, then <strong>Preview import</strong>. The first row must hold column names.</li>
+<li><strong>Reading:</strong> a UTF-8 byte-order mark and spaces around column names are removed. Blank rows (including rows of empty cells from spreadsheets) are skipped. Quoted values may contain commas, quotes and newlines. Nothing is evaluated: formulas and HTML stay plain text.</li>
+<li><strong>Column names</strong> are matched exactly first, then ignoring case. Columns no alias uses are listed as <em>ignored</em>.</li>
+<li><strong>The whole file is refused</strong> when it is larger than 5 MB, empty, has a header but no data rows, repeats a column name, lacks the required column, or has an unclosed quote.</li>
+<li><strong>Row numbers</strong> are spreadsheet rows: the header is row 1.</li>
+<li><strong>Errors</strong> stop a row. A file with any row error is refused unless you tick <strong>Import the valid rows only</strong>. There are no silent partial imports.</li>
+<li><strong>Warnings</strong> (for example a row with fewer cells than columns) do not stop the row.</li>
+<li><strong>Names</strong> are compared ignoring case and repeated spaces.</li>
+<li>Nothing is saved until you confirm. Institutions, teams and adjudicators are saved in one write per collection and recorded as one <code>entities.batch_saved</code> audit event.</li>
+</ul>
+<p><strong>Yes/no cells</strong> accept <code>yes</code>, <code>true</code>, <code>1</code>, <code>no</code>, <code>false</code>, <code>0</code> (any case). Anything else is a row error. A blank cell means &quot;not given&quot;.</p>
+<h2 id="institutions">Institutions<a class="anchor" href="#institutions" aria-label="Link to this section">#</a></h2>
+<p>Setup → Institutions → <strong>Import CSV</strong>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Required</th>
+<th scope="col">Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>name</code> (<code>institution</code>, <code>institution name</code>)</td>
+<td>Yes</td>
+<td>Text</td>
+</tr>
+<tr>
+<td><code>code</code> (<code>abbr</code>, <code>institution code</code>)</td>
+<td>No</td>
+<td>Text. Blank: the first 4 characters of the name, upper-cased</td>
+</tr>
+<tr>
+<td><code>region</code></td>
+<td>No</td>
+<td>Text</td>
+</tr>
+<tr>
+<td><a href="#venue-requirement-columns">Venue requirement columns</a></td>
+<td>No</td>
+<td>Hard room needs for the institution&#39;s teams</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">name,code,region
+University of Dhaka,DU,Dhaka
+&quot;University of Oxford, UK&quot;,OXF,Europe</code></pre>
+<ul>
+<li><strong>Matches an existing institution</strong> by name, else by code. Default action <strong>Skip</strong>; you can choose <strong>Update existing</strong> or <strong>Create</strong>.</li>
+<li>A name or code repeated in the file is a warning; the later row defaults to Skip.</li>
+<li><strong>Unquoted commas:</strong> an older export may have names like <code>University, City</code> without quotes. The extra cells are joined back into the name, with a warning.</li>
+<li><strong>Update</strong> keeps the existing code when the code cell is blank.</li>
+</ul>
+<h2 id="teams">Teams<a class="anchor" href="#teams" aria-label="Link to this section">#</a></h2>
+<p>Setup → Teams → <strong>Import CSV</strong>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Required</th>
+<th scope="col">Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>name</code> (<code>team</code>, <code>team_name</code>, <code>team name</code>)</td>
+<td>Yes</td>
+<td>Text</td>
+</tr>
+<tr>
+<td><code>institution</code> (<code>inst</code>)</td>
+<td>No</td>
+<td>Name or code of an institution. See <a href="#institutions-in-team-and-adjudicator-files">Institutions in team and adjudicator files</a></td>
+</tr>
+<tr>
+<td><code>code</code></td>
+<td>No</td>
+<td>Code name</td>
+</tr>
+<tr>
+<td><code>speaker1</code> … <code>speaker5</code> (<code>speaker_1</code>, <code>Speaker 1</code>, …)</td>
+<td>No</td>
+<td>Speaker name</td>
+</tr>
+<tr>
+<td><code>speaker1_email</code> … (<code>Speaker 1 Email</code>)</td>
+<td>No</td>
+<td>Valid email address</td>
+</tr>
+<tr>
+<td><code>speaker1_categories</code> … (<code>Speaker 1 Categories</code>, <code>speaker1_category</code>)</td>
+<td>No</td>
+<td>Speaker categories, separated by <code>,</code> <code>;</code> or <code>|</code></td>
+</tr>
+<tr>
+<td><code>break_categories</code> (<code>Break Categories</code>, <code>break_category</code>)</td>
+<td>No</td>
+<td>Names, slugs or ids of <strong>existing</strong> break categories, separated by <code>,</code> <code>;</code> or <code>|</code></td>
+</tr>
+<tr>
+<td><code>division</code> / <code>division_id</code> (<code>divisionId</code>)</td>
+<td>No</td>
+<td>Division label and id. A <code>division</code> column alone fills both</td>
+</tr>
+<tr>
+<td><code>category</code></td>
+<td>No</td>
+<td>Legacy team-wide speaker category label</td>
+</tr>
+<tr>
+<td><code>seed</code></td>
+<td>Only read when asked (below)</td>
+<td>Number or seed title</td>
+</tr>
+<tr>
+<td><a href="#venue-requirement-columns">Venue requirement columns</a></td>
+<td>No</td>
+<td>Hard room needs</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">name,institution,speaker1,speaker1_email,speaker2,speaker2_email,speaker1_categories,break_categories
+DU 1,University of Dhaka,Arif Rahman,arif@example.com,Nabila Islam,nabila@example.com,ESL,Open; ESL</code></pre>
+<p>Validation:</p>
+<ul>
+<li><strong>Errors:</strong> missing team name; an invalid email; a speaker email or categories with no speaker name; an unknown break category (create it on the Break page first); an invalid seed or yes/no value.</li>
+<li><strong>Warnings:</strong> no speakers (placeholder speakers &quot;DU 1 Speaker 1&quot;, … are created, as many as the format uses; rename them before results are entered); fewer speakers than the format uses; a speaker email already used by another speaker.</li>
+<li><strong>Speaker categories</strong> are matched to the tournament&#39;s categories by name or slug. Unknown names are listed in the preview and created (not public) with the import.</li>
+<li>Imported teams start checked in.</li>
+</ul>
+<p>Duplicates and updates:</p>
+<ul>
+<li>A team <strong>matches</strong> an existing team by name. Default <strong>Skip</strong>; you can choose <strong>Update existing</strong> or <strong>Create</strong>.</li>
+<li><strong>Update</strong> changes only filled cells. Speakers are updated by position and keep their ids (ballots refer to them). Speakers beyond those in the file are kept; remove speakers in the team editor. A blank <code>seed</code> keeps the team&#39;s seed.</li>
+</ul>
+<p><strong>Team seeds</strong> (Tabbycat <code>show_seed_in_importer</code>). The <strong>Team seed column</strong> setting at the top of the team import is saved for the tournament:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col"><code>seed</code> column</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Do not ask (default)</td>
+<td>Listed as ignored</td>
+</tr>
+<tr>
+<td>Numeric</td>
+<td>Whole number 0–99,999. Higher is stronger, as seeded draws read it</td>
+</tr>
+<tr>
+<td>Seed title</td>
+<td><code>Unseeded</code>, <code>Free seed</code>, <code>Half seed</code>, <code>Full seed</code> (also <code>free</code>, <code>half</code>, <code>full</code>, <code>none</code>) or <code>0</code>–<code>3</code>, stored as 0–3 like Tabbycat</td>
+</tr>
+</tbody></table></div>
+<p>A blank seed cell means &quot;no seed&quot;, not 0.</p>
+<h2 id="adjudicators">Adjudicators<a class="anchor" href="#adjudicators" aria-label="Link to this section">#</a></h2>
+<p>Setup → Adjudicators → <strong>Import CSV</strong>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Required</th>
+<th scope="col">Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>name</code> (<code>adjudicator</code>, <code>judge</code>)</td>
+<td>Yes</td>
+<td>Text</td>
+</tr>
+<tr>
+<td><code>email</code></td>
+<td>No</td>
+<td>Valid email address</td>
+</tr>
+<tr>
+<td><code>institution</code> (<code>inst</code>)</td>
+<td>No</td>
+<td>Name or code. See <a href="#institutions-in-team-and-adjudicator-files">below</a></td>
+</tr>
+<tr>
+<td><code>score</code> (<code>rating</code>, <code>baseScore</code>)</td>
+<td>No</td>
+<td>Number. Blank: 5</td>
+</tr>
+<tr>
+<td><code>trainee</code></td>
+<td>No</td>
+<td>Yes/no</td>
+</tr>
+<tr>
+<td><code>independent</code> (<code>indep</code>)</td>
+<td>No</td>
+<td>Yes/no</td>
+</tr>
+<tr>
+<td><code>gender</code>, <code>region</code></td>
+<td>No</td>
+<td>Text</td>
+</tr>
+<tr>
+<td><code>preformed_panel_id</code> (<code>preformedPanelId</code>)</td>
+<td>No</td>
+<td>Any label; adjudicators with the same label form one preformed panel (see below)</td>
+</tr>
+<tr>
+<td><a href="#venue-requirement-columns">Venue requirement columns</a></td>
+<td>No</td>
+<td>Hard room needs</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">name,email,institution,score,trainee
+Eleanor Vance,eleanor@example.org,University of Dhaka,8.5,no
+Sam Lee,sam@example.org,Independent,7,no</code></pre>
+<ul>
+<li><strong>Errors:</strong> missing name, invalid email, non-numeric score, invalid yes/no value.</li>
+<li><strong>Matches</strong> an existing adjudicator by email; without an email, by name and institution. The same name at another institution is a warning, not a match. Default <strong>Skip</strong>; you can choose <strong>Update existing</strong> or <strong>Create</strong>.</li>
+<li><strong>Update</strong> changes only filled cells. Changing institution keeps the adjudicator&#39;s other conflicts.</li>
+<li>An adjudicator linked to an institution gets the automatic institution conflict. One marked independent is not linked (the institution cell is ignored, with a warning). One created without a linked institution is marked independent.</li>
+<li>Imported adjudicators start checked in.</li>
+<li><strong>Preformed panels:</strong> after importing, Round → Allocation → Preformed panels → <strong>Create from CSV panel ids</strong> builds one panel per <code>preformed_panel_id</code> group.</li>
+</ul>
+<h2 id="institutions-in-team-and-adjudicator-files">Institutions in team and adjudicator files<a class="anchor" href="#institutions-in-team-and-adjudicator-files" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>The <code>institution</code> cell is matched to an existing institution by name, then code.</li>
+<li><code>Independent</code>, <code>Unaffiliated</code>, <code>None</code>, <code>No institution</code>, <code>N/A</code>, <code>NA</code> and <code>-</code> mean no institution.</li>
+<li><strong>Unknown institutions</strong> are listed in the preview with a derived code (the first four letters, made unique with 2, 3, …). You can edit the name and code, or untick it. Ticked ones are created with the import; an unticked one leaves its name on the rows without a link (so no institution conflicts).</li>
+</ul>
+<h2 id="venue-requirement-columns">Venue requirement columns<a class="anchor" href="#venue-requirement-columns" aria-label="Link to this section">#</a></h2>
+<p>Hard room needs. Accepted on institution, team and adjudicator files.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Requirement</th>
+<th scope="col">Columns</th>
+<th scope="col">Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Room category</td>
+<td><code>required_venue_category</code>, <code>venue_category</code></td>
+<td>Text</td>
+</tr>
+<tr>
+<td>Minimum capacity</td>
+<td><code>min_venue_capacity</code>, <code>minimum_venue_capacity</code></td>
+<td>Number ≥ 0</td>
+</tr>
+<tr>
+<td>Step-free access</td>
+<td><code>requires_accessible_venue</code>, <code>venue_accessible</code></td>
+<td>Yes/no</td>
+</tr>
+<tr>
+<td>Online room</td>
+<td><code>requires_online_venue</code>, <code>venue_online</code></td>
+<td>Yes/no</td>
+</tr>
+<tr>
+<td>Near the tab room</td>
+<td><code>requires_near_tab_room</code>, <code>venue_near_tab_room</code></td>
+<td>Yes/no</td>
+</tr>
+</tbody></table></div>
+<p>Soft, ranked preferences use the <a href="#room-preferences">room preferences</a> file instead. See <a href="Venues-and-Constraints.html">Venues and constraints</a>.</p>
+<h2 id="conflicts">Conflicts<a class="anchor" href="#conflicts" aria-label="Link to this section">#</a></h2>
+<p>Setup → Conflicts (visible with <code>conflicts.view</code>; importing needs administrator or <code>conflicts.edit</code>). Tabbycat&#39;s four conflict types in one file. Each row fills <strong>exactly two</strong> of these columns:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column</th>
+<th scope="col">Aliases</th>
+<th scope="col">Finds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>adjudicator</code></td>
+<td><code>adjudicator_name</code>, <code>judge</code>, <code>adjudicator1</code></td>
+<td>Adjudicator by name or email</td>
+</tr>
+<tr>
+<td><code>team</code></td>
+<td><code>team_name</code></td>
+<td>Team by name or code name</td>
+</tr>
+<tr>
+<td><code>institution</code></td>
+<td><code>institution_name</code>, <code>inst</code></td>
+<td>Institution by name or code</td>
+</tr>
+<tr>
+<td><code>other_adjudicator</code></td>
+<td><code>adjudicator2</code>, <code>conflicted_adjudicator</code></td>
+<td>Adjudicator by name or email</td>
+</tr>
+</tbody></table></div>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Filled</th>
+<th scope="col">Conflict</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>adjudicator + team</td>
+<td>Adjudicator–team</td>
+</tr>
+<tr>
+<td>adjudicator + other_adjudicator</td>
+<td>Adjudicator–adjudicator</td>
+</tr>
+<tr>
+<td>adjudicator + institution</td>
+<td>Adjudicator–institution</td>
+</tr>
+<tr>
+<td>team + institution</td>
+<td>Team–institution (adjudicators from that institution clash with the team)</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">adjudicator,team,institution,other_adjudicator
+Eleanor Vance,DU 1,,
+Eleanor Vance,,,Sam Lee
+Sam Lee,,University of Dhaka,
+,DU 1,University of Oxford,</code></pre>
+<ul>
+<li><strong>Errors:</strong> a name matching no record, a name matching two records (use the email or code), an adjudicator paired with themselves, any other combination of filled cells.</li>
+<li><strong>Skipped (shown):</strong> conflicts already recorded (including an adjudicator&#39;s own institution) and repeats within the file.</li>
+<li>The file needs at least one of the four columns; an extra <code>type</code> column (from the export) is ignored.</li>
+</ul>
+<h2 id="room-preferences">Room preferences<a class="anchor" href="#room-preferences" aria-label="Link to this section">#</a></h2>
+<p>Setup → Room preferences (administrators). Soft, ranked room-category preferences (Tabbycat venue constraints). One row per preference.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Required</th>
+<th scope="col">Value</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>team</code> (<code>team_name</code>)</td>
+<td>Exactly one of team, adjudicator, institution</td>
+<td>Team name or code name</td>
+</tr>
+<tr>
+<td><code>adjudicator</code> (<code>adjudicator_name</code>, <code>judge</code>)</td>
+<td></td>
+<td>Name or email</td>
+</tr>
+<tr>
+<td><code>institution</code> (<code>institution_name</code>)</td>
+<td></td>
+<td>Name or code</td>
+</tr>
+<tr>
+<td><code>category</code> (<code>room_category</code>, <code>venue_category</code>)</td>
+<td>Yes (column and value)</td>
+<td>Room category</td>
+</tr>
+<tr>
+<td><code>priority</code></td>
+<td>Yes (column and value)</td>
+<td>Whole number; higher wins</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">team,adjudicator,institution,category,priority
+DU 1,,,Step-free,10
+,Eleanor Vance,,Ground floor,5</code></pre>
+<p>A row for a category the subject already has updates its priority. Unknown or ambiguous names, a non-integer priority and a second row for the same subject and category are errors.</p>
+<h2 id="venues">Venues<a class="anchor" href="#venues" aria-label="Link to this section">#</a></h2>
+<p>Setup → Venues → <strong>Import CSV</strong> (<code>.csv</code>, <code>.txt</code> or <code>.tsv</code>; paste or upload). The page shows the venues read from the file; <strong>Import</strong> adds them all.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Value</th>
+<th scope="col">Blank</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>name</code> (<code>room</code>, <code>venue</code>)</td>
+<td>Text</td>
+<td><code>Room N</code></td>
+</tr>
+<tr>
+<td><code>priority</code></td>
+<td>Whole number; higher = better room</td>
+<td>10 (also for a non-number)</td>
+</tr>
+<tr>
+<td><code>category</code> (<code>categories</code>)</td>
+<td>One or more room categories, separated by <code>;</code> or <code>,</code> (quote the cell for commas)</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>capacity</code> (<code>seats</code>)</td>
+<td>Number ≥ 0</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>accessible</code>, <code>online</code></td>
+<td>Yes/no</td>
+<td>Not set</td>
+</tr>
+<tr>
+<td><code>near_tab_room</code> (<code>nearTabRoom</code>)</td>
+<td>Yes/no</td>
+<td>Not set</td>
+</tr>
+<tr>
+<td><code>url</code> (<code>link</code>, <code>meeting_url</code>)</td>
+<td><code>http</code> or <code>https</code> link only (map or meeting link)</td>
+<td>None</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">name,priority,category,capacity,accessible,online
+Lecture Theatre 1,20,Main,200,yes,no
+Online Room 1,5,Online,50,yes,yes</code></pre>
+<p>Gotchas: one invalid value (capacity, yes/no, URL) refuses the whole file with the row number. Venue names are <strong>not</strong> checked for duplicates, so importing the same file twice creates every room twice. Imported rooms are available.</p>
+<h2 id="motions">Motions<a class="anchor" href="#motions" aria-label="Link to this section">#</a></h2>
+<p>Setup → Motions → <strong>Upload CSV</strong> (upload or paste). Imported directly, without a preview.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Column (aliases)</th>
+<th scope="col">Value</th>
+<th scope="col">Blank</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>text</code> (<code>motion</code>, <code>motion_text</code>, <code>Motion Text</code>)</td>
+<td>Motion text</td>
+<td>Row skipped</td>
+</tr>
+<tr>
+<td><code>reference</code> (<code>ref</code>, <code>topic</code>, <code>tag</code>)</td>
+<td>Short label</td>
+<td><code>Motion N</code> (N = data row)</td>
+</tr>
+<tr>
+<td><code>infoslide</code> (<code>info_slide</code>, <code>info</code>, <code>Info Slide</code>, <code>context</code>)</td>
+<td>Info slide text</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>round</code> (<code>round_abbr</code>, <code>round_seq</code>, <code>round_name</code>)</td>
+<td>One round: its id, name, abbreviation, <code>N</code>, <code>rN</code> or <code>round N</code></td>
+<td>Not assigned</td>
+</tr>
+</tbody></table></div>
+<pre tabindex="0"><code class="language-csv">text,reference,infoslide,round
+&quot;This House would ban algorithmic feeds.&quot;,R1: Tech,&quot;Chronological feeds only.&quot;,Round 1</code></pre>
+<p>Gotchas: an unmatched round is ignored silently (the motion is imported unassigned); only one round per row; motions are not checked for duplicates. Imported motions are unreleased and added after the existing ones.</p>
+<h2 id="bulk-base-scores">Bulk base scores<a class="anchor" href="#bulk-base-scores" aria-label="Link to this section">#</a></h2>
+<p>Results → Feedback → <strong>Update base scores in bulk</strong> (administrators and staff allowed to edit adjudicator scores). Paste text, <strong>no header row</strong>: one line per adjudicator, <code>name or id,score</code>.</p>
+<pre tabindex="0"><code class="language-csv">Eleanor Vance,8
+adj-3f2c…,6.5</code></pre>
+<ul>
+<li>The adjudicator is found by id or exact name (case and spaces ignored). Scores must be between 1 and 10.</li>
+<li>Errors: missing score, extra cells, unknown or ambiguous name, invalid score, the same adjudicator twice. <strong>Any error saves nothing.</strong></li>
+<li>Lines whose score does not change are left out.</li>
+</ul>
+<h2 id="csv-exports">CSV exports<a class="anchor" href="#csv-exports" aria-label="Link to this section">#</a></h2>
+<p>All exports are built in the browser from the tournament on this device, are UTF-8 with a byte-order mark (Excel reads accents correctly), use Windows line endings, and prefix any cell starting with <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code> with <code>&#39;</code> so spreadsheets do not run it as a formula. File names use the tournament name with spaces and punctuation replaced by <code>_</code>.</p>
+<h3 id="results-and-draw-pages">Results and draw pages<a class="anchor" href="#results-and-draw-pages" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Where</th>
+<th scope="col">File</th>
+<th scope="col">Columns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Results → Standings → <strong>Export CSV</strong> (team tab)</td>
+<td><code>{name}_Standings.csv</code></td>
+<td>Rank, Team, Institution (code), Points, Total Speaker Score, Average Speaker Score, 1st–4th Places, Wins, Margin</td>
+</tr>
+<tr>
+<td>Standings → Export CSV (speaker tab)</td>
+<td><code>{name}_Speaker_Standings.csv</code></td>
+<td>Rank (blank if not eligible), Speaker, Team, Institution, Categories, Speeches, Total Score, Average Score, one <code>Round N</code> column per round</td>
+</tr>
+<tr>
+<td>Standings → Export CSV (replies tab)</td>
+<td><code>{name}_Reply_Standings.csv</code></td>
+<td>As speakers, without Categories</td>
+</tr>
+<tr>
+<td>Round → Draw → <strong>Export CSV</strong></td>
+<td><code>{name}_{round}_Draw.csv</code></td>
+<td>Room Rank, Venue, one column per side (named with the tournament&#39;s side names; N-team debates get one column per position), Chair, Panellists, Trainees, Motion, Notes (bye, postponed). Bye rows come last</td>
+</tr>
+<tr>
+<td>Results → Feedback → <strong>Feedback CSV</strong> (admins)</td>
+<td><code>{name}_Feedback_ADMIN_ONLY.csv</code></td>
+<td>Round, Target, Target Type, Source, Source Type, Score, Agrees With Decision, Confirmed, Ignored, Comments, one column per feedback question, Submitted At</td>
+</tr>
+<tr>
+<td>Results → Feedback → <strong>Scores CSV</strong> (admins)</td>
+<td><code>{name}_Adjudicator_Scores_ADMIN_ONLY.csv</code></td>
+<td>Adjudicator, Institution, Base Score, Test Score, Counted Feedback, Weighted Feedback Average, Score (blended), Trainee, Independent</td>
+</tr>
+</tbody></table></div>
+<p>Several values in one cell (panellists, categories, multi-select answers) are separated by <code>; </code>.</p>
+<h3 id="data-exports-page">Data exports page<a class="anchor" href="#data-exports-page" aria-label="Link to this section">#</a></h3>
+<p>Admin → <strong>Data exports</strong> (administrators only; Tabbycat&#39;s participant, availability, break-eligibility and conflict exports). File name: <code>{short name}_{export}.csv</code>. Private URL keys and passcodes are never exported; the participant files do contain email addresses.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Export</th>
+<th scope="col">One row per</th>
+<th scope="col">Columns</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Teams</td>
+<td>Team</td>
+<td><code>id</code>, <code>name</code>, <code>code_name</code>, <code>institution</code>, <code>emoji</code>, <code>seed</code>, <code>speaker1</code>…<code>speakerN</code>, <code>break_categories</code>, <code>swing</code></td>
+</tr>
+<tr>
+<td>Speakers</td>
+<td>Speaker</td>
+<td><code>id</code>, <code>name</code>, <code>team</code>, <code>institution</code>, <code>email</code>, <code>gender</code>, <code>region</code>, <code>categories</code></td>
+</tr>
+<tr>
+<td>Adjudicators</td>
+<td>Adjudicator</td>
+<td><code>id</code>, <code>name</code>, <code>institution</code>, <code>email</code>, <code>base_score</code>, <code>test_score</code>, <code>trainee</code>, <code>independent</code>, <code>adj_core</code>, <code>breaking</code>, <code>gender</code>, <code>region</code></td>
+</tr>
+<tr>
+<td>Institutions</td>
+<td>Institution</td>
+<td><code>id</code>, <code>name</code>, <code>code</code>, <code>region</code>, <code>teams</code>, <code>adjudicators</code> (counts)</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>Team, adjudicator and venue</td>
+<td><code>type</code>, <code>id</code>, <code>name</code>, then one yes/no column per non-cancelled round. Uses the draw&#39;s rule (round availability, else check-in, with check-in expiry); venues use their general availability flag</td>
+</tr>
+<tr>
+<td>Break eligibility</td>
+<td>Team × break category where the team is eligible, has an override or meets the speaker-category rule</td>
+<td><code>team_id</code>, <code>team</code>, <code>break_category</code>, <code>eligible</code>, <code>override</code>, <code>speaker_category_rule</code>, <code>meets_rule</code>, <code>broke</code></td>
+</tr>
+<tr>
+<td>Conflicts</td>
+<td>Declared conflict</td>
+<td><code>adjudicator</code>, <code>team</code>, <code>institution</code>, <code>other_adjudicator</code>, <code>type</code></td>
+</tr>
+</tbody></table></div>
+<p>The <strong>conflicts</strong> export uses the conflicts import&#39;s columns, so it can be edited and imported again. Records are named by name, or by email / code name / code when the name is shared. History conflicts, an adjudicator&#39;s or team&#39;s own institution and the second copy of a mutual adjudicator conflict are left out. The same file is downloaded by <strong>Export conflicts CSV</strong> on Setup → Conflicts.</p>
+<p><strong>Gotcha:</strong> the other participant exports are not import templates. For example <code>code_name</code> and <code>base_score</code> are not import column names (the imports use <code>code</code> and <code>score</code>), and <code>id</code>, <code>emoji</code> and <code>swing</code> are ignored on import. Team references, composite-team fields and pronouns are not in any CSV yet.</p>
+<h2 id="other-files">Other files<a class="anchor" href="#other-files" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">File</th>
+<th scope="col">Where</th>
+<th scope="col">Page</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DebateXML (Tabbycat-compatible archive)</td>
+<td>Account menu → Export DebateXML archive; Tournaments hub → import</td>
+<td><a href="Participants-and-Imports.html">Participants and imports</a></td>
+</tr>
+<tr>
+<td>JSON tournament backup</td>
+<td>Account menu → Export / Restore tournament backup</td>
+<td><a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a></td>
+</tr>
+<tr>
+<td>JSON settings file</td>
+<td>Admin → Configuration → Format &amp; teams → Configuration file and rules presets</td>
+<td><a href="Settings-Reference.html">Settings reference</a></td>
+</tr>
+</tbody></table></div>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Settings-Reference.html" rel="prev"><span>Previous</span>Settings reference</a><a class="pager-next" href="Data-Model.html" rel="next"><span>Next</span>Data model</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/CSV-Formats.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#overview">Overview</a></li><li><a href="#rules-shared-by-the-previewed-imports">Rules shared by the previewed imports</a></li><li><a href="#institutions">Institutions</a></li><li><a href="#teams">Teams</a></li><li><a href="#adjudicators">Adjudicators</a></li><li><a href="#institutions-in-team-and-adjudicator-files">Institutions in team and adjudicator files</a></li><li><a href="#venue-requirement-columns">Venue requirement columns</a></li><li><a href="#conflicts">Conflicts</a></li><li><a href="#room-preferences">Room preferences</a></li><li><a href="#venues">Venues</a></li><li><a href="#motions">Motions</a></li><li><a href="#bulk-base-scores">Bulk base scores</a></li><li><a href="#csv-exports">CSV exports</a></li><li><a href="#other-files">Other files</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

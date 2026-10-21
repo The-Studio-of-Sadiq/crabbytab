@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Public pages and releases · CrabbyTab guide</title>
+<meta name="description" content="Public pages and releases: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html" aria-current="page">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="public-pages-and-releases">Public pages and releases<a class="anchor" href="#public-pages-and-releases" aria-label="Link to this section">#</a></h1>
+<p>Every tournament has a public site. Nobody needs an account to view it.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Address</th>
+<th scope="col">What it is</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/{slug}/public</code></td>
+<td>The public tab (sidebar → <strong>Public → Public tab</strong>)</td>
+</tr>
+<tr>
+<td><code>/{slug}/public/team/{id}</code>, <code>/{slug}/public/adjudicator/{id}</code></td>
+<td>Record pages (one participant&#39;s public debates and results)</td>
+</tr>
+<tr>
+<td><code>/{slug}/public/ballots</code>, <code>/{slug}/public/feedback</code></td>
+<td>Public ballot and feedback forms, when switched on</td>
+</tr>
+<tr>
+<td><code>/{slug}/schedule/public</code> and its iCalendar feed</td>
+<td>The published schedule</td>
+</tr>
+<tr>
+<td><code>/{slug}/checkins/public</code></td>
+<td>Public check-in status</td>
+</tr>
+<tr>
+<td><code>/{slug}/audit/public</code></td>
+<td>The released audit log (<a href="Audit-Log.html">Audit log</a>)</td>
+</tr>
+<tr>
+<td><code>/{slug}/display</code></td>
+<td>The projector (<a href="Printing-and-Display.html">Printing and display</a>)</td>
+</tr>
+</tbody></table></div>
+<p>Nothing is public until you release it. The rest of this page covers what each release shows and
+where you switch it.</p>
+<h2 id="how-publishing-works">How publishing works<a class="anchor" href="#how-publishing-works" aria-label="Link to this section">#</a></h2>
+<p>Public pages never read your live data. They show a cleaned-up <strong>public snapshot</strong> of the cloud
+copy, built by the server when you publish. A value that is hidden is left out of the snapshot,
+so it is not just hidden on the page. Open public pages check for a new version every 45 seconds.</p>
+<ul>
+<li><strong>Releases publish in one step.</strong> Release buttons open a dialog that saves the change, uploads
+this device&#39;s other pending changes and publishes the public pages. The dialog tells you how many
+other changes go up with it. If the upload or publish fails, it says the change is saved on this
+device but <strong>not public yet</strong>. This applies to: draw stages, round results, team speaks, motion
+releases, the schedule, and every item on the Public release panel. A release is refused while
+you are offline or while records conflict with the cloud (resolve those first). On a device
+without cloud sync, the change is saved on that device only.</li>
+<li><strong>Some changes are only saved on this device.</strong> <strong>Reveal Adjudicators</strong> (Allocation page),
+the <strong>Silent round</strong> box (Results page) and every setting below go up with your next Upload. After
+you save settings, a <strong>Saved on this device only</strong> notice with an <strong>Upload and publish</strong> button
+appears.</li>
+<li><strong>Republish public pages</strong> (account menu) publishes the cloud copy as it is. If this device has
+changes that are not uploaded, it asks first (<strong>Upload and publish</strong>, or <strong>Publish cloud copy
+anyway</strong>).</li>
+<li>An upload that hit conflicts, or that stopped part-way, does not update public pages. The top
+bar says so and shows how to recover.</li>
+<li>Submissions that skip your device (private-URL ballots and feedback, self check-ins, assistant
+syncs) appear on public pages after your next upload or republish.</li>
+</ul>
+<p>To take something back, unrelease it the same way. Anyone who already saw it may remember it.</p>
+<h2 id="per-round-releases">Per-round releases<a class="anchor" href="#per-round-releases" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">What</th>
+<th scope="col">Where</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Draw stages</td>
+<td>Round → <strong>Draw</strong>: Confirm draw → Release to teams only → Release draw to public; Unrelease draw</td>
+<td>Only <strong>Released to public</strong> reaches the public draw page and adjudicator portals. <strong>Released to teams only</strong> shows each team its own room, side and opponents on its private URL, and nothing else.</td>
+</tr>
+<tr>
+<td>Panels</td>
+<td>Round → <strong>Allocation</strong> → <strong>Reveal Adjudicators</strong></td>
+<td>Panels appear on the public draw, projector and team portals. Saved on the device; Upload to publish.</td>
+</tr>
+<tr>
+<td>Current round</td>
+<td>Draw page → <strong>Make {round} current</strong> / <strong>Use automatic current round</strong></td>
+<td>Chooses which round &quot;current round only&quot; pages, public forms and portals open on. By default it is the latest round whose draw is released to the public. Setting it never releases a draw.</td>
+</tr>
+<tr>
+<td>Motions</td>
+<td>Setup → <strong>Motions</strong> → pick a round → motion release: Not released / Info slides / Motions</td>
+<td>Info slides only: viewers see the info slides, not the motions. Motions: portals, the projector and the public Motions tab show them. If the round has a preparation time, releasing motions sets the round&#39;s start time.</td>
+</tr>
+<tr>
+<td>Results</td>
+<td>Results → <strong>Publish round results</strong></td>
+<td>Team outcomes on the public results page and team portals. Needs every ballot confirmed or a bye recorded.</td>
+</tr>
+<tr>
+<td>Team speaks</td>
+<td>Results → <strong>Publish team speaks</strong></td>
+<td>Speaker and team scores for that round. Same requirement.</td>
+</tr>
+<tr>
+<td>Silent round</td>
+<td>Results → <strong>Silent round</strong></td>
+<td>Hides that round&#39;s results from public results and standings, and unpublishes both result switches. A released team or speaker tab still includes completed silent rounds.</td>
+</tr>
+</tbody></table></div>
+<h2 id="tournament-wide-switches-configuration--public-visibility">Tournament-wide switches: Configuration → Public visibility<a class="anchor" href="#tournament-wide-switches-configuration--public-visibility" aria-label="Link to this section">#</a></h2>
+<p>Sidebar → <strong>Admin → Configuration → Public visibility</strong>. Save, then use <strong>Upload and publish</strong>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Default</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public results and scores</td>
+<td>on</td>
+<td>Turns the Results tab on or off. Each round&#39;s results must still be published.</td>
+</tr>
+<tr>
+<td>Public standings tab</td>
+<td>on</td>
+<td>A team standings tab over the rounds whose results are published and not silent. It appears once at least one such round also has team speaks published.</td>
+</tr>
+<tr>
+<td>Public motions page</td>
+<td>on</td>
+<td>The Motions tab, with released motions and info slides.</td>
+</tr>
+<tr>
+<td>Public check-in counts</td>
+<td>off</td>
+<td>The <code>/checkins/public</code> page. Shows per-round counts. When the participants list is also released, it shows each team and adjudicator as checked in or not, refreshed every 30 seconds.</td>
+</tr>
+<tr>
+<td>Self check-in from private URLs</td>
+<td>off</td>
+<td>See <a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</td>
+</tr>
+<tr>
+<td>Public pages and portals language</td>
+<td>browser</td>
+<td>Default language of public pages, portals and printed sheets. Viewers can still pick their own.</td>
+</tr>
+<tr>
+<td>Public draw</td>
+<td>All released rounds</td>
+<td>Off / <strong>Current round only</strong> / <strong>All released rounds</strong>. Current round only shows the current round (and the other rounds of its schedule slot). Earlier rounds stay visible only through their released results. The projector follows this too.</td>
+</tr>
+<tr>
+<td>Adjudicator tab shows</td>
+<td>final</td>
+<td>Base score, final (feedback-blended) score, or both plus per-round feedback averages. You release the tab itself on the Public release panel.</td>
+</tr>
+<tr>
+<td>Team / speaker / replies tab limits</td>
+<td>0 (all)</td>
+<td>Shows only the top N. Ties at the cutoff are kept. With a limit, rounds visible only through the tab publish no individual results, so ranks below the cutoff cannot be worked out from other pages.</td>
+</tr>
+<tr>
+<td>Break page metrics</td>
+<td>-1 (all)</td>
+<td>How many team precedence metrics to show next to each breaking team (0 = none).</td>
+</tr>
+<tr>
+<td>Show break categories on the participants page</td>
+<td>off</td>
+<td>Publishes each team&#39;s break eligibility.</td>
+</tr>
+<tr>
+<td>Motions order</td>
+<td>forward</td>
+<td>Earliest round first, or reverse. Tabbycat&#39;s default is reverse.</td>
+</tr>
+<tr>
+<td>Show motions in results</td>
+<td>off</td>
+<td>A Motion column on public results and record pages. Only released motions are shown.</td>
+</tr>
+<tr>
+<td>Team code names</td>
+<td>off</td>
+<td>See <a href="#code-names">Code names</a>.</td>
+</tr>
+<tr>
+<td>Speaker and adjudicator code names</td>
+<td>off</td>
+<td>Publishes speakers and adjudicators under their code names.</td>
+</tr>
+<tr>
+<td>Show team / adjudicator institutions</td>
+<td>on</td>
+<td>When off, institutions are removed from public teams, adjudicators and tabs.</td>
+</tr>
+<tr>
+<td>Show which adjudicators are always trainees</td>
+<td>off</td>
+<td>An &quot;Always trainee&quot; column on the participants list and adjudicator tab.</td>
+</tr>
+<tr>
+<td>Show team emoji</td>
+<td>on</td>
+<td></td>
+</tr>
+<tr>
+<td>Show speakers in the draw</td>
+<td>on</td>
+<td></td>
+</tr>
+<tr>
+<td>Show splitting adjudicators</td>
+<td>off</td>
+<td>Marks voting adjudicators whose sheet chose the losing team, on ballots whose panel is public.</td>
+</tr>
+<tr>
+<td>Search engines</td>
+<td>all</td>
+<td>All pages may be indexed / homepage only / none. Adds <code>noindex, nofollow</code> to the other pages, including the public schedule. Search engines may ignore it, so it is not a privacy control.</td>
+</tr>
+<tr>
+<td>Welcome message, Tournament staff</td>
+<td>empty</td>
+<td>Plain text (no HTML, at most 5000 characters) on the public page&#39;s Home tab. The welcome message shows only while the public homepage is empty.</td>
+</tr>
+<tr>
+<td>Public homepage</td>
+<td>empty</td>
+<td>Markdown (at most 20,000 characters) for the Home tab, the tab the public page opens on: headings, lists, tables, links, https images, maths (<code>$x^2$</code>, <code>$$...$$</code>) and YouTube videos (a YouTube link alone on its own line). HTML is removed. The editor shows a live preview and a syntax help. While registration is open the Home tab also shows a <strong>Register</strong> button.</td>
+</tr>
+</tbody></table></div>
+<p>To hide one person&#39;s name, mark the speaker or adjudicator <strong>anonymous</strong> in their edit dialog. They
+show as &quot;Redacted&quot; everywhere public, and an anonymous speaker also loses their team in tab rows.</p>
+<h2 id="public-release-panel-results--standings">Public release panel: Results → Standings<a class="anchor" href="#public-release-panel-results--standings" aria-label="Link to this section">#</a></h2>
+<p>The <strong>Public release</strong> panel at the bottom of the Standings page (administrators) holds the
+switches you usually flip at the end of the tournament. Every item starts <strong>Hidden</strong>. Each
+<strong>Release</strong> opens the one-step publish dialog. The header shows how many preliminary rounds are
+complete, because tabs cover <strong>completed</strong> preliminary rounds only.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Item</th>
+<th scope="col">Shows</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Team tab</td>
+<td>Full team standings over completed preliminary rounds, silent rounds included</td>
+</tr>
+<tr>
+<td>Speaker tab</td>
+<td>Speaker scores and rankings</td>
+</tr>
+<tr>
+<td>Speaker category tabs</td>
+<td>A speaker tab per public speaker category (listed only when a category is public). Until you set it, it follows the speaker tab.</td>
+</tr>
+<tr>
+<td>Replies tab</td>
+<td>Reply speaker rankings (only when reply speeches are on)</td>
+</tr>
+<tr>
+<td>Participants list</td>
+<td>Every team with its speakers; every adjudicator with their institution</td>
+</tr>
+<tr>
+<td>Institutions list</td>
+<td>Names, codes, regions. Team and adjudicator counts appear only if participants are public too.</td>
+</tr>
+<tr>
+<td>Adjudication core / Breaking adjudicators</td>
+<td>Adjudicators flagged core or breaking in their edit dialog</td>
+</tr>
+<tr>
+<td>Adjudicator tab</td>
+<td>Adjudicator scores, as chosen in &quot;Adjudicator tab shows&quot;. Feedback text is never published.</td>
+</tr>
+<tr>
+<td>All round results</td>
+<td>Results of every completed round, silent and elimination rounds included. Speaker scores of rounds whose team speaks were never published are included only with a speaker tab that has no limit. Meant for after the tournament.</td>
+</tr>
+<tr>
+<td>Scoresheets</td>
+<td>Each adjudicator&#39;s sheet, for rounds whose speaker scores and panels are public. Free-text fields are never published.</td>
+</tr>
+<tr>
+<td>Scoresheets on team private URLs</td>
+<td>Each team sees the full sheets of its own debates once the round&#39;s results are published</td>
+</tr>
+<tr>
+<td>Break category team tabs</td>
+<td>A team tab per break category (eligible teams ranked within it), cut at the category&#39;s public tab limit</td>
+</tr>
+<tr>
+<td>Team and adjudicator record pages</td>
+<td>Per-participant pages (default <strong>on</strong>). Anonymous adjudicators have none.</td>
+</tr>
+<tr>
+<td>Pre-allocated sides</td>
+<td>Each team&#39;s side in every preliminary round (only with pre-allocated sides)</td>
+</tr>
+<tr>
+<td>Elimination bracket</td>
+<td>Built from released elimination draws and results</td>
+</tr>
+<tr>
+<td>Diversity statistics</td>
+<td>Gender, region and category counts and averages only</td>
+</tr>
+<tr>
+<td>Motion veto statistics</td>
+<td>Vetoes per motion and side, from rounds with public results (only with vetoes on)</td>
+</tr>
+<tr>
+<td>Motion statistics</td>
+<td>How often each released motion was chosen and won. Follows the motions page until set. Released alone, it appears as its own tab.</td>
+</tr>
+<tr>
+<td>Feedback progress</td>
+<td>Who still owes feedback (counts only)</td>
+</tr>
+<tr>
+<td>{Category} break</td>
+<td>The generated break for that category. Nothing shows until the break is generated.</td>
+</tr>
+</tbody></table></div>
+<p><strong>Release the tab</strong> (panel header) applies Tabbycat&#39;s tab-release preset in one step. It releases
+the team and speaker tabs, motion statistics, scoresheets, all round results, diversity, every
+category&#39;s break and the breaking adjudicators. It switches off the public draw, the standings tab,
+break categories on participants and public check-ins.</p>
+<h2 id="code-names">Code names<a class="anchor" href="#code-names" aria-label="Link to this section">#</a></h2>
+<p>Set code names in <strong>Public visibility</strong> (team code-name mode, plus <strong>Generate missing code names</strong>
+from emoji or last names and <strong>Assign missing emoji</strong>; existing values are never overwritten). Decode them on
+<strong>Setup → Code names</strong>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Team code-name mode</th>
+<th scope="col">Public sees</th>
+<th scope="col">Tab room sees</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Off</td>
+<td>Real names</td>
+<td>Real names</td>
+</tr>
+<tr>
+<td>Real names, code names as tooltips</td>
+<td>Real names, code name on hover</td>
+<td>Real name, code name on hover</td>
+</tr>
+<tr>
+<td>Code names publicly (real names for staff)</td>
+<td>Code names only</td>
+<td>Real name, code name on hover</td>
+</tr>
+<tr>
+<td>Code names publicly (staff see both)</td>
+<td>Code names only</td>
+<td>Code name, real name on hover</td>
+</tr>
+<tr>
+<td>Code names everywhere</td>
+<td>Code names only</td>
+<td>Code names only</td>
+</tr>
+</tbody></table></div>
+<p>In the code-name-only modes, a team without a code name shows &quot;(no public name)&quot;. Private portals
+are participant pages, so they follow the public rule for other teams. A team&#39;s own portal keeps
+its real name.</p>
+<h2 id="public-forms-ballots-and-feedback-without-private-urls">Public forms (ballots and feedback without private URLs)<a class="anchor" href="#public-forms-ballots-and-feedback-without-private-urls" aria-label="Link to this section">#</a></h2>
+<p>Sidebar → <strong>Admin → Assistants</strong> → <strong>Public forms</strong> card:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public ballot form</td>
+<td><code>/{slug}/public/ballots</code> lists the chairs and voting panellists of the current round. Each picks their name and enters their ballot.</td>
+</tr>
+<tr>
+<td>Public feedback form</td>
+<td><code>/{slug}/public/feedback</code> lists teams and adjudicators. Each picks themselves, then someone they may rate under the feedback paths. Needs feedback switched on.</td>
+</tr>
+<tr>
+<td>Require the tournament password</td>
+<td>Every submission must include the tournament password you set on the same card.</td>
+</tr>
+</tbody></table></div>
+<ul>
+<li>The password is stored on the server only as a salted hash. It is never in settings, exports or
+the public snapshot. If the password is required but not set, every submission is refused. Wrong
+passwords are limited to 30 an hour per network.</li>
+<li>Ballots are taken only for the current round, and only once its draw is released to the public.
+The form refuses while the round&#39;s motions are unreleased, when the adjudicator has no debate or
+more than one debate, and when the debate has no chair. With several motions it asks which was
+debated, and asks for vetoes when vetoes are on.</li>
+<li><strong>Public ballots are always stored unconfirmed</strong>, whatever the private-URL setting says. The tab
+room confirms them. Feedback is stored confirmed, as on private URLs.</li>
+<li>The pickers come from the published snapshot. A room is shown next to an adjudicator only once
+panels are public. Names follow the code-name settings.</li>
+<li>Unlike Tabbycat, public forms do not switch private URLs off. Turn private-URL ballots off
+separately on the same page if you want only the public form.</li>
+</ul>
+<h2 id="schedule-and-calendar">Schedule and calendar<a class="anchor" href="#schedule-and-calendar" aria-label="Link to this section">#</a></h2>
+<p>On <strong>Setup → Schedule</strong>, add events (briefing, draw, preparation, debate, adjudication, meal,
+awards, other) with times and an optional round. Then click <strong>Publish schedule</strong> (or <strong>Hide
+schedule</strong>). The public page <code>/{slug}/schedule/public</code> shows times in the viewer&#39;s time zone and
+marks what is happening now and next. <strong>Add to calendar (iCal)</strong> links to an iCalendar feed.</p>
+<h2 id="links-on-the-public-tab">Links on the public tab<a class="anchor" href="#links-on-the-public-tab" aria-label="Link to this section">#</a></h2>
+<p>Above its tabs, the public page links to the pages outside its tabs. Each link appears
+only while that page is on:</p>
+<ul>
+<li>the schedule and its calendar feed</li>
+<li>check-in status</li>
+<li>the audit log, once released (<strong>Admin → Audit log → Release audit log</strong>)</li>
+<li>the registration form, while it is open or opens later</li>
+<li>the public ballot and feedback forms</li>
+</ul>
+<h2 id="what-is-never-public">What is never public<a class="anchor" href="#what-is-never-public" aria-label="Link to this section">#</a></h2>
+<p>Email addresses and phone numbers, private URL keys and passcodes, the public-forms password,
+conflicts, feedback text, break remarks, unreleased motions and draws, and the core and breaking
+flags until their list is released. Base scores and feedback averages appear only through a
+released adjudicator tab. Teams that are not in a public draw or a released break are included only
+when the participants list is released. Unreleased break decisions are removed from every team.</p>
+<h2 id="differences-from-tabbycat">Differences from Tabbycat<a class="anchor" href="#differences-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Results, standings and motions pages default to <strong>on</strong> (Tabbycat: off). Nothing shows until you
+also release each round or motion, so this is safe.</li>
+<li>A <strong>teams-only</strong> draw release shows on team portals only. Tabbycat also lists it on the public
+draw page without adjudicators.</li>
+<li>Tab-limit ties at the cutoff are all shown.</li>
+<li>Public forms and private URLs are separate switches. In Tabbycat they are one exclusive setting.</li>
+<li>Releases depend on publishing. There is no live push to public pages.</li>
+</ul>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>The public snapshot is split by round, so neither a cache entry nor a response grows with the
+tournament. A publish is skipped when nothing public changed anywhere in the cloud copy.</li>
+<li>Public pages are served from a cache (see
+<a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a>). Opening them costs no Firestore reads per visitor.</li>
+<li>Motion statistics count one confirmed ballot per debate and skip forfeits.</li>
+<li>Developer detail:
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md">public-pages-and-notifications.md</a>,
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/rounds-schedule-and-motions.md">rounds-schedule-and-motions.md</a>,
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md">storage-and-scale.md</a>.</li>
+<li>Anonymous read access to the same public data through the REST API: <a href="API-and-Tokens.html">API and tokens</a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Breaks-and-Eliminations.html" rel="prev"><span>Previous</span>Breaks and eliminations</a><a class="pager-next" href="Public-Homepage.html" rel="next"><span>Next</span>Public homepage (Home tab)</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Public-Pages-and-Releases.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#how-publishing-works">How publishing works</a></li><li><a href="#per-round-releases">Per-round releases</a></li><li><a href="#tournament-wide-switches-configuration--public-visibility">Tournament-wide switches: Configuration → Public visibility</a></li><li><a href="#public-release-panel-results--standings">Public release panel: Results → Standings</a></li><li><a href="#code-names">Code names</a></li><li><a href="#public-forms-ballots-and-feedback-without-private-urls">Public forms (ballots and feedback without private URLs)</a></li><li><a href="#schedule-and-calendar">Schedule and calendar</a></li><li><a href="#links-on-the-public-tab">Links on the public tab</a></li><li><a href="#what-is-never-public">What is never public</a></li><li><a href="#differences-from-tabbycat">Differences from Tabbycat</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>
