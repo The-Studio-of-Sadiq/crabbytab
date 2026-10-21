@@ -1,5 +1,6 @@
 import type { Metadata, MetadataRoute } from "next";
 import { getPublicSiteSettings, robotsForPublicPage } from "@/lib/publicFeatures";
+import { firstParagraphText } from "@/lib/markdown/plainText";
 import { SITE_NAME, SITE_OG_IMAGE } from "@/lib/seo/site";
 import type { SearchEngineIndexing, Tournament } from "@/types";
 
@@ -39,8 +40,12 @@ export function buildPublicSeoSummary(tournamentSection: unknown): PublicSeoSumm
     indexing: settings.searchEngineIndexing,
     schedule: preferences?.publicSchedule === true,
     checkins: preferences?.publicCheckInStatus === true,
-    // The welcome message is already shown on the public tab (plain text, see getPublicSiteSettings).
-    description: shortDescription(settings.welcomeMessage) || `Public draws, motions and results of ${name}, published with ${SITE_NAME}.`,
+    // What the Home tab shows first: the homepage's first paragraph (as plain text), else the
+    // welcome message (plain text already, see getPublicSiteSettings).
+    description:
+      shortDescription(firstParagraphText(settings.homepage)) ||
+      shortDescription(settings.welcomeMessage) ||
+      `Public draws, motions and results of ${name}, published with ${SITE_NAME}.`,
   };
 }
 

@@ -555,6 +555,12 @@ export interface TournamentPreferences {
   /** Tabbycat `welcome_message` / `tournament_staff`, shown as plain text on the public page. */
   welcomeMessage?: string;
   tournamentStaff?: string;
+  /**
+   * The public homepage (the public page's Home tab): organiser-written Markdown with maths and
+   * YouTube embeds, rendered safely (src/components/markdown). Absent or empty = the welcome
+   * message is shown instead.
+   */
+  publicHomepage?: string;
   /** Tabbycat `public_motions_order`. Absent = "forward" (CrabbyTab's order before this setting). */
   publicMotionsOrder?: PublicMotionsOrder;
   /**

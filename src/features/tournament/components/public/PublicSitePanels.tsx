@@ -109,25 +109,6 @@ export function PublicDebateMotionLabel({ motion }: { motion?: PublicDebateMotio
   );
 }
 
-export function WelcomePanel({ message, staff }: { message: string; staff: string }) {
-  const { t } = useI18n();
-  if (!message && !staff) return null;
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {message && (
-        <Panel title={t("public.welcomeTitle")}>
-          <p className="p-4 text-sm text-fg whitespace-pre-line">{message}</p>
-        </Panel>
-      )}
-      {staff && (
-        <Panel title={t("public.staffTitle")}>
-          <p className="p-4 text-sm text-fg whitespace-pre-line">{staff}</p>
-        </Panel>
-      )}
-    </div>
-  );
-}
-
 type PublicBallot = BallotSubmission & { splitAdjudicatorIds?: string[] };
 
 export function splittingAdjudicators(ballot: BallotSubmission | undefined): Set<string> {

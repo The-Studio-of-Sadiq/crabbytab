@@ -81,7 +81,8 @@ Sidebar → **Admin → Configuration → Public visibility**. Save, then use **
 | Show speakers in the draw | on | |
 | Show splitting adjudicators | off | Marks voting adjudicators whose sheet chose the losing team, on ballots whose panel is public. |
 | Search engines | all | All pages may be indexed / homepage only / none. Adds `noindex, nofollow` to the other pages, including the public schedule. Search engines may ignore it, so it is not a privacy control. |
-| Welcome message, Tournament staff | empty | Plain text (no HTML, at most 5000 characters) at the top of the public tab. |
+| Welcome message, Tournament staff | empty | Plain text (no HTML, at most 5000 characters) on the public page's Home tab. The welcome message shows only while the public homepage is empty. |
+| Public homepage | empty | Markdown (at most 20,000 characters) for the Home tab, the tab the public page opens on: headings, lists, tables, links, https images, maths (`$x^2$`, `$$...$$`) and YouTube videos (a YouTube link alone on its own line). HTML is removed. The editor shows a live preview and a syntax help. While registration is open the Home tab also shows a **Register** button. |
 
 To hide one person's name, mark the speaker or adjudicator **anonymous** in their edit dialog. They
 show as "Redacted" everywhere public, and an anonymous speaker also loses their team in tab rows.
@@ -172,7 +173,7 @@ marks what is happening now and next. **Add to calendar (iCal)** links to an iCa
 
 ## Links on the public tab
 
-Below the welcome message, the public tab links to the pages outside its tabs. Each link appears
+Above its tabs, the public page links to the pages outside its tabs. Each link appears
 only while that page is on:
 
 - the schedule and its calendar feed

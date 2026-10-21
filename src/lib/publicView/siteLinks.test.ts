@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicSiteLinks, registrationLinkable } from "./siteLinks";
+import { publicSiteLinks, registrationLinkable, registrationOpen } from "./siteLinks";
 
 describe("public site links", () => {
   // Regression: these public pages existed but nothing on the public site linked to them.
@@ -25,5 +25,10 @@ describe("public site links", () => {
     expect(registrationLinkable("not_open")).toBe(true);
     expect(registrationLinkable("closed")).toBe(false);
     expect(registrationLinkable("disabled")).toBe(false);
+  });
+
+  it("shows the Home tab's Register button only while registration is open", () => {
+    expect(registrationOpen("open")).toBe(true);
+    for (const state of ["not_open", "closed", "disabled", undefined]) expect(registrationOpen(state)).toBe(false);
   });
 });

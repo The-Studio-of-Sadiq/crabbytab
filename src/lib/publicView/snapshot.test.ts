@@ -105,6 +105,16 @@ describe("buildPublicProjection", () => {
     ]);
   });
 
+  it("publishes the public homepage with the tournament settings", () => {
+    const publicHomepage = "# Welcome\n\nSee $x^2$ and https://youtu.be/dQw4w9WgXcQ";
+    const projection = buildPublicProjection(
+      { ...tournament, preferences: { ...(tournament.preferences as object), publicHomepage, welcomeMessage: "Hi" } },
+      source()
+    );
+    expect(projection.tournament.preferences.publicHomepage).toBe(publicHomepage);
+    expect(projection.tournament.preferences.welcomeMessage).toBe("Hi");
+  });
+
   it("removes private fields and unreleased data", () => {
     const projection = buildPublicProjection(tournament, source());
     expect(projection.tournament).not.toHaveProperty("ownerEmail");
@@ -294,6 +304,18 @@ describe("fingerprints", () => {
     const data = source();
     data.rounds[1] = { ...data.rounds[1], drawStatus: "released" };
     expect(fingerprintPublicSource(tournament, data)).not.toBe(base);
+  });
+
+  it("change when the public homepage is edited, which republishes only the tournament section", () => {
+    const withHomepage = (publicHomepage: string): SourceRecord => ({
+      ...tournament,
+      preferences: { ...(tournament.preferences as object), publicHomepage },
+    });
+    const before = buildPublicViewSections(withHomepage("# Welcome"), source());
+    const after = buildPublicViewSections(withHomepage("# Welcome\n\nhttps://youtu.be/dQw4w9WgXcQ"), source());
+    expect(fingerprintPublicSource(withHomepage("# Welcome"), source())).not.toBe(fingerprintPublicSource(tournament, source()));
+    const root = (sections: PublicViewSections) => buildPublicViewRoot({ tournamentId: "t1", slug: "test-open", sections, publishedAt: "now" }).root;
+    expect(changedSections(root(before), root(after))).toEqual(["tournament"]);
   });
 
   it("do not depend on key order", () => {

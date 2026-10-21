@@ -383,6 +383,9 @@ async function build() {
     if (fs.existsSync(from)) fs.copyFileSync(from, path.join(DIST_DIR, "assets", icon));
   }
   fs.writeFileSync(path.join(DIST_DIR, ".nojekyll"), "");
+  // The repository is connected to Vercel, which would otherwise try (and fail) to build the
+  // gh-pages branch as the Next.js app. This file only lives on gh-pages.
+  fs.writeFileSync(path.join(DIST_DIR, "vercel.json"), JSON.stringify({ git: { deploymentEnabled: false } }, null, 2) + "\n");
 
   const { order, notInSidebar } = sidebarOrder(sidebar, pageNames, resolver);
   let sidebarHtml = sidebar ? renderer.render(sidebar, "_Sidebar").html : "";

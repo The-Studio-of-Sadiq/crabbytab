@@ -39,3 +39,8 @@ export function publicSiteLinks(input: {
 export function registrationLinkable(state: unknown): boolean {
   return state === "open" || state === "not_open";
 }
+
+/** Registration taking entries right now: the public Home tab's "Register" button. */
+export function registrationOpen(state: unknown): boolean {
+  return state === "open";
+}

@@ -290,7 +290,8 @@ Below these are tools (not settings) to generate missing code names (emoji or sp
 | Setting | Key | Default | Effect |
 | --- | --- | --- | --- |
 | Search engines | `searchEngineIndexing` | Allow every public page to be indexed (`all`) | Or only the public tab homepage (`homepage-only`), or no pages (`none`). Adds a `noindex` flag; search engines may ignore it, so it is not a privacy control. See [Caching, indexing and performance](Caching-Indexing-and-Performance). |
-| Welcome message | `welcomeMessage` | Empty | Plain text at the top of the public tab. |
+| Welcome message | `welcomeMessage` | Empty | Plain text on the public Home tab, shown while the public homepage is empty. |
+| Public homepage | `publicHomepage` | Empty | Markdown for the public page's Home tab (at most 20,000 characters), with maths and YouTube embeds; HTML is removed. |
 | Tournament staff | `tournamentStaff` | Empty | Plain-text credits for convenors, adjudication core and tab team. |
 
 ## Not shown in the configuration pages

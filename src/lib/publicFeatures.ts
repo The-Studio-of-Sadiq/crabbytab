@@ -47,6 +47,8 @@ export interface PublicSiteSettings {
   searchEngineIndexing: SearchEngineIndexing;
   welcomeMessage: string;
   tournamentStaff: string;
+  /** The public homepage Markdown (`publicHomepage`), "" when unset. */
+  homepage: string;
   motionsOrder: PublicMotionsOrder;
   /** The public motions page (`publicMotions`, absent = on). */
   motionsPage: boolean;
@@ -74,6 +76,8 @@ const MOTIONS_ORDERS: readonly PublicMotionsOrder[] = ["forward", "reverse"];
 
 /** Longest welcome message / staff credit kept (plain text). */
 export const PUBLIC_TEXT_MAX_LENGTH = 5000;
+/** Longest public homepage (Markdown) kept; the preference is validated to the same length. */
+export const PUBLIC_HOMEPAGE_MAX_LENGTH = 20_000;
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
@@ -84,8 +88,8 @@ function limit(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
-function text(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, PUBLIC_TEXT_MAX_LENGTH) : "";
+function text(value: unknown, maxLength = PUBLIC_TEXT_MAX_LENGTH): string {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
 export function getPublicSiteSettings(preferences?: Partial<TournamentPreferences> | null): PublicSiteSettings {
@@ -124,6 +128,7 @@ export function getPublicSiteSettings(preferences?: Partial<TournamentPreference
     searchEngineIndexing: oneOf(prefs.searchEngineIndexing, INDEXING_MODES, "all"),
     welcomeMessage: text(prefs.welcomeMessage),
     tournamentStaff: text(prefs.tournamentStaff),
+    homepage: text(prefs.publicHomepage, PUBLIC_HOMEPAGE_MAX_LENGTH),
     motionsOrder: oneOf(prefs.publicMotionsOrder, MOTIONS_ORDERS, "forward"),
     motionsPage: prefs.publicMotions !== false,
     motionTab: typeof prefs.motionTabReleased === "boolean" ? prefs.motionTabReleased : prefs.publicMotions !== false,

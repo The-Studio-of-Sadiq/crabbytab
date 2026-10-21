@@ -5,7 +5,8 @@
  * bootstrap scripts, so script-src needs 'unsafe-inline' until nonces are
  * wired through middleware; the dev server additionally needs 'unsafe-eval'
  * and a websocket for HMR. Firebase Auth and Firestore talk to
- * *.googleapis.com (https + wss) and may frame the auth domain.
+ * *.googleapis.com (https + wss) and may frame the auth domain. Organiser images on the public
+ * homepage are any https URL (img-src https:); its videos are youtube-nocookie.com embeds.
  *
  * @param {{ dev?: boolean; authDomain?: string }} [options]
  * @returns {string}
@@ -32,6 +33,8 @@ export function buildContentSecurityPolicy({ dev = false, authDomain } = {}) {
       "https://*.firebaseapp.com",
       "https://*.web.app",
       ...(authOrigin ? [authOrigin] : []),
+      // YouTube embeds on the public homepage (privacy-enhanced host only; see lib/markdown).
+      "https://www.youtube-nocookie.com",
     ],
     "frame-ancestors": ["'self'"],
     "object-src": ["'none'"],

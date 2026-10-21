@@ -3,6 +3,7 @@ import { isPolyFormat, validatePolyTeamsInDebate } from "@/lib/debateSides";
 import { isFeedbackPathConfig } from "@/lib/feedback/paths";
 import { FEEDBACK_QUESTION_TYPES, validateFeedbackQuestions } from "@/lib/feedback/questions";
 import { isLocale } from "@/lib/i18n/config";
+import { PUBLIC_HOMEPAGE_MAX_LENGTH } from "@/lib/publicFeatures";
 import { validateScheduleEvents } from "@/lib/schedule/events";
 import { SIDE_NAME_OPTIONS } from "@/lib/sideNames";
 import { validateSpeakerCategories } from "@/lib/speakerCategories";
@@ -404,6 +405,7 @@ export const PREFERENCE_RULES = {
   searchEngineIndexing: oneOf(["all", "homepage-only", "none"]),
   welcomeMessage: LONG_TEXT,
   tournamentStaff: LONG_TEXT,
+  publicHomepage: text(PUBLIC_HOMEPAGE_MAX_LENGTH),
   publicMotionsOrder: oneOf(["forward", "reverse"]),
   motionTabReleased: BOOLEAN,
   showMotionsInResults: BOOLEAN,

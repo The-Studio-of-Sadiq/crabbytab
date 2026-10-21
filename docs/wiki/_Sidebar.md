@@ -17,6 +17,7 @@
 - [Standings](Standings-and-Metrics)
 - [Breaks & eliminations](Breaks-and-Eliminations)
 - [Public pages](Public-Pages-and-Releases)
+- [Public homepage](Public-Homepage)
 - [Private URLs](Private-URLs-and-Portals)
 - [Email](Email-and-Notifications)
 - [Staff & roles](Staff-and-Roles)

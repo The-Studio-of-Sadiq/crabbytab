@@ -17,6 +17,7 @@ CrabbyTab is **local-first**. The tab room's working copy lives in the browser (
 | Try it locally | [Installation and local development](Installation-and-Local-Development) |
 | Host it for a tournament | [Deploying to Vercel and Firebase](Deploying-to-Vercel-and-Firebase) |
 | Run my first tournament | [First tournament walkthrough](First-Tournament-Walkthrough) |
+| Build the tournament's public homepage (no separate website needed) | [Public homepage](Public-Homepage) |
 | Look up a setting | [Settings reference](Settings-Reference) |
 | Import teams and adjudicators | [Participants and imports](Participants-and-Imports) · [CSV formats](CSV-Formats) |
 | Understand the draw | [Rounds and draws](Rounds-and-Draws) |
@@ -39,6 +40,7 @@ CrabbyTab is **local-first**. The tab room's working copy lives in the browser (
 - [Standings and metrics](Standings-and-Metrics)
 - [Breaks and eliminations](Breaks-and-Eliminations)
 - [Public pages and releases](Public-Pages-and-Releases)
+- [Public homepage (Home tab)](Public-Homepage)
 - [Private URLs and portals](Private-URLs-and-Portals)
 - [Email and notifications](Email-and-Notifications)
 - [Staff and roles](Staff-and-Roles)

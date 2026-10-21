@@ -37,6 +37,9 @@ describe("preference validation", () => {
       "category 1: colour is not a known field",
     ]);
     expect(preferenceValueProblems("madeUp", 1, context)).toEqual(["is not a known preference"]);
+    expect(preferenceValueProblems("publicHomepage", "# Welcome\n\n$x^2$", context)).toEqual([]);
+    expect(preferenceValueProblems("publicHomepage", "x".repeat(20_001), context)).toEqual(["must be at most 20000 characters"]);
+    expect(preferenceValueProblems("publicHomepage", 5, context)).toEqual(["must be text"]);
   });
 
   it("checks only what changes, so older saved values still save", () => {

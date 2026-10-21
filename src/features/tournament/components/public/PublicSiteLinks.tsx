@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import Link from "next/link";
 import { CalendarDays, CalendarPlus, ClipboardList, History, UserCheck } from "lucide-react";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { buttonClasses } from "@/components/ui/Button";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { publicSiteLinks, registrationLinkable, type PublicSiteLinkKey } from "@/lib/publicView/siteLinks";
+import type { PublicSiteStatus } from "./usePublicSiteStatus";
 
 const LABELS: Record<PublicSiteLinkKey, MessageKey> = {
   schedule: "publicSiteLinks.schedule",
@@ -26,34 +27,23 @@ const ICONS: Record<PublicSiteLinkKey, React.ReactNode> = {
 
 /**
  * Links to the public pages outside the index's tabs (schedule, calendar feed, check-in status,
- * audit log, registration). Whether the audit log is released and registration is open is asked
- * from the edge-cached public routes; a failed check just leaves that link out.
+ * audit log, registration). Whether the audit log is released and registration is open comes from
+ * usePublicSiteStatus, which the page calls once.
  */
-export function PublicSiteLinks({ slug, schedule, checkins }: { slug: string; schedule: boolean; checkins: boolean }) {
+export function PublicSiteLinks({
+  slug,
+  schedule,
+  checkins,
+  status,
+}: {
+  slug: string;
+  schedule: boolean;
+  checkins: boolean;
+  status: PublicSiteStatus;
+}) {
   const { t } = useI18n();
-  const [auditReleased, setAuditReleased] = useState(false);
-  const [registration, setRegistration] = useState(false);
-
-  useEffect(() => {
-    if (!slug) return;
-    let active = true;
-    const encoded = encodeURIComponent(slug);
-    fetch(`/api/public/tournaments/${encoded}/audit?status=public`)
-      .then((response) => {
-        if (active) setAuditReleased(response.ok);
-      })
-      .catch((error: unknown) => console.warn("Could not check the public audit log:", error));
-    fetch(`/api/public/tournaments/${encoded}/registration`)
-      .then(async (response) => {
-        if (!response.ok) return;
-        const result = (await response.json()) as { form?: { state?: unknown } };
-        if (active) setRegistration(registrationLinkable(result.form?.state));
-      })
-      .catch((error: unknown) => console.warn("Could not check the registration form:", error));
-    return () => {
-      active = false;
-    };
-  }, [slug]);
+  const auditReleased = status.auditReleased;
+  const registration = registrationLinkable(status.registrationState);
 
   const links = publicSiteLinks({ slug, schedule, checkins, auditReleased, registration });
   if (links.length === 0) return null;

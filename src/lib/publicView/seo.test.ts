@@ -38,6 +38,17 @@ describe("buildPublicSeoSummary", () => {
     });
   });
 
+  it("describes the page with the public homepage's first paragraph, as plain text", () => {
+    const preferences = {
+      welcomeMessage: "Welcome!",
+      publicHomepage: "# The Winter Open\n\n![Logo](https://example.org/logo.png)\n\nThe **Winter Open** is a [BP](https://example.org/bp) tournament.\n\nMore later.",
+    };
+    expect(buildPublicSeoSummary({ name: "Winter Open", preferences }).description).toBe("The Winter Open is a BP tournament.");
+    // A homepage without prose falls back to the welcome message.
+    expect(buildPublicSeoSummary({ name: "Winter Open", preferences: { ...preferences, publicHomepage: "## Schedule" } }).description)
+      .toBe("Welcome!");
+  });
+
   it("defaults to indexable with a generated description", () => {
     const seo = buildPublicSeoSummary({ name: "Cup" });
     expect(seo.indexing).toBe("all");
@@ -63,6 +74,12 @@ describe("buildPublicSeoSummary", () => {
     );
     const { root } = buildPublicViewRoot({ tournamentId: "t1", slug: "open", sections, publishedAt: "now" });
     expect(root.seo).toMatchObject({ name: "Open", indexing: "none" });
+    const withHomepage = buildPublicViewSections(
+      { id: "t1", name: "Open", slug: "open", format: "BP", preferences: { publicHomepage: "## Hello\n\nThe *Open* returns." } },
+      { rounds: [], teams: [], adjudicators: [], venues: [], motions: [], breakCategories: [], debates: [], ballots: [], institutions: [] } as never
+    );
+    expect(buildPublicViewRoot({ tournamentId: "t1", slug: "open", sections: withHomepage, publishedAt: "now" }).root.seo?.description)
+      .toBe("The Open returns.");
   });
 });
 

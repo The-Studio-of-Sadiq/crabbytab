@@ -46,12 +46,16 @@ describe("getPublicSiteSettings", () => {
       speakerTabLimit: 2.7,
       publicBreakMetrics: -5,
       welcomeMessage: `  ${"x".repeat(6000)}`,
+      publicHomepage: `  ${"y".repeat(25_000)}`,
     });
     expect(settings.drawMode).toBe("all");
     expect(settings.teamTabLimit).toBe(0);
     expect(settings.speakerTabLimit).toBe(2);
     expect(settings.breakMetrics).toBe(-1);
     expect(settings.welcomeMessage).toHaveLength(5000);
+    expect(settings.homepage).toHaveLength(20_000);
+    expect(getPublicSiteSettings(undefined).homepage).toBe("");
+    expect(getPublicSiteSettings({ publicHomepage: 7 as never }).homepage).toBe("");
   });
 
   it("releases the motion tab with the motions page unless set on its own", () => {

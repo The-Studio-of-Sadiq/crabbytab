@@ -65,7 +65,7 @@ export const KNOWN_PREFERENCE_KEYS: readonly string[] = [
   "publicBreakMetrics", "publicBreakCategories", "publicSideAllocations", "publicBracket", "publicDiversity",
   "publicVetoStatistics", "publicFeedbackProgress", "showTeamInstitutions", "showAdjudicatorInstitutions", "showUnaccredited",
   "teamCodeNames", "participantCodeNames", "showEmoji", "showSpeakersInDraw", "showSplittingAdjudicators",
-  "searchEngineIndexing", "welcomeMessage", "tournamentStaff", "publicMotionsOrder", "showMotionsInResults",
+  "searchEngineIndexing", "welcomeMessage", "tournamentStaff", "publicHomepage", "publicMotionsOrder", "showMotionsInResults",
   "publicBallotForm", "publicFeedbackForm", "publicFormsUsePassword", "venueCategories",
   "venueCheckInExpiresAfterHours", "preliminaryPanels", "preparationTime", "publicSchedule",
   "enableMotionPreferences", "teamNameDisplay",

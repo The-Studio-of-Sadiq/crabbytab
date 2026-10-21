@@ -19,6 +19,7 @@ reload only rounds whose hash changed.
 
 | Tab | Shown when | Data |
 | --- | --- | --- |
+| Home | always (first tab; the page opens on it) | the public homepage, else the welcome message; staff credits; a Register button while registration is open (see "Public homepage" below) |
 | Draw, Results, Standings | existing per-round releases | unchanged |
 | Team / Speaker / Replies tab | `releaseTeamTab` / `releaseSpeakerTab` / `releaseRepliesTab` | completed preliminary rounds' confirmed ballots |
 | Motions | `publicMotions` and the motion is released | text, info slide; per-motion side results from released ballots only |
@@ -27,7 +28,11 @@ reload only rounds whose hash changed.
 | Institutions | `publicInstitutionsList` | name, code, region; team/adjudicator counts only if participants are public too. The projection publishes no institution list at all until this is released (before, every institution's name, code and region was always in the published view). |
 | Adjudication core / Breaking adjudicators | `publicAdjudicatorCore` / `publicBreakingAdjudicators` | adjudicators flagged `adjCore` / `breaking` |
 
-Below the welcome message the public page links the public pages outside its tabs, each only while
+A `?tab=` query opens another tab (`/open/public?tab=draw`; names as in `PUBLIC_TABS` in the page);
+switching tab updates it in place (`history.replaceState`), so the address of a tab can be shared. A
+requested tab that is not (yet) public shows Home until it is.
+
+Above the tabs the public page links the public pages outside its tabs, each only while
 it is switched on (`publicSiteLinks` in `src/lib/publicView/siteLinks.ts`): the schedule and its
 calendar feed (`publicSchedule`), the check-in status (`publicCheckInStatus`), the audit log (once
 released; asked from `/api/public/tournaments/[slug]/audit?status=public`, edge-cached) and the
@@ -68,8 +73,54 @@ them with their defaults.
 | Anonymous people (`Person.anonymous`) | `Speaker.anonymous`, `Adjudicator.anonymous` (participant directory) | Name published as empty with `anonymous: true`; pages show "Redacted". In tab rows an anonymous speaker also loses their team and gets an opaque id. |
 | Emoji / speakers in draw / splitting adjudicators | `showEmoji`, `showSpeakersInDraw` (default on), `showSplittingAdjudicators` | Emoji are removed when off; splits are published as `splitAdjudicatorIds` on ballots whose panel is public. |
 | Search engines (`search_engine_indexing`) | `searchEngineIndexing`: all / homepage-only / none | `noindex, nofollow` metadata on public pages (the public tab is the homepage), from the cached projection, including the public schedule, check-in and audit pages and the registration form; the sitemap follows the same setting. See "Search engines and link previews" below. The cross-tournament motion statistics (`/tournaments/motions/public`) are `noindex` whenever any tournament pooled there has indexing other than "all". |
-| Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, at the top of the public tab. |
+| Welcome message, staff (`welcome_message`, `tournament_staff`) | `welcomeMessage`, `tournamentStaff` | Plain text (no HTML), at most 5000 characters, on the Home tab. The welcome message is shown only while the public homepage is empty. |
+| Public homepage (CrabbyTab only) | `publicHomepage` | Markdown, at most 20,000 characters, on the Home tab. See "Public homepage" below. |
 | Motions order (`public_motions_order`) | `publicMotionsOrder`: forward / reverse | By the motions' earliest round; CrabbyTab's default stays forward (Tabbycat: reverse). |
+
+### Public homepage
+
+Organisers can write the tournament's homepage in **Settings → Public Visibility → Public
+homepage** instead of running a separate event site. It is the `publicHomepage` preference
+(validated to 20,000 characters in `src/lib/setup/preferenceValidation.ts`, carried by settings
+export / import), published like every other setting with the tournament section of the public
+projection (no live Firestore read) and shown on the public page's Home tab. Organiser content is
+not translated. While it is empty the Home tab shows the welcome message (plain text, as before), so
+existing tournaments need no migration. While public registration is open the Home tab also shows a
+**Register** button to `/register/{slug}` (`registrationOpen` in `src/lib/publicView/siteLinks.ts`,
+from the same edge-cached registration check as the site links). The page description and link
+previews use the homepage's first prose paragraph as plain text (`firstParagraphText` in
+`src/lib/markdown/plainText.ts`), else the welcome message.
+
+Supported syntax (`src/components/markdown/MarkdownRenderer.tsx`; the editor shows a live preview
+rendered by the same component and a short syntax help):
+
+- **GitHub-flavoured Markdown** (react-markdown + remark-gfm): headings, bold / italic /
+  strikethrough, lists and task lists, tables, block quotes, code, horizontal rules, autolinks.
+  Headings are shifted down a level (`#` becomes `h2`) because the tournament name is the page's
+  only `h1`.
+- **Links**: `http:`, `https:`, `mailto:` and paths on this site (`/open/schedule/public`, `#id`);
+  every link gets `rel="noopener noreferrer nofollow"`, external ones open in a new tab. Any other
+  URL (`javascript:`, `data:`, `vbscript:`, `//other-host`, …) is dropped and its text kept.
+- **Images**: `![description](https://…)`, https only; lazy-loaded, responsive, the description is
+  the alt text. Other URLs (http, `data:`) are not rendered.
+- **Maths** (remark-math + rehype-katex): `$…$` inline and `$$…$$` as a block. KaTeX runs with
+  `trust: false` (no `\href`, `\url`, `\includegraphics`, `\html…`), `strict: "ignore"`,
+  `maxSize: 10`, `maxExpand: 200`, and shows errors in place. A literal dollar sign is written `\$`.
+- **YouTube**: a YouTube link alone on its own line (youtube.com/watch, youtu.be, /shorts/, /embed/,
+  /live/; `t=` / `start=` become the start time), or the shortcode `@[youtube](URL or video id)`,
+  becomes a responsive `https://www.youtube-nocookie.com/embed/{id}` player with a title. A link
+  with its own text (`[Trailer](https://youtu.be/…)`) stays a link.
+
+Security: raw HTML is never passed through (`skipHtml`); every URL attribute goes through
+`safeMarkdownUrl` (`src/lib/markdown/safeUrls.ts`); a final rehype step removes event-handler
+attributes and any iframe that is not a youtube-nocookie embed built by the renderer, and the
+iframe itself is sandboxed. The Content-Security-Policy (`securityHeaders.mjs`) allows framing
+`https://www.youtube-nocookie.com` only; `img-src https:` was already allowed. Tests:
+`src/components/markdown/MarkdownRenderer.test.tsx`, `src/lib/markdown/markdown.test.ts`.
+
+The renderer, KaTeX and their stylesheets (`markdown.css`, `katex.min.css`) form a separate chunk
+loaded through `LazyMarkdown` (`next/dynamic`) only when a homepage is shown or previewed, so other
+pages and tabs do not load them.
 
 **Code-name and emoji generators.** Settings → Public Visibility can fill in missing team emoji and
 code names (emoji names or speakers' last names, Tabbycat's `code_name_generator`); existing values
@@ -109,8 +160,8 @@ views published before them read as having none until the next publish (view for
   when Firestore fails the sitemap lists only the home page. Record pages, the audit log and the
   registration form are not listed (they stay crawlable through links).
 - **Link previews** (`buildPublicPageMetadata` in `src/lib/publicView/seo.ts`): public pages get a
-  title (`{page} · {tournament} | CrabbyTab`), a description (the welcome message, shortened to 160
-  characters, else a generated sentence), a canonical URL, and Open Graph / Twitter cards with the
+  title (`{page} · {tournament} | CrabbyTab`), a description (the public homepage's first paragraph
+  as plain text, else the welcome message, shortened to 160 characters, else a generated sentence), a canonical URL, and Open Graph / Twitter cards with the
   site image, all from the cached projection with no extra Firestore read. Previews are produced
   whatever the indexing setting. An unknown tournament is `noindex`; any other read failure keeps the
   page indexable. The root layout carries the site-wide default description and cards; absolute URLs

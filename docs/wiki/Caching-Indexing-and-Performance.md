@@ -54,8 +54,8 @@ Gotchas:
 - The cross-tournament motion statistics page (`/tournaments/motions/public`) is `noindex` whenever any
   tournament pooled there has a setting other than "all".
 - Link previews (title, description, image when a link is pasted into chat apps) are produced whatever
-  the setting. The description is your welcome message, shortened to 160 characters, or a generated
-  sentence.
+  the setting. The description is the first paragraph of your public homepage (as plain text), else
+  your welcome message, shortened to 160 characters, or a generated sentence.
 - The tab room, projector, private URLs, sign-in, invitation and account pages are always `noindex`.
 
 ## Details
