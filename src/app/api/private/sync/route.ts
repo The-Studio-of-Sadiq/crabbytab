@@ -18,7 +18,7 @@ import {
 } from "@/lib/privateTeamRateLimit";
 import { passcodesMatch } from "@/lib/passcode";
 import { findTeamsByPrivateKey, matchPrivateTeamCredential } from "@/lib/privateSpeakerAccess";
-import { buildPrivateBallot, privateUrlBallotsEnabled } from "@/lib/privateBallot";
+import { buildPrivateBallot, MAX_SUBMISSION_ID_LENGTH, privateUrlBallotsEnabled } from "@/lib/privateBallot";
 import {
   filterParticipantVisibleDebates,
   isDrawVisibleToAdjudicators,
@@ -31,6 +31,7 @@ import {
   renamePortalTeam,
 } from "@/lib/privatePortalBallots";
 import { selectAssignedDebates, supersededBallotUpdate } from "@/lib/privateSync";
+import { PRIVATE_SYNC_NOT_ASSIGNED, type PrivateSyncRejection } from "@/lib/privateSyncQueue";
 import {
   checkParticipantFeedback,
   planParticipantBallotWrites,
@@ -86,6 +87,11 @@ function portalBallotMotions(motions: Motion[], roundIds: ReadonlySet<string>, t
 
 function validDocumentId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 128 && !value.includes("/");
+}
+
+/** A submitted ballot or feedback id (see MAX_SUBMISSION_ID_LENGTH). */
+function validSubmissionId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_SUBMISSION_ID_LENGTH && !value.includes("/");
 }
 
 export async function POST(request: NextRequest) {
@@ -233,6 +239,10 @@ export async function POST(request: NextRequest) {
     let uploadedCount = 0;
     const ballotSubmissions: BallotSubmission[] = [];
     const feedbackSubmissions: FeedbackSubmission[] = [];
+    // A saved item the server cannot accept is reported back and skipped, never blocking this
+    // participant's other items or the portal itself (a device can hold items saved for another
+    // private link, or for a debate since removed from a regenerated draw).
+    const rejected: PrivateSyncRejection[] = [];
     for (const item of pending as unknown[]) {
       if (!isRecord(item) || !isRecord(item.record)) {
         return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
@@ -240,24 +250,27 @@ export async function POST(request: NextRequest) {
       const collectionName = item.collection;
       const record = item.record;
       const debateId = record.debateId;
-      if (
-        (collectionName !== "ballots" && collectionName !== "feedback") ||
-        !validDocumentId(record.id) ||
-        typeof debateId !== "string" ||
-        !assignedDebates.has(debateId)
-      ) {
-        return NextResponse.json({ error: "An offline submission is not valid for this adjudicator." }, { status: 403 });
+      if ((collectionName !== "ballots" && collectionName !== "feedback") || !validSubmissionId(record.id)) {
+        return NextResponse.json({ error: "An offline submission is invalid." }, { status: 400 });
+      }
+      const recordId = record.id;
+      if (typeof debateId !== "string" || !assignedDebates.has(debateId)) {
+        rejected.push({ id: recordId, collection: collectionName, reason: PRIVATE_SYNC_NOT_ASSIGNED });
+        continue;
       }
 
       if (collectionName === "ballots") {
         if (actorType !== "adjudicator") {
-          return NextResponse.json({ error: "Teams cannot submit ballots." }, { status: 403 });
+          rejected.push({ id: recordId, collection: collectionName, reason: "Teams cannot submit ballots." });
+          continue;
         }
         if (!privateUrlBallotsEnabled(tournament)) {
-          return NextResponse.json(
-            { error: "Ballot submission through private URLs is turned off for this tournament. Give your ballot to the tab room." },
-            { status: 403 }
-          );
+          rejected.push({
+            id: recordId,
+            collection: collectionName,
+            reason: "Ballot submission through private URLs is turned off for this tournament. Give your ballot to the tab room.",
+          });
+          continue;
         }
         const debate = assignedDebates.get(debateId)!;
         const canVote =
@@ -265,7 +278,8 @@ export async function POST(request: NextRequest) {
           (debate.adjudicators?.chairId === actorDocument.id ||
             debate.adjudicators?.panellistIds?.includes(actorDocument.id));
         if (!canVote) {
-          return NextResponse.json({ error: "Only the chair or a voting panellist may submit a ballot." }, { status: 403 });
+          rejected.push({ id: recordId, collection: collectionName, reason: "Only the chair or a voting panellist may submit a ballot." });
+          continue;
         }
         let ballot: BallotSubmission;
         try {
@@ -280,10 +294,12 @@ export async function POST(request: NextRequest) {
             roundMotions: participantRoundMotions(portalMotions, debate.roundId),
           });
         } catch (error) {
-          return NextResponse.json(
-            { error: error instanceof Error ? error.message : "The ballot is invalid." },
-            { status: 400 }
-          );
+          rejected.push({
+            id: recordId,
+            collection: collectionName,
+            reason: error instanceof Error ? error.message : "The ballot is invalid.",
+          });
+          continue;
         }
         ballotSubmissions.push(applyPrivateBallotConfirmation(ballot, tournament, roundById.get(debate.roundId)));
       } else {
@@ -295,10 +311,13 @@ export async function POST(request: NextRequest) {
           debate,
           round: roundById.get(debate.roundId),
           teams,
-          id: record.id as string,
+          id: recordId,
           timestamp: new Date().toISOString(),
         });
-        if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+        if (!checked.ok) {
+          rejected.push({ id: recordId, collection: collectionName, reason: checked.error });
+          continue;
+        }
         const feedback = checked.feedback;
         const feedbackRef = tournamentRef.collection("feedback").doc(feedback.id);
         const existingFeedback = await feedbackRef.get();
@@ -306,10 +325,8 @@ export async function POST(request: NextRequest) {
           existingFeedback.exists &&
           existingFeedback.data()?.sourceId !== actorDocument.id
         ) {
-          return NextResponse.json(
-            { error: "The feedback identifier is already in use." },
-            { status: 403 }
-          );
+          rejected.push({ id: recordId, collection: collectionName, reason: "The feedback identifier is already in use." });
+          continue;
         }
         batch.set(feedbackRef, feedback);
         feedbackSubmissions.push(feedback);
@@ -564,6 +581,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       uploadedCount,
+      rejected,
       selfCheckIn: selfCheckInStatus(tournament.preferences, [...roundById.values()], actorAvailability),
       ballots: ballots.map((ballot) => renamePortalBallot(ballot, portalNamer)),
       feedback,

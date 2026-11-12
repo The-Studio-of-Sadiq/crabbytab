@@ -6,6 +6,7 @@ import Link from "next/link";
 import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
+import { PrivateSyncRejectionsNotice } from "@/features/tournament/components/PrivateSyncRejectionsNotice";
 import {
   FileCheck2,
   MessageSquareHeart,
@@ -657,6 +658,8 @@ export default function AdjudicatorPrivatePortalPage() {
       />
 
       <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
+
+      <PrivateSyncRejectionsNotice privateKey={privateKey} />
 
       {privateSyncMessage && (
         <Alert tone={privateSyncState === "error" ? "warning" : "info"} role={privateSyncState === "error" ? "alert" : "status"}>
