@@ -84,6 +84,16 @@ everyone.
 Private URLs read the cloud copy, so new or regenerated links work only after you upload. **Regenerate all private
 keys** stops every link already handed out. See [Private URLs and portals](Private-URLs-and-Portals).
 
+**A private link shows "Saved submissions not accepted".**
+Ballots and feedback are saved on the participant's device first, in a queue kept separately for each private link,
+and uploaded with the next sync. The server skips any saved item it cannot accept and lists it with the reason. The
+usual reasons: the debate is no longer this link's in a fully released draw (the draw was regenerated, the panel
+changed, or the draw is only released to teams), or private-URL ballots are turned off. The rest of the sync still
+goes ahead. Refused items stay on the device until the participant taps **Discard**, so give anything that still
+counts to the tab room first. (Before this, one refused item stopped the whole link with "An offline submission is
+not valid for this adjudicator", and adjudicators added in the app could not submit ballots at all, because the
+ballot's id was longer than the server allowed.)
+
 **A private link says too many requests.**
 Links are rate-limited (per link, and failed passcodes per network). Wait for the retry time shown. A whole venue on
 one network typing wrong passcodes can trigger the network limit.

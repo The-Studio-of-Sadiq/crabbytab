@@ -38,6 +38,14 @@ import {
  * own scoresheet, so it is entered and checked like a consensus ballot whatever the round's
  * ballot mode; voting rounds merge the sheets in the tab room.
  */
+/**
+ * Longest ballot or feedback id a participant may submit. A portal ballot id names its debate and
+ * adjudicator (`ballot-<debate id>-adj-<adjudicator id>-<uuid>`), and debate ids carry the
+ * tournament slug, so 128 characters was too short for app-created adjudicators (`adj-<uuid>`).
+ * Firestore allows document ids up to 1,500 bytes.
+ */
+export const MAX_SUBMISSION_ID_LENGTH = 512;
+
 export function privateBallotRules(
   tournament: Pick<Tournament, "format" | "preferences">,
   round: (Pick<Round, "stage"> & Partial<Pick<Round, "seq">>) | undefined,
@@ -140,7 +148,7 @@ export function buildPrivateBallot(
   if (
     typeof id !== "string" ||
     !id.startsWith(`ballot-${debate.id}-adj-${adjudicatorId}-`) ||
-    id.length > 128 ||
+    id.length > MAX_SUBMISSION_ID_LENGTH ||
     id.includes("/")
   ) {
     throw new Error("The ballot identifier is invalid.");
