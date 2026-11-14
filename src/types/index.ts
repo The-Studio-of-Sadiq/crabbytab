@@ -1209,12 +1209,22 @@ export interface BallotSubmission {
   selfSplit?: boolean;
 }
 
+export interface InfoSlideMedia {
+  kind: "image" | "video";
+  /** https image link; for video, a YouTube link or an https link to a video file. */
+  url: string;
+  /** Alt text for an image, or a title for a video. */
+  alt?: string;
+}
+
 export interface Motion {
   id: string;
   tournamentId: string;
   text: string;
   reference?: string; // e.g. "Round 1: Education"
   infoSlide?: string;
+  /** A picture or video on the info slide, linked from elsewhere (see lib/motionMedia.ts). */
+  infoSlideMedia?: InfoSlideMedia;
   rounds: string[]; // IDs of rounds this motion is allocated to
   seq?: number;
   /** Order within each assigned round (Tabbycat RoundMotion.seq), keyed by round id; absent -> seq. */

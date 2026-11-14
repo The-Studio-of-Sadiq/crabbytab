@@ -28,6 +28,11 @@ describe("security headers", () => {
     expect(policy.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
   });
 
+  it("plays media only from this site or https hosts", () => {
+    const policy = directives(buildContentSecurityPolicy());
+    expect(policy.get("media-src")).toEqual(["'self'", "https:"]);
+  });
+
   it("only relaxes eval and websockets for the dev server", () => {
     const policy = directives(buildContentSecurityPolicy({ dev: true }));
     expect(policy.get("script-src")).toContain("'unsafe-eval'");

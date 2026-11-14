@@ -164,6 +164,17 @@ import {
   sanitizeAssistantAdjudicator,
   sanitizeAssistantTeam,
 } from "@/lib/tournamentAccess";
+import {
+  enqueuePrivateSyncItem,
+  parsePrivateSyncQueue,
+  parsePrivateSyncRejections,
+  privateSyncItemsToSend,
+  privateSyncQueueName,
+  remainingAfterPrivateSync,
+  withoutPrivateSyncItems,
+  type PrivateSyncItem,
+  type PrivateSyncRejection,
+} from "@/lib/privateSyncQueue";
 
 export interface TournamentContextType {
   tournament: Tournament | null;
@@ -252,6 +263,10 @@ export interface TournamentContextType {
     passcode: string,
     options?: { checkIn?: SelfCheckInRequest }
   ) => Promise<void>;
+  /** This private link's saved submissions the server refused at the last sync (kept until discarded). */
+  privateSyncRejections: PrivateSyncRejection[];
+  /** Deletes refused submissions from this device's queue for the private link. */
+  discardPrivateSyncItems: (privateUrlKey: string, items: ReadonlyArray<Pick<PrivateSyncRejection, "id" | "collection">>) => void;
   /** The private portal participant's check-in status for the current round, from the last sync. */
   privateSelfCheckIn: SelfCheckInStatus | null;
   loadPrivateTeamPortal: (privateUrlKey: string, passcode: string) => Promise<void>;
@@ -403,6 +418,7 @@ export function TournamentProvider({
   const [cloudSyncMessage, setCloudSyncMessage] = useState("");
   const [privateSyncState, setPrivateSyncState] = useState<"idle" | "syncing" | "error">("idle");
   const [privateSyncMessage, setPrivateSyncMessage] = useState("");
+  const [privateSyncRejections, setPrivateSyncRejections] = useState<PrivateSyncRejection[]>([]);
   const [localSaveError, setLocalSaveError] = useState("");
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
   /** `uid|tournamentId` whose role `cloudStaffRole` holds (see the access check below). */
@@ -421,10 +437,12 @@ export function TournamentProvider({
   }>({ baseline: {}, deletions: {}, overwrites: {} });
 
   const storagePrefix = `crabbytab_t_${tournamentSlug}`;
-  const privateQueueKey = `${storagePrefix}_privateSyncQueue`;
-  type PrivateSyncItem =
-    | { collection: "ballots"; record: BallotSubmission }
-    | { collection: "feedback"; record: FeedbackSubmission };
+  /** The private link this device last synced; a submission made without one is queued under it. */
+  const activePrivateUrlKeyRef = useRef<string | undefined>(undefined);
+  const readPrivateQueue = (privateUrlKey?: string): PrivateSyncItem[] =>
+    typeof window === "undefined"
+      ? []
+      : parsePrivateSyncQueue(safeJsonParse<unknown>(getLocalStore().getItem(`${storagePrefix}_${privateSyncQueueName(privateUrlKey)}`), []));
 
   // Helper to persist state to local storage
   const persistLocal = useCallback(
@@ -1250,11 +1268,12 @@ export function TournamentProvider({
     };
   }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, isPrivatePortal, user, authLoading, applyPublicProjection]);
 
-  const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (
-    privateUrlKey,
-    passcode,
-    options
-  ) => {
+  /** Syncs a private portal; resolves with the saved items the server refused (see privateSyncQueue). */
+  const runPrivatePortalSync = async (
+    privateUrlKey: string,
+    passcode: string,
+    options?: { checkIn?: SelfCheckInRequest }
+  ): Promise<PrivateSyncRejection[]> => {
     if (!tournament || !db) {
       throw new Error("Cloud sync is unavailable for this tournament.");
     }
@@ -1265,10 +1284,12 @@ export function TournamentProvider({
     setPrivateSyncState("syncing");
     setPrivateSyncMessage("Syncing submissions and downloading saved ballots and feedback…");
     try {
-      const pending = safeJsonParse<PrivateSyncItem[]>(
-        typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
-        []
-      );
+      activePrivateUrlKeyRef.current = privateUrlKey;
+      const ownQueue = readPrivateQueue(privateUrlKey);
+      // Items saved before queues were kept per link go along too: the server accepts the ones that
+      // are this participant's and skips the rest, which stay saved for the link they belong to.
+      const legacyQueue = readPrivateQueue();
+      const pending = privateSyncItemsToSend(ownQueue, legacyQueue);
       const response = await fetch("/api/private/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1286,6 +1307,7 @@ export function TournamentProvider({
         ballots?: BallotSubmission[];
         feedback?: FeedbackSubmission[];
         uploadedCount?: number;
+        rejected?: unknown;
         tournament?: Omit<Tournament, "ownerId" | "admins">;
         adjudicator?: Adjudicator;
         team?: Team;
@@ -1314,9 +1336,24 @@ export function TournamentProvider({
       }
       if (!response.ok) throw new Error(result.error || "Could not sync private portal data.");
 
-      const uploadedIds = new Set(pending.map((item) => item.record.id));
-      const remaining = pending.filter((item) => !uploadedIds.has(item.record.id));
-      persistLocal(privateQueueKey.slice(storagePrefix.length + 1), remaining);
+      const rejections = parsePrivateSyncRejections(result.rejected);
+      // Read again: a submission may have been queued while this request was running.
+      const sentKeys = new Set(pending.map((item) => `${item.collection}/${item.record.id}`));
+      const keepUnsent = (queue: PrivateSyncItem[]) => queue.filter((item) => !sentKeys.has(`${item.collection}/${item.record.id}`));
+      const ownRemaining = [
+        ...remainingAfterPrivateSync(ownQueue, rejections),
+        ...keepUnsent(readPrivateQueue(privateUrlKey)),
+      ];
+      const legacyRemaining = [
+        ...remainingAfterPrivateSync(legacyQueue, rejections),
+        ...keepUnsent(readPrivateQueue()),
+      ];
+      persistLocal(privateSyncQueueName(privateUrlKey), ownRemaining);
+      if (legacyQueue.length > 0 || legacyRemaining.length > 0) persistLocal(privateSyncQueueName(), legacyRemaining);
+      const ownKeys = new Set(ownRemaining.map((item) => `${item.collection}/${item.record.id}`));
+      const ownRejections = rejections.filter((rejection) => ownKeys.has(`${rejection.collection}/${rejection.id}`));
+      setPrivateSyncRejections(ownRejections);
+      const otherRefused = rejections.length - ownRejections.length;
 
       const downloadedBallots = result.ballots || [];
       const mergedBallots = [
@@ -1393,14 +1430,22 @@ export function TournamentProvider({
       setPrivateSelfCheckIn(result.selfCheckIn ?? null);
       setPrivateSyncState("idle");
       setPrivateSyncMessage(
-        `Synced ${result.uploadedCount || 0} pending item(s); downloaded ${downloadedBallots.length} ballot(s) and ${downloadedFeedback.length} feedback item(s).`
+        `Synced ${result.uploadedCount || 0} pending item(s); downloaded ${downloadedBallots.length} ballot(s) and ${downloadedFeedback.length} feedback item(s).` +
+          (otherRefused > 0
+            ? ` ${otherRefused} item(s) saved earlier on this device belong to another private link or a changed draw; they stay saved on this device.`
+            : "")
       );
+      return rejections;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Private portal sync failed.";
       setPrivateSyncState("error");
       setPrivateSyncMessage(message);
       throw error;
     }
+  };
+
+  const syncPrivatePortal: TournamentContextType["syncPrivatePortal"] = async (privateUrlKey, passcode, options) => {
+    await runPrivatePortalSync(privateUrlKey, passcode, options);
   };
 
   const loadPrivateTeamPortal: TournamentContextType["loadPrivateTeamPortal"] = async (privateUrlKey, passcode) => {
@@ -1449,33 +1494,30 @@ export function TournamentProvider({
     }
   };
 
+  const discardPrivateSyncItems: TournamentContextType["discardPrivateSyncItems"] = (privateUrlKey, items) => {
+    persistLocal(privateSyncQueueName(privateUrlKey), withoutPrivateSyncItems(readPrivateQueue(privateUrlKey), items));
+    const dropped = new Set(items.map((item) => `${item.collection}/${item.id}`));
+    setPrivateSyncRejections((current) => current.filter((rejection) => !dropped.has(`${rejection.collection}/${rejection.id}`)));
+  };
+
   const queuePrivateRecord = async (
     item: PrivateSyncItem,
     privateUrlKey?: string,
     passcode?: string
   ) => {
-    const current = safeJsonParse<PrivateSyncItem[]>(
-      typeof window === "undefined" ? null : getLocalStore().getItem(privateQueueKey),
-      []
-    );
-    const queued = [
-      ...current.filter((entry) => {
-        if (entry.record.id === item.record.id) return false;
-        return !(
-          item.collection === "ballots" &&
-          entry.collection === "ballots" &&
-          entry.record.debateId === item.record.debateId
-        );
-      }),
-      item,
-    ];
-    persistLocal(privateQueueKey.slice(storagePrefix.length + 1), queued);
+    // The link the submission was made on: the caller's, else the link this device last synced.
+    const queueKey = privateUrlKey || activePrivateUrlKeyRef.current;
+    persistLocal(privateSyncQueueName(queueKey), enqueuePrivateSyncItem(readPrivateQueue(queueKey), item));
     if (privateUrlKey && passcode && typeof navigator !== "undefined" && navigator.onLine) {
+      let rejections: PrivateSyncRejection[] = [];
       try {
-        await syncPrivatePortal(privateUrlKey, passcode);
+        rejections = await runPrivatePortalSync(privateUrlKey, passcode);
       } catch (error) {
         console.error("Private portal submission queued for retry:", error);
       }
+      // Refused (not merely offline): the form says why instead of reporting a submission.
+      const refusal = rejections.find((rejection) => rejection.collection === item.collection && rejection.id === item.record.id);
+      if (refusal) throw new Error(refusal.reason);
     } else {
       setPrivateSyncMessage("Saved on this device; it will sync when you are online.");
     }
@@ -3184,6 +3226,8 @@ export function TournamentProvider({
         cloudSyncMessage,
         privateSyncState,
         privateSyncMessage,
+        privateSyncRejections,
+        discardPrivateSyncItems,
         localSaveError,
         publicRoundsLoading,
         publicExtras,

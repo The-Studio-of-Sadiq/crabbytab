@@ -26,6 +26,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import type { MessageKey } from "@/lib/i18n";
+import { InfoSlideMediaView } from "@/features/tournament/components/InfoSlideMediaView";
 
 type DisplayView = "rooms" | "teams" | "motions";
 
@@ -428,9 +429,12 @@ export default function DisplayPage() {
                     ? t("results.display.infoSlideForMotion", { number: revealStep.index + 1 })
                     : t("results.display.infoSlide")}
                 </p>
-                <p className="whitespace-pre-line text-xl leading-relaxed sm:text-2xl">
-                  {revealStep.motion.infoSlide}
-                </p>
+                {revealStep.motion.infoSlide?.trim() && (
+                  <p className="whitespace-pre-line text-xl leading-relaxed sm:text-2xl">
+                    {revealStep.motion.infoSlide}
+                  </p>
+                )}
+                <InfoSlideMediaView media={revealStep.motion.infoSlideMedia} size="lg" className="mx-auto mt-4" />
               </div>
             ) : (
               <>

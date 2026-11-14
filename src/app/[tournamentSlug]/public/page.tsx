@@ -46,7 +46,7 @@ import {
   Loader2,
   House,
 } from "lucide-react";
-import type { DebateAdjudicatorSlot, DebateSide } from "@/types";
+import type { DebateAdjudicatorSlot, DebateSide, InfoSlideMedia } from "@/types";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { calculateStandings } from "@/lib/standings/calculator";
 import { speakersInCategory, sortSpeakerCategories } from "@/lib/speakerCategories";
@@ -90,6 +90,8 @@ import { usePublicSiteStatus } from "@/features/tournament/components/public/use
 import { registrationOpen } from "@/lib/publicView/siteLinks";
 import { getPublicSiteSettings, orderPublicMotions } from "@/lib/publicFeatures";
 import { debateMotion, publicRecordPath } from "@/lib/publicRecords";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
+import { InfoSlideMediaView } from "@/features/tournament/components/InfoSlideMediaView";
 
 type PublicTab =
   | "home"
@@ -975,10 +977,11 @@ export default function PublicTournamentPage() {
                       <blockquote className="my-2.5 border-s-2 border-accent ps-3 text-[15px] font-semibold leading-snug text-fg">
                         &ldquo;{m.text}&rdquo;
                       </blockquote>
-                      {site.motionsPage && m.infoSlide && (
+                      {site.motionsPage && hasInfoSlide(m) && (
                         <div className="mt-2 rounded-md border border-border bg-muted p-3 text-[13px] text-fg">
                           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{t("public.infoslide")}</p>
-                          <p className="whitespace-pre-line">{m.infoSlide}</p>
+                          {m.infoSlide?.trim() && <p className="whitespace-pre-line">{m.infoSlide}</p>}
+                          <InfoSlideMediaView media={m.infoSlideMedia} className="mt-2" />
                         </div>
                       )}
                       {motionStatistics.get(m.id) && (
@@ -1111,7 +1114,7 @@ function MotionPresentation({
   onNext,
   onClose,
 }: {
-  motion: { reference?: string; text: string; infoSlide?: string };
+  motion: { reference?: string; text: string; infoSlide?: string; infoSlideMedia?: InfoSlideMedia };
   roundNames: string;
   index: number;
   total: number;
@@ -1148,10 +1151,13 @@ function MotionPresentation({
           <Badge tone="accent" className="h-6 px-2.5 text-xs">{t("public.presentation.assignedTo", { rounds: roundNames })}</Badge>
         )}
         <p className="max-w-5xl text-3xl font-semibold leading-tight sm:text-5xl">{motion.text}</p>
-        {motion.infoSlide && (
+        {hasInfoSlide(motion) && (
           <div className="w-full max-w-4xl border-t border-border pt-6 text-start">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">{t("public.presentation.infoSlide")}</p>
-            <p className="whitespace-pre-line text-base leading-relaxed text-fg sm:text-lg">{motion.infoSlide}</p>
+            {motion.infoSlide?.trim() && (
+              <p className="whitespace-pre-line text-base leading-relaxed text-fg sm:text-lg">{motion.infoSlide}</p>
+            )}
+            <InfoSlideMediaView media={motion.infoSlideMedia} size="lg" className="mx-auto mt-4" />
           </div>
         )}
       </div>

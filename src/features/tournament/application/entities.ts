@@ -18,6 +18,7 @@ import {
   enforceGuards,
 } from "./stateGuards";
 import { scoreChangesBetween, withScoreHistory } from "@/lib/feedback/scoreHistory";
+import { withValidInfoSlideMedia } from "@/lib/motions/infoSlideMedia";
 import { withoutRealNameCodeName } from "@/lib/codeNames";
 
 export interface EntityAuditEvent {
@@ -385,7 +386,8 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
 
   const addMotions = async (data: Omit<Motion, "id" | "tournamentId">[]) => {
     if (data.length === 0) return;
-    const created = data.map((item) => ({ ...item, id: createId("motion"), tournamentId }));
+    // Validated before anything is saved, so a bad media link never half-imports a batch.
+    const created = data.map((item) => ({ ...withValidInfoSlideMedia(item), id: createId("motion"), tournamentId }));
     repositories.motions.save([...motions, ...created]);
     for (const motion of created) {
       await recordAuditEvent({
@@ -402,7 +404,8 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
     }
   };
 
-  const updateMotion = async (motion: Motion) => {
+  const updateMotion = async (input: Motion) => {
+    const motion = withValidInfoSlideMedia(input);
     const previous = motions.find((item) => item.id === motion.id);
     if (dependencies.cloudRepository) {
       await dependencies.cloudRepository.saveMotion(motion);
@@ -426,8 +429,9 @@ export function createTournamentEntityCommands(dependencies: EntityCommandDepend
    * Saves several changed motions in one write (copying motions to a round, reordering a round's
    * motions, releasing a round's motions) and records one audit event. Every motion must exist.
    */
-  const updateMotions = async (changed: Motion[], summary = "Motions updated") => {
-    if (changed.length === 0) return;
+  const updateMotions = async (input: Motion[], summary = "Motions updated") => {
+    if (input.length === 0) return;
+    const changed = input.map(withValidInfoSlideMedia);
     const ids = new Set(motions.map((item) => item.id));
     const missing = changed.find((item) => !ids.has(item.id));
     if (missing) throw new Error(`Cannot update motion ${missing.id}: it no longer exists.`);

@@ -9,6 +9,7 @@ import { sidesPending } from "@/lib/draw/manualSides";
 import { VenueLabel } from "@/features/tournament/components/VenueLabel";
 import { useTournament } from "@/contexts/TournamentContext";
 import { SelfCheckInPanel } from "@/features/tournament/components/SelfCheckInPanel";
+import { PrivateSyncRejectionsNotice } from "@/features/tournament/components/PrivateSyncRejectionsNotice";
 import {
   Users,
   MessageSquareHeart,
@@ -460,6 +461,8 @@ export default function TeamPrivatePortalPage() {
       />
 
       <SelfCheckInPanel privateKey={privateKey} passcode={activePasscode} />
+
+      <PrivateSyncRejectionsNotice privateKey={privateKey} />
 
       <div role="status" aria-live="polite">
         {feedbackSuccessNotice && (

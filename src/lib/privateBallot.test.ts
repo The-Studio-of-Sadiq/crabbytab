@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Adjudicator, Debate, Team, Tournament } from "@/types";
-import { buildPrivateBallot } from "@/lib/privateBallot";
+import { buildPrivateBallot, MAX_SUBMISSION_ID_LENGTH } from "@/lib/privateBallot";
 
 const tournament: Tournament = {
   id: "t1",
@@ -158,6 +158,25 @@ describe("buildPrivateBallot", () => {
         tournamentId: "t1",
       })
     ).toThrow("The ballot identifier is invalid.");
+  });
+
+  it("accepts the portal's id for app-created ids (longer than 128 characters), within the limit", () => {
+    // The ids the app creates: debates carry the tournament slug, adjudicators are `adj-<uuid>`.
+    const debateId = "debate-round-tourn-debaters-hunt-6-0-1-1-ginqjs";
+    const adjudicatorId = "adj-245fa53d-a615-4b74-92aa-75de12f3e119";
+    const id = `ballot-${debateId}-adj-${adjudicatorId}-9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d`;
+    expect(id.length).toBeGreaterThan(128);
+    const context = {
+      tournament,
+      adjudicator: { ...chair, id: adjudicatorId },
+      debate: { ...debate, id: debateId, adjudicators: { ...debate.adjudicators, chairId: adjudicatorId } },
+      teams,
+      tournamentId: "t1",
+    };
+    const input = { ...ballotInput(), id, submitterId: adjudicatorId };
+    expect(buildPrivateBallot(input, context).id).toBe(id);
+    expect(() => buildPrivateBallot({ ...input, id: `${id}-${"x".repeat(MAX_SUBMISSION_ID_LENGTH)}` }, context))
+      .toThrow("The ballot identifier is invalid.");
   });
 
   it("rejects a trainee or other non-voting adjudicator", () => {

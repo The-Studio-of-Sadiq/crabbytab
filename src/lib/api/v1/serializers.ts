@@ -77,7 +77,7 @@ export function serializeRound(round: Round): Json {
 }
 
 export function serializeMotion(motion: Motion): Json {
-  return pick(motion, ["id", "text", "reference", "infoSlide", "rounds", "seq", "released", "syncVersion" as keyof Motion]);
+  return pick(motion, ["id", "text", "reference", "infoSlide", "infoSlideMedia", "rounds", "seq", "released", "syncVersion" as keyof Motion]);
 }
 
 export function serializeInstitution(institution: Institution): Json {
@@ -308,7 +308,9 @@ export const COMPONENT_SCHEMAS: Record<string, Schema<unknown>> = {
     eliminationAdvanced: bool(), cancelled: bool(), completed: bool(), drawSeed: int(), createdAt: str(), syncVersion: version,
   }, "A round. Rounds are addressed by `seq` in paths."),
   Motion: responseObject({
-    id: s.string(), text: s.string(), reference: str(), infoSlide: str(), rounds: strList("Round ids."),
+    id: s.string(), text: s.string(), reference: str(), infoSlide: str(),
+    infoSlideMedia: s.optional(s.object({ kind: s.enum(["image", "video"] as const), url: s.string(), alt: str() }, { description: "A picture or video on the info slide." })),
+    rounds: strList("Round ids."),
     seq: int(), released: bool(), syncVersion: version,
   }, "A motion."),
   Institution: responseObject({ id: s.string(), name: s.string(), code: s.string(), region: str(), venueRequirements: anything(), syncVersion: version }, "An institution."),

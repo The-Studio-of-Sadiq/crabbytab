@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv, parseVenuesCsv } from "./importer";
+import { parseTeamsCsv, parseAdjudicatorsCsv, parseInstitutionsCsv, parseMotionsCsv, parseVenuesCsv } from "./importer";
 
 describe("CSV Importer (csv/importer)", () => {
   it("reads optional adjudicator gender and region columns", () => {
@@ -169,5 +169,16 @@ Independent University, Bangladesh,IUB,Dhaka`;
       { name: "Begum Rokeya University, Rangpur", code: "BRUR", region: "Rangpur" },
       { name: "Independent University, Bangladesh", code: "IUB", region: "Dhaka" },
     ]);
+  });
+});
+
+describe("parseMotionsCsv info slide media", () => {
+  it("reads a picture or video link and refuses an invalid or doubled one with its row", () => {
+    const [motion] = parseMotionsCsv("text,infoslide_video\nTHW,https://cdn.example.org/clip.mp4", "t1");
+    expect(motion.infoSlideMedia).toEqual({ kind: "video", url: "https://cdn.example.org/clip.mp4" });
+    expect(parseMotionsCsv("text,infoslide_image\nTHW,", "t1")[0].infoSlideMedia).toBeUndefined();
+    expect(() => parseMotionsCsv("text,infoslide_image\nTHW,http://example.org/a.png", "t1")).toThrow(/row 2: .*https/);
+    expect(() => parseMotionsCsv("text,infoslide_image,infoslide_video\nTHW,https://example.org/a.png,https://youtu.be/aqz-KE-bpKQ", "t1"))
+      .toThrow(/row 2/);
   });
 });

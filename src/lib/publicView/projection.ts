@@ -23,6 +23,7 @@ import {
 } from "@/lib/publicRelease";
 import { resolveSpeakerCategoryIds } from "@/lib/speakerCategories";
 import { motionsStatusOf } from "@/features/tournament/application/motionRelease";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
 import { publicScheduleEvents } from "@/lib/schedule/events";
 import { currentDrawRoundIds, getPublicSiteSettings, isRoundDrawPublic, type PublicSiteSettings } from "@/lib/publicFeatures";
 import { sheetOutcome } from "@/lib/ballots/result";
@@ -549,13 +550,13 @@ export function buildPublicProjection(
     ...motionRecords
       .filter((motion) => visibleMotionIds.has(motion.id))
       .map((motion) => ({
-        ...pick(motion, ["tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "roundSeq", "released"]),
+        ...pick(motion, ["tournamentId", "text", "reference", "infoSlide", "infoSlideMedia", "rounds", "seq", "roundSeq", "released"]),
         id: motion.id,
       })),
     ...motionRecords
       .filter((motion) =>
         !visibleMotionIds.has(motion.id) &&
-        Boolean(motion.infoSlide?.trim()) &&
+        hasInfoSlide(motion) &&
         (motion.rounds || []).some((roundId) => infoSlideRoundIds.has(roundId))
       )
       .map((motion) => {
@@ -564,7 +565,7 @@ export function buildPublicProjection(
           Object.entries(motion.roundSeq || {}).filter(([roundId]) => infoSlideRoundIds.has(roundId))
         );
         return {
-          ...pick(motion, ["tournamentId", "infoSlide", "seq"]),
+          ...pick(motion, ["tournamentId", "infoSlide", "infoSlideMedia", "seq"]),
           ...(Object.keys(roundSeq).length > 0 ? { roundSeq } : {}),
           id: motion.id,
           text: "",

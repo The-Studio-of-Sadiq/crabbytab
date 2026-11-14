@@ -16,8 +16,10 @@ import {
   breakEligibilityCsv,
   conflictsCsv,
   institutionsCsv,
+  motionsCsv,
   speakersCsv,
   teamsCsv,
+  venuesCsv,
 } from "@/lib/csv/participantExports";
 
 interface ExportItem {
@@ -28,9 +30,9 @@ interface ExportItem {
 }
 
 /**
- * Tournament data as CSV (Tabbycat's participant, availability, break-eligibility and conflict
- * exports). Built in the browser from the working copy; nothing is sent anywhere. Standings,
- * draws and feedback have their own export buttons on their pages.
+ * Tournament data as CSV, one file per part (Tabbycat's participant, availability, break-eligibility
+ * and conflict exports, plus motions and rooms). Built in the browser from the working copy; nothing
+ * is sent anywhere. Standings, draws and feedback have their own export buttons on their pages.
  */
 export default function ExportsPage() {
   const {
@@ -43,6 +45,7 @@ export default function ExportsPage() {
     venues,
     rounds,
     breakCategories,
+    motions,
   } = useTournament();
   const { t } = useI18n();
   const [message, setMessage] = useState("");
@@ -62,6 +65,13 @@ export default function ExportsPage() {
         { key: "speakers", label: t("setup.data.exports.speakers"), description: t("setup.data.exports.speakersHelp"), build: () => speakersCsv(teams, context) },
         { key: "adjudicators", label: t("setup.data.exports.adjudicators"), description: t("setup.data.exports.adjudicatorsHelp"), build: () => adjudicatorsCsv(adjudicators, context) },
         { key: "institutions", label: t("setup.data.exports.institutions"), description: t("setup.data.exports.institutionsHelp"), build: () => institutionsCsv(institutions, teams, adjudicators) },
+      ],
+    },
+    {
+      title: t("setup.data.exports.groupMotionsVenues"),
+      items: [
+        { key: "motions", label: t("setup.data.exports.motions"), description: t("setup.data.exports.motionsHelp"), build: () => motionsCsv(motions, rounds) },
+        { key: "venues", label: t("setup.data.exports.venues"), description: t("setup.data.exports.venuesHelp"), build: () => venuesCsv(venues) },
       ],
     },
     {
