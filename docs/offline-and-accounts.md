@@ -39,9 +39,13 @@ way.
 - signed out, or with the server unreachable, every tournament on the device is listed, with the
   error shown above the list.
 
+## Creating tournaments
+
+Creating a tournament (the wizard) is limited to global administrators, by decision: it controls
+who may start tournaments on a hosted instance. A device-only tournament therefore starts from an
+administrator's device; once there, it runs signed out, offline and without Firebase as above.
+
 ## Known limitations
 
-- Creating a tournament (the wizard) is limited to global administrators, so a new device-only
-  tournament cannot be created signed out or without Firebase.
 - The home page (`/`) lists and creates tournaments under its own rules; **My tournaments**
   (`/tournaments`) is the page that lists device-only tournaments in every case.
