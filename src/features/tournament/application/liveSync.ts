@@ -23,13 +23,19 @@ export function isLiveCollection(name: string): name is LiveCollectionName {
   return (LIVE_COLLECTIONS as readonly string[]).includes(name);
 }
 
-/** One listener: a whole collection, or the records of one round. */
+/**
+ * One listener: a whole collection, the records of one round, or (with `since`) every record of
+ * the collection stamped after that time, i.e. the changes since this device last downloaded it.
+ */
 export interface LiveScope {
   collection: LiveCollectionName;
   roundId?: string;
+  /** Milliseconds; listens to records whose `cloudUpdatedAt` is later. */
+  since?: number;
 }
 
 export function liveScopeKey(scope: LiveScope): string {
+  if (scope.since !== undefined) return `${scope.collection}>${scope.since}`;
   return scope.roundId === undefined ? scope.collection : `${scope.collection}@${scope.roundId}`;
 }
 
@@ -43,8 +49,14 @@ export function liveScopeKey(scope: LiveScope): string {
  */
 export function liveListenerScopes(
   activeRoundId: string | null | undefined,
-  concurrentRoundIds: readonly string[] = []
+  concurrentRoundIds: readonly string[] = [],
+  since?: Partial<Record<LiveCollectionName, number>>
 ): LiveScope[] {
+  // A device that knows where its last download stopped listens to the changes since then, in
+  // every round: the listeners read only what changes, so earlier rounds cost nothing extra.
+  if (since && LIVE_COLLECTIONS.every((name) => since[name] !== undefined)) {
+    return LIVE_COLLECTIONS.map((collection) => ({ collection, since: since[collection] }));
+  }
   const scopes: LiveScope[] = [{ collection: "teams" }, { collection: "adjudicators" }];
   if (activeRoundId) {
     const roundIds = [activeRoundId, ...concurrentRoundIds.filter((id) => id && id !== activeRoundId)];
@@ -338,6 +350,8 @@ function mergeFieldWrites(earlier: LiveFieldWrite[], later: LiveFieldWrite[]): L
 export interface LiveRecordChange {
   type: "added" | "modified" | "removed";
   record: CloudRecord;
+  /** The record's `cloudUpdatedAt` in milliseconds, when it has one. */
+  updatedAt?: number;
 }
 
 /**
@@ -352,7 +366,7 @@ export interface LiveRecordChange {
  *   from a backup; records with a pending local deletion are not brought back.
  */
 export function applyLiveSnapshot(input: {
-  collection: LiveCollectionName;
+  collection: CloudCollectionName;
   local: CloudRecord[];
   baseline: Record<string, SyncBaselineEntry>;
   changes: LiveRecordChange[];
@@ -472,7 +486,7 @@ export function describeLiveSyncStatus(status: LiveSyncStatus): string {
 /** The baseline with one collection's entries added, replaced or (`null`) removed. */
 export function withBaselineEntries(
   baseline: SyncBaseline,
-  collection: LiveCollectionName,
+  collection: CloudCollectionName,
   entries: Record<string, SyncBaselineEntry | null>
 ): SyncBaseline {
   const ids = Object.keys(entries);

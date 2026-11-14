@@ -43,9 +43,12 @@ export const DATA_ENTRY_FIELDS = {
 export const ASSISTANT_LIVE_BALLOT_FIELDS = [
   ...DATA_ENTRY_FIELDS.ballots,
   "confirmed", "discarded", "submitterType", "submitterId", "submitterName", "chairId", "syncVersion",
+  // The change stamp (lib/cloudRecordFields.ts); the rules accept only the server's time.
+  "cloudUpdatedAt",
 ] as const;
 export const ASSISTANT_LIVE_CHECK_IN_FIELDS = [
   "checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion",
+  "cloudUpdatedAt",
 ] as const;
 
 /** Fields an assistant may supply only when creating a record (e.g. a CSV import). */

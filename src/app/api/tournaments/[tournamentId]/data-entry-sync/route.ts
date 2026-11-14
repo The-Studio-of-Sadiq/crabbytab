@@ -26,6 +26,7 @@ import {
   validDataEntryId as validId,
   validateAssistantFeedback,
 } from "@/lib/dataEntrySync";
+import { serverStamp } from "@/lib/cloudStampServer";
 
 export const runtime = "nodejs";
 
@@ -272,7 +273,7 @@ export async function POST(
             archivedBy: user.uid,
           });
         }
-        transaction.set(recordRef, next);
+        transaction.set(recordRef, { ...next, ...serverStamp() });
         return current ? "superseded" : "written";
       });
       if (outcome === "rejected" || staleGuarded) rejected.push({ collectionName, recordId: record.id as string });
@@ -341,6 +342,7 @@ export async function POST(
                 adjudicators: update.adjudicators,
               }),
               syncVersion: update.syncVersion,
+              ...serverStamp(),
             });
           }
           return plan.refused;
@@ -372,7 +374,7 @@ export async function POST(
           archivedAt: new Date().toISOString(),
           archivedBy: user.uid,
         });
-        transaction.update(debateRef, { resultStatus, syncVersion: (Number(current.syncVersion) || 0) + 1 });
+        transaction.update(debateRef, { resultStatus, syncVersion: (Number(current.syncVersion) || 0) + 1, ...serverStamp() });
         return true;
       });
       archivedConflictCount += Number(archived);

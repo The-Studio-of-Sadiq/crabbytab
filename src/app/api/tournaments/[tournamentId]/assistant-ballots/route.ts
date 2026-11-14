@@ -4,6 +4,7 @@ import { AssistantConfirmationError, planAssistantConfirmation } from "@/lib/ass
 import { isRecord, validDataEntryId } from "@/lib/dataEntrySync";
 import { authorizeDataEntryStaff, currentDataEntryPermissions, DataEntryAccessChangedError } from "@/lib/staffAccessServer";
 import { assertStaffPermission, StaffPermissionError } from "@/lib/staffPermissions";
+import { serverStamp } from "@/lib/cloudStampServer";
 
 export const runtime = "nodejs";
 
@@ -89,12 +90,12 @@ export async function POST(
         ...item,
         syncVersion: (Number((item as { syncVersion?: number }).syncVersion) || 0) + 1,
       }));
-      for (const item of written) transaction.set(ballots.doc(item.id), item);
+      for (const item of written) transaction.set(ballots.doc(item.id), { ...item, ...serverStamp() });
       const nextDebate = {
         ...plan.debate,
         syncVersion: (Number((debate as { syncVersion?: number } | undefined)?.syncVersion) || 0) + 1,
       };
-      transaction.set(tournamentRef.collection("debates").doc(nextDebate.id), nextDebate);
+      transaction.set(tournamentRef.collection("debates").doc(nextDebate.id), { ...nextDebate, ...serverStamp() });
       return { ballots: written, debate: nextDebate };
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });

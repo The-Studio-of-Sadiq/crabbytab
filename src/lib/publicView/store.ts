@@ -27,6 +27,7 @@ import {
   type PublicViewSections,
 } from "@/lib/publicView/snapshot";
 import { hashValue } from "@/lib/publicView/hash";
+import { withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 
 /**
  * Server-side storage and caching for published public views.
@@ -78,7 +79,7 @@ export async function readPublicSourceData(
       name,
       snapshots[index].docs
         .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => ({ ...document.data(), id: document.id }) as SourceRecord),
+        .map((document) => ({ ...withoutCloudOnlyFields(document.data()), id: document.id }) as SourceRecord),
     ])
   ) as PublicSourceData;
 }

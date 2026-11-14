@@ -8,6 +8,7 @@ import {
 } from "@/lib/registration/review";
 import type { RegistrationSettings, RegistrationSubmission } from "@/lib/registration/types";
 import { applyNameGenerators } from "@/lib/registration/names";
+import { serverStamp } from "@/lib/cloudStampServer";
 
 /**
  * Automatic acceptance (Tabbycat `registration_confirmation`; docs/registration.md, "Automatic
@@ -105,7 +106,7 @@ export async function createRegisteredEntity(input: {
       privateUrlKey: privateKey("team"),
       privatePasscode: privateKey(),
     };
-    await tournamentRef.collection("teams").doc(id).create({ ...stripUndefined(team), syncVersion: 1 });
+    await tournamentRef.collection("teams").doc(id).create({ ...stripUndefined(team), syncVersion: 1, ...serverStamp() });
     return { entityId: id, entityName: team.name };
   }
   if (submission.kind === "adjudicator") {
@@ -124,7 +125,7 @@ export async function createRegisteredEntity(input: {
       privateUrlKey: privateKey("adj"),
       privatePasscode: privateKey(),
     };
-    await tournamentRef.collection("adjudicators").doc(id).create({ ...stripUndefined(adjudicator), syncVersion: 1 });
+    await tournamentRef.collection("adjudicators").doc(id).create({ ...stripUndefined(adjudicator), syncVersion: 1, ...serverStamp() });
     return { entityId: id, entityName: adjudicator.name };
   }
   throw new Error("Institution registrations are always reviewed.");

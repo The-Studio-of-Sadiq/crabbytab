@@ -6,6 +6,7 @@ import { readSettings, registrationRefs, RegistrationError } from "@/lib/registr
 import { askedPersonFields } from "@/lib/registration/access";
 import type { PersonField, RegistrationSettings } from "@/lib/registration/types";
 import { parseRegisteredSpeaker, registrationWindowState } from "@/lib/registration/validation";
+import { serverStamp } from "@/lib/cloudStampServer";
 
 /**
  * Team invitations (Tabbycat registration Invitation for a team; docs/registration.md): a link an
@@ -172,6 +173,7 @@ export async function joinTeamByInvitation(input: {
     transaction.update(teamRef, {
       speakers: [...speakers, speaker],
       syncVersion: (Number(team.syncVersion) || 0) + 1,
+      ...serverStamp(),
     });
     transaction.update(invitationRef, { joined: (invitation.joined || 0) + 1 });
     return { teamName: String(team.name ?? invitation.teamName), speakerName: speaker.name };

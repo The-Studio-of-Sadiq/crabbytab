@@ -48,8 +48,9 @@ ballot), and nothing else is. Consequences worth knowing:
   upload path, so releases still upload and publish in one step (`ReleaseActionDialog`). Another
   device sees a new draw's debates live, but the round's status only after that upload (or a
   download/reload).
-- Debates and ballots of rounds other than the active one are not listened to. Changes another
-  device makes to them arrive with the next load or **Download and compare**. Standings use every
+- With round-scoped listeners (no download cursor yet), debates and ballots of rounds other than
+  the active one are not listened to. Changes another device makes to them arrive with the next
+  load or **Download and compare**. "Changed since" listeners cover every round. Standings use every
   round, so a correction to an earlier round shows on other devices after they reload. Switching
   the active round switches the listeners.
 - Records deleted from a live collection are soft-deleted in Firestore (`deletedAt`, content kept),
@@ -103,8 +104,15 @@ server; the one race they leave is detected (below).
 
 ## Listeners
 
-`liveListenerScopes(activeRoundId)` decides what to listen to: `teams` and `adjudicators` (whole
-collections), and `debates` and `ballots` where `roundId == activeRoundId`. `createLiveSession`
+`liveListenerScopes(activeRoundId, concurrentRoundIds, since)` decides what to listen to. On a
+device that has a download cursor for all four live collections (`storage-and-scale.md`,
+"Downloading only what changed"), each listener is the whole collection's records stamped after the
+cursor (`cloudUpdatedAt > since`), in every round: the first event brings only what changed since
+the open, and each event moves the cursor on. A record leaving such a listener is not a deletion
+(deletions are soft): it leaves only while this device's own write to it waits for its server stamp,
+and comes back once acknowledged, so the port drops those "removed" events. Without a cursor (after
+**Download and compare**, until the next open) it listens as before: `teams` and `adjudicators`
+(whole collections), and `debates` and `ballots` where `roundId == activeRoundId`. `createLiveSession`
 (`application/liveSession.ts`) keeps exactly those listeners open (`onSnapshot` with
 `includeMetadataChanges`), re-scoping when the active round changes; the Firestore adapter is
 `infrastructure/liveRepository.ts`. Each event goes through `applyLiveSnapshot`, which uses the
@@ -118,8 +126,9 @@ same rule as a download (`classifyAgainstBaseline` in `cloudSync.ts`):
   pending local deletion are left alone.
 
 Bulk operations that replace whole collections (upload results, download, backup restore, conflict
-choices) stop the session first and restart it afterwards; the restarted listeners' first events
-re-apply every cloud record on top of the new state.
+choices) stop the session first and restart it afterwards. Round-scoped listeners' first events
+re-apply every cloud record on top of the new state; "changed since" listeners re-apply the records
+changed since the cursor (the open's checks catch a copy replaced in between).
 
 ## Conflict semantics per collection
 
@@ -141,11 +150,13 @@ for data-entry assistants (a `staff/{uid}` document with role `dataEntry`):
 
 - `ballots`: **create** only, and only a ballot that is the assistant's own (`submitterId` is the
   signed-in user, `submitterType` `"tabroom"`), unconfirmed and not discarded, with whitelisted
-  fields (`assistantLiveBallotFields`), version 1–1000, map-typed scores, `syncVersion` 1, for an
-  existing, non-deleted debate of the same round;
+  fields (`assistantLiveBallotFields`), version 1–1000, map-typed scores, `syncVersion` 1, a
+  `cloudUpdatedAt` equal to the request's server time, for an existing, non-deleted debate of the
+  same round;
 - `teams`, `adjudicators`: **update** only, changing only check-in fields
   (`assistantLiveCheckInFields`: `checkedIn`, `checkedInAt`, `roundAvailability`,
-  `roundAvailabilityAt`) and bumping `syncVersion` by exactly one, on records that are not deleted;
+  `roundAvailabilityAt`) and bumping `syncVersion` by exactly one, with `cloudUpdatedAt` set to the
+  request's server time, on records that are not deleted;
 - no reads (their copy is the redacted assistant-data projection).
 
 The field lists mirror `ASSISTANT_LIVE_BALLOT_FIELDS` / `ASSISTANT_LIVE_CHECK_IN_FIELDS` in
@@ -162,14 +173,17 @@ Playground (or the emulator) with:
 3. an assistant: create `ballots/{b}` with `confirmed: false`, own `submitterId`, an existing debate
    of the same round → allowed; with `confirmed: true`, another `submitterId`, a debate of another
    round, a deleted debate, or an extra field such as `confirmedBy` → denied;
-4. an assistant: update a team's `roundAvailability.r1` with `syncVersion` +1 → allowed; changing
-   `name`, `breakStatus` or `privateUrlKey`, or not bumping `syncVersion` → denied;
+4. an assistant: update a team's `roundAvailability.r1` with `syncVersion` +1 and
+   `cloudUpdatedAt: request.time` → allowed; changing `name`, `breakStatus` or `privateUrlKey`, not
+   bumping `syncVersion`, or a missing or client-chosen `cloudUpdatedAt` → denied (the same for an
+   assistant ballot's `cloudUpdatedAt`);
 5. a signed-out user: any of the above → denied.
 
 ## Cost (Spark tier)
 
 Listeners are opened only by administrator devices (never by public pages, which stay on cached
-snapshots). A listener's first event reads its documents (with the persistent cache, a listener
+snapshots). A "changed since" listener's first event reads only the records changed since the
+device's cursor (usually none right after an open). A round-scoped listener's first event reads its documents (with the persistent cache, a listener
 restarted within about 30 minutes of the last one resumes and is charged only for changes); after
 that each change costs one read per listening device. For a 100-team BP tournament with ~150
 adjudicators, opening a device costs about 100 + 150 + 25 debates + ~50 ballots ≈ 325 reads on top
@@ -190,7 +204,7 @@ live writes bump `syncVersion`, so their stale uploads are archived as conflicts
 ## Known limitations
 
 - Assistants, private portals and public pages are not live (by design for the last two).
-- Earlier rounds' debates and ballots are not listened to.
+- Without a download cursor, earlier rounds' debates and ballots are not listened to.
 - Settings, rounds, motions, rooms, breaks, feedback and the audit log are still upload/download.
 - State rules are checked on the device, not on the server, for administrators' live writes.
 - A double confirmation needs a person to resolve it.

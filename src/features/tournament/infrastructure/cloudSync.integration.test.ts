@@ -45,7 +45,8 @@ const TOURNAMENT_PATH = (tournament: Tournament) => `tournaments/${tournament.id
 function stripSync(records: CloudRecord[]): Record<string, unknown>[] {
   return records
     .map((record) => {
-      const { syncVersion: _syncVersion, participantIds: _participantIds, ...rest } = record as CloudRecord & Record<string, unknown>;
+      const { syncVersion: _syncVersion, participantIds: _participantIds, cloudUpdatedAt: _cloudUpdatedAt, ...rest } =
+        record as CloudRecord & Record<string, unknown>;
       return JSON.parse(JSON.stringify(rest)) as Record<string, unknown>;
     })
     .sort((left, right) => String(left.id).localeCompare(String(right.id)));

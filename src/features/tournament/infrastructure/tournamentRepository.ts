@@ -1,12 +1,17 @@
 import {
   collection,
+  count,
   doc,
+  getAggregateFromServer,
   getDoc,
   getDocs,
   limit,
   query,
   runTransaction,
+  serverTimestamp,
   setDoc,
+  sum,
+  Timestamp,
   where,
   writeBatch,
   type DocumentReference,
@@ -25,6 +30,12 @@ import type {
   SyncConflict,
 } from "@/features/tournament/application/cloudSync";
 import { hasStaleSyncVersion } from "@/features/tournament/application/cloudSync";
+import type {
+  CloudCollectionRead,
+  CloudDocument,
+  CloudReadResults,
+} from "@/features/tournament/application/deltaSync";
+import { CLOUD_UPDATED_AT_FIELD, cloudStampMillis, withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
 import {
   PARTICIPANT_IDS_FIELD,
@@ -32,7 +43,6 @@ import {
   PARTICIPANT_INDEX_VERSION,
   debateParticipantIds,
   hasCurrentParticipantIds,
-  withoutParticipantIds,
 } from "@/lib/privateSync";
 import { cleanUndefined } from "./firestore";
 
@@ -55,13 +65,16 @@ function recordsEqual(left: unknown, right: unknown): boolean {
 
 /** Content compared between versions: without the cloud's stamps and derived participant index. */
 function withoutUpdatedAt(data: Record<string, unknown>): Record<string, unknown> {
-  const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = withoutParticipantIds(data);
+  const { updatedAt: _updatedAt, syncVersion: _syncVersion, ...rest } = withoutCloudOnlyFields(data);
   return rest;
 }
 
+/** The server-time stamp every write of a record carries (lib/cloudRecordFields.ts). */
+const stamp = () => ({ [CLOUD_UPDATED_AT_FIELD]: serverTimestamp() });
+
 /** What is stored in the cloud for a record: debates also get their participant index. */
 function cloudRecordFor(collectionName: CloudCollectionName, item: CloudRecord): CloudRecord {
-  const clean = cleanUndefined(withoutParticipantIds(item));
+  const clean = cleanUndefined(withoutCloudOnlyFields(item));
   return collectionName === "debates"
     ? { ...clean, [PARTICIPANT_IDS_FIELD]: debateParticipantIds(clean as never) } as CloudRecord
     : clean;
@@ -105,7 +118,7 @@ function writeRecordInTransaction(input: {
     return { conflict: false, syncVersion: Number(snapshot.data()?.syncVersion) || 0 };
   }
   if (!snapshot.exists()) {
-    transaction.set(recordRef, { ...cleanRecord, syncVersion: 1 });
+    transaction.set(recordRef, { ...cleanRecord, syncVersion: 1, ...stamp() });
     return { conflict: false, syncVersion: 1 };
   }
   const archive = (current: CloudRecord, resolution: string) => {
@@ -114,7 +127,7 @@ function writeRecordInTransaction(input: {
       id: conflictRef.id,
       collectionName,
       recordId: item.id,
-      record: current,
+      record: withoutCloudOnlyFields(current),
       incomingRecord: cleanRecord,
       resolution,
       archivedAt: new Date().toISOString(),
@@ -141,7 +154,7 @@ function writeRecordInTransaction(input: {
   }
   archive(current, restored ? "restored" : "superseded");
   const nextVersion = currentVersion + 1;
-  transaction.set(recordRef, { ...cleanRecord, syncVersion: nextVersion });
+  transaction.set(recordRef, { ...cleanRecord, syncVersion: nextVersion, ...stamp() });
   return { conflict: false, syncVersion: nextVersion };
 }
 
@@ -280,9 +293,9 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       return Object.fromEntries(
         CLOUD_COLLECTIONS.map((name) => [
           name,
-          // The participant index is cloud-only; the working copy never holds it.
+          // Cloud-only fields (participant index, stamp) never enter the working copy.
           (snapshots.get(name)?.docs || []).map((document) => ({
-            ...withoutParticipantIds(document.data()),
+            ...withoutCloudOnlyFields(document.data()),
             id: document.id,
           })),
         ])
@@ -313,7 +326,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
               if (snapshot.exists() && typeof snapshot.data().deletedAt === "string") return;
               const deletedAt = new Date().toISOString();
               const current = snapshot.exists()
-                ? { ...snapshot.data(), id: snapshot.id } as CloudRecord
+                ? withoutCloudOnlyFields({ ...snapshot.data(), id: snapshot.id } as CloudRecord)
                 : { id: recordId };
               if (snapshot.exists()) {
                 const conflictRef = newConflictRef();
@@ -331,6 +344,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
                 id: recordId,
                 deletedAt,
                 syncVersion: (Number(current.syncVersion) || 0) + 1,
+                ...stamp(),
               });
             });
           });
@@ -345,7 +359,7 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
           transactional = items.filter((item) => item.syncVersion !== undefined);
           for (const chunk of chunked(items.filter((item) => item.syncVersion === undefined), UPLOAD_BATCH_SIZE)) {
             const batch = writeBatch(firestoreDb);
-            for (const item of chunk) batch.set(recordRef(collectionName, item.id), { ...cleanUndefined(item), syncVersion: 1 });
+            for (const item of chunk) batch.set(recordRef(collectionName, item.id), { ...cleanUndefined(item), syncVersion: 1, ...stamp() });
             try {
               await batch.commit();
               for (const item of chunk) item.syncVersion = 1;
@@ -411,4 +425,43 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
       })) as SyncConflict[];
     },
   };
+}
+/**
+ * Reads collections with each record's stamp (docs/storage-and-scale.md, "Downloading only what
+ * changed"). A read with `since` also asks the cloud for the collection's count and `syncVersion`
+ * sum (one aggregation, about one read per 1,000 records) so the caller can check that the changes
+ * it got account for the whole collection.
+ */
+export async function readCloudCollections(
+  tournamentId: string,
+  reads: readonly CloudCollectionRead[]
+): Promise<CloudReadResults> {
+  if (!db) throw new Error("Cloud sync is unavailable because Firebase is not configured.");
+  const firestoreDb = db;
+  const results = await Promise.all(
+    reads.map(async ({ name, since }): Promise<[CloudCollectionName, NonNullable<CloudReadResults[CloudCollectionName]>]> => {
+      const records = collection(firestoreDb, "tournaments", tournamentId, name);
+      const [snapshot, aggregate] = await Promise.all([
+        getDocs(since === undefined ? records : query(records, where(CLOUD_UPDATED_AT_FIELD, ">", Timestamp.fromMillis(since)))),
+        since === undefined
+          ? Promise.resolve(undefined)
+          : getAggregateFromServer(records, { count: count(), versionSum: sum("syncVersion") }),
+      ]);
+      const documents = snapshot.docs.map((document): CloudDocument => {
+        const data = document.data();
+        const updatedAt = cloudStampMillis(data[CLOUD_UPDATED_AT_FIELD]);
+        return {
+          record: { ...withoutCloudOnlyFields(data), id: document.id } as CloudRecord,
+          ...(updatedAt === undefined ? {} : { updatedAt }),
+        };
+      });
+      if (!aggregate) return [name, { documents }];
+      const totals = aggregate.data();
+      return [name, {
+        documents,
+        aggregate: { count: Number(totals.count) || 0, versionSum: Number(totals.versionSum) || 0 },
+      }];
+    })
+  );
+  return Object.fromEntries(results);
 }

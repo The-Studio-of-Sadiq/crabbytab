@@ -59,7 +59,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function createLiveSession(port: LivePort, host: LiveSessionHost, options: { online?: boolean } = {}): LiveSession {
+export function createLiveSession(
+  port: LivePort,
+  host: LiveSessionHost,
+  options: {
+    online?: boolean;
+    /** Where this device's last download of each live collection stopped (see liveListenerScopes). */
+    since?: Partial<Record<LiveCollectionName, number>>;
+  } = {}
+): LiveSession {
   const listeners = new Map<string, { scope: LiveScope; unsubscribe: () => void }>();
   const pendingByScope = new Map<string, Set<string>>();
   const cacheOnlyScopes = new Set<string>();
@@ -165,7 +173,7 @@ export function createLiveSession(port: LivePort, host: LiveSessionHost, options
     setActiveRound(roundId, concurrentRoundIds) {
       if (disposed) return;
       const wanted = new Map(
-        liveListenerScopes(roundId, concurrentRoundIds).map((scope) => [liveScopeKey(scope), scope])
+        liveListenerScopes(roundId, concurrentRoundIds, options.since).map((scope) => [liveScopeKey(scope), scope])
       );
       for (const key of [...listeners.keys()]) if (!wanted.has(key)) stopListening(key);
       for (const [key, scope] of wanted) if (!listeners.has(key)) subscribe(scope);

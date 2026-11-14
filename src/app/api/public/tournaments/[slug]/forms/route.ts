@@ -34,6 +34,7 @@ import {
   type PublicFormSourceType,
 } from "@/lib/publicForms";
 import { PUBLIC_FORMS_PASSWORD_DOCUMENT, verifyPublicFormsPassword } from "@/lib/publicFormsPassword";
+import { serverStamp } from "@/lib/cloudStampServer";
 
 export const runtime = "nodejs";
 
@@ -347,9 +348,9 @@ async function handleBallot(context: HandlerContext & { adjudicator: Adjudicator
       : planPrivateBallotWrites([ballot], existingByDebate, locked);
     const existingById = new Map(existing.map((record) => [record.id, record.data]));
     for (const id of plan.discardExistingIds) {
-      transaction.update(ballotCollection.doc(id), supersededBallotUpdate(existingById.get(id) ?? {}));
+      transaction.update(ballotCollection.doc(id), { ...supersededBallotUpdate(existingById.get(id) ?? {}), ...serverStamp() });
     }
-    for (const write of plan.writes) transaction.set(ballotCollection.doc(write.id), write);
+    for (const write of plan.writes) transaction.set(ballotCollection.doc(write.id), { ...write, ...serverStamp() });
     return plan.writes;
   });
 
@@ -413,6 +414,6 @@ async function handleFeedback(context: HandlerContext & { source: { id: string; 
     id: `feedback-public-${source.id}-${randomUUID()}`,
     timestamp: new Date().toISOString(),
   });
-  await tournamentRef.collection("feedback").doc(feedback.id).set(feedback);
+  await tournamentRef.collection("feedback").doc(feedback.id).set({ ...feedback, ...serverStamp() });
   return json({ received: true });
 }
