@@ -213,6 +213,7 @@ export const staffEn = {
   "setup.staff.audit.updateSnapshot": "Update public snapshot",
   "setup.staff.audit.release": "Release audit log",
   "setup.staff.audit.loading": "Loading audit history…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "No audit events have been recorded yet.",
   "setup.staff.audit.actorSystem": "System",
   "setup.staff.audit.actorPublic": "Public user",

@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Kemas kini syot kilat awam",
   "setup.staff.audit.release": "Keluarkan log audit",
   "setup.staff.audit.loading": "Memuatkan sejarah audit…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Belum ada peristiwa audit direkodkan.",
   "setup.staff.audit.actorSystem": "Sistem",
   "setup.staff.audit.actorPublic": "Pengguna awam",

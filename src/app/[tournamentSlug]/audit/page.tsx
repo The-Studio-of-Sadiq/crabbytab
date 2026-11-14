@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTournament } from "@/contexts/TournamentContext";
 import { ExternalLink, Globe, Hash, History } from "lucide-react";
@@ -28,7 +28,20 @@ function errorNotice(caught: unknown, fallback: MessageKey): ReleaseNotice {
 
 export default function AuditPage() {
   const { t, plural, formatDateTime } = useI18n();
-  const { auditEvents, isOwnerOrAdmin, loading, tournament, releaseAuditLog } = useTournament();
+  const {
+    auditEvents,
+    isOwnerOrAdmin,
+    loading,
+    tournament,
+    releaseAuditLog,
+    cloudRefreshing,
+    cloudSyncState,
+    loadCloudAuditLog,
+  } = useTournament();
+  const [cloudAuditState, setCloudAuditState] = useState<"idle" | "loading" | "error">("idle");
+  const cloudAuditRequestedFor = useRef<string | null>(null);
+  const loadCloudAuditLogRef = useRef(loadCloudAuditLog);
+  loadCloudAuditLogRef.current = loadCloudAuditLog;
   const [release, setRelease] = useState<AuditReleaseStatus | null>(null);
   const [releaseStatusLoading, setReleaseStatusLoading] = useState(true);
   const [releasing, setReleasing] = useState(false);
@@ -36,6 +49,22 @@ export default function AuditPage() {
   const orderedAuditEvents = [...auditEvents].sort((a, b) =>
     b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id)
   );
+
+  // Opening a tournament does not download its audit log (it grows with every command), so this
+  // page reads it once per visit, after the opening merge and any upload or download finish.
+  const cloudAuditTournamentId = Number(tournament?.syncVersion) > 0 ? tournament?.id : undefined;
+  useEffect(() => {
+    if (loading || cloudRefreshing || cloudSyncState === "syncing" || !isOwnerOrAdmin || !cloudAuditTournamentId) return;
+    if (cloudAuditRequestedFor.current === cloudAuditTournamentId) return;
+    cloudAuditRequestedFor.current = cloudAuditTournamentId;
+    setCloudAuditState("loading");
+    loadCloudAuditLogRef.current()
+      .then(() => setCloudAuditState("idle"))
+      .catch((error: unknown) => {
+        console.warn("Could not load the cloud audit log:", error);
+        setCloudAuditState("error");
+      });
+  }, [loading, cloudRefreshing, cloudSyncState, isOwnerOrAdmin, cloudAuditTournamentId]);
 
   useEffect(() => {
     if (!tournament?.slug) return;
@@ -164,6 +193,11 @@ export default function AuditPage() {
           )}
         </Card>
       )}
+
+      {!loading && cloudAuditState === "loading" && (
+        <p role="status" className="text-[13px] text-fg-muted">{t("setup.staff.audit.loading")}</p>
+      )}
+      {cloudAuditState === "error" && <Alert tone="warning">{t("setup.staff.audit.cloudError")}</Alert>}
 
       {loading ? (
         <div className="space-y-3">

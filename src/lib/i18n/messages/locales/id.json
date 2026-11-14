@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Perbarui cuplikan publik",
   "setup.staff.audit.release": "Rilis log audit",
   "setup.staff.audit.loading": "Memuat riwayat audit…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Belum ada peristiwa audit yang tercatat.",
   "setup.staff.audit.actorSystem": "Sistem",
   "setup.staff.audit.actorPublic": "Pengguna publik",

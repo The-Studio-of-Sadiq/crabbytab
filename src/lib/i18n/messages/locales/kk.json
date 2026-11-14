@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Жария көшірмені жаңарту",
   "setup.staff.audit.release": "Аудит журналын жариялау",
   "setup.staff.audit.loading": "Аудит тарихы жүктелуде…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Аудит оқиғалары әлі жазылмаған.",
   "setup.staff.audit.actorSystem": "Жүйе",
   "setup.staff.audit.actorPublic": "Жария пайдаланушы",

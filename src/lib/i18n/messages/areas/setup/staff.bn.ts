@@ -205,6 +205,7 @@ export const staffBn: Catalogue = {
   "setup.staff.audit.updateSnapshot": "পাবলিক স্ন্যাপশট হালনাগাদ করুন",
   "setup.staff.audit.release": "অডিট লগ প্রকাশ করুন",
   "setup.staff.audit.loading": "অডিট ইতিহাস লোড হচ্ছে…",
+  "setup.staff.audit.cloudError": "ক্লাউড থেকে অডিট লগ লোড করা যায়নি। এই ডিভাইসে সংরক্ষিত ঘটনাগুলো দেখানো হচ্ছে।",
   "setup.staff.audit.empty": "এখনো কোনো অডিট ইভেন্ট রেকর্ড হয়নি।",
   "setup.staff.audit.actorSystem": "সিস্টেম",
   "setup.staff.audit.actorPublic": "পাবলিক ব্যবহারকারী",

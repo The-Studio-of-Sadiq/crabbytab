@@ -28,6 +28,34 @@ IndexedDB is bounded only by the browser's disk quota.
 Theme, language and remembered portal passcodes stay in localStorage: they are tiny and must be
 readable synchronously before the first paint.
 
+## Opening a tournament
+
+On a signed-in staff device that already holds the tournament, the working copy is shown at once
+and the cloud copy is merged into it behind it (`TournamentContext`, the load effect). The cloud
+status shows **Syncing…** until the merge finishes. Before, the page waited for the tournament
+lookup, the access check and a full download, so a slow connection kept the tab room on a spinner.
+
+- **Edits made while the download runs are kept.** The merge reads the working copy and the synced
+  baseline only when the download has arrived, and then runs without awaiting, so a record edited
+  meanwhile counts as an edit here (kept, or listed as a sync conflict if the cloud changed it too).
+- **Uploads, downloads and data-entry syncs wait** for the merge ("still being merged … try again in
+  a moment"). If the synced baseline changes anyway while the download runs (for example a
+  conflict choice), the download is repeated, at most twice more, rather than merged against the
+  newer baseline; after that the load stops with "Reload the page".
+- **Live updates start after the merge.** Started earlier, the merge could replace records a
+  listener had already brought in with its older download.
+- A device without a local copy, a data-entry assistant's first open, public pages and private
+  portals load as before.
+
+**The audit log is not downloaded on open** (`ON_DEMAND_COLLECTIONS` in
+`features/tournament/collections.ts`). It grows with every command and only its own page shows it,
+so it was most of the reads of each open. The **Audit log** page reads it once per visit (after the
+opening merge and any running upload or download) and merges it like a download, leaving every
+other collection and its baseline untouched (`mergeCloudIntoWorkingCopy`'s `keepLocal`). **Download
+and compare** still reads every collection, the audit log included. Uploads are unaffected: they
+send only records changed since the baseline, and audit events created on this device are uploaded
+as before.
+
 ## Uploading to the cloud
 
 For cloud tournaments on administrator devices, ballots, debates, teams and adjudicators are also

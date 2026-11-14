@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "सार्वजनिक स्नैपशॉट अपडेट करें",
   "setup.staff.audit.release": "ऑडिट लॉग रिलीज़ करें",
   "setup.staff.audit.loading": "ऑडिट इतिहास लोड हो रहा है…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "अभी तक कोई ऑडिट घटना दर्ज नहीं हुई है।",
   "setup.staff.audit.actorSystem": "सिस्टम",
   "setup.staff.audit.actorPublic": "सार्वजनिक उपयोगकर्ता",

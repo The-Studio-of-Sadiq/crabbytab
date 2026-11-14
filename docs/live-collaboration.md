@@ -173,7 +173,8 @@ snapshots). A listener's first event reads its documents (with the persistent ca
 restarted within about 30 minutes of the last one resumes and is charged only for changes); after
 that each change costs one read per listening device. For a 100-team BP tournament with ~150
 adjudicators, opening a device costs about 100 + 150 + 25 debates + ~50 ballots ≈ 325 reads on top
-of the existing full load, and each confirmed ballot about 3 reads per other admin device (ballot,
+of the opening download (every collection except the audit log, see `storage-and-scale.md`,
+"Opening a tournament"), and each confirmed ballot about 3 reads per other admin device (ballot,
 discarded versions, debate). Soft-deleted debates of a regenerated draw stay in the round's
 listener, so regenerate sparingly on very large events. This keeps four admin devices well inside
 the 50k reads/day budget estimated in the parity plan.
@@ -181,8 +182,8 @@ the 50k reads/day budget estimated in the parity plan.
 ## Migration
 
 Nothing needs migrating: the records keep their shape and `syncVersion`. The first live session on
-a device hydrates the live collections from Firestore (the load still reads every collection once,
-then the listeners take over). Changes made on the device before it went live stay pending until
+a device hydrates the live collections from Firestore (the load still reads every collection but
+the audit log once, then the listeners take over; they start after that merge). Changes made on the device before it went live stay pending until
 the next upload. Older app versions that only upload/download keep working against the same data:
 live writes bump `syncVersion`, so their stale uploads are archived as conflicts as before.
 

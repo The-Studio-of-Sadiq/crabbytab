@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Tournament } from "@/types";
-import { CLOUD_COLLECTIONS } from "../collections";
+import { CLOUD_COLLECTIONS, ON_DEMAND_COLLECTIONS, OPEN_COLLECTIONS } from "../collections";
 import {
   buildDataEntrySyncPayload,
   downloadTournamentCommand,
@@ -948,6 +948,69 @@ describe("tournament cloud synchronization", () => {
         { collectionName: "tournament", recordId: "tournament-1", cloudRecord: { id: "tournament-1" } },
       ])).toHaveLength(1);
     });
+  });
+});
+
+describe("collections not downloaded (keepLocal)", () => {
+  const entry = (record: CloudRecord) => ({ v: Number(record.syncVersion) || 0, h: syncContentHash(record) });
+
+  it("opens a tournament without its audit log, and reads every other collection", () => {
+    expect(ON_DEMAND_COLLECTIONS).toEqual(["auditEvents"]);
+    expect(OPEN_COLLECTIONS).not.toContain("auditEvents");
+    expect([...OPEN_COLLECTIONS, ...ON_DEMAND_COLLECTIONS].sort()).toEqual([...CLOUD_COLLECTIONS].sort());
+  });
+
+  it("keeps the local records and baseline entries of a collection that was not downloaded", () => {
+    const syncedEvent = { id: "e1", action: "ballot.confirm", syncVersion: 1 } as CloudRecord;
+    const newEvent = { id: "e2", action: "draw.release" } as CloudRecord;
+    const synced = { id: "t1", name: "Team", syncVersion: 1 } as CloudRecord;
+    const checkedIn = { id: "t1", name: "Team", checkedIn: true, syncVersion: 2 } as CloudRecord;
+    const local = emptyCollections();
+    local.auditEvents = [syncedEvent, newEvent];
+    local.teams = [synced];
+    const cloud = emptyCollections();
+    cloud.teams = [checkedIn];
+    const baseline: SyncBaseline = { auditEvents: { e1: entry(syncedEvent) }, teams: { t1: entry(synced) } };
+
+    for (const cloudOmitsDeleted of [false, true]) {
+      const merge = mergeCloudIntoWorkingCopy({
+        cloudCollections: cloud,
+        localCollections: local,
+        baseline,
+        keepLocal: ON_DEMAND_COLLECTIONS,
+        cloudOmitsDeleted,
+      });
+
+      // An empty download of the audit log does not read as "deleted in the cloud".
+      expect(merge.collections.auditEvents).toEqual([syncedEvent, newEvent]);
+      expect(merge.baseline.auditEvents).toEqual(baseline.auditEvents);
+      // Downloaded collections merge as before.
+      expect(merge.collections.teams).toEqual([checkedIn]);
+      expect(merge.baseline.teams).toEqual({ t1: entry(checkedIn) });
+      expect(merge.divergedRecords).toEqual([]);
+    }
+  });
+
+  it("reads only the audit log on demand, leaving every other collection's baseline as it is", () => {
+    const localEvent = { id: "e1", action: "ballot.confirm" } as CloudRecord;
+    const otherDevice = { id: "e2", action: "draw.release", syncVersion: 1 } as CloudRecord;
+    const team = { id: "t1", name: "Team", syncVersion: 4 } as CloudRecord;
+    const baseline: SyncBaseline = { teams: { t1: entry(team) } };
+    const local = emptyCollections();
+    local.auditEvents = [localEvent];
+    const cloud = emptyCollections();
+    cloud.auditEvents = [otherDevice];
+
+    const merge = mergeCloudIntoWorkingCopy({
+      cloudCollections: cloud,
+      localCollections: local,
+      baseline,
+      keepLocal: CLOUD_COLLECTIONS.filter((name) => name !== "auditEvents"),
+    });
+
+    expect(merge.collections.auditEvents.map((record) => record.id).sort()).toEqual(["e1", "e2"]);
+    expect(merge.baseline.auditEvents).toEqual({ e2: entry(otherDevice) });
+    expect(merge.baseline.teams).toEqual(baseline.teams);
   });
 });
 

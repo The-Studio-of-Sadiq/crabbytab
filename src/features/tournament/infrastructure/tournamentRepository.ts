@@ -268,18 +268,20 @@ export function createFirestoreTournamentRepository(): TournamentCloudRepository
         return false;
       });
     },
-    async getCollections(tournamentId) {
+    async getCollections(tournamentId, names = CLOUD_COLLECTIONS) {
       const firestoreDb = getFirestore();
-      const snapshots = await Promise.all(
-        CLOUD_COLLECTIONS.map((name) =>
-          getDocs(collection(firestoreDb, "tournaments", tournamentId, name))
+      const snapshots = new Map(
+        await Promise.all(
+          names.map(async (name) =>
+            [name, await getDocs(collection(firestoreDb, "tournaments", tournamentId, name))] as const
+          )
         )
       );
       return Object.fromEntries(
-        CLOUD_COLLECTIONS.map((name, index) => [
+        CLOUD_COLLECTIONS.map((name) => [
           name,
           // The participant index is cloud-only; the working copy never holds it.
-          snapshots[index].docs.map((document) => ({
+          (snapshots.get(name)?.docs || []).map((document) => ({
             ...withoutParticipantIds(document.data()),
             id: document.id,
           })),

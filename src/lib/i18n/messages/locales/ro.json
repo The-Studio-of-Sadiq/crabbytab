@@ -1724,6 +1724,7 @@
   "setup.staff.audit.updateSnapshot": "Actualizați instantaneul public",
   "setup.staff.audit.release": "Publicați jurnalul de audit",
   "setup.staff.audit.loading": "Se încarcă istoricul de audit…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Niciun eveniment de audit nu a fost înregistrat încă.",
   "setup.staff.audit.actorSystem": "Sistem",
   "setup.staff.audit.actorPublic": "Utilizator public",
