@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrabbyTab: free, offline-first debate tabulation</title>
+<meta name="description" content="CrabbyTab is a free, open-source, offline-first tab system for British Parliamentary, two-team and N-team debate tournaments. It follows Tabbycat's algorithms and runs on Vercel and Firebase free tiers.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="CrabbyTab">
+<meta property="og:description" content="Free, open-source, offline-first debate tabulation inspired by Tabbycat.">
+<meta property="og:image" content="assets/og-image.png">
+<link rel="icon" href="assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body class="landing">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><img src="assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span></a>
+    <nav class="topbar-nav" aria-label="Main">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#tabbycat">vs Tabbycat</a>
+      <a href="guide/Home.html">Guide</a>
+      <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Free and open source · AGPL v3.0 or later</p>
+        <h1 id="hero-title">Run a debate tournament without paying for a server.</h1>
+        <p class="lede">CrabbyTab is a debate tabulation system for British Parliamentary, two-team and N-team formats. It follows Tabbycat's draw, allocation and standings algorithms, computes them in your browser, and keeps working when the tab room's connection drops.</p>
+        <div class="actions">
+          <a class="button button-primary" href="guide/Home.html">Read the guide</a>
+          <a class="button" href="https://github.com/The-Studio-of-Sadiq/crabbytab">View on GitHub</a>
+        </div>
+      </div>
+      <ul class="hero-facts">
+        <li><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><div><strong>Free hosting</strong><span>A Next.js app on Vercel and a Firebase project on the no-cost Spark plan. No paid APIs.</span></div></li>
+        <li><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><div><strong>Offline-first</strong><span>Your working copy lives in the browser; changes sync to Firestore when you are back online.</span></div></li>
+        <li><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><div><strong>Reproducible draws</strong><span>Each draw's random seed is stored on the round and in the audit log.</span></div></li>
+        <li><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><div><strong>Moving from Tabbycat?</strong><span>Import a Tabbycat DebateXML archive, or export one back.</span></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <h2 id="features-title">Everything a tab room needs</h2>
+      <p class="section-intro">From setup to the final, CrabbyTab covers the whole tournament: imports, check-ins, draws, allocation, ballots, feedback, standings, breaks, public pages and email.</p>
+      <ul class="cards">
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Draws</h3>
+          <p>British Parliamentary, two-team (Asian/UADC, Australs, World Schools, Karl Popper, custom) and N-team rooms. Power pairing, random, round robin, seeded and manual draws, conflict avoidance, side balance, byes and a drag-and-drop draw editor.</p>
+          <a href="guide/Rounds-and-Draws.html">Rounds and draws</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/></svg>Adjudicator allocation</h3>
+          <p>Hungarian allocation weighing adjudicator strength, conflicts and history, with preformed panels, feedback-weighted scores and venue allocation with hard and soft constraints.</p>
+          <a href="guide/Adjudicator-Allocation.html">Adjudicator allocation</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>Ballots and results</h3>
+          <p>Consensus and voting ballots, double entry with checks, ballots submitted through adjudicators' private URLs, optional public ballot and feedback forms, paper-ballot intake and postponed debates.</p>
+          <a href="guide/Ballots-and-Results.html">Ballots and results</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15v2"/><path d="M11 11v6"/><path d="M15 7v10"/><path d="M19 4v13"/></svg>Standings, breaks and liveness</h3>
+          <p>Configurable team and speaker precedence, break categories with institution caps and reserves, Standard and AIDA break rules, partial elimination rounds and live/safe/dead liveness per category.</p>
+          <a href="guide/Standings-and-Metrics.html">Standings</a> · <a href="guide/Breaks-and-Eliminations.html">Breaks</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Public site</h3>
+          <p>Draws, results, standings, motions, tabs and breaks appear only once you release them. Public pages are served from a cached snapshot made at publish time, which keeps Firestore reads within the free tier.</p>
+          <a href="guide/Public-Pages-and-Releases.html">Public pages and releases</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Private URLs and email</h3>
+          <p>Personal links for ballots, feedback and check-ins, QR slips, email campaigns and automatic draw and result notifications.</p>
+          <a href="guide/Private-URLs-and-Portals.html">Private URLs</a> · <a href="guide/Email-and-Notifications.html">Email</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>26 languages</h3>
+          <p>English plus every language Tabbycat offers, including right-to-left Arabic and Hebrew. The 25 non-English catalogues are machine-drafted and still need review by fluent speakers.</p>
+          <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/internationalization.md">Internationalisation notes</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>REST API</h3>
+          <p>A versioned API at <code>/api/v1</code> with per-tournament, scoped, hashed and revocable tokens, rate limits, transactional writes and an OpenAPI document.</p>
+          <a href="guide/API-and-Tokens.html">API and tokens</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Audit log</h3>
+          <p>A hash-chained log of tab-room actions, including overrides of tournament rules with their recorded reasons, from the UI and the API.</p>
+          <a href="guide/Audit-Log.html">Audit log</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>Offline work and live sync</h3>
+          <p>Ballots, draws, allocations and check-ins in the current round sync live between admin devices. Other data uploads and downloads explicitly, and conflicting edits are archived instead of overwritten.</p>
+          <a href="guide/Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>
+        </li>
+        <li class="card">
+          <h3><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Imports and exports</h3>
+          <p>CSV imports for institutions, teams, adjudicators, venues and motions; DebateXML import and export; full JSON backups with a validated restore; CSV exports.</p>
+          <a href="guide/Participants-and-Imports.html">Participants and imports</a> · <a href="guide/CSV-Formats.html">CSV formats</a>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section section-alt" aria-labelledby="how-title">
+    <div class="wrap">
+      <h2 id="how-title">How it works</h2>
+      <p class="section-intro">CrabbyTab keeps computation local and uses the cloud for sharing, not for thinking.</p>
+      <ol class="steps">
+        <li><h3>Work in the browser</h3><p>The tournament you edit is stored in your browser. Draws, allocations, standings and breaks are calculated there, so a slow connection does not stop the tab room.</p></li>
+        <li><h3>Sync to Firebase</h3><p>Changes are merged into Firestore. Records changed on two devices are listed as conflicts for you to resolve; nothing newer is silently replaced.</p></li>
+        <li><h3>Publish what you release</h3><p>A sanitised snapshot of released information feeds the public pages. Participants use private URLs that write straight to the cloud copy.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="tabbycat" aria-labelledby="tabbycat-title">
+    <div class="wrap">
+      <h2 id="tabbycat-title">Compared with Tabbycat</h2>
+      <p class="section-intro"><a href="https://github.com/TabbycatDebate/tabbycat">Tabbycat</a> is the established open-source tab system, and CrabbyTab follows its algorithms and conventions closely. CrabbyTab is an independent project and is not affiliated with Tabbycat. Its results are checked against Tabbycat's own code with a differential test harness, but it is younger and less battle-tested.</p>
+      <div class="compare">
+        <div class="card">
+          <h3>Where CrabbyTab differs by design</h3>
+          <ul>
+            <li><strong>Hosting:</strong> serverless on free tiers instead of a Django and PostgreSQL server.</li>
+            <li><strong>Offline:</strong> a local working copy that keeps working without a connection.</li>
+            <li><strong>Public pages:</strong> served from snapshots made at publish time and cached.</li>
+            <li><strong>Accountability:</strong> a hash-chained audit log and recorded reasons for every rule override.</li>
+            <li><strong>Ties:</strong> teams tied in a standings tier are ordered by the draw's seeded random order rather than database order.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Known gaps and limits</h3>
+          <ul>
+            <li><strong>Live collaboration</strong> covers the current round's ballots, draw, allocation and check-ins; settings, rounds, motions, breaks and feedback still sync by upload and download.</li>
+            <li><strong>N-team rooms</strong> support random and manual draws only, as in Tabbycat.</li>
+            <li><strong>BP ballots</strong> are consensus only; voting ballots are for two-team formats.</li>
+            <li><strong>No browser push notifications</strong>; email is used instead. Institutions are per tournament.</li>
+            <li><strong>Translations</strong> are machine-drafted; server errors and emails are still English.</li>
+          </ul>
+        </div>
+      </div>
+      <p><a href="guide/Comparison-with-Tabbycat.html">Read the full comparison with Tabbycat</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tabbycat-parity-plan.md">Parity audit and roadmap</a></p>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="start" aria-labelledby="start-title">
+    <div class="wrap two-col">
+      <div>
+        <h2 id="start-title">Quick start</h2>
+        <p>You need Node.js 22 and npm. Firebase is optional for trying CrabbyTab on your own machine: tournament data can stay in the browser.</p>
+<pre class="terminal" tabindex="0"><code>git clone https://github.com/The-Studio-of-Sadiq/crabbytab.git
+cd crabbytab
+npm ci
+cp .env.example .env.local
+npm run dev</code></pre>
+        <p>Then open <code>http://localhost:3000</code>. Add your Firebase project's <code>NEXT_PUBLIC_FIREBASE_*</code> values to <code>.env.local</code> to enable sign-in and cloud sync.</p>
+        <p><a href="guide/Installation-and-Local-Development.html">Installation and local development</a> · <a href="guide/First-Tournament-Walkthrough.html">First tournament walkthrough</a></p>
+      </div>
+      <div>
+        <h3>Deploy for a tournament</h3>
+        <ol>
+          <li>Create a Firebase project with Email/Password sign-in and a Firestore database.</li>
+          <li>Review and publish the repository's <code>firestore.rules</code>.</li>
+          <li>Import the repository into Vercel (Next.js preset, Node.js 22) and set the environment variables from <code>.env.example</code>.</li>
+          <li>Create user accounts in Firebase Authentication and list global administrators in <code>FIREBASE_ADMIN_UIDS</code>.</li>
+        </ol>
+        <p class="note">CrabbyTab has no public sign-up. Keep the service-account key and SMTP password in server-side environment variables only.</p>
+        <p><a href="guide/Deploying-to-Vercel-and-Firebase.html">Deploying to Vercel and Firebase</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="links-title">
+    <div class="wrap">
+      <h2 id="links-title">Links</h2>
+      <ul class="link-list">
+        <li><a class="button" href="guide/Home.html">Guide</a></li>
+        <li><a class="button" href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source code</a></li>
+        <li><a class="button" href="https://github.com/The-Studio-of-Sadiq/crabbytab/wiki">GitHub wiki</a></li>
+        <li><a class="button" href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a></li>
+        <li><a class="button" href="guide/FAQ-and-Troubleshooting.html">FAQ</a></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <p>CrabbyTab is free software under the GNU AGPL v3.0 or later. It is an independent project and is not affiliated with Tabbycat.</p>
+  </div>
+</footer>
+</body>
+</html>

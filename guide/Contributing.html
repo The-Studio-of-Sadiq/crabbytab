@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contributing · CrabbyTab guide</title>
+<meta name="description" content="Contributing: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html" aria-current="page">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="contributing">Contributing<a class="anchor" href="#contributing" aria-label="Link to this section">#</a></h1>
+<p>Contributions are welcome: bug fixes, tournament-workflow improvements, accessibility, translations,
+documentation, tests and ideas. This page summarises how work flows into CrabbyTab. The source documents are:</p>
+<ul>
+<li><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/CONTRIBUTING.md">CONTRIBUTING.md</a>: setting up, making
+a change, opening a pull request.</li>
+<li><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/AGENTS.md">AGENTS.md</a>: the engineering rules, for people
+and AI coding agents alike.</li>
+<li><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/CODE_OF_CONDUCT.md">CODE_OF_CONDUCT.md</a>.</li>
+<li><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/SECURITY.md">SECURITY.md</a>: report vulnerabilities
+privately with GitHub&#39;s <em>Report a vulnerability</em>, never in a public issue.</li>
+</ul>
+<p>Contributions are distributed under <strong>AGPL-3.0-or-later</strong>.</p>
+<h2 id="branches-and-pull-requests">Branches and pull requests<a class="anchor" href="#branches-and-pull-requests" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Branch</th>
+<th scope="col">Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>beta</code></td>
+<td>Where development is integrated. Feature branches start here and pull requests target it.</td>
+</tr>
+<tr>
+<td><code>main</code></td>
+<td>The default branch on GitHub. It receives <code>beta</code> when a release is cut; it is currently behind <code>beta</code>.</td>
+</tr>
+<tr>
+<td>feature branches</td>
+<td>One per change, named after it (for example <code>claude/p2-results-pages</code>). Merged into <code>beta</code> by pull request.</td>
+</tr>
+</tbody></table></div>
+<p>The workflow:</p>
+<ol>
+<li>For a substantial change, open an issue first so the scope can be agreed.</li>
+<li>Branch from <code>beta</code>. Keep the branch to one fix or feature. If <code>beta</code> moves on, merge it into your branch.</li>
+<li>Make the change, with tests and documentation (below).</li>
+<li>Run the checks locally (below).</li>
+<li>Open a pull request into <code>beta</code> using the template: summary, related issue, changes, verification, screenshots
+for UI changes, and any configuration, data or migration implications.</li>
+</ol>
+<p>CI runs lint, the type check, the tests and the build on every push and pull request; all must pass.</p>
+<h2 id="local-setup">Local setup<a class="anchor" href="#local-setup" aria-label="Link to this section">#</a></h2>
+<p>Node.js 22 (<code>package.json</code> sets <code>engines.node</code> to <code>22.x</code>) and npm. See
+<a href="Installation-and-Local-Development.html">Installation and local development</a>.</p>
+<pre tabindex="0"><code class="language-sh">npm ci              # install exactly what package-lock.json records
+npm run dev         # http://localhost:3000</code></pre>
+<p>Copy <code>.env.example</code> to <code>.env.local</code> only if your change needs Firebase or email. Ordinary tests need no
+credentials.</p>
+<h2 id="engineering-rules-in-short">Engineering rules in short<a class="anchor" href="#engineering-rules-in-short" aria-label="Link to this section">#</a></h2>
+<p>From <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/AGENTS.md">AGENTS.md</a>:</p>
+<ul>
+<li><strong>Read first.</strong> Inspect the existing code before changing it; the code is the source of truth. Reuse existing
+helpers rather than duplicating them. Keep changes focused; do not redesign unrelated pages.</li>
+<li><strong>Local-first.</strong> Draws, allocation, standings and validation run in the browser as deterministic functions,
+separate from React components. Do not add paid services or remote computation.</li>
+<li><strong>Tournament integrity.</strong> Never silently relax a hard draw constraint, discard a team, or treat a missing result
+as zero. Report constraints that cannot be met. Randomness takes an explicit seed, so the same inputs and seed
+give the same draw. Do not claim a draw is optimal unless the algorithm proves it.</li>
+<li><strong>Document trade-offs.</strong> Heuristics, tie-breaking rules and known differences from Tabbycat are written down in
+the code and in <code>docs/</code> (see <code>tabbycat-parity-plan.md</code>, &quot;Still different from Tabbycat&quot;).</li>
+<li><strong>Security.</strong> Enforce access in <code>firestore.rules</code> or server routes, never only in the UI. Keep secrets out of the
+client bundle. Do not weaken the rules to work around a bug. Never log tokens or participant data.</li>
+<li><strong>Data.</strong> Validate before saving; use transactions or batches for multi-step writes; never silently overwrite
+newer changes; keep stored data backward compatible.</li>
+<li><strong>UI.</strong> Accessible labels, keyboard use, visible focus, status not by colour alone, loading/empty/error states,
+and protection against double submission. New user-facing text must be translatable (below).</li>
+<li><strong>Dependencies.</strong> Use the existing stack (Next.js 15, React 19, TypeScript, Tailwind 3, Firebase, lucide-react,
+PapaParse, Vitest). Do not add a dependency for something small, and never upgrade a major version as part of
+an unrelated change.</li>
+<li><strong>Git.</strong> Do not rewrite history on shared branches or commit secrets, <code>.env.local</code>, build output or
+<code>node_modules</code>.</li>
+</ul>
+<h2 id="code-style">Code style<a class="anchor" href="#code-style" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>TypeScript throughout. Avoid <code>any</code>; prefer explicit types or <code>unknown</code> with narrowing. Do not loosen
+<code>tsconfig.json</code> or disable lint rules to make a change pass.</li>
+<li>Small functions with clear names. Comments explain why (a domain rule, a Tabbycat reference, a trade-off), not
+what the code does.</li>
+<li>Business logic lives in <code>src/lib/**</code> and <code>src/features/tournament/application/</code>; Firestore access in
+<code>src/features/tournament/infrastructure/</code> and server routes under <code>src/app/api/</code>. See <a href="Architecture.html">Architecture</a>.</li>
+<li>Components are server components unless they need interactivity or browser APIs (<code>&quot;use client&quot;</code>).</li>
+<li>Styling with Tailwind and the shared components in <code>src/components/ui/</code>; see
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/design-system.md">design-system.md</a>. For
+right-to-left languages use logical utilities (<code>ms-*</code>, <code>pe-*</code>, <code>text-start</code>).</li>
+<li><code>npm run lint</code> must be clean.</li>
+</ul>
+<h2 id="tests">Tests<a class="anchor" href="#tests" aria-label="Link to this section">#</a></h2>
+<p>Every change to business logic needs a test: draws and constraints, byes and side balance, standings and
+tie-breaks, ballots and scoring, breaks, CSV import, permissions and error cases. Include the infeasible case,
+not just the happy path, and a fixed-seed reproducibility check for anything random.</p>
+<p>Before opening a pull request, run what CI runs:</p>
+<pre tabindex="0"><code class="language-sh">npm run lint
+npx tsc --noEmit
+npm run test
+npm run build</code></pre>
+<p>If your change alters draws, standings, breaks or allocation, the Tabbycat differential test may report a changed
+discrepancy. Review it, record a verdict in <code>tools/tabbycat-diff/known-differences.json</code>, and regenerate the
+report. Details, and how to run single files: <a href="Testing.html">Testing</a>.</p>
+<p>If you cannot run a check, say so in the pull request and list what you did run.</p>
+<h2 id="documentation-to-update">Documentation to update<a class="anchor" href="#documentation-to-update" aria-label="Link to this section">#</a></h2>
+<p>Update docs in the same pull request when a change affects setup, environment variables, commands, tournament
+rules or draw behaviour, data formats, security or user-facing workflows.</p>
+<ul>
+<li><p><strong>Developer docs</strong> in <code>docs/*.md</code> (the detailed, per-area reference). The main ones:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">File</th>
+<th scope="col">Area</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>draw-generation.md</code>, <code>adjudicator-allocation.md</code>, <code>tournament-rules-enforcement.md</code></td>
+<td>draws, allocation, rule checks</td>
+</tr>
+<tr>
+<td><code>results-and-ballots.md</code>, <code>ballot-intake.md</code>, <code>standings-and-breaks.md</code></td>
+<td>results and the break</td>
+</tr>
+<tr>
+<td><code>participants.md</code>, <code>registration.md</code>, <code>data-import-export.md</code></td>
+<td>participants, registration, CSV, DebateXML</td>
+</tr>
+<tr>
+<td><code>public-pages-and-notifications.md</code>, <code>email-notifications.md</code>, <code>rounds-schedule-and-motions.md</code></td>
+<td>public site, email, schedule, motions</td>
+</tr>
+<tr>
+<td><code>staff-access.md</code>, <code>staff-invitations.md</code>, <code>api.md</code></td>
+<td>roles, invitations, the REST API</td>
+</tr>
+<tr>
+<td><code>storage-and-scale.md</code>, <code>live-collaboration.md</code></td>
+<td>device storage, upload, live sync, Firestore cost</td>
+</tr>
+<tr>
+<td><code>internationalization.md</code>, <code>design-system.md</code></td>
+<td>languages, UI components</td>
+</tr>
+<tr>
+<td><code>tabbycat-parity-plan.md</code></td>
+<td>the roadmap and &quot;Still different from Tabbycat&quot;</td>
+</tr>
+</tbody></table></div>
+</li>
+<li><p><strong>This wiki</strong>, which lives in the repository under <code>docs/wiki/</code>. Edit the pages there in your pull request, not
+in the GitHub wiki editor. Links between pages use the page name without <code>.md</code> (<code>[Testing](Testing)</code>); links to
+<code>docs/*.md</code> use full GitHub URLs on the <code>beta</code> branch. Describe only implemented behaviour and mark limitations
+plainly.</p>
+<p>When <code>docs/wiki/**</code> changes on <code>main</code> or <code>beta</code>, the Pages workflow
+(<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/.github/workflows/pages.yml"><code>.github/workflows/pages.yml</code></a>)
+renders the pages into the guide on the project website and, if the <code>WIKI_TOKEN</code> secret is set, copies them to
+the GitHub wiki (pages are added or updated, never deleted). To preview the guide locally, see
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/site/README.md">site/README.md</a>.</p>
+</li>
+<li><p><strong><code>.env.example</code></strong> when you add a configuration variable (placeholders only).</p>
+</li>
+</ul>
+<h2 id="translations">Translations<a class="anchor" href="#translations" aria-label="Link to this section">#</a></h2>
+<p>All user-facing text goes through the i18n catalogues, and every English key must exist in every other catalogue,
+or the tests fail. When you add a string, add the key to every locale (copy the English text if you cannot
+translate it, and say so in the pull request). Every non-English catalogue is machine-drafted, so corrections
+from fluent speakers are especially welcome. How to add a string, add a language and run <code>npm run i18n:check</code>:
+<a href="Languages-and-Translations.html">Languages and translations</a>.</p>
+<h2 id="lockfiles">Lockfiles<a class="anchor" href="#lockfiles" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><code>package-lock.json</code> is the authoritative lockfile; CI installs with <code>npm ci</code>. If you change dependencies, update
+<code>package.json</code> and <code>package-lock.json</code> together with npm.</li>
+<li>The repository also contains a <code>bun.lock</code>. Do not delete or regenerate it casually, and do not switch the
+project to another package manager.</li>
+<li>Build-time tools for the website (<code>marked</code>) are installed into a temporary folder and are deliberately not in
+<code>package.json</code>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Testing.html" rel="prev"><span>Previous</span>Testing</a><a class="pager-next" href="Security-Model.html" rel="next"><span>Next</span>Security model</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Contributing.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#branches-and-pull-requests">Branches and pull requests</a></li><li><a href="#local-setup">Local setup</a></li><li><a href="#engineering-rules-in-short">Engineering rules in short</a></li><li><a href="#code-style">Code style</a></li><li><a href="#tests">Tests</a></li><li><a href="#documentation-to-update">Documentation to update</a></li><li><a href="#translations">Translations</a></li><li><a href="#lockfiles">Lockfiles</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

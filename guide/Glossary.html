@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glossary · CrabbyTab guide</title>
+<meta name="description" content="Glossary: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html" aria-current="page">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="glossary">Glossary<a class="anchor" href="#glossary" aria-label="Link to this section">#</a></h1>
+<p>Terms as CrabbyTab uses them in its pages and code. Most follow Tabbycat&#39;s meaning; where CrabbyTab differs, the
+entry says so. UI labels are in <strong>bold</strong>.</p>
+<p><strong>Adjudication core</strong> — the chief adjudicators. An adjudicator flagged <em>Adjudication core</em> is always a tester, can be
+listed publicly, and staff can be given the <em>Adjudication Core</em> permission group. See
+<a href="Participants-and-Imports.html">Participants and imports</a> and <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Adjudicator score</strong> — the strength used to allocate adjudicators: the test score (or base score when there is none)
+blended with the weighted feedback average by the round&#39;s feedback weight. See <a href="Feedback.html#scores-and-weighting">Feedback</a>.</p>
+<p><strong>AIDA rules</strong> — break rules of the Australasian Intervarsity Debating Association that limit how many teams per
+institution break (1996, 2016 Australs and 2016 Easters variants). See <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</p>
+<p><strong>Assistant</strong> — Tabbycat&#39;s name for tab-room helpers without full access. In CrabbyTab they are <strong>data-entry staff</strong>,
+managed on <strong>Admin → Assistants</strong> (page <em>Tournament access</em>). See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Availability</strong> — whether a team, adjudicator or room takes part in a round. Anyone without an availability record
+counts as available (Tabbycat counts nobody until checked in). See <a href="Check-ins-and-Availability.html">Check-ins and availability</a>.</p>
+<p><strong>Ballot / ballot version</strong> — a recorded result for one debate. Each save is a new version; the one confirmed,
+non-discarded version counts. See <a href="Ballots-and-Results.html">Ballots and results</a>.</p>
+<p><strong>Ballot intake</strong> — the <strong>Results → Ballot intake</strong> board that tracks printed ballot sheets by barcode: <em>Missing</em>,
+<em>Received</em>, <em>Entered</em>, <em>Awaiting check</em>, <em>Confirmed</em> or <em>Disputed</em>. See <a href="Printing-and-Display.html">Printing and display</a>.</p>
+<p><strong>Base score</strong> — an adjudicator&#39;s rating before feedback (<strong>Base rating (1–10)</strong> in the adjudicator dialog). Changes are
+kept in the score history. Compare <em>test score</em>. See <a href="Feedback.html">Feedback</a>.</p>
+<p><strong>BP (British Parliamentary)</strong> — four teams per room in the positions Opening Government (OG), Opening Opposition (OO),
+Closing Government (CG) and Closing Opposition (CO). Teams earn 3, 2, 1 or 0 points by rank. See
+<a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</p>
+<p><strong>Bracket</strong> — in a power-paired round, the teams on the same score of the first team-standings metric (wins in
+two-team formats, points in BP). See <a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Break</strong> — the teams that qualify for the elimination rounds of a break category, followed by its reserves. Generated
+on <strong>Results → Break</strong>. See <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</p>
+<p><strong>Break category</strong> — an independent break, such as Open, ESL or Novice, with its own size, reserves, priority and rule. A
+<em>general</em> category includes every team not marked ineligible. See <a href="Breaks-and-Eliminations.html#break-categories">Breaks and eliminations</a>.</p>
+<p><strong>Bubble-up-bubble-down</strong> — an odd-bracket method that forms intermediate brackets and swaps a team with a neighbour
+when the pairing would clash. See <a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Bye</strong> — a team sits out a round because the field does not fill every room. <em>Bye team results</em> decides whether it
+counts as absent or as a full win; it never gives speaker scores. In a partial elimination, a top seed&#39;s bye means it
+advances without debating. See <a href="Rounds-and-Draws.html#byes">Rounds and draws</a>.</p>
+<p><strong>Chair</strong> — the adjudicator who leads a panel. Chairs and voting panellists can submit ballots from their private URL.
+See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</p>
+<p><strong>Check-in</strong> — marking a team, speaker, adjudicator or room present, by tick, barcode scan or self check-in. With
+<em>Check-in expiry</em>, old check-ins stop counting. See <a href="Check-ins-and-Availability.html">Check-ins and availability</a>.</p>
+<p><strong>Cloud copy</strong> — the tournament stored in Firestore, shared by devices, private URLs, staff and the public site.
+Compare <em>working copy</em>. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<p><strong>Code name</strong> — a team&#39;s public alias. With a code-name mode on, public pages show code names only and real names never
+leave the server; the <strong>Code names</strong> page decodes them for the tab room. See
+<a href="Public-Pages-and-Releases.html#code-names">Public pages and releases</a>.</p>
+<p><strong>Composite team</strong> — a team whose speakers come from more than one institution. See
+<a href="Participants-and-Imports.html">Participants and imports</a>.</p>
+<p><strong>Conflict</strong> — a reason an adjudicator must not judge a team or sit with another adjudicator: personal, institutional,
+or a team–institution conflict. Allocation avoids them through a large penalty and lists any that remain. Conflicts
+are never public. See
+<a href="Adjudicator-Allocation.html#conflicts">Adjudicator allocation</a>.</p>
+<p><strong>Consensus ballot</strong> — one result for the whole panel. Compare <em>voting ballot</em>. See
+<a href="Ballots-and-Results.html#consensus-and-voting-ballots">Ballots and results</a>.</p>
+<p><strong>Data-entry staff</strong> — signed-in staff whose permission groups decide what they can do (enter ballots, check people in,
+and so on). Tabbycat&#39;s assistants. See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>DebateXML</strong> — the XML archive format Tabbycat uses. CrabbyTab imports it as a new tournament and exports it. See
+<a href="Participants-and-Imports.html#debatexml-import">Participants and imports</a>.</p>
+<p><strong>Double entry</strong> — a second person checks every tab-room ballot before it counts, by <strong>Review</strong> or by <strong>Blind</strong>
+re-entry. See <a href="Ballots-and-Results.html#double-entry">Ballots and results</a>.</p>
+<p><strong>Draw</strong> — the pairing of teams into rooms and positions for a round. See <a href="Rounds-and-Draws.html">Rounds and draws</a>.</p>
+<p><strong>Draw check</strong> — the list of errors and warnings for a draw (clashes, missing rooms, side imbalance and so on).
+Releasing a draw with errors needs a recorded reason. See <a href="Rounds-and-Draws.html#draw-check-and-flags">Rounds and draws</a>.</p>
+<p><strong>Draw stage</strong> — where a round&#39;s draw is in its release: <strong>No draw</strong>, <strong>Draft</strong>, <strong>Confirmed, not released</strong>,
+<strong>Released to teams only</strong> and <strong>Released to public</strong>. The stored values are <code>none</code>, <code>draft</code>, <code>locked</code>,
+<code>teams_released</code> and <code>confirmed</code> (<code>released</code> is read as a synonym). See <a href="Rounds-and-Draws.html#draw-stages">Rounds and draws</a>.</p>
+<p><strong>Draw strength</strong> — a standings metric: the sum of a team&#39;s opponents&#39; team points. Variants use opponents&#39; wins,
+speaks or rank. See <a href="Standings-and-Metrics.html">Standings and metrics</a>.</p>
+<p><strong>Equity</strong> — a permission group for equity officers: see and edit conflicts. It cannot see participant contact
+details. See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Feedback</strong> — ratings and answers about adjudicators from teams and other adjudicators, submitted on private URLs,
+public forms or entered by the tab room. See <a href="Feedback.html">Feedback</a>.</p>
+<p><strong>Feedback path</strong> — who may give feedback on whom (for example chair on panellists, teams on the chair). See
+<a href="Feedback.html#feedback-paths-who-rates-whom">Feedback</a>.</p>
+<p><strong>Feedback weight</strong> — set per round on the Allocation page: how much the feedback average replaces an adjudicator&#39;s
+test or base score (0 to 1; new rounds default to 1). See <a href="Feedback.html#scores-and-weighting">Feedback</a>.</p>
+<p><strong>Fold / slide / adjacent</strong> — pairing methods within a bracket of ten: fold 1 v 10, slide 1 v 6, adjacent 1 v 2. See
+<a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Forfeit</strong> — a two-team ballot option: the other team wins with 1 point, without speaker scores. See
+<a href="Ballots-and-Results.html#forfeits">Ballots and results</a>.</p>
+<p><strong>Ghost speech</strong> — see <em>iron-person speech</em>.</p>
+<p><strong>Global administrator</strong> — a site-wide administrator whose UID is in the server variable <code>FIREBASE_ADMIN_UIDS</code>. Only
+global administrators create tournaments. See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Importance</strong> — a debate&#39;s priority for allocation, 0–10, set by hand or by <strong>Prioritise by bracket</strong> /
+<strong>Prioritise by liveness</strong>. Preformed panels also have an importance. See
+<a href="Adjudicator-Allocation.html#debate-priority-and-liveness">Adjudicator allocation</a>.</p>
+<p><strong>Independent</strong> — a team or adjudicator with no institution (<em>Independent / unaffiliated</em>), so no institutional
+conflict applies. See <a href="Participants-and-Imports.html">Participants and imports</a>.</p>
+<p><strong>Info slide</strong> — background text released before a round&#39;s motions. Motion release has three steps: <em>Not released</em>,
+<em>Info slides</em>, <em>Motions</em>. See <a href="Public-Pages-and-Releases.html#per-round-releases">Public pages and releases</a>.</p>
+<p><strong>Intermediate bracket</strong> — a bracket formed between two brackets to absorb an odd team: the bottom team of the higher
+bracket meets the top team of the lower one. See <a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Iron-person speech</strong> — a speaker giving an extra speech when their team is short. The extra speech is marked
+<strong>Ghost</strong> on the ballot: it never counts in the speaker tab, and counts towards the team score only with
+<em>Team score includes ghosts</em>. See <a href="Ballots-and-Results.html#iron-person-ghost-speeches">Ballots and results</a>.</p>
+<p><strong>Live</strong> — the sync status of an administrator device whose ballots, debates, teams and adjudicators sync with the cloud
+copy record by record. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<p><strong>Liveness</strong> — per break category, whether a team is <em>live</em>, <em>safe</em> (certain to break) or <em>dead</em> (cannot break), from
+the completed rounds. Shown in standings, on the Draw and Allocation pages. See
+<a href="Adjudicator-Allocation.html#debate-priority-and-liveness">Adjudicator allocation</a>.</p>
+<p><strong>Local only</strong> — a tournament that has never been uploaded: nothing leaves the device. See
+<a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<p><strong>Motion veto</strong> — a team striking one of the round&#39;s motions. With <strong>Record motion vetoes</strong>, ballots record one veto per
+team; vetoes feed the motion statistics. See <a href="Ballots-and-Results.html#motions-vetoes-and-preferences-on-ballots">Ballots and results</a>.</p>
+<p><strong>N teams per room</strong> — the format for rooms of any team count other than 2 or 4 (Tabbycat&#39;s <em>teams in debate</em>, used by
+its Public Speaking preset with 6). Positions are <em>Team 1</em> … <em>Team N</em>; only random and manual draws. See
+<a href="Rounds-and-Draws.html#n-teams-per-room">Rounds and draws</a>.</p>
+<p><strong>One-up-one-down</strong> — a conflict-avoidance method that swaps opponents between adjacent rooms to remove clashes. See
+<a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Panellist</strong> — an adjudicator on a panel other than the chair. Panellists vote on voting ballots and may submit their
+own sheet. See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</p>
+<p><strong>Partial elimination</strong> — a first elimination round when the break size is not a full bracket: the top seeds get byes
+and the rest debate. See <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</p>
+<p><strong>Passcode</strong> — the secret that goes with a private URL. It is separate from the link and can be printed on slips. See
+<a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</p>
+<p><strong>Permission group</strong> — a named set of permissions given to data-entry staff, such as Tabulation assistant, Equity,
+Adjudication Core or a custom group. See <a href="Staff-and-Roles.html#permissions">Staff and roles</a>.</p>
+<p><strong>Postponed debate</strong> — a debate marked as not yet held; it gets no room and its result can come later. See
+<a href="Ballots-and-Results.html#postponed-debates">Ballots and results</a>.</p>
+<p><strong>Power pairing</strong> — drawing teams against others on similar results: two-team rounds pair within brackets; BP rounds use
+Tabbycat&#39;s Hungarian assignment. Round 1 is drawn randomly. See <a href="Rounds-and-Draws.html#draw-types">Rounds and draws</a>.</p>
+<p><strong>Precedence</strong> — the ordered list of metrics that ranks teams or speakers (for example points, then total speaks). See
+<a href="Standings-and-Metrics.html">Standings and metrics</a>.</p>
+<p><strong>Preallocated sides</strong> — two-team sides set on the Draw page before the draw. See
+<a href="Rounds-and-Draws.html#side-allocation">Rounds and draws</a>.</p>
+<p><strong>Preformed panel</strong> — a panel built before the draw and placed as a unit by its importance. See
+<a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</p>
+<p><strong>Private URL</strong> — a participant&#39;s secret link (<code>/{slug}/private/team/…</code>, <code>/adjudicator/…</code> or <code>/speaker/…</code>), used with a
+passcode, that opens their portal: their draw, ballots, feedback and self check-in. No account is needed. See
+<a href="Private-URLs-and-Portals.html">Private URLs and portals</a>.</p>
+<p><strong>Public form</strong> — an optional ballot or feedback form on the public site for participants without private URLs, with an
+optional password. Its submissions are always unconfirmed. See
+<a href="Public-Pages-and-Releases.html#public-forms-ballots-and-feedback-without-private-urls">Public pages and releases</a>.</p>
+<p><strong>Public snapshot</strong> — the cleaned-up copy of released data that the server builds from the cloud copy when you publish.
+Public pages read only this. See <a href="Public-Pages-and-Releases.html#how-publishing-works">Public pages and releases</a>.</p>
+<p><strong>Pull-up</strong> — a team moved up from a lower bracket to fill an odd bracket. Pull-ups are recorded on the debate and
+counted by the <em>Pull-ups</em> metric. See <a href="Rounds-and-Draws.html#two-team-power-pairing">Rounds and draws</a>.</p>
+<p><strong>Release</strong> — making something visible to participants or the public: a draw stage, a round&#39;s results, team speaks,
+motions, or an item on the <strong>Public release</strong> panel. Releases upload and publish in one step. See
+<a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<p><strong>Republish</strong> — <strong>Republish public pages</strong> (account menu) rebuilds the public snapshot from the cloud copy. See
+<a href="Public-Pages-and-Releases.html#how-publishing-works">Public pages and releases</a>.</p>
+<p><strong>Reserve</strong> — a team listed after the breaking teams of a category (R1, R2, …); the <em>Reserve size</em> sets how many. See <a href="Breaks-and-Eliminations.html#break-categories">Breaks and eliminations</a>.</p>
+<p><strong>Room constraints</strong> — <em>hard requirements</em> a room must meet (category, seats, accessible, online, near tab room) and
+<em>soft room preferences</em> for room categories with a priority (Tabbycat&#39;s venue constraints). See
+<a href="Venues-and-Constraints.html">Venues and constraints</a>.</p>
+<p><strong>Rules preset</strong> — a bundle of Tabbycat&#39;s settings for a named format (BP, Australs, WSDC, APDA, Public Speaking and
+others), applied when the tournament is created, or later to an existing tournament after a preview of every change. See
+<a href="Tournament-Setup-and-Formats.html#rules-presets">Tournament setup and formats</a>.</p>
+<p><strong>Self check-in</strong> — a participant checking themselves in from their private URL. See
+<a href="Check-ins-and-Availability.html#self-check-in">Check-ins and availability</a>.</p>
+<p><strong>Self-split ballot</strong> — in a two-team voting round with one voting adjudicator, the adjudicator declares a 2:1 split.
+See <a href="Ballots-and-Results.html#self-split-ballots">Ballots and results</a>.</p>
+<p><strong>Side names</strong> — what the two sides are called: Affirmative/Negative (default), Government/Opposition,
+Proposition/Opposition, Pro/Con, Appellant/Respondent, Team 1/Team 2 or Plaintiff/Defense. BP uses OG, OO, CG, CO.
+See <a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</p>
+<p><strong>Silent round</strong> — a round whose results are kept off public results and standings. See
+<a href="Public-Pages-and-Releases.html#per-round-releases">Public pages and releases</a>.</p>
+<p><strong>Slug</strong> — the short name in a tournament&#39;s address, for example <code>my-open-2026</code>. It cannot be changed later.</p>
+<p><strong>Speaker category</strong> — a group of speakers such as ESL or Novice, managed on <strong>Setup → Speaker categories</strong>. Public
+categories get their own speaker tab; categories can also decide break eligibility. See
+<a href="Standings-and-Metrics.html">Standings and metrics</a> and <a href="Breaks-and-Eliminations.html">Breaks and eliminations</a>.</p>
+<p><strong>Swing team</strong> — a team made up on the day to fill the last room instead of giving byes. It is drawn like any team, but
+it and its speakers are left out of standings and the break. See <a href="Rounds-and-Draws.html#swing-teams">Rounds and draws</a>.</p>
+<p><strong>Test score</strong> — an adjudicator score from a test that, when set, replaces the base score in allocation. See
+<a href="Feedback.html#scores-and-weighting">Feedback</a>.</p>
+<p><strong>Tester</strong> — an adjudicator flag (always on for the adjudication core); the feedback pages note when a tester sat on an
+adjudicator&#39;s panel. See <a href="Participants-and-Imports.html">Participants and imports</a>.</p>
+<p><strong>Tournament administrator</strong> — a person with full control of one tournament (Tabbycat&#39;s tab director). See
+<a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<p><strong>Trainee</strong> — an adjudicator who sits on a panel without voting and cannot submit ballots. Only adjudicators marked as
+trainees can fill trainee slots. See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</p>
+<p><strong>Two-team formats</strong> — UADC (Asian), Australs, WSDC and custom two-team. See
+<a href="Tournament-Setup-and-Formats.html">Tournament setup and formats</a>.</p>
+<p><strong>Upload now / Download and compare</strong> — the manual cloud sync for data that does not sync live (settings, rounds,
+motions, rooms, break categories, feedback and so on). Download compares the cloud copy with this device and shows
+conflicts. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<p><strong>Voting ballot</strong> — one scoresheet per voting adjudicator; the majority decides. BP ballots are always consensus. See
+<a href="Ballots-and-Results.html#consensus-and-voting-ballots">Ballots and results</a>.</p>
+<p><strong>Who-beat-whom</strong> — a standings metric that ranks two tied teams by their result against each other. See
+<a href="Standings-and-Metrics.html">Standings and metrics</a>.</p>
+<p><strong>Working copy</strong> — the tournament stored in this browser (IndexedDB), where the tab room&#39;s edits happen and draws,
+standings and breaks are computed. See <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Data-Model.html" rel="prev"><span>Previous</span>Data model</a><a class="pager-next" href="Comparison-with-Tabbycat.html" rel="next"><span>Next</span>Comparison with Tabbycat</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Glossary.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

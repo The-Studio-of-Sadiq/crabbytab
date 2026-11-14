@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture · CrabbyTab guide</title>
+<meta name="description" content="Architecture: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html" aria-current="page">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="architecture">Architecture<a class="anchor" href="#architecture" aria-label="Link to this section">#</a></h1>
+<p>CrabbyTab is a Next.js 15 (App Router) + React 19 + TypeScript application with Tailwind CSS, Firebase Authentication and Cloud Firestore, deployed on Vercel. This page is for contributors. Read <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/AGENTS.md"><code>AGENTS.md</code></a> for the engineering rules.</p>
+<h2 id="principles">Principles<a class="anchor" href="#principles" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Local-first.</strong> Draws, allocation, standings, breaks and validation are pure TypeScript functions that run in the organiser&#39;s browser. No paid compute service is involved.</li>
+<li><strong>Deterministic and testable.</strong> Randomness goes through one seeded source (<code>src/lib/draw/rng.ts</code>). Domain logic is unit-tested without Firebase.</li>
+<li><strong>Least privilege.</strong> Browsers talk to Firestore directly only as tournament administrators (plus two narrow direct writes for data-entry staff). Participants, most staff work, the public site and integrations go through server routes that use the Firebase Admin SDK. See <a href="Security-Model.html">Security model</a>.</li>
+<li><strong>Cheap reads.</strong> The public site is served from a snapshot built at publish time and cached, never from live collections (Spark tier: 50k reads/day). See <a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a>.</li>
+</ul>
+<h2 id="how-data-moves">How data moves<a class="anchor" href="#how-data-moves" aria-label="Link to this section">#</a></h2>
+<pre tabindex="0"><code>Organiser device                          Firestore                        Vercel server
+-------------------                       ---------                        -------------
+IndexedDB working copy  --upload/download--&gt;  tournaments/{id}/...  &lt;--Admin SDK--  /api/** routes
+TournamentContext       &lt;==live listeners==&gt;  (ballots, debates,                    |
+(pure libs compute)                            teams, adjudicators)                 v
+                                                                    publicViews/{slug} (snapshot)
+                                                                                    |
+Public pages / portals  &lt;---------------- cached JSON from /api/public/** ---------+</code></pre>
+<h3 id="1-the-working-copy-indexeddb">1. The working copy (IndexedDB)<a class="anchor" href="#1-the-working-copy-indexeddb" aria-label="Link to this section">#</a></h3>
+<p>Each tournament&#39;s working copy lives on the device in IndexedDB (database <code>crabbytab</code>, store <code>kv</code>), under keys <code>crabbytab_t_{slug}_{suffix}</code> (<code>meta</code>, <code>rounds</code>, <code>teams</code>, <code>debates</code>, <code>ballots</code>, <code>feedback</code>, <code>auditEvents</code>, <code>syncBaseline</code>, ...), each a JSON string.</p>
+<ul>
+<li><code>src/lib/offline/localStore.ts</code> is the only code that touches it. <code>TournamentContext</code> loads one tournament&#39;s keys into memory when it opens, reads and writes synchronously, and flushes coalesced writes to IndexedDB in one transaction a moment later. A failed flush (quota, blocked storage) shows an alert and is retried with the next change.</li>
+<li>Older working copies in localStorage are migrated to IndexedDB on first use. If IndexedDB is unavailable the same store falls back to localStorage (about 5 MB).</li>
+<li>Theme, language and remembered portal passcodes stay in localStorage.</li>
+<li><code>public/sw.js</code> is a service worker that caches the app shell and static chunks, so the app reopens offline. <code>src/lib/offline/chunkRecovery.ts</code> reloads once when a deploy has removed a chunk the page asks for.</li>
+<li>Draw generation and auto-allocation can run in a Web Worker (<code>src/features/tournament/compute/</code>), so large draws do not freeze the page and can be cancelled.</li>
+</ul>
+<p>A tournament that has never been uploaded is local-only: nothing leaves the device.</p>
+<h3 id="2-cloud-sync-upload--download">2. Cloud sync (upload / download)<a class="anchor" href="#2-cloud-sync-upload--download" aria-label="Link to this section">#</a></h3>
+<p>For collections that are not live (settings, rounds, motions, venues, break categories, feedback, institutions, audit events), the organiser syncs explicitly with <strong>Upload</strong> and <strong>Download and compare</strong> (<code>src/features/tournament/application/cloudSync.ts</code>, <code>infrastructure/tournamentRepository.ts</code>).</p>
+<ul>
+<li>Every cloud record has a <code>syncVersion</code>. The device keeps a <strong>sync baseline</strong> (version and content hash of each record at its last sync) and uploads only records changed since then.</li>
+<li>Uploads run in transactions of up to 150 records. A record whose cloud copy is newer, or soft-deleted, is refused and archived in <code>syncConflicts</code>; the replaced version of an overwritten record is archived too. The <strong>Resolve sync conflicts</strong> dialog lets the organiser choose.</li>
+<li>Audit events are append-only and created in plain batches.</li>
+<li>Automatic per-action cloud writes exist in <code>TournamentContext</code> but are switched off (<code>AUTOMATIC_CLOUD_WRITES = false</code>).</li>
+</ul>
+<p>Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md"><code>docs/storage-and-scale.md</code></a> and <a href="Backups-Restore-and-Cloud-Sync.html">Backups, restore and cloud sync</a>.</p>
+<h3 id="3-live-collaboration">3. Live collaboration<a class="anchor" href="#3-live-collaboration" aria-label="Link to this section">#</a></h3>
+<p>For cloud tournaments on administrator devices, <code>ballots</code>, <code>debates</code>, <code>teams</code> and <code>adjudicators</code> are <strong>live</strong>: written to Firestore record by record as they change and received from other devices within seconds.</p>
+<ul>
+<li>Writes: <code>saveLiveRecords</code> → <code>planLiveWrites</code> (<code>application/liveSync.ts</code>) diffs what a command changed and writes field-level patches (<code>set</code> with <code>mergeFields</code>), one atomic <code>writeBatch</code> per command, bumping <code>syncVersion</code>.</li>
+<li>Listeners: <code>createLiveSession</code> (<code>application/liveSession.ts</code>, adapter <code>infrastructure/liveRepository.ts</code>) listens to whole <code>teams</code> and <code>adjudicators</code> collections and to <code>debates</code> and <code>ballots</code> of the active round only.</li>
+<li>Offline: the Firestore SDK&#39;s persistent cache (IndexedDB, <code>src/lib/firebase.ts</code>) queues writes across reloads. Uploads and publishes wait up to 20 s for queued live writes to be acknowledged.</li>
+<li>Conflicts: incoming changes use the same baseline rule as a download; a locally edited record that the cloud also changed becomes a sync conflict. Two devices confirming different ballot versions of one debate is detected (<code>findConfirmationConflicts</code>) and shown, never resolved automatically.</li>
+<li>Live updates can be paused per device from the cloud status menu.</li>
+</ul>
+<p>Data-entry staff are not live. They read a redacted copy from <code>/api/tournaments/{id}/assistant-data</code> and send changes through <code>/api/tournaments/{id}/data-entry-sync</code>, which whitelists fields and checks permissions per record (<code>src/lib/dataEntrySync.ts</code>).</p>
+<p>Participants never touch the working copy. Private portals call <code>/api/private/team</code> (read) and <code>/api/private/sync</code> (queued ballots, feedback, check-ins; <code>src/lib/privateSync.ts</code>). Debates in Firestore carry a cloud-only <code>participantIds</code> index so portals query only their own debates.</p>
+<p>Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md"><code>docs/live-collaboration.md</code></a>.</p>
+<h3 id="4-publishing-the-public-site">4. Publishing the public site<a class="anchor" href="#4-publishing-the-public-site" aria-label="Link to this section">#</a></h3>
+<p>The public site is a <strong>snapshot built at publish time</strong>, not a view of live data.</p>
+<ol>
+<li>After an upload or a release, the browser calls <code>POST /api/tournaments/{id}/public-view</code> (<code>application/publicView.ts</code>).</li>
+<li>The server reads the cloud collections and builds the <strong>public projection</strong> (<code>src/lib/publicView/projection.ts</code>): an allowlist of fields, filtered by release settings. Tabs with top-N limits and other aggregates are computed here (<code>derived.ts</code>).</li>
+<li><code>snapshot.ts</code> splits it into sections: base sections (<code>tournament</code>, <code>rounds</code>, <code>teams</code>, ...) and one <code>round-{id}</code> section per public round. Each is content-hashed and chunked (≤700 KB per document) under <code>publicViews/{slug}</code>.</li>
+<li><code>store.ts</code> invalidates only the changed sections&#39; cache tags (<code>revalidateTag</code>). Reads go through <code>unstable_cache</code> (Vercel Data Cache) with short CDN caching; a round fetched with its current hash is cached for a day.</li>
+<li>Public pages fetch <code>/api/public/tournaments/{slug}</code> (and <code>/version</code> to poll for a new publish). Public layouts render metadata server-side (<code>publicView/robots.ts</code>, <code>seo.ts</code>); the pages themselves are client components.</li>
+</ol>
+<p>Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md"><code>docs/public-pages-and-notifications.md</code></a>, <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="server-routes">Server routes<a class="anchor" href="#server-routes" aria-label="Link to this section">#</a></h2>
+<p>All server routes live in <code>src/app/api/**</code> and use the Admin SDK from <code>src/lib/firebaseAdmin.ts</code> (credentials from <code>FIREBASE_SERVICE_ACCOUNT_JSON</code> or application default credentials). The Admin SDK bypasses Firestore rules, so every route authorises the caller itself:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Route group</th>
+<th scope="col">Purpose</th>
+<th scope="col">Caller check</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/api/auth/access</code></td>
+<td>Sync the <code>globalAdmin</code> claim</td>
+<td>Firebase ID token</td>
+</tr>
+<tr>
+<td><code>/api/tournaments</code>, <code>/lookup</code></td>
+<td>Tournaments for the user</td>
+<td>ID token</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/access</code></td>
+<td>Caller&#39;s role</td>
+<td>ID token</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/staff</code>, <code>/staff/groups</code>, <code>/staff/invitations</code></td>
+<td>Staff, permission groups, invitations</td>
+<td>Administrator</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/assistant-data</code>, <code>/data-entry-sync</code>, <code>/assistant-ballots</code></td>
+<td>Data-entry staff read, write, confirm</td>
+<td>Data-entry staff with the right permission</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/public-view</code></td>
+<td>Publish the public snapshot</td>
+<td>Administrator</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/notifications</code>, <code>/email/settings</code>, <code>/api/email/*</code></td>
+<td>Email and automatic notifications</td>
+<td>Administrator (<code>/api/email/webhook</code>: provider)</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/api-tokens</code></td>
+<td>Manage API tokens</td>
+<td>Administrator</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/audit/release</code></td>
+<td>Release the audit log</td>
+<td>Administrator</td>
+</tr>
+<tr>
+<td><code>/api/tournaments/{id}/registration/**</code>, <code>/public-forms</code></td>
+<td>Registration and public-form settings</td>
+<td>Administrator</td>
+</tr>
+<tr>
+<td><code>/api/invitations</code></td>
+<td>Accept a staff invitation</td>
+<td>Invitation token, rate-limited</td>
+</tr>
+<tr>
+<td><code>/api/private/team</code>, <code>/api/private/sync</code></td>
+<td>Private portals</td>
+<td>Private key + passcode, rate-limited</td>
+</tr>
+<tr>
+<td><code>/api/public/tournaments/{slug}</code> (+ <code>/version</code>, <code>/checkins</code>, <code>/audit</code>, <code>/schedule</code>, <code>/schedule/ical</code>), <code>/api/public/motions</code></td>
+<td>Public data</td>
+<td>None (cached)</td>
+</tr>
+<tr>
+<td><code>/api/public/tournaments/{slug}/forms</code>, <code>/registration</code></td>
+<td>Public ballot/feedback forms, registration</td>
+<td>Optional password or link, rate-limited</td>
+</tr>
+<tr>
+<td><code>/api/v1/**</code></td>
+<td>Integration API</td>
+<td>Bearer API token</td>
+</tr>
+<tr>
+<td><code>/api/openapi.json</code></td>
+<td>API description</td>
+<td>None</td>
+</tr>
+</tbody></table></div>
+<p>Administrator routes use <code>authorizeTournamentAdministrator</code> (<code>src/lib/tournamentAdminAuth.ts</code>); staff routes use <code>authorizeDataEntryStaff</code> (<code>src/lib/staffAccessServer.ts</code>). See <a href="API-and-Tokens.html">API and tokens</a>.</p>
+<h2 id="pages-app-router">Pages (App Router)<a class="anchor" href="#pages-app-router" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><code>src/app/[tournamentSlug]/</code> — one tournament. The layout wraps pages in <code>TournamentProvider</code> and the tournament chrome (sidebar). Staff pages: <code>draw</code>, <code>allocation</code>, <code>results</code>, <code>standings</code>, <code>break</code>, <code>feedback</code>, <code>checkins</code>, <code>imports</code>, <code>exports</code>, <code>config</code>, <code>schedule</code>, <code>registration</code>, <code>email</code>, <code>private-urls</code>, <code>staff</code>, <code>api</code>, <code>audit</code>, <code>analytics</code>, <code>rehearsal</code>, <code>print</code>, <code>display</code>. Participant and public pages: <code>public/**</code>, <code>private/{team,adjudicator,speaker}</code>, <code>team/[teamId]</code>, and public sub-routes such as <code>audit/public</code>, <code>checkins/public</code>, <code>schedule/public</code>.</li>
+<li><code>src/app/tournaments/</code> — hub, setup wizard (<code>new</code>), import, demo, motions bank, API reference.</li>
+<li><code>src/app/register/[slug]</code>, <code>invite</code>, <code>account</code>, <code>login</code>, <code>forgot-password</code>.</li>
+<li><code>robots.ts</code>, <code>sitemap.ts</code> — search-engine files built from published snapshots.</li>
+</ul>
+<p>Which staff page needs which permission is in <code>routeRequirement</code> (<code>src/lib/tournamentRoutes.ts</code>). Top-level route names are reserved slugs (<code>RESERVED_SLUGS</code>).</p>
+<h2 id="languages">Languages<a class="anchor" href="#languages" aria-label="Link to this section">#</a></h2>
+<p>The interface is translated with a small typed dictionary in <code>src/lib/i18n/</code>, not a library. English (<code>messages/en.ts</code>) is bundled with every page. Each other language is its own code-split chunk loaded on demand (<code>loadCatalogue</code> in <code>messages/index.ts</code>; Bengali as TypeScript, the others as JSON in <code>messages/locales/</code>) and then cached by the service worker. The locale is chosen on the client (viewer&#39;s choice, then the tournament&#39;s public language, then the browser), so URLs and cached public pages are unchanged. See <a href="Languages-and-Translations.html">Languages and translations</a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/internationalization.md"><code>docs/internationalization.md</code></a>.</p>
+<h2 id="where-logic-lives">Where logic lives<a class="anchor" href="#where-logic-lives" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Layer</th>
+<th scope="col">Path</th>
+<th scope="col">Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Domain libraries</td>
+<td><code>src/lib/**</code></td>
+<td>Pure functions, no React. Tournament rules live here.</td>
+</tr>
+<tr>
+<td>Commands</td>
+<td><code>src/features/tournament/application/</code></td>
+<td>One use case each: run state guards (<code>stateGuards.ts</code>), call domain libs, return records to save and audit events.</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td><code>src/features/tournament/infrastructure/</code></td>
+<td>Firestore repositories, upload transactions, live listeners.</td>
+</tr>
+<tr>
+<td>Off-thread compute</td>
+<td><code>src/features/tournament/compute/</code></td>
+<td>Web Worker wrapper for draws and allocation.</td>
+</tr>
+<tr>
+<td>State</td>
+<td><code>src/contexts/TournamentContext.tsx</code>, <code>AuthContext.tsx</code></td>
+<td>Working copy, commands, sync and live session; auth and global-admin claim.</td>
+</tr>
+<tr>
+<td>UI</td>
+<td><code>src/app/**</code>, <code>src/components/**</code>, <code>src/features/tournament/components/</code></td>
+<td>Rendering and interaction.</td>
+</tr>
+</tbody></table></div>
+<p>Main domain libraries:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Path</th>
+<th scope="col">Contents</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lib/draw/</code></td>
+<td>Draw generators (random, power-paired, seeded, round robin, manual, elimination and partial elimination; two-team, BP and N-team debates), Hungarian and Tabbycat-style Hungarian, blossom matching (<code>weightedMatching.ts</code>), side allocation, adjudicator allocator, venue allocator, draw validation, seeded RNG</td>
+</tr>
+<tr>
+<td><code>lib/standings/</code></td>
+<td>Standings metrics, precedence, category and as-of-round standings</td>
+</tr>
+<tr>
+<td><code>lib/breakqual/</code></td>
+<td>Break qualification, cutoff ties, overrides, liveness</td>
+</tr>
+<tr>
+<td><code>lib/scoring/</code>, <code>lib/ballots/</code></td>
+<td>Score validation; ballot results, individual ballots, result formats</td>
+</tr>
+<tr>
+<td><code>lib/adjudicators/</code></td>
+<td>Conflicts, testers, allocation positions, diversity</td>
+</tr>
+<tr>
+<td><code>lib/feedback/</code>, <code>lib/motions/</code>, <code>lib/schedule/</code>, <code>lib/checkins/</code>, <code>lib/venues/</code>, <code>lib/participants/</code>, <code>lib/registration/</code></td>
+<td>Their areas</td>
+</tr>
+<tr>
+<td><code>lib/publicView/</code></td>
+<td>Public projection, snapshot, hashing, cached store, SEO</td>
+</tr>
+<tr>
+<td><code>lib/api/v1/</code></td>
+<td>Integration API router, schema, stores, rate limits</td>
+</tr>
+<tr>
+<td><code>lib/email/</code>, <code>lib/sms/</code>, <code>lib/csv/</code>, <code>lib/qr/</code>, <code>lib/i18n/</code>, <code>lib/offline/</code></td>
+<td>Their areas</td>
+</tr>
+<tr>
+<td><code>lib/*.ts</code></td>
+<td>Private URLs, passcodes, rate limits, API tokens and scopes, staff permissions, audit chain, data-entry sync, private sync, tournament access, release rules</td>
+</tr>
+</tbody></table></div>
+<h2 id="directory-map">Directory map<a class="anchor" href="#directory-map" aria-label="Link to this section">#</a></h2>
+<pre tabindex="0"><code>firestore.rules            Security rules (see Security-Model)
+securityHeaders.mjs        CSP and other headers, used by next.config.mjs
+public/sw.js               Service worker (offline app shell)
+src/
+  app/                     Routes (pages and /api)
+  components/              Layout, setup wizard, public pages, i18n provider, shared UI
+  contexts/                TournamentContext, AuthContext
+  features/tournament/
+    application/           Commands, cloudSync, liveSync, liveSession, publicView, ...
+    infrastructure/        Firestore repositories and live adapter
+    compute/               Web Worker jobs
+    components/            Feature components (ballot entry, release panel, ...)
+  lib/                     Domain libraries (above)
+  test/                    Shared test fixtures
+  types/index.ts           Domain types
+docs/                      Developer docs (more detail than this wiki)</code></pre>
+<h2 id="related-pages">Related pages<a class="anchor" href="#related-pages" aria-label="Link to this section">#</a></h2>
+<p><a href="Data-Model.html">Data model</a> · <a href="Security-Model.html">Security model</a> · <a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a> · <a href="Languages-and-Translations.html">Languages and translations</a> · <a href="Testing.html">Testing</a></p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Caching-Indexing-and-Performance.html" rel="prev"><span>Previous</span>Caching, indexing and performance</a><a class="pager-next" href="Testing.html" rel="next"><span>Next</span>Testing</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Architecture.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#principles">Principles</a></li><li><a href="#how-data-moves">How data moves</a></li><li><a href="#server-routes">Server routes</a></li><li><a href="#pages-app-router">Pages (App Router)</a></li><li><a href="#languages">Languages</a></li><li><a href="#where-logic-lives">Where logic lives</a></li><li><a href="#directory-map">Directory map</a></li><li><a href="#related-pages">Related pages</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

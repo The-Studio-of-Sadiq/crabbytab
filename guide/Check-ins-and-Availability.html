@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check-ins and availability · CrabbyTab guide</title>
+<meta name="description" content="Check-ins and availability: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html" aria-current="page">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="check-ins-and-availability">Check-ins and availability<a class="anchor" href="#check-ins-and-availability" aria-label="Link to this section">#</a></h1>
+<p>Availability decides which teams are drawn and which adjudicators are allocated in a round. It is managed on the round&#39;s <strong>Availability</strong> page (sidebar → <em>Round · R1</em> → <strong>Availability</strong>, <code>/{slug}/checkins</code>). Administrators and staff with the check-in permission can use it.</p>
+<h2 id="how-availability-works">How availability works<a class="anchor" href="#how-availability-works" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Teams and adjudicators are available or absent <strong>per round</strong>. A per-round value overrides the older tournament-wide check-in flag.</li>
+<li><strong>Anyone with no availability record counts as available.</strong> Imported and newly added participants are therefore present by default. Mark people <em>absent</em> to leave them out. (Tabbycat works the other way round: nobody is in until checked in.)</li>
+<li><strong>Check-in expiry</strong> (<em>Admin → Configuration → Public visibility → Check-in expiry</em>, hours; 0 = never, the default): a timestamped check-in older than this no longer counts. Records without a timestamp are unaffected.</li>
+<li>The <strong>draw</strong> uses team availability. <strong>Allocation</strong> uses adjudicator availability unless <em>Skip adjudicator check-ins</em> is on (<em>Configuration → Draw rules</em>).</li>
+<li><strong>Rooms</strong> have their own availability (default and per round, set on Setup → Venues) and a check-in tick; see <a href="Venues-and-Constraints.html">Venues and constraints</a>.</li>
+<li>Swing teams are available only in the rounds they were created or reused for.</li>
+</ul>
+<h2 id="the-availability-page">The Availability page<a class="anchor" href="#the-availability-page" aria-label="Link to this section">#</a></h2>
+<p>Pick the round at the top. The page shows:</p>
+<ul>
+<li>Tabs <strong>Teams (present/total)</strong>, <strong>Adjudicators (present/total)</strong> and <strong>Venues (present/total)</strong>, each with a search box and a per-row <strong>Present / Absent</strong> toggle. Expired check-ins are marked <em>Expired</em>; each row shows when it was checked in.</li>
+<li><strong>Speakers</strong> under each team, each with their own check-in toggle (see below).</li>
+<li><strong>Mark all present</strong>.</li>
+<li><strong>Copy availability from R(n−1)</strong>: everyone without an explicit setting for this round gets their availability in the previous round (present or absent).</li>
+<li><strong>Mark breaking adjudicators present</strong>: checks in every adjudicator flagged <em>Breaking</em>.</li>
+<li><strong>Print barcode labels</strong>: Code 39 labels for teams, speakers, adjudicators and venues.</li>
+<li><strong>Barcode check-in</strong>: a scan box and, where supported, <strong>Use camera</strong>.</li>
+<li><strong>Check-in history</strong>: the round&#39;s 25 most recent changes, with the source (tab room, barcode, bulk, self check-in) and who made them.</li>
+<li><strong>Public status</strong>: a link to the public check-in page.</li>
+</ul>
+<h3 id="speaker-check-in">Speaker check-in<a class="anchor" href="#speaker-check-in" aria-label="Link to this section">#</a></h3>
+<p>Each speaker can be checked in for a round (toggle on the Teams tab, or scan the speaker&#39;s barcode). When every speaker of a team is in, the team becomes available. Checking a speaker out does <strong>not</strong> withdraw the team; mark the team absent for that.</p>
+<h3 id="barcodes-and-scanners">Barcodes and scanners<a class="anchor" href="#barcodes-and-scanners" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>Scan with a USB or keyboard-wedge scanner into the scan box (most type the code and press Enter); you can also paste an id. The code is matched to a team, speaker, adjudicator or venue, and that record is checked in for the selected round. Unknown codes show <em>No team, adjudicator, or venue matches that barcode.</em></li>
+<li><strong>Use camera</strong> works in browsers with the <code>BarcodeDetector</code> API; otherwise use a USB scanner.</li>
+</ul>
+<h3 id="what-other-devices-see">What other devices see<a class="anchor" href="#what-other-devices-see" aria-label="Link to this section">#</a></h3>
+<p>For cloud tournaments, team and adjudicator availability is <strong>live</strong> on administrator devices: a check-in made on one device reaches the others within seconds, and goes into the queue while offline. Data-entry staff&#39;s check-ins reach administrators when the staff device syncs. Two devices changing different rounds never undo each other; the same field changed on both is last-write-wins. Room availability still travels with <strong>Upload now</strong>.</p>
+<h2 id="self-check-in">Self check-in<a class="anchor" href="#self-check-in" aria-label="Link to this section">#</a></h2>
+<p>With <strong>Self check-in from private URLs</strong> on (<em>Configuration → Public visibility</em>), team and adjudicator <a href="Private-URLs-and-Portals.html">private URLs</a> show a check-in panel for the <strong>current check-in round</strong>: the earliest round that is neither cancelled nor completed. Participants mark themselves present or absent. Requests are passcode-checked and rate-limited, and refused for any other round. The API offers the same as <code>PUT /me/checkin</code>.</p>
+<p>Self check-ins are written to the cloud copy. A live administrator device receives them within seconds. A device that is not live sees them after <strong>Download and compare</strong> or a reload; if that device changed the same participant in the meantime, the participant is listed as a sync conflict for you to resolve rather than being silently overwritten.</p>
+<h2 id="public-check-in-status">Public check-in status<a class="anchor" href="#public-check-in-status" aria-label="Link to this section">#</a></h2>
+<p>With <strong>Public check-in counts</strong> on (<em>Configuration → Public visibility</em>), <code>/{slug}/checkins/public</code> shows, per round, how many teams and adjudicators are present out of the total. When the participants list is also public, it lists each team and adjudicator with whether they are checked in for a chosen round. Names follow the public naming rules (team code names, participant code names; anonymous adjudicators are counted but not listed). The page refreshes every 30 seconds from the published public snapshot, so changes appear after the next publish (an upload or release).</p>
+<h2 id="data-entry-staff">Data-entry staff<a class="anchor" href="#data-entry-staff" aria-label="Link to this section">#</a></h2>
+<p><a href="Staff-and-Roles.html">Data-entry staff</a> with the check-in permission can use the Availability page; speaker check-ins change the team&#39;s speakers, so they also need the participant-editing permission. Their changes reach the cloud when their device syncs.</p>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Every change made on the page or by self check-in is recorded on the record itself (time, round, present/absent, source and the staff member&#39;s name), at most 50 entries per record; the server appends self check-ins without that cap.</li>
+<li><strong>Room check-in expiry</strong> (<em>Configuration → Public visibility</em>) marks rooms checked in longer ago than that as expired. It does not change whether a room is allocated.</li>
+<li>Availability is exported with Admin → <strong>Data exports → Availability</strong> (every team, adjudicator and venue × every round).</li>
+<li>API: availability and check-in endpoints under <code>/rounds/{seq}/availabilities</code> and <code>/…/checkin</code> (<code>write:checkins</code>); speaker check-in through the API checks in the whole team. See <a href="API-and-Tokens.html">API and tokens</a>.</li>
+<li>Logic: <code>src/lib/roundAvailability.ts</code>, <code>src/lib/selfCheckIn.ts</code>, <code>src/lib/checkins/</code>. Developer details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md"><code>docs/public-pages-and-notifications.md</code></a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Participants-and-Imports.html" rel="prev"><span>Previous</span>Participants and imports</a><a class="pager-next" href="Rounds-and-Draws.html" rel="next"><span>Next</span>Rounds and draws</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Check-ins-and-Availability.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#how-availability-works">How availability works</a></li><li><a href="#the-availability-page">The Availability page</a></li><li><a href="#self-check-in">Self check-in</a></li><li><a href="#public-check-in-status">Public check-in status</a></li><li><a href="#data-entry-staff">Data-entry staff</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

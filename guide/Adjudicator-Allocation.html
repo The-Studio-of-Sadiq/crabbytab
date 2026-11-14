@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adjudicator allocation and preformed panels · CrabbyTab guide</title>
+<meta name="description" content="Adjudicator allocation and preformed panels: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html" aria-current="page">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="adjudicator-allocation-and-preformed-panels">Adjudicator allocation and preformed panels<a class="anchor" href="#adjudicator-allocation-and-preformed-panels" aria-label="Link to this section">#</a></h1>
+<p>The <strong>Allocation</strong> page (sidebar → <em>Round · R1</em> → <strong>Allocation</strong>, administrators and staff with the allocation permission) assigns adjudicators to the round&#39;s debates automatically and lets you adjust panels by hand. Assignments stay private until you reveal them. Exact formulas: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/adjudicator-allocation.md"><code>docs/adjudicator-allocation.md</code></a>.</p>
+<p>Allocation is a <strong>heuristic</strong>: it finds a good allocation, not a proven optimum.</p>
+<h2 id="step-by-step">Step by step<a class="anchor" href="#step-by-step" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Check adjudicator availability on the round&#39;s <strong>Availability</strong> page (<a href="Check-ins-and-Availability.html">how</a>).</li>
+<li>On the Allocation page, choose the round and, under <strong>Allocation engine</strong>, the panel sizing (<em>Same size everywhere</em> with a <em>Panel size</em>, or <em>Larger in priority rooms</em> with a <em>Largest panel</em>) and the round&#39;s <strong>Feedback weight (%)</strong>.</li>
+<li>Optionally set room importance: per debate (0–10), or for every room with <strong>Prioritise by bracket</strong> or <strong>Prioritise by liveness</strong> (below).</li>
+<li>Press <strong>Auto-Allocate All</strong>. Warnings (clashes, rooms short of adjudicators, unavailable preformed-panel members) are listed under <em>Allocated with warnings</em>.</li>
+<li>Adjust by hand. Clashes show on each panel.</li>
+<li>Allocate rooms on the Draw page (<strong>Allocate venues</strong>) if you have not yet; see <a href="Venues-and-Constraints.html">Venues and constraints</a>.</li>
+<li>Release the draw, then press <strong>Reveal Adjudicators</strong> so teams and the public see the panels (after the release uploads).</li>
+</ol>
+<p>Other controls: <strong>Clear Allocations</strong> (with confirmation), <strong>Priority Info</strong> (each debate&#39;s priority and panel strength), <strong>Diversity</strong> (gender and region badges and a per-panel summary), <strong>Shards</strong> (below), and the <strong>Preformed panels</strong> link.</p>
+<h2 id="who-is-allocated">Who is allocated<a class="anchor" href="#who-is-allocated" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Adjudicators available for the round, unless <em>Skip adjudicator check-ins</em> is on. Adjudicators busy in a concurrent round are left out.</li>
+<li>Adjudicators scoring below <em>Minimum adjudicator score to vote</em> (default 1.5) are placed as trainees, never left out, as in Tabbycat.</li>
+<li>Trainees are seated after the voting panels unless <em>No trainee adjudicators</em> is on; <em>No panellist adjudicators</em> allocates chairs (and trainees) only. With either switch on, the editor hides and refuses that position.</li>
+<li>Auto-allocation is refused, leaving existing panels untouched, when no adjudicator is available or none may vote.</li>
+<li>Allocating a draft draw is allowed. Re-allocating a draw already released, or a round with live ballots or that is completed, needs a recorded reason.</li>
+</ul>
+<p>These switches and the penalties below are on <em>Admin → Configuration → Draw rules → Adjudicator allocation and panel rules</em>.</p>
+<h2 id="adjudicator-scores">Adjudicator scores<a class="anchor" href="#adjudicator-scores" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Pre-feedback score:</strong> the test score if set, otherwise the base score (1–10).</li>
+<li><strong>Feedback average:</strong> weighted average of counted feedback (confirmed and not ignored), mapped from the feedback scale onto 1–10. Weights come from <em>Feedback weighting by source</em> on the Feedback page.</li>
+<li><strong>Blended score:</strong> <code>(1 − w) × pre-feedback + w × feedback average</code>, where <code>w</code> is the round&#39;s <strong>feedback weight</strong>. Adjudicators without counted feedback keep their pre-feedback score.</li>
+</ul>
+<blockquote>
+<p>New rounds start with feedback weight <strong>100%</strong>, so once an adjudicator has counted feedback it <em>replaces</em> their base or test score. Lower the weight if base scores should keep influence. A round without a weight blends at 60% (CrabbyTab&#39;s strategies) or uses the base score (Tabbycat strategies).</p>
+</blockquote>
+<h2 id="debate-priority-and-liveness">Debate priority and liveness<a class="anchor" href="#debate-priority-and-liveness" aria-label="Link to this section">#</a></h2>
+<p>CrabbyTab&#39;s own strategy ranks debates by a blend of the bracket (40%), <strong>break liveness</strong> (40%) and the manual importance (20%), then, with less weight, room priority.</p>
+<p>Liveness follows Tabbycat: per break category, a team is <em>live</em>, <em>safe</em> or <em>dead</em> from the completed rounds. It shows in standings, on the Draw page (<em>Live teams: N</em> per room) and on the Allocation page (<em>N% live</em> per debate).</p>
+<p>Two buttons set every room&#39;s importance at once (replacing importances already set in the round):</p>
+<ul>
+<li><strong>Prioritise by bracket</strong>: splits the rooms into quarters by bracket and sets importance 10, 7, 3 and 0, highest brackets first.</li>
+<li><strong>Prioritise by liveness</strong>: uses the general break&#39;s live thresholds before the round: rooms where every team is safe get 7, rooms where every team is dead get 0, every other room 10. Available in preliminary rounds with a general break category of more than one team.</li>
+</ul>
+<h2 id="allocation-strategies">Allocation strategies<a class="anchor" href="#allocation-strategies" aria-label="Link to this section">#</a></h2>
+<p><em>Configuration → Draw rules → Adjudicator allocation strategy</em>:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Strategy</th>
+<th scope="col">Behaviour</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Preset 1 — Current CrabbyTab allocation</strong> (<code>crabbytab_v1</code>, default)</td>
+<td>Seat ranks matched to adjudicator ranks by priority; panel size from the Allocation page.</td>
+</tr>
+<tr>
+<td><strong>Panel average</strong> (<code>panel_average</code>)</td>
+<td>As Preset 1, but each panel&#39;s average strength is matched to the debate priority.</td>
+</tr>
+<tr>
+<td><strong>Tabbycat voting</strong> (<code>tabbycat_voting</code>)</td>
+<td>Port of Tabbycat&#39;s <code>hungarian-voting</code>: the strongest adjudicators chair the most important rooms alone; the rest form panels of three. Ignores panel size.</td>
+</tr>
+<tr>
+<td><strong>Tabbycat consensus</strong> (<code>tabbycat_consensus</code>)</td>
+<td>Port of Tabbycat&#39;s <code>hungarian-consensus</code>: every voter is spread as evenly as possible; the most important rooms get the extra member. Ignores panel size.</td>
+</tr>
+</tbody></table></div>
+<p>The Tabbycat ports use Tabbycat&#39;s cost function, its 0–5 score scale (mapped from CrabbyTab&#39;s 1–10) and each debate&#39;s own importance; debates are taken by importance, then room rank. Tabbycat itself always uses its voting allocator for per-adjudicator ballots and its consensus allocator otherwise; in CrabbyTab you choose.</p>
+<h3 id="how-crabbytabs-own-strategies-work">How CrabbyTab&#39;s own strategies work<a class="anchor" href="#how-crabbytabs-own-strategies-work" aria-label="Link to this section">#</a></h3>
+<ol>
+<li><strong>Preformed panels</strong> are placed first (below).</li>
+<li><strong>Panel sizes:</strong> <em>Same size everywhere</em> gives every debate the chosen size, dropping seats from the lowest-priority debates when adjudicators run out; <em>Larger in priority rooms</em> gives every debate a chair, then grows panels to 3, 5, … in priority order.</li>
+<li>A <strong>Hungarian assignment</strong> fills the seats, with costs for strength mismatch (<em>Importance mismatch penalty</em>), team conflicts (<em>Adjudicator conflict penalty</em>) and teams already judged (<em>Adjudicator history penalty</em>, soft).</li>
+<li>A <strong>local search</strong> reduces adjudicator–adjudicator conflicts and repeated co-panelling (bounded so large tournaments stay responsive).</li>
+<li><strong>Trainees</strong> go, lowest-scored first, to the debate with the lowest conflict cost, then fewest trainees, then lowest priority.</li>
+<li>The strongest panel member without a team clash becomes <strong>chair</strong>.</li>
+</ol>
+<p>With the default penalties (conflict 1,000,000, history 10,000, mismatch 10,000,000), one conflict always costs more than any strength mismatch, and a one-point mismatch more than one repeat. Penalties are used exactly as configured: a low conflict penalty can let a conflict through (it is reported), and 0 turns that check off. Every remaining clash is listed on the result and in the audit log.</p>
+<p>Allocation runs in a background worker; a <strong>Cancel</strong> button stops a long run and saves nothing.</p>
+<h2 id="conflicts">Conflicts<a class="anchor" href="#conflicts" aria-label="Link to this section">#</a></h2>
+<p>Conflicts are edited in the adjudicator dialog (Setup → <strong>Adjudicators</strong>: <em>Team conflicts</em>, <em>Adjudicator conflicts</em>, <em>Other institution conflicts</em>) and on Setup → <strong>Conflicts</strong> (CSV import, team–institution conflicts, full list). An adjudicator clashes with a team when:</p>
+<ul>
+<li><strong>institutional</strong>: the adjudicator&#39;s own institution (unless independent) or a declared institution matches the team&#39;s institution, a composite team&#39;s other institutions, or an institution the <strong>team</strong> declared a conflict with;</li>
+<li><strong>personal</strong>: the adjudicator declared a conflict with that team;</li>
+<li><strong>history</strong> (soft): the adjudicator has judged the team before.</li>
+</ul>
+<p>Two adjudicators clash when either declared a personal conflict with the other, or they share a conflicted institution. Clashes are shown on the panel (&quot;Institutional&quot;, &quot;Personal&quot;, &quot;Adjudicator&quot;, &quot;History&quot;) and in the draw check. Conflicts are never shown publicly. See <a href="Participants-and-Imports.html#conflicts">Participants and imports</a>.</p>
+<h2 id="editing-panels-by-hand">Editing panels by hand<a class="anchor" href="#editing-panels-by-hand" aria-label="Link to this section">#</a></h2>
+<p>Drag judges from <strong>Available Adjudicators</strong> (searchable by name or institution) onto a chair, panellist or trainee slot, or use the keyboard and touch equivalent: <strong>Move</strong> picks a judge, then each debate offers <strong>Place as chair</strong> (<strong>Replace chair</strong> when one is set; the old chair returns to the pool), <strong>Add as panellist</strong> and <strong>Add as trainee</strong>, or <strong>Return to pool</strong>. Arrow keys, Home and End move between targets; Escape cancels. A clash preview shows while a judge is picked, and refusals (for example a trainee dropped on a chair slot) are announced.</p>
+<p>Changing a panel after <strong>Reveal Adjudicators</strong> hides the adjudicators again; reveal once you are done. For cloud tournaments, panels are written live: another administrator device sees each change within seconds. Two devices editing the same panel: the last full panel written wins (panels are never mixed).</p>
+<h3 id="shards">Shards<a class="anchor" href="#shards" aria-label="Link to this section">#</a></h3>
+<p>For large rounds, <strong>Shards</strong> splits the board into 2–6 parts to work on: sort by <em>Bracket</em>, <em>Priority</em> or <em>Venue</em>, and mix <em>Top to bottom</em> or <em>Interleaved</em>. A shard is only a view: auto-allocation and the conflict checks always cover the whole round.</p>
+<h2 id="preformed-panels">Preformed panels<a class="anchor" href="#preformed-panels" aria-label="Link to this section">#</a></h2>
+<p>Preformed panels let the adjudication core build panels before the draw exists (<strong>Preformed panels</strong> link on the Allocation page, <code>/{slug}/allocation/panels</code>).</p>
+<ol>
+<li>Turn on <em>Allocate preformed panels as a unit</em> (Configuration → Draw rules); otherwise auto-allocation ignores the panels.</li>
+<li>Pick the round and create panels: <strong>Add panel</strong>, <strong>Create from CSV panel ids</strong> (from the adjudicator import&#39;s <code>preformed_panel_id</code>), or <strong>Create from anticipated draw</strong>: one panel per room the next draw is expected to have, annotated with its possible bracket range and how many teams may still be live (Tabbycat&#39;s anticipated draw).</li>
+<li>Set importance: by hand (0–10), <strong>Prioritise by bracket</strong> or <strong>Prioritise by liveness</strong> (live panels 10, safe 7, the rest 0).</li>
+<li>Fill members by hand, or <strong>Auto-allocate adjudicators</strong> (Tabbycat&#39;s voting or consensus allocator over the panels, replacing members). Review, then <strong>Save panels</strong>.</li>
+</ol>
+<p>When allocating, <em>Placing preformed panels</em> decides how panels reach debates:</p>
+<ul>
+<li><strong>Optimised (importance, conflicts, history)</strong> (default): Tabbycat&#39;s Hungarian preformed-panel allocator. A panel goes where its importance matches the debate&#39;s importance, with team conflicts and history added as costs.</li>
+<li><strong>By room rank (no optimisation)</strong>: Tabbycat&#39;s direct allocator: the panel with the lowest room rank goes to the debate with the lowest room rank, and so on.</li>
+</ul>
+<p>Members unavailable this round are left out and named in the warnings; a panel with no available voting member is not placed. Debates without a panel are then filled by the normal allocator.</p>
+<h2 id="testers">Testers<a class="anchor" href="#testers" aria-label="Link to this section">#</a></h2>
+<p>An adjudicator can be marked <strong>Tester</strong> (adjudicator dialog, or the <em>Tester</em> column on the feedback overview); members of the adjudication core always are. An adjudicator counts as <em>tested</em> in a round when another tester sat on their panel; the adjudicator record marks those rounds &quot;Tested&quot;. See <a href="Feedback.html">Feedback</a>.</p>
+<h2 id="differences-from-tabbycat">Differences from Tabbycat<a class="anchor" href="#differences-from-tabbycat" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>CrabbyTab allows allocating a draft draw (its draws can be released straight from draft); Tabbycat requires a confirmed draw. Re-allocating a released draw needs a reason instead of being refused.</li>
+<li>The Tabbycat strategies do not shuffle voters (ties break by score, then id, so results are reproducible) and use a symmetric judged-together history.</li>
+<li>CrabbyTab&#39;s own strategies seat every trainee; Tabbycat&#39;s voting allocator may leave surplus trainees out.</li>
+<li>In optimised preformed-panel placement, debates without a panel are filled by the normal allocator (Tabbycat clears them).</li>
+</ul>
+<h2 id="limitations">Limitations<a class="anchor" href="#limitations" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Diversity (gender, region) is shown, but is not an allocation constraint.</li>
+<li>The Hungarian matching is O(n³); with ~1000 seats it takes a second or more, much longer when every adjudicator has the same score. It runs in a Web Worker, so the page stays usable.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Rounds-and-Draws.html" rel="prev"><span>Previous</span>Rounds and draws</a><a class="pager-next" href="Venues-and-Constraints.html" rel="next"><span>Next</span>Venues and constraints</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Adjudicator-Allocation.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#step-by-step">Step by step</a></li><li><a href="#who-is-allocated">Who is allocated</a></li><li><a href="#adjudicator-scores">Adjudicator scores</a></li><li><a href="#debate-priority-and-liveness">Debate priority and liveness</a></li><li><a href="#allocation-strategies">Allocation strategies</a></li><li><a href="#conflicts">Conflicts</a></li><li><a href="#editing-panels-by-hand">Editing panels by hand</a></li><li><a href="#preformed-panels">Preformed panels</a></li><li><a href="#testers">Testers</a></li><li><a href="#differences-from-tabbycat">Differences from Tabbycat</a></li><li><a href="#limitations">Limitations</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

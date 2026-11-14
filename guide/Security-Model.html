@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security model · CrabbyTab guide</title>
+<meta name="description" content="Security model: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html" aria-current="page">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="security-model">Security model<a class="anchor" href="#security-model" aria-label="Link to this section">#</a></h1>
+<p>Who can read and write what, and where that is enforced. This page is for contributors and people deploying CrabbyTab. Report vulnerabilities privately as described in <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/SECURITY.md">SECURITY.md</a>.</p>
+<p>There are two enforcement points:</p>
+<ul>
+<li><strong><code>firestore.rules</code></strong> for everything the browser reads or writes directly with the Firebase client SDK.</li>
+<li><strong>Server routes</strong> (<code>src/app/api/**</code>) for everything else. They use the Firebase Admin SDK, which ignores the rules, so each route checks the caller itself.</li>
+</ul>
+<p>Hiding a link in the UI is never the barrier.</p>
+<h2 id="identities">Identities<a class="anchor" href="#identities" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Identity</th>
+<th scope="col">How it is recognised</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Global administrator</td>
+<td><code>globalAdmin</code> custom claim on the Firebase account</td>
+<td>The claim is set from the <code>FIREBASE_ADMIN_UIDS</code> environment variable by <code>GET /api/auth/access</code> (<code>src/lib/globalAdmin.ts</code>). Server routes check the environment variable directly; Firestore rules trust the claim.</td>
+</tr>
+<tr>
+<td>Tournament administrator</td>
+<td>Tournament <code>ownerId</code>, an <code>admins</code> map entry set to <code>true</code>, or <code>staff/{uid}.role == &quot;admin&quot;</code></td>
+<td>Global administrators count as administrators of every tournament.</td>
+</tr>
+<tr>
+<td>Data-entry staff</td>
+<td><code>staff/{uid}.role == &quot;dataEntry&quot;</code></td>
+<td>Limited by permission groups and the tournament&#39;s access level. See <a href="Staff-and-Roles.html">Staff and roles</a>.</td>
+</tr>
+<tr>
+<td>Participant</td>
+<td>Private URL key + passcode</td>
+<td>No account.</td>
+</tr>
+<tr>
+<td>Public visitor</td>
+<td>None</td>
+<td>Sees only the published snapshot.</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>Bearer API token</td>
+<td>Hashed, scoped, revocable. See <a href="API-and-Tokens.html">API and tokens</a>.</td>
+</tr>
+</tbody></table></div>
+<p>Accounts are Firebase email/password accounts. The app has no self-sign-up page; staff accounts can be created by accepting a staff invitation (<code>/api/invitations</code>).</p>
+<h2 id="firestore-rules">Firestore rules<a class="anchor" href="#firestore-rules" aria-label="Link to this section">#</a></h2>
+<p>Read <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/firestore.rules"><code>firestore.rules</code></a> itself before changing any client read or write.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Path</th>
+<th scope="col">Read</th>
+<th scope="col">Write</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>tournaments/{id}</code></td>
+<td>Administrators and data-entry staff</td>
+<td>Create: global admins only. Update: administrators, who cannot change <code>ownerId</code>; only the owner (or a global admin) may change <code>admins</code>. Delete: administrators.</td>
+</tr>
+<tr>
+<td><code>tournaments/{id}/{collection}/{doc}</code> (any collection not listed below: rounds, teams, adjudicators, debates, ballots, feedback, motions, venues, ... )</td>
+<td>Administrators</td>
+<td>Administrators</td>
+</tr>
+<tr>
+<td><code>.../ballots/{id}</code></td>
+<td>—</td>
+<td>Also: data-entry staff may <strong>create</strong> their own unconfirmed, undiscarded ballot (<code>submitterType &quot;tabroom&quot;</code>, own uid, whitelisted fields, <code>syncVersion</code> 1, existing non-deleted debate of the same round), with <code>results.enter</code></td>
+</tr>
+<tr>
+<td><code>.../teams/{id}</code>, <code>.../adjudicators/{id}</code></td>
+<td>—</td>
+<td>Also: data-entry staff may <strong>update</strong> only check-in fields (<code>checkedIn</code>, <code>checkedInAt</code>, <code>roundAvailability</code>, <code>roundAvailabilityAt</code>, <code>checkInHistory</code> ≤ 50, <code>syncVersion</code> +1) on non-deleted records, with <code>checkins.edit</code></td>
+</tr>
+<tr>
+<td><code>.../staff/{uid}</code></td>
+<td>Administrators</td>
+<td>Administrators</td>
+</tr>
+<tr>
+<td><code>.../syncConflicts/{id}</code></td>
+<td>Administrators</td>
+<td>Create only; never update or delete</td>
+</tr>
+<tr>
+<td><code>.../auditEvents/{id}</code></td>
+<td>Administrators</td>
+<td>Create only, attributed to the writer or to <code>system</code>; never update or delete</td>
+</tr>
+<tr>
+<td><code>.../auditReleases/**</code></td>
+<td>Nobody</td>
+<td>Nobody (server only)</td>
+</tr>
+<tr>
+<td><code>.../serverOnly/**</code></td>
+<td>Nobody</td>
+<td>Nobody (server only)</td>
+</tr>
+<tr>
+<td><code>.../data/{doc}</code></td>
+<td>Administrators</td>
+<td>Administrators</td>
+</tr>
+<tr>
+<td><code>tournamentSlugs/{slug}</code></td>
+<td>Any signed-in user</td>
+<td>Global admins, or the owner / <code>admins</code>-map administrator of the tournament the slug points to (checked against the post-write tournament)</td>
+</tr>
+<tr>
+<td><code>users/{uid}</code></td>
+<td>That user</td>
+<td>That user</td>
+</tr>
+<tr>
+<td><code>publicViews/**</code></td>
+<td>Nobody</td>
+<td>Nobody (server only)</td>
+</tr>
+<tr>
+<td>Anything else (including top-level <code>apiRateLimits</code>)</td>
+<td>Global admins</td>
+<td>Global admins</td>
+</tr>
+</tbody></table></div>
+<p>Notes:</p>
+<ul>
+<li>Data-entry staff never read tournament subcollections directly. Their copy comes redacted from <code>/api/tournaments/{id}/assistant-data</code> (no private URL keys, passcodes, emails, phone numbers; conflicts and scores only with the right permission). Their direct writes also require <code>assistantMay(...)</code>: the permission is in their staff document&#39;s <code>permissions</code> list (missing list = the default set) and the tournament&#39;s <code>assistantAccess</code> is not <code>&quot;none&quot;</code>.</li>
+<li>Firestore combines rules with OR. Global admins match the final catch-all, so append-only rules do not bind them.</li>
+<li>The tournament catch-all matches one level only. Deeper paths (for example <code>auditReleases/{id}/events</code>) fall through to the global-admin rule.</li>
+<li><code>staff</code> documents with <code>role: &quot;admin&quot;</code> make someone an administrator, and any administrator may write <code>staff</code>. So &quot;only the owner may change <code>admins</code>&quot; protects the <code>admins</code> map, not the set of administrators as a whole. The staff route also lets any administrator assign the admin role.</li>
+<li><strong>Server-written collections under the admin catch-all.</strong> <code>apiTokens</code>, <code>emailCampaigns</code> and <code>notificationLog</code> are written by server routes, but they are not excluded from the catch-all, so tournament administrators can also read and write them directly from the browser. In practice: administrators can read API token records (name, scopes, creator, timestamps and the SHA-256 <code>tokenHash</code>; the secret is never stored), create or edit token records directly, edit or delete email history, and edit or delete notification log entries (which could make an automatic notification send again or not at all). Administrators already have full control of the tournament, so this grants no new access, but these records are not tamper-proof against administrators.</li>
+<li>There is no rules emulator in CI. <code>src/lib/serverOnlyRules.test.ts</code> and <code>src/lib/liveRules.test.ts</code> check the rules <strong>text</strong> (the <code>serverOnly</code> exclusion and deny rule; the staff field lists match <code>src/lib/dataEntrySync.ts</code>). Test rule changes in the Firebase console Rules Playground before deploying. See <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md#firestore-rules"><code>docs/live-collaboration.md</code></a> for the checklist.</li>
+</ul>
+<p>Never loosen the rules to work around a bug.</p>
+<h2 id="server-only-documents">Server-only documents<a class="anchor" href="#server-only-documents" aria-label="Link to this section">#</a></h2>
+<p><code>tournaments/{id}/serverOnly/**</code> is denied to every client and only touched by server routes:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Document</th>
+<th scope="col">Contents</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>staffInvitations/items/*</code></td>
+<td>Staff invitations (token stored as a hash; administrators never see it)</td>
+</tr>
+<tr>
+<td><code>staffPermissionGroups</code></td>
+<td>Custom permission groups</td>
+</tr>
+<tr>
+<td><code>emailSettings</code></td>
+<td>Reply-To and saved email templates</td>
+</tr>
+<tr>
+<td><code>publicForms</code></td>
+<td>Public-form password as a salted scrypt hash (<code>src/lib/publicFormsPassword.ts</code>)</td>
+</tr>
+<tr>
+<td>Registration settings, submissions, representatives, team invitations, transfers</td>
+<td>Registration (<code>src/lib/registration/</code>); link tokens stored as hashes</td>
+</tr>
+</tbody></table></div>
+<p>Also server-only: <code>auditReleases</code> (released audit snapshots), <code>publicViews</code> (public snapshots) and the top-level <code>apiRateLimits</code>.</p>
+<h2 id="server-routes">Server routes<a class="anchor" href="#server-routes" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Administrator routes</strong> verify the Firebase ID token and resolve the role with <code>authorizeTournamentAdministrator</code> (<code>src/lib/tournamentAdminAuth.ts</code>); some re-check inside the write (<code>assertStillAdministrator</code>).</li>
+<li><strong>Staff routes</strong> (<code>assistant-data</code>, <code>data-entry-sync</code>, <code>assistant-ballots</code>) use <code>authorizeDataEntryStaff</code> and re-read the staff document inside each write transaction (<code>currentDataEntryPermissions</code> in <code>src/lib/staffAccessServer.ts</code>), so revoking a group applies to the next record. Synced records are whitelisted per field (<code>DATA_ENTRY_FIELDS</code> in <code>src/lib/dataEntrySync.ts</code>); staff ballots are always unconfirmed; guarded fields (conflicts, scores, panels) are accepted only with the matching permission and from a copy based on the current <code>syncVersion</code>. Nobody confirms their own ballot.</li>
+<li><strong>Private portals</strong> (<code>/api/private/team</code>, <code>/api/private/sync</code>) find the participant by private URL key and compare the passcode in constant time. Teams cannot submit ballots; adjudicators only for their own debates; feedback only between people who sat in that debate.</li>
+<li><strong>Email delivery webhook</strong> (<code>/api/email/webhook</code>) requires an HMAC signature with <code>EMAIL_WEBHOOK_SECRET</code> and is disabled without it.</li>
+<li><strong>Payload caps</strong>, for example: data-entry sync 4 MB and 5,000 records per collection; private sync 100 queued items; public forms 64 KB.</li>
+</ul>
+<h2 id="staff-permissions">Staff permissions<a class="anchor" href="#staff-permissions" aria-label="Link to this section">#</a></h2>
+<p>Permissions (<code>src/lib/staffPermissions.ts</code>): <code>results.enter</code>, <code>results.confirm_others</code>, <code>ballots.intake</code>, <code>feedback.enter</code>, <code>checkins.edit</code>, <code>participants.edit</code>, <code>draw.display</code>, <code>motions.display</code>, <code>conflicts.view</code>, <code>conflicts.edit</code>, <code>feedback.view</code>, <code>adjudicators.scores_edit</code>, <code>allocation.edit</code>, <code>standings.view</code>.</p>
+<ul>
+<li>Built-in groups: Tabulation assistant (default), Ballot desk, Check-in desk, Feedback desk, Equity, Adjudication core. Administrators can add up to 30 custom groups (stored server-only; <code>PUT /api/tournaments/{id}/staff/groups</code> validates them and recomputes every staff member&#39;s stored <code>permissions</code> in one transaction).</li>
+<li>The tournament&#39;s access level (<code>assistantAccess</code>: all areas, results and draw display, results only, none) caps every group. <code>none</code> refuses every staff route and the two direct rule-based writes.</li>
+<li>Staff documents created before groups existed have no <code>permissions</code> field and keep the default set.</li>
+</ul>
+<p>Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/staff-access.md"><code>docs/staff-access.md</code></a>.</p>
+<h2 id="passcodes-and-secrets">Passcodes and secrets<a class="anchor" href="#passcodes-and-secrets" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Secret</th>
+<th scope="col">Stored as</th>
+<th scope="col">Compared by</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Participant private URL key and passcode (<code>privateUrlKey</code>, <code>privatePasscode</code>)</td>
+<td><strong>Plain text</strong> on team / adjudicator records (administrators can read them; printed on slips)</td>
+<td><code>passcodesMatch</code> (<code>src/lib/passcode.ts</code>): both values SHA-256 hashed, then <code>timingSafeEqual</code>, so timing reveals neither length nor prefix</td>
+</tr>
+<tr>
+<td>API token (<code>ct_live_</code> + 64 hex)</td>
+<td>SHA-256 hash (<code>tokenHash</code>), shown once at creation</td>
+<td>Hash lookup (<code>src/lib/apiTokens.ts</code>)</td>
+</tr>
+<tr>
+<td>Staff invitation, registration links</td>
+<td>Hashes in <code>serverOnly</code></td>
+<td>Server-side</td>
+</tr>
+<tr>
+<td>Public-form password</td>
+<td>Salted scrypt hash in <code>serverOnly/publicForms</code></td>
+<td><code>timingSafeEqual</code></td>
+</tr>
+<tr>
+<td>Service account, SMTP password, webhook secret</td>
+<td>Server environment variables only</td>
+<td>—</td>
+</tr>
+</tbody></table></div>
+<p>Participant devices remember portal passcodes in localStorage.</p>
+<h2 id="rate-limits">Rate limits<a class="anchor" href="#rate-limits" aria-label="Link to this section">#</a></h2>
+<p>Durable limits are sliding one-hour windows stored in the top-level <code>apiRateLimits</code> collection, keyed by a SHA-256 hash of the identity (<code>src/lib/privateTeamRateLimit.ts</code>). Client addresses come from <code>x-real-ip</code> / <code>x-forwarded-for</code>, which Vercel sets.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Where</th>
+<th scope="col">Limit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Private portals, per private link (<code>team</code>, <code>sync</code>)</td>
+<td>300 requests / hour</td>
+</tr>
+<tr>
+<td>Private portals, failed attempts (unknown key or wrong passcode) per address</td>
+<td>100 / hour; checked before the key lookup</td>
+</tr>
+<tr>
+<td>Staff invitations</td>
+<td>30 failed tokens and 10 new accounts per address per hour</td>
+</tr>
+<tr>
+<td>Public forms</td>
+<td>30 failed passwords per address per hour; 240 submissions per address and 6,000 per tournament per hour</td>
+</tr>
+<tr>
+<td>Public registration</td>
+<td>30 failed links per address; 40 per address per tournament, 60 per address, 600 per tournament per hour</td>
+</tr>
+<tr>
+<td>v1 API (<code>src/lib/api/v1/rateLimit.ts</code>)</td>
+<td>600 requests/min per address, 60 anonymous/min per address, 300/min per token (in memory, per server instance); 1,000 writes/hour per token and 120 <code>/me</code> lookups/hour per address (durable)</td>
+</tr>
+</tbody></table></div>
+<p>The in-memory API limits are a burst guard per serverless instance, not a global quota.</p>
+<h2 id="api-tokens">API tokens<a class="anchor" href="#api-tokens" aria-label="Link to this section">#</a></h2>
+<p>Created and revoked only through <code>/api/tournaments/{id}/api-tokens</code> (administrators). Scopes (<code>src/lib/apiScopes.ts</code>):</p>
+<ul>
+<li><code>read:public</code> — only what the public site shows. Cannot be combined with other scopes.</li>
+<li><code>read:{resource}</code> and <code>write:{resource}</code> for <code>tournament</code>, <code>rounds</code>, <code>participants</code>, <code>venues</code>, <code>breaks</code>, <code>draws</code>, <code>results</code>, <code>feedback</code>, <code>checkins</code>; <code>read:standings</code> and <code>read:staff</code> only. <code>write</code> implies <code>read</code>. No token can grant staff access.</li>
+</ul>
+<p>Tokens stay valid until revoked, including after the administrator who created them loses access. See the note above on direct browser access to <code>apiTokens</code>.</p>
+<h2 id="what-is-public">What is public<a class="anchor" href="#what-is-public" aria-label="Link to this section">#</a></h2>
+<p>Only the <strong>public projection</strong> (<code>src/lib/publicView/projection.ts</code>), built on the server at publish time. It copies an allowlist of fields per collection and applies the release settings:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Published (when released / switched on)</th>
+<th scope="col">Never published</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tournament name, slug, format, preferences (minus private speaker categories; schedule only when released; room category descriptions only when marked public)</td>
+<td>Owner, admin list, owner email</td>
+</tr>
+<tr>
+<td>Rounds that are visible (draw released, results released, or in a released tab), with their status flags</td>
+<td>Unreleased or locked draws, cancelled rounds</td>
+</tr>
+<tr>
+<td>Debates of visible rounds: teams, sides, room, bracket; panels only once revealed; points and speaker totals only with released results</td>
+<td>Unrevealed panels, results of silent or unreleased rounds</td>
+</tr>
+<tr>
+<td>Confirmed ballots of rounds with public results; speaker scores only when team speaks are released; per-adjudicator sheets and split adjudicators only when switched on and the panel is revealed</td>
+<td>Unconfirmed or discarded ballots</td>
+</tr>
+<tr>
+<td>Teams that appear publicly (in a public debate, a released break, released participants list or side allocations): name or code name, speakers, institution and emoji if switched on, public speaker categories</td>
+<td>Private URL keys, passcodes, emails, phone numbers, private speaker categories, conflicts</td>
+</tr>
+<tr>
+<td>Adjudicators on revealed panels or released lists: name, institution if switched on, trainee / core / breaking flags only when that list is released</td>
+<td>Base and test scores, feedback, score history, conflicts</td>
+</tr>
+<tr>
+<td>Released motions; info slides of rounds with released info slides</td>
+<td>Unreleased motions</td>
+</tr>
+<tr>
+<td>Break categories; the generated break only when released</td>
+<td>Break overrides, unreleased breaks</td>
+</tr>
+<tr>
+<td>Institutions only when their list is released; rooms (name, category, capacity, accessibility, http(s) links)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Aggregates computed on the server: tabs with top-N limits, adjudicator tab, diversity, feedback progress (feedback is read only when one of these is on)</td>
+<td>Raw feedback (the <code>feedback</code> collection is always empty)</td>
+</tr>
+</tbody></table></div>
+<p>See <a href="Public-Pages-and-Releases.html">Public pages and releases</a>.</p>
+<h2 id="browser-and-headers">Browser and headers<a class="anchor" href="#browser-and-headers" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><code>securityHeaders.mjs</code> (applied to every path by <code>next.config.mjs</code>) sets a Content-Security-Policy (<code>default-src &#39;self&#39;</code>; connections only to self and Firebase endpoints; <code>frame-ancestors &#39;self&#39;</code>, <code>object-src &#39;none&#39;</code>, <code>base-uri &#39;self&#39;</code>, <code>form-action &#39;self&#39;</code>; <code>script-src</code> allows <code>&#39;unsafe-inline&#39;</code> for Next.js bootstrap scripts, plus <code>&#39;unsafe-eval&#39;</code> in development), <code>X-Frame-Options: SAMEORIGIN</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: strict-origin-when-cross-origin</code> and a <code>Permissions-Policy</code> that disables camera, microphone and geolocation. <code>src/lib/securityHeaders.test.ts</code> covers it.</li>
+<li>The organiser&#39;s working copy in IndexedDB holds everything an administrator can see, including passcodes and feedback. Use trusted devices and clear site data on shared computers.</li>
+<li>Signed-out viewers are never treated as administrators.</li>
+</ul>
+<h2 id="untrusted-input">Untrusted input<a class="anchor" href="#untrusted-input" aria-label="Link to this section">#</a></h2>
+<p>CSV and DebateXML files are parsed as data only. DebateXML with DOCTYPE or entity declarations is refused and record counts are capped. CSV exports escape formula-like cells. Room links are published only if they are http(s).</p>
+<h2 id="known-gaps">Known gaps<a class="anchor" href="#known-gaps" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Participant passcodes and private URL keys are stored in plain text (administrators can read them).</li>
+<li><code>apiTokens</code>, <code>emailCampaigns</code> and <code>notificationLog</code> are writable by administrators from the browser (see above).</li>
+<li>Firestore rules are not executed in CI (text checks only).</li>
+<li>State rules (locked ballots, completed rounds) are checked on the device for administrators&#39; live writes, not by the rules.</li>
+<li><code>script-src</code> allows inline scripts.</li>
+</ul>
+<h2 id="related-pages">Related pages<a class="anchor" href="#related-pages" aria-label="Link to this section">#</a></h2>
+<p><a href="Architecture.html">Architecture</a> · <a href="Data-Model.html">Data model</a> · <a href="Staff-and-Roles.html">Staff and roles</a> · <a href="API-and-Tokens.html">API and tokens</a> · <a href="Private-URLs-and-Portals.html">Private URLs and portals</a></p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Contributing.html" rel="prev"><span>Previous</span>Contributing</a><a class="pager-next" href="FAQ-and-Troubleshooting.html" rel="next"><span>Next</span>FAQ and troubleshooting</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Security-Model.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#identities">Identities</a></li><li><a href="#firestore-rules">Firestore rules</a></li><li><a href="#server-only-documents">Server-only documents</a></li><li><a href="#server-routes">Server routes</a></li><li><a href="#staff-permissions">Staff permissions</a></li><li><a href="#passcodes-and-secrets">Passcodes and secrets</a></li><li><a href="#rate-limits">Rate limits</a></li><li><a href="#api-tokens">API tokens</a></li><li><a href="#what-is-public">What is public</a></li><li><a href="#browser-and-headers">Browser and headers</a></li><li><a href="#untrusted-input">Untrusted input</a></li><li><a href="#known-gaps">Known gaps</a></li><li><a href="#related-pages">Related pages</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

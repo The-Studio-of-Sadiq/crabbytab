@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploying to Vercel and Firebase · CrabbyTab guide</title>
+<meta name="description" content="Deploying to Vercel and Firebase: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html" aria-current="page">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="deploying-to-vercel-and-firebase">Deploying to Vercel and Firebase<a class="anchor" href="#deploying-to-vercel-and-firebase" aria-label="Link to this section">#</a></h1>
+<p>CrabbyTab is designed to run for free: a Next.js app on <strong>Vercel</strong> and a <strong>Firebase</strong> project on the <strong>Spark</strong> (no-cost) plan. Nothing in the app needs a paid API. Very large events (around 1000 teams) may need Firebase&#39;s pay-as-you-go <strong>Blaze</strong> plan; see <a href="#staying-inside-the-spark-budget">the read and write budget</a>.</p>
+<p>You need:</p>
+<ul>
+<li>a GitHub fork or clone of the repository,</li>
+<li>a Vercel account,</li>
+<li>a Firebase project with <strong>Authentication</strong> (email/password) and <strong>Cloud Firestore</strong>,</li>
+<li>optionally an SMTP account for email.</li>
+</ul>
+<h2 id="1-create-the-firebase-project">1. Create the Firebase project<a class="anchor" href="#1-create-the-firebase-project" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Create a project in the <a href="https://console.firebase.google.com/">Firebase console</a>.</li>
+<li><strong>Authentication → Sign-in method:</strong> enable <em>Email/Password</em>. Under <em>Settings → Authorized domains</em>, add your Vercel URL and any custom domain.</li>
+<li><strong>Firestore Database:</strong> create a database in production mode. Choose a region close to your users; it cannot be changed later.</li>
+<li><strong>Project settings → Your apps:</strong> add a <em>Web app</em> and copy its config values into the <code>NEXT_PUBLIC_FIREBASE_*</code> variables.</li>
+<li><strong>Project settings → Service accounts:</strong> generate a new private key. The downloaded JSON becomes <code>FIREBASE_SERVICE_ACCOUNT_JSON</code>. Treat it as a secret.</li>
+</ol>
+<h2 id="2-deploy-the-firestore-rules">2. Deploy the Firestore rules<a class="anchor" href="#2-deploy-the-firestore-rules" aria-label="Link to this section">#</a></h2>
+<p>The repository&#39;s <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/firestore.rules"><code>firestore.rules</code></a> are part of CrabbyTab&#39;s security model. They decide what tournament administrators, data-entry staff, global admins and signed-out visitors may read and write, and they deny every client access to server-only data (registrations, invitations, private-URL secrets). Without them the app does not work correctly and data may be exposed.</p>
+<p>The repository has no <code>firebase.json</code>, so deploy the rules in one of two ways:</p>
+<ul>
+<li><strong>Console:</strong> paste the file into <strong>Firestore Database → Rules</strong> and press <strong>Publish</strong>.</li>
+<li><strong>CLI:</strong> in a separate folder, create a minimal <code>firebase.json</code> such as <code>{ &quot;firestore&quot;: { &quot;rules&quot;: &quot;firestore.rules&quot; } }</code>, copy <code>firestore.rules</code> next to it, and run <code>firebase deploy --only firestore:rules --project &lt;your-project-id&gt;</code>.</li>
+</ul>
+<p>Review the rules before publishing them, and redeploy them whenever you update CrabbyTab and the file has changed. The rules are not run in CI (there is no emulator setup), so check changes in the console&#39;s <strong>Rules Playground</strong> first; <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md"><code>docs/live-collaboration.md</code></a> lists the cases to try. See <a href="Security-Model.html">Security model</a> for what the rules allow.</p>
+<p>No composite indexes need to be created by hand. If Firestore ever reports a missing index in the server logs, the error message contains a link that creates it.</p>
+<h2 id="3-create-the-vercel-project">3. Create the Vercel project<a class="anchor" href="#3-create-the-vercel-project" aria-label="Link to this section">#</a></h2>
+<ol>
+<li><p>Import the repository in Vercel. The framework preset is <strong>Next.js</strong>; the default install and build commands (<code>npm ci</code> / <code>npm run build</code>) work as they are. Set the Node.js version to <strong>22.x</strong>.</p>
+</li>
+<li><p>Add the environment variables (Production, and Preview if you test previews):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Variable</th>
+<th scope="col">Required</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>NEXT_PUBLIC_FIREBASE_API_KEY</code>, <code>NEXT_PUBLIC_FIREBASE_APP_ID</code>, <code>NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</code>, <code>NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID</code>, <code>NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</code>, <code>NEXT_PUBLIC_FIREBASE_PROJECT_ID</code>, <code>NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</code></td>
+<td>Yes</td>
+<td>Firebase web config. Public identifiers, compiled into the browser bundle, so a change needs a redeploy.</td>
+</tr>
+<tr>
+<td><code>FIREBASE_SERVICE_ACCOUNT_JSON</code></td>
+<td>Yes</td>
+<td>Paste the whole JSON; it may stay on one line. Server only.</td>
+</tr>
+<tr>
+<td><code>FIREBASE_ADMIN_UIDS</code></td>
+<td>Yes</td>
+<td>UIDs of global administrators, comma or space separated.</td>
+</tr>
+<tr>
+<td><code>NEXT_PUBLIC_APP_URL</code></td>
+<td>Recommended</td>
+<td>Your production URL, used as the base for page metadata. Falls back to <code>https://$VERCEL_URL</code>.</td>
+</tr>
+<tr>
+<td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>, <code>SMTP_FROM</code>, <code>SMTP_SECURE</code></td>
+<td>For email</td>
+<td>Without them, everything except sending email works; invitation and registration links are then shown once to copy.</td>
+</tr>
+<tr>
+<td><code>EMAIL_WEBHOOK_SECRET</code></td>
+<td>Optional</td>
+<td>Enables the signed delivery-status webhook.</td>
+</tr>
+<tr>
+<td><code>SMS_WEBHOOK_URL</code>, <code>SMS_WEBHOOK_SECRET</code></td>
+<td>Optional</td>
+<td>Your own HTTPS SMS relay.</td>
+</tr>
+</tbody></table></div>
+<p>Variable details: <a href="Installation-and-Local-Development.html#environment-variables">Installation</a>.</p>
+</li>
+<li><p>Deploy.</p>
+</li>
+</ol>
+<p>Server routes run on the Node.js runtime. The email send, retry and automatic-notification routes allow up to 60 seconds per request, and one email send is capped at 100 recipients.</p>
+<h2 id="4-create-accounts-and-global-administrators">4. Create accounts and global administrators<a class="anchor" href="#4-create-accounts-and-global-administrators" aria-label="Link to this section">#</a></h2>
+<p>CrabbyTab has <strong>no public account sign-up</strong>.</p>
+<ul>
+<li>Create the first accounts in <strong>Firebase → Authentication → Users</strong>. Put the UIDs of the people who run the site into <code>FIREBASE_ADMIN_UIDS</code>. On every sign-in the server adds or removes the <code>globalAdmin</code> custom claim to match the list, and the Firestore rules trust that claim. After changing the variable, redeploy and have the person sign out and in again.</li>
+<li>Only global admins can create tournaments, load demo tournaments or import DebateXML archives.</li>
+<li>Tournament administrators and data-entry staff are added per tournament on its <strong>Staff</strong> page: either an existing account directly, or an <strong>email invitation</strong>, which lets the invitee create an account for exactly the invited address. See <a href="Staff-and-Roles.html">Staff and roles</a>.</li>
+<li>Forgotten passwords are reset by email at <code>/forgot-password</code> (Firebase sends that email, not your SMTP server).</li>
+</ul>
+<h2 id="5-email-optional">5. Email (optional)<a class="anchor" href="#5-email-optional" aria-label="Link to this section">#</a></h2>
+<p>Set the <code>SMTP_*</code> variables. Any SMTP provider works; check its daily sending limit against the size of your tournament. Send a test from the tournament&#39;s <strong>Email</strong> page. See <a href="Email-and-Notifications.html">Email and notifications</a>.</p>
+<h2 id="staying-inside-the-spark-budget">Staying inside the Spark budget<a class="anchor" href="#staying-inside-the-spark-budget" aria-label="Link to this section">#</a></h2>
+<p>The Spark plan allows <strong>50,000 Firestore document reads and 20,000 writes per day</strong>. CrabbyTab is built around those limits.</p>
+<h3 id="where-reads-and-writes-come-from">Where reads and writes come from<a class="anchor" href="#where-reads-and-writes-come-from" aria-label="Link to this section">#</a></h3>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Activity</th>
+<th scope="col">Firestore cost</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Public pages, projector, public check-ins, public schedule</td>
+<td>Almost none: served from cached snapshots (below). Audience size hardly matters.</td>
+</tr>
+<tr>
+<td>Opening a cloud tournament on an administrator device</td>
+<td>Reads every collection once, then live listeners take over. For a 100-team BP event with ~150 adjudicators that is a few hundred reads more.</td>
+</tr>
+<tr>
+<td>Live collaboration (administrator devices)</td>
+<td>Ballots, check-ins, draws and allocations are written record by record. Each change costs about one read per other listening admin device; a confirmed ballot about 3. Listeners cover the teams and adjudicators collections and the active round&#39;s debates and ballots only.</td>
+</tr>
+<tr>
+<td><strong>Upload now</strong></td>
+<td>Sends only records changed since this device last synced, in transactions of up to 150 records. An upload with nothing changed costs a handful of reads.</td>
+</tr>
+<tr>
+<td><strong>Download and compare</strong></td>
+<td>Reads the tournament&#39;s collections.</td>
+</tr>
+<tr>
+<td>Publishing public pages (after an upload or release)</td>
+<td>About one read per collection to check whether anything public changed; if so, one read of every public collection to rebuild the snapshot. Unchanged publishes are skipped.</td>
+</tr>
+<tr>
+<td>Private URLs (team, speaker and adjudicator portals)</td>
+<td>Participant-scoped: a team portal reads its own debates, their teams and ballots (around 10 debates, not the whole draw).</td>
+</tr>
+<tr>
+<td>Registration form</td>
+<td>2 reads per page view (cached 30 s at the edge); a submission about 7 reads and 5 writes.</td>
+</tr>
+</tbody></table></div>
+<p>A rough guide: four administrator devices on a 100-team event stay well inside 50k reads a day. A 1000-team event&#39;s first upload is about 10,000 writes, so several full uploads a day exceed Spark&#39;s 20,000 writes; plan on Blaze for events of that size. Details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md"><code>docs/storage-and-scale.md</code></a> and <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md"><code>docs/live-collaboration.md</code></a>.</p>
+<h3 id="how-public-caching-keeps-reads-low">How public caching keeps reads low<a class="anchor" href="#how-public-caching-keeps-reads-low" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>Public pages never read the tournament collections.</strong> When an administrator uploads or releases something, the browser builds a sanitised <em>public projection</em> (only released data) and publishes it to <code>publicViews/{slug}</code>, split into sections and one section per public round.</li>
+<li><strong>The server reads snapshots through the Next.js Data Cache</strong>, which Vercel shares across instances. A publish invalidates the tournament&#39;s cache at once. Otherwise the root document is refreshed hourly and section documents daily.</li>
+<li><strong>The CDN absorbs bursts.</strong> <code>GET /api/public/tournaments/{slug}</code> and <code>/checkins</code> answer with <code>Cache-Control: public, max-age=0, s-maxage=15, stale-while-revalidate=30</code>; <code>/version</code> with 10 / 20 seconds. A single round requested with its current content hash (<code>?round={id}&amp;h={hash}</code>) is cached for a day, because that URL never changes meaning.</li>
+<li><strong>Clients poll a tiny version marker.</strong> The public page and the projector check <code>/version</code> every 45 seconds and reload only the rounds whose hash changed. The public check-in page refreshes every 30 seconds through the same cache.</li>
+<li>Other public endpoints are cached too: the schedule JSON for 2 minutes, the iCalendar feed and public audit status for a minute, and the cross-tournament motion statistics for 10 minutes.</li>
+<li>A tournament that has <strong>never been published</strong> is built once from its collections on first view and cached for 5 minutes. For large events, publish before sharing links.</li>
+</ul>
+<p>Republish by hand from the account menu with <strong>Republish public pages</strong>. It publishes the cloud copy; if this device has changes that are not uploaded, it asks whether to upload first.</p>
+<h2 id="updating-a-deployment">Updating a deployment<a class="anchor" href="#updating-a-deployment" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Pull the new version and read the commit log.</li>
+<li>Compare <code>firestore.rules</code> and <code>.env.example</code> with your deployment and update both if they changed.</li>
+<li>Redeploy on Vercel.</li>
+<li>Ask organisers to <strong>Upload now</strong> before the update (so nothing is only on one device), and to reload afterwards.</li>
+</ol>
+<h2 id="checklist">Checklist<a class="anchor" href="#checklist" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><input disabled="" type="checkbox"> Email/password sign-in enabled, authorised domain added</li>
+<li><input disabled="" type="checkbox"> Firestore created and <code>firestore.rules</code> published</li>
+<li><input disabled="" type="checkbox"> Vercel env vars set (Firebase web config, service account, admin UIDs), Node.js 22</li>
+<li><input disabled="" type="checkbox"> A global admin can sign in and sees <strong>Create a new tournament</strong></li>
+<li><input disabled="" type="checkbox"> (Optional) SMTP configured and a test email sent from the Email page</li>
+<li><input disabled="" type="checkbox"> (Optional) A test tournament uploaded and its public tab opened in a private window</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Installation-and-Local-Development.html" rel="prev"><span>Previous</span>Installation and local development</a><a class="pager-next" href="First-Tournament-Walkthrough.html" rel="next"><span>Next</span>First tournament walkthrough</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Deploying-to-Vercel-and-Firebase.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#1-create-the-firebase-project">1. Create the Firebase project</a></li><li><a href="#2-deploy-the-firestore-rules">2. Deploy the Firestore rules</a></li><li><a href="#3-create-the-vercel-project">3. Create the Vercel project</a></li><li><a href="#4-create-accounts-and-global-administrators">4. Create accounts and global administrators</a></li><li><a href="#5-email-optional">5. Email (optional)</a></li><li><a href="#staying-inside-the-spark-budget">Staying inside the Spark budget</a></li><li><a href="#updating-a-deployment">Updating a deployment</a></li><li><a href="#checklist">Checklist</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

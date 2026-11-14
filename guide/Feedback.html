@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feedback · CrabbyTab guide</title>
+<meta name="description" content="Feedback: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html" aria-current="page">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="feedback">Feedback<a class="anchor" href="#feedback" aria-label="Link to this section">#</a></h1>
+<p>Adjudicator feedback is collected from teams and adjudicators, reviewed by the tab room and blended into adjudicator scores for <a href="Adjudicator-Allocation.html">allocation</a>. It is on by default.</p>
+<p>Where things are:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Task</th>
+<th scope="col">Where</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Turn feedback on/off, scale, step, introduction, questions, paths</td>
+<td><strong>Admin → Configuration → Scoring &amp; ballots</strong>, card <em>Adjudicator feedback</em></td>
+</tr>
+<tr>
+<td>Switch feedback off for one round</td>
+<td><strong>Admin → Configuration → Round settings</strong> (per-round checkbox)</td>
+</tr>
+<tr>
+<td>Progress, weights, ratings, manual entry, exports, bulk base scores</td>
+<td>Sidebar <strong>Results → Feedback</strong> (page <em>Adjudicator feedback and ratings</em>)</td>
+</tr>
+<tr>
+<td>Review individual submissions</td>
+<td>Feedback page → <strong>View submitted forms</strong> (<em>Individual feedback forms</em>)</td>
+</tr>
+<tr>
+<td>Duplicates</td>
+<td>Feedback page → <strong>Duplicate feedback</strong></td>
+</tr>
+<tr>
+<td>One adjudicator&#39;s history</td>
+<td>Click an adjudicator in the ratings summary (<code>/feedback/adjudicator/{id}</code>)</td>
+</tr>
+<tr>
+<td>Printed forms</td>
+<td>Feedback page → <strong>Print forms</strong></td>
+</tr>
+<tr>
+<td>Private-URL / public-form switches</td>
+<td><strong>Admin → Assistants</strong> (page <em>Tournament access</em>): <em>Feedback submissions through private URLs</em>; <em>Public forms</em> card</td>
+</tr>
+<tr>
+<td>Round feedback weight</td>
+<td><strong>Round → Allocation</strong> page</td>
+</tr>
+</tbody></table></div>
+<p>Deep reference: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/adjudicator-allocation.md">adjudicator-allocation.md</a> (sections <em>Feedback paths</em> to <em>Duplicate feedback</em>).</p>
+<h2 id="settings">Settings<a class="anchor" href="#settings" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Setting</th>
+<th scope="col">Default</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Enable adjudicator feedback submission</td>
+<td>on</td>
+<td>Off hides the Feedback page and portal forms</td>
+</tr>
+<tr>
+<td>Minimum / maximum feedback score</td>
+<td>1 / 10</td>
+<td>The feedback scale; mapped onto the 1–10 adjudicator scale for scores</td>
+</tr>
+<tr>
+<td>Feedback score step</td>
+<td>1</td>
+<td>Scores must be the minimum plus whole steps (e.g. 0.5). Checked in every form and again on the server</td>
+</tr>
+<tr>
+<td>Feedback introduction</td>
+<td>empty</td>
+<td>Plain text shown above feedback forms in the private portals</td>
+</tr>
+<tr>
+<td>Show unexpected feedback</td>
+<td>on</td>
+<td>Progress lists submissions no path expected, marked &quot;?&quot;</td>
+</tr>
+<tr>
+<td>Important feedback threshold</td>
+<td>2</td>
+<td>Used by the <em>Important only</em> filter</td>
+</tr>
+<tr>
+<td>Custom feedback questions</td>
+<td>none</td>
+<td>Separate <em>Team feedback</em> and <em>Adjudicator feedback</em> questionnaires</td>
+</tr>
+<tr>
+<td>Feedback paths</td>
+<td>see below</td>
+<td>Who rates whom</td>
+</tr>
+<tr>
+<td>Collect feedback in elimination rounds</td>
+<td>on</td>
+<td>Plus optional <em>Use different paths in elimination rounds</em></td>
+</tr>
+<tr>
+<td>Feedback submissions through private URLs</td>
+<td>on</td>
+<td>Off: portals hide the forms and the server refuses them</td>
+</tr>
+<tr>
+<td>Public feedback form</td>
+<td>off</td>
+<td>A form on the public site; see <a href="Public-Pages-and-Releases.html">Public pages and releases</a></td>
+</tr>
+</tbody></table></div>
+<h2 id="questions">Questions<a class="anchor" href="#questions" aria-label="Link to this section">#</a></h2>
+<p>Every submission has an overall score, an optional <em>Agreed with the decision</em> answer and optional comments (up to 5,000 characters). Custom questions can be any of: short text, long text, whole number box, decimal number box (optional min/max), integer scale (pick one, at most 21 choices), number in range, yes/no, checkbox, select one, select many. Any can be <em>Required</em> (a required checkbox must be ticked). Answers are validated in the browser and again on the server. <strong>Answers never change the score</strong>; only the overall score counts.</p>
+<h2 id="feedback-paths-who-rates-whom">Feedback paths (who rates whom)<a class="anchor" href="#feedback-paths-who-rates-whom" aria-label="Link to this section">#</a></h2>
+<p>Set under <em>Feedback paths</em>. The same paths decide what the portals offer, what the server accepts, which sources the tab-room form lists, what the progress panel expects and which forms are printed.</p>
+<p><strong>Teams give feedback on</strong> (Tabbycat&#39;s <code>feedback_from_teams</code>):</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Option</th>
+<th scope="col">May rate</th>
+<th scope="col">Expected</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>The chair only</td>
+<td>chair</td>
+<td>the chair</td>
+</tr>
+<tr>
+<td>The orallist</td>
+<td>voting adjudicators; team picks who gave the oral</td>
+<td>one submission</td>
+</tr>
+<tr>
+<td>Any voting adjudicator allowed, only the orallist expected</td>
+<td>voting adjudicators</td>
+<td>one submission</td>
+</tr>
+<tr>
+<td>Any adjudicator (trainees too) allowed, only the orallist expected</td>
+<td>every adjudicator</td>
+<td>one submission</td>
+</tr>
+<tr>
+<td>Every voting adjudicator (not trainees)</td>
+<td>voting adjudicators</td>
+<td>each of them</td>
+</tr>
+<tr>
+<td>Every adjudicator on the panel</td>
+<td>every adjudicator</td>
+<td>each of them</td>
+</tr>
+<tr>
+<td>Nobody</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody></table></div>
+<p>CrabbyTab does not record who gave the oral, so for &quot;one submission&quot; modes a team&#39;s first submission on any allowed adjudicator settles it; further ones are <em>unexpected</em>.</p>
+<p><strong>Adjudicators</strong>, each a separate switch: chair on panellists, chair on trainees, panellists on chair, trainees on chair, panellists on each other (not trainees), or every adjudicator on every other (trainees included). Optionally <strong>also allow feedback on teams</strong>; it is never expected and never counts towards adjudicator scores.</p>
+<p>Nobody rates themselves, and postponed debates take no feedback.</p>
+<p>Tournaments created before explicit paths keep their old preset (<em>chairs → panel</em>, <em>two-way</em>, <em>everyone</em>), mapped onto these switches.</p>
+<h2 id="how-feedback-comes-in">How feedback comes in<a class="anchor" href="#how-feedback-comes-in" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Route</th>
+<th scope="col">Stored as</th>
+<th scope="col">Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><a href="Private-URLs-and-Portals.html">Private URL portals</a></td>
+<td>confirmed</td>
+<td>Server checks the source and target sat in the debate, the paths, score range and step, and answers. Teams see their panel only once adjudicators are revealed</td>
+</tr>
+<tr>
+<td>Public feedback form</td>
+<td>confirmed</td>
+<td>Participants pick themselves from a list; optional tournament password. Same checks as private URLs</td>
+</tr>
+<tr>
+<td>Tab room (<strong>Enter feedback</strong> on the Feedback page)</td>
+<td>confirmed</td>
+<td>Choose judge, debate, then who submitted it</td>
+</tr>
+<tr>
+<td>Data-entry staff with <em>Enter feedback</em></td>
+<td><strong>unconfirmed</strong></td>
+<td>The server checks only that source and target sat in the debate, not the paths (known gap)</td>
+</tr>
+<tr>
+<td>Paper</td>
+<td>—</td>
+<td><strong>Print forms</strong> produces one form per expected submission; enter them in the tab room</td>
+</tr>
+<tr>
+<td>REST API</td>
+<td>per request</td>
+<td>See <a href="API-and-Tokens.html">API and tokens</a></td>
+</tr>
+</tbody></table></div>
+<h2 id="versions-resubmitting-replaces">Versions: resubmitting replaces<a class="anchor" href="#versions-resubmitting-replaces" aria-label="Link to this section">#</a></h2>
+<p>Feedback is versioned per source, target and debate (as Tabbycat). When confirmed feedback is saved from a private URL or the tab room, the same source&#39;s earlier confirmed feedback on the same target in that debate is <strong>unconfirmed</strong> (kept, not deleted), so it is not counted twice. In &quot;orallist&quot; mode a team&#39;s new feedback replaces its earlier one on any adjudicator of that debate.</p>
+<p>Gotcha: <strong>public-form</strong> submissions do not replace earlier ones. Feedback stored twice before versioning existed also keeps both copies. Use the duplicate report to clean up.</p>
+<h2 id="reviewing">Reviewing<a class="anchor" href="#reviewing" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Individual feedback forms</strong>: tabs for team and adjudicator feedback; filters by round, adjudicator rated, source type, source, and status (counted, unconfirmed, ignored), plus <em>Important only</em>. Administrators can <strong>Confirm / Unconfirm</strong> and <strong>Ignore / Count again</strong> each one; every change is audited. Ignored feedback stays on record but does not count.</li>
+<li><strong>Important only (±N from base score)</strong>: feedback whose score differs from the adjudicator&#39;s current base score by more than the <em>Important feedback threshold</em> (Tabbycat&#39;s important feedback view).</li>
+<li><strong>Duplicate feedback</strong>: submissions by the same team or adjudicator on the same target in the same debate, with the same confirm/ignore controls. It changes nothing by itself. Choose the minimum number of copies to show.</li>
+<li><strong>Feedback progress</strong>: for a round, who owes feedback under the round&#39;s paths and who has not given it. Any submission from that source about that target counts as received (even unconfirmed or ignored). With <em>Show unexpected feedback</em>, unexpected submissions are listed with &quot;?&quot;; they still count towards scores unless ignored. A public progress page can be released separately.</li>
+<li><strong>Per-adjudicator page</strong>: role in each round, all feedback received, a per-question summary of answers, the score history (base/test changes with who, when and why, and the feedback-derived score by round), and which rounds were <em>Tested</em> (a tester other than themselves sat on the panel).</li>
+<li><strong>Judge ratings summary</strong>: base, test, counted feedback, weighted average, agreement rate, plus <strong>Breaking</strong> and <strong>Tester</strong> checkboxes.</li>
+</ul>
+<p>Deleting feedback is only available through the REST API (soft delete, audited); in the UI, ignore it instead.</p>
+<h2 id="scores-and-weighting">Scores and weighting<a class="anchor" href="#scores-and-weighting" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Feedback weighting by source</strong> (administrators, Feedback page): a multiplier for each pair of source role (team, chair, panellist, trainee) and the rated adjudicator&#39;s role. 1 = normal, 0 = not counted.</li>
+<li>Only confirmed, non-ignored feedback about adjudicators counts. The weighted average is mapped onto 1–10.</li>
+<li>Blended score = (1 − w) × (test score, else base score) + w × feedback average, where w is the round&#39;s feedback weight set on the Allocation page. New rounds default to w = 1, so feedback fully replaces the base score once there is any; lower it to keep base scores relevant. See <a href="Adjudicator-Allocation.html">Adjudicator allocation</a>.</li>
+</ul>
+<h2 id="bulk-base-scores">Bulk base scores<a class="anchor" href="#bulk-base-scores" aria-label="Link to this section">#</a></h2>
+<p><strong>Update base scores in bulk</strong> (Feedback page): paste one <code>adjudicator,score</code> line per adjudicator (name or id; case and surrounding spaces ignored). <strong>Check lines</strong> previews each line; nothing is saved while any line has a problem (unknown or ambiguous name, missing or out-of-range score, extra columns, an adjudicator listed twice). Unchanged scores are skipped. Every change is recorded in the score history. Available to administrators and staff with <em>adjudicators.scores_edit</em>; staff changes reach the cloud with their next sync.</p>
+<h2 id="exports-and-privacy">Exports and privacy<a class="anchor" href="#exports-and-privacy" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Feedback CSV (admin only)</strong>: every submission with sources, comments, answers and unconfirmed ones. <strong>Scores CSV (admin only)</strong>: base, test, feedback and blended scores using the current round&#39;s weight.</li>
+<li>Feedback is never on the public site or in the public snapshot.</li>
+<li>DebateXML exports include feedback scores and question answers, but not the free-text comments.</li>
+<li>API tokens need the <code>feedback</code> scope to read it.</li>
+<li>Data-entry staff see scores, comments and answers only with <em>See feedback and adjudicator scores</em> (<code>feedback.view</code>); see <a href="Staff-and-Roles.html">Staff and roles</a>.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Ballots-and-Results.html" rel="prev"><span>Previous</span>Ballots and results</a><a class="pager-next" href="Standings-and-Metrics.html" rel="next"><span>Next</span>Standings and metrics</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Feedback.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#settings">Settings</a></li><li><a href="#questions">Questions</a></li><li><a href="#feedback-paths-who-rates-whom">Feedback paths (who rates whom)</a></li><li><a href="#how-feedback-comes-in">How feedback comes in</a></li><li><a href="#versions-resubmitting-replaces">Versions: resubmitting replaces</a></li><li><a href="#reviewing">Reviewing</a></li><li><a href="#scores-and-weighting">Scores and weighting</a></li><li><a href="#bulk-base-scores">Bulk base scores</a></li><li><a href="#exports-and-privacy">Exports and privacy</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

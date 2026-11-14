@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tournament setup and formats · CrabbyTab guide</title>
+<meta name="description" content="Tournament setup and formats: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html" aria-current="page">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="tournament-setup-and-formats">Tournament setup and formats<a class="anchor" href="#tournament-setup-and-formats" aria-label="Link to this section">#</a></h1>
+<p>This page covers creating a tournament, the debate formats, Tabbycat rules presets and moving settings between tournaments. Every individual setting is listed in the <a href="Settings-Reference.html">Settings reference</a>.</p>
+<h2 id="who-can-create-tournaments">Who can create tournaments<a class="anchor" href="#who-can-create-tournaments" aria-label="Link to this section">#</a></h2>
+<p>Only <strong>global administrators</strong> (see <a href="Staff-and-Roles.html">Staff and roles</a>) can create tournaments. On the Tournaments hub (<code>/tournaments</code>) they see three ways to start:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Option</th>
+<th scope="col">Page</th>
+<th scope="col">Creates</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Create a new tournament</strong></td>
+<td><code>/tournaments/new</code></td>
+<td>An empty tournament from the setup wizard (below).</td>
+</tr>
+<tr>
+<td><em>Or import a DebateXML archive (from Tabbycat or CrabbyTab)</em></td>
+<td><code>/tournaments/import</code></td>
+<td>A new tournament from a DebateXML file. See <a href="Participants-and-Imports.html#debatexml-import">Participants and imports</a>.</td>
+</tr>
+<tr>
+<td><em>Or load a demo tournament for a rehearsal</em></td>
+<td><code>/tournaments/demo</code></td>
+<td>A seeded practice tournament (BP with 24 teams, or WSDC with 16 teams). See <a href="First-Tournament-Walkthrough.html#option-a-rehearse-with-a-demo-tournament">First tournament walkthrough</a>.</td>
+</tr>
+</tbody></table></div>
+<p>The same choices are in the tournament switcher in the top bar (<em>New tournament</em>, <em>Import tournament</em>, <em>Load demo tournament</em>). Other users see the tournaments they are assigned to.</p>
+<p>A new tournament is saved <strong>on this device only</strong> (&quot;Upload it to Firestore only when you choose to&quot;). It reaches the cloud, the public pages, registration and other staff after the first <strong>Upload now</strong> (cloud status menu in the top bar).</p>
+<h2 id="supported-formats">Supported formats<a class="anchor" href="#supported-formats" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Format</th>
+<th scope="col">Teams per room</th>
+<th scope="col">Speakers</th>
+<th scope="col">Replies</th>
+<th scope="col">Default speaker / reply scale</th>
+<th scope="col">Default team precedence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>British Parliamentary (BP)</td>
+<td>4</td>
+<td>2</td>
+<td>No</td>
+<td>50–100</td>
+<td>Points, total speaks, firsts, seconds, thirds</td>
+</tr>
+<tr>
+<td>Asian Parliamentary (UADC)</td>
+<td>2</td>
+<td>3</td>
+<td>Yes</td>
+<td>70–80 / 35–40</td>
+<td>Points, total speaks, total margin</td>
+</tr>
+<tr>
+<td>Australs</td>
+<td>2</td>
+<td>3</td>
+<td>Yes</td>
+<td>70–80 / 35–40</td>
+<td>as UADC</td>
+</tr>
+<tr>
+<td>World Schools (WSDC)</td>
+<td>2</td>
+<td>3</td>
+<td>Yes</td>
+<td>60–80 / 30–40</td>
+<td>as UADC</td>
+</tr>
+<tr>
+<td>Custom two-team</td>
+<td>2</td>
+<td>3 (any 1–6)</td>
+<td>Yes (optional)</td>
+<td>68–84 / 34–42</td>
+<td>as UADC</td>
+</tr>
+<tr>
+<td>N teams per room (public speaking)</td>
+<td>any whole number except 2 and 4 (default 6)</td>
+<td>1</td>
+<td>No</td>
+<td>50–99</td>
+<td>Average speaks</td>
+</tr>
+</tbody></table></div>
+<p>All score steps default to 1. New tournaments start with a power-paired draw, balanced sides, no double entry, motion vetoes on, the draw / results / standings / motions public, and feedback on (1–10).</p>
+<h3 id="what-the-format-decides">What the format decides<a class="anchor" href="#what-the-format-decides" aria-label="Link to this section">#</a></h3>
+<ul>
+<li><strong>BP</strong> uses its own position-balancing draw (Hungarian assignment), one consensus ballot per debate (BP voting ballots are not offered), and elimination rounds where two of four teams advance.</li>
+<li><strong>Two-team formats</strong> add voting ballots, forfeits, seeded and round-robin draws with team seeds, preallocated sides, sides chosen on the ballot (coin toss), and Tabbycat&#39;s AIDA break rules.</li>
+<li><strong>N teams per room</strong> follows Tabbycat&#39;s scope for these counts: random and manual draws only, ballots that record scores (and, in elimination rounds, which teams advance), no side rules, and no generated elimination draws. The setup wizard creates no elimination rounds; add them later and draw them by hand. When the field does not divide evenly, a random draw puts the remainder in a short last room (or gives byes, with an automatic bye method). See <a href="Rounds-and-Draws.html#n-teams-per-room">Rounds and draws</a>.</li>
+</ul>
+<h2 id="the-setup-wizard">The setup wizard<a class="anchor" href="#the-setup-wizard" aria-label="Link to this section">#</a></h2>
+<p><strong>Create a new tournament</strong> opens a seven-step wizard. <strong>Next</strong> checks each step; <strong>Create tournament</strong> re-checks every step.</p>
+<ol>
+<li><strong>Basics</strong> — <em>Tournament name</em> (at least 3 characters), <em>Short name</em> (optional, up to 15) and <em>URL slug</em>. The slug is suggested from the name. It must be 3–40 lowercase letters, numbers and single hyphens, must not be a reserved word (<code>account</code>, <code>api</code>, <code>forgot-password</code>, <code>invite</code>, <code>login</code>, <code>register</code>, <code>tournaments</code>, <code>public</code>, <code>display</code>, <code>private</code>, <code>new</code>, <code>admin</code>) or already used on this device, and <strong>cannot be changed later</strong>. It becomes the tournament&#39;s address, e.g. <code>/my-open-2026/public</code>.</li>
+<li><strong>Format</strong> — one of the six formats above (for <em>N teams per room</em>, also <em>Teams per room</em>), and an optional <strong>Tabbycat rules preset</strong> (next section).</li>
+<li><strong>Scoring</strong> — <em>Substantive speakers per team</em> (1–6), speaker score range and step, whether reply speeches are scored, and the reply range.</li>
+<li><strong>Rounds</strong> — <em>Number of preliminary rounds</em> (1–20); <em>Draw method</em>: Power-paired (Swiss), Random or Round robin; <em>Side allocation</em>: Balanced, Random, or <em>Chosen on the ballot</em> (two-team only); <em>Require double entry of ballots</em>. With power pairing, Round 1 is created as a random draw (or seeded, under the APDA preset). <em>N teams per room</em> always uses random draws and skips the side choice. Choosing round robin also turns off history and institution avoidance and sets the team import to numeric seeds, as Tabbycat&#39;s round-robin presets do.</li>
+<li><strong>Breaks</strong> — break categories with <em>Name</em>, <em>Teams that break</em>, <em>Reserve size</em> and <em>General (open) break</em>. Default: <em>Open</em>, 8 teams, 2 reserves. No categories means preliminary rounds only. BP break sizes must be even and at least 4.</li>
+<li><strong>Public &amp; feedback</strong> — which of the draw, motions, results and standings are public; <strong>Public information options</strong> (Tabbycat&#39;s preset for online events: the current round&#39;s draw, break categories, results, motions and team standings); <strong>Participant data entry</strong> (how adjudicators and teams submit ballots and feedback: <em>Default</em>, <em>Private URLs</em>, <em>Public forms</em> or <em>Tab staff only</em>); and whether to collect adjudicator feedback, with its score range.</li>
+<li><strong>Review</strong> — a summary and the list of rounds that will be created.</li>
+</ol>
+<p>The wizard creates the preliminary rounds plus the elimination rounds needed for the largest break: two-team ⌈log₂(break size)⌉ rounds, BP ⌈log₂(break size / 4)⌉ + 1 rounds (none for <em>N teams per room</em>). They are named Grand Final, Semifinals, Quarterfinals, Octofinals, Double and Triple Octofinals, then <em>Elimination N</em>. Break sizes that do not halve cleanly (for example 12) start with a partial elimination round in which the top seeds get byes.</p>
+<p>Everything except the slug can be changed later under <strong>Admin → Configuration</strong>.</p>
+<h2 id="rules-presets">Rules presets<a class="anchor" href="#rules-presets" aria-label="Link to this section">#</a></h2>
+<p>A rules preset applies the settings that the Tabbycat preset of the same name sets: format, speakers, score scale, ballot mode, motion settings, draw rules, standings precedence and, for some, feedback paths and public options. Settings you edit in the wizard afterwards win.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Preset (Tabbycat name)</th>
+<th scope="col">Format</th>
+<th scope="col">Highlights</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Australs (Australs Rules)</td>
+<td>Australs</td>
+<td>Voting ballots, motion vetoes, intermediate brackets with bubbles, slide pairing, one-up-one-down, wins then total speaks</td>
+</tr>
+<tr>
+<td>British Parliamentary (British Parliamentary Rules)</td>
+<td>BP</td>
+<td>Consensus ballots, no motion selection, WUDC draw (Rényi entropy, exponent 4, pull-ups anywhere), 15 min preparation</td>
+</tr>
+<tr>
+<td>Canadian Parliamentary</td>
+<td>Custom two-team, 2 speakers</td>
+<td>Consensus ballots, unscored replies, Gov/Opp, fold pairing, no conflict avoidance</td>
+</tr>
+<tr>
+<td>Australian Easters</td>
+<td>Australs, no replies</td>
+<td>Consensus prelims, voting elims, maximum margin 15</td>
+</tr>
+<tr>
+<td>NZ Easters (2 vs 2 Impromptu)</td>
+<td>Custom two-team, 2 speakers</td>
+<td>Sides chosen on the ballot, who-beat-whom in the precedence</td>
+</tr>
+<tr>
+<td>Joynt Scroll (3 vs 3 Prepared)</td>
+<td>Custom two-team</td>
+<td>Preallocated sides (public), intermediate2 brackets, who-beat-whom</td>
+</tr>
+<tr>
+<td>UADC (UADC Rules)</td>
+<td>UADC, 67–83</td>
+<td>Gov/Opp, teams rate every adjudicator, public feedback progress</td>
+</tr>
+<tr>
+<td>World Schools (WSDC Rules)</td>
+<td>WSDC, step 0.5</td>
+<td>Prop/Opp, Style/Content/Strategy score criteria, min-cost pairing with pull-ups</td>
+</tr>
+<tr>
+<td>APDA (APDA Rules)</td>
+<td>Custom two-team, 2 speakers, 15–40</td>
+<td>Seeded first round, byes as wins, min-cost pairing, speech ranks, seed titles on import</td>
+</tr>
+<tr>
+<td>Karl Popper (Czechia)</td>
+<td>Custom two-team, no replies</td>
+<td>Median scoring, self-split ballots, forfeits, public feedback form, penalty-weighted draw</td>
+</tr>
+<tr>
+<td>Public Speaking</td>
+<td>N teams per room (6)</td>
+<td>One speech each, random draws, voting ballots that record scores only, ranked on average speaks</td>
+</tr>
+</tbody></table></div>
+<p>The full bundles are in <code>src/lib/setup/presets.ts</code>. The preset is applied once, when the tournament is created; it is not stored, so later changes are yours.</p>
+<h2 id="changing-settings-later">Changing settings later<a class="anchor" href="#changing-settings-later" aria-label="Link to this section">#</a></h2>
+<p><strong>Admin → Configuration</strong> has six pages: <em>Draw rules</em>, <em>Round settings</em>, <em>Format &amp; teams</em>, <em>Scoring &amp; ballots</em>, <em>Standings rules</em> and <em>Public visibility</em>. Saving a page writes only the settings you changed on it. Changes are saved on this device; <strong>Upload now</strong> sends them to staff, portals and the public pages.</p>
+<h3 id="changing-the-format">Changing the format<a class="anchor" href="#changing-the-format" aria-label="Link to this section">#</a></h3>
+<p><em>Format &amp; teams</em> offers BP, UADC, Australs, WSDC and N teams per room (not <em>Custom two-team</em>; use one of the two-team formats and adjust speakers and replies). Switching resets teams per room, speakers per team and reply scoring to the new format&#39;s shape.</p>
+<p>Once any live (not discarded) ballot exists, the format, teams per room, speakers per team, reply speeches, ballot mode and score criteria are <strong>locked</strong> (&quot;Ballots have been entered…&quot;). Score ranges, steps and similar scoring rules can still change, but only with a recorded reason. Change the format before the first draw: existing debates are not converted.</p>
+<h3 id="team-names">Team names<a class="anchor" href="#team-names" aria-label="Link to this section">#</a></h3>
+<p><em>Format &amp; teams → Team names</em> chooses whether teams named Tabbycat-style (a reference with the institution prefix) show their long name (&quot;Victoria 1&quot;) or short name (&quot;VUW 1&quot;), refreshes names after an institution is renamed (<strong>Update team names</strong>), and converts existing names (<strong>Preview conversion</strong>). See <a href="Participants-and-Imports.html#team-names-references-and-prefixes">Participants and imports</a>.</p>
+<h2 id="configuration-file-and-rules-presets-for-an-existing-tournament">Configuration file and rules presets for an existing tournament<a class="anchor" href="#configuration-file-and-rules-presets-for-an-existing-tournament" aria-label="Link to this section">#</a></h2>
+<p><em>Admin → Configuration → Format &amp; teams → Configuration file and rules presets</em> (Tabbycat <code>exportconfig</code> / <code>importconfig</code>):</p>
+<ul>
+<li><strong>Export settings</strong> downloads the tournament&#39;s format and preferences as a JSON file. Tournament-specific state is never included: the current round, released tabs, ballots, break categories and the schedule.</li>
+<li><strong>Load settings from a file…</strong> checks the file (kind, version, a known format, every value of the right type) and previews the changes.</li>
+<li><strong>Rules preset → Preview preset</strong> previews applying any preset from the table above to this tournament.</li>
+</ul>
+<p>Every option shows a table of each setting that would change (<em>Now</em> / <em>After</em>). Nothing is saved until <strong>Apply these changes</strong> is confirmed. Settings fixed because ballots exist stay as they are and are listed; a different number of teams per room after a draw exists, or a format fixed by ballots, refuses the whole file or preset rather than applying half of another format. Settings unknown here or specific to the source tournament are skipped and listed. Participants, rounds, the schedule and releases are never changed. Upload afterwards so staff and participants get the new settings.</p>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Slug reservation.</strong> The wizard only refuses a slug already used on this device. The cloud slug registry (<code>tournamentSlugs/{slug}</code>) is claimed at the first upload, so a slug taken by another tournament in the cloud is found then. Use a distinctive slug.</li>
+<li><strong>Defaults stored at creation.</strong> New tournaments store <em>Team score includes ghosts</em> = on, private-URL ballots waiting for the tab room, and motion vetoes on, matching Tabbycat. Older tournaments without these fields keep their previous behaviour.</li>
+<li><strong>Unsupported Tabbycat presets.</strong> None remain; Tabbycat has no &quot;Japan BP&quot; preset (Japanese BP tournaments use the BP preset).</li>
+<li>Logic: <code>src/lib/setup/presets.ts</code>, <code>src/lib/setup/configTransfer.ts</code>, <code>src/components/setup/TournamentWizard.tsx</code>. Developer details: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/data-import-export.md"><code>docs/data-import-export.md</code></a>.</li>
+</ul>
+<h2 id="next">Next<a class="anchor" href="#next" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="Participants-and-Imports.html">Participants and imports</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament walkthrough</a></li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="First-Tournament-Walkthrough.html" rel="prev"><span>Previous</span>First tournament walkthrough</a><a class="pager-next" href="Participants-and-Imports.html" rel="next"><span>Next</span>Participants and imports</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Tournament-Setup-and-Formats.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#who-can-create-tournaments">Who can create tournaments</a></li><li><a href="#supported-formats">Supported formats</a></li><li><a href="#the-setup-wizard">The setup wizard</a></li><li><a href="#rules-presets">Rules presets</a></li><li><a href="#changing-settings-later">Changing settings later</a></li><li><a href="#configuration-file-and-rules-presets-for-an-existing-tournament">Configuration file and rules presets for an existing tournament</a></li><li><a href="#details">Details</a></li><li><a href="#next">Next</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Public homepage (Home tab) · CrabbyTab guide</title>
+<meta name="description" content="Public homepage (Home tab): part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html" aria-current="page">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="public-homepage-home-tab">Public homepage (Home tab)<a class="anchor" href="#public-homepage-home-tab" aria-label="Link to this section">#</a></h1>
+<p>Every tournament&#39;s public page (<code>/your-slug/public</code>) opens on a <strong>Home</strong> tab. Write it once in CrabbyTab and you have an event website: an about section, the schedule at a glance, rules and motions info, prizes, venue directions with pictures, a welcome video, maths for scoring rules, and a <strong>Register</strong> button while registration is open. You do not need a separate site.</p>
+<h2 id="where-to-edit-it">Where to edit it<a class="anchor" href="#where-to-edit-it" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Sidebar → <strong>Admin → Configuration → Public visibility</strong>.</li>
+<li>Find <strong>Public homepage</strong>. Type Markdown in the box on the left; the <strong>preview</strong> next to it shows exactly what visitors will see. <strong>Syntax help</strong> (below the box) lists everything you can use.</li>
+<li>Press <strong>Save</strong>. Like every public-page setting, this saves on your device first: press <strong>Upload and publish</strong> in the notice that appears (or <strong>Upload now</strong> in the top bar). The public page updates within about a minute.</li>
+</ol>
+<p>Limits: up to 20,000 characters. The text is shown as written in every language; it is not translated.</p>
+<h2 id="what-visitors-see">What visitors see<a class="anchor" href="#what-visitors-see" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>The Home tab is the first tab and the one the page opens on. Other tabs (draw, results, tab, motions, break…) appear as you release them. A link such as <code>/your-slug/public?tab=draw</code> opens a specific tab.</li>
+<li>If the homepage is empty, the Home tab shows the older <strong>Welcome message</strong> instead (plain text), so existing tournaments keep working.</li>
+<li>The <strong>tournament staff</strong> credits (also on Public visibility) are shown on the Home tab.</li>
+<li>While registration is <strong>open</strong> (Registration page), a prominent <strong>Register</strong> button links to the registration form. It disappears automatically when registration closes.</li>
+<li>Links to the public schedule and calendar, check-in status and audit log appear when those are switched on.</li>
+<li>The first paragraph of the homepage becomes the description shown in search results and link previews (WhatsApp, Facebook, Slack, X…), so make it a good one-sentence summary.</li>
+</ul>
+<h2 id="syntax-cheat-sheet">Syntax cheat-sheet<a class="anchor" href="#syntax-cheat-sheet" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">You want</th>
+<th scope="col">Type</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Heading</td>
+<td><code>## Schedule</code> (one <code>#</code> is fine too; headings sit under the tournament name)</td>
+</tr>
+<tr>
+<td>Bold / italic / strikethrough</td>
+<td><code>**bold**</code>, <code>*italic*</code>, <code>~~struck~~</code></td>
+</tr>
+<tr>
+<td>Link</td>
+<td><code>[Rules PDF](https://example.org/rules.pdf)</code> or just paste <code>https://…</code></td>
+</tr>
+<tr>
+<td>Email link</td>
+<td><code>[Write to us](mailto:tab@example.org)</code></td>
+</tr>
+<tr>
+<td>Image</td>
+<td><code>![Venue map](https://example.org/map.png)</code> (must be an <strong>https</strong> link; the text in brackets is the alt text for screen readers)</td>
+</tr>
+<tr>
+<td>YouTube video</td>
+<td>Paste the YouTube link <strong>alone on its own line</strong>, or <code>@[youtube](https://youtu.be/VIDEO_ID)</code>. Watch, youtu.be, Shorts and embed links work; <code>?t=90</code> starts at 90 seconds.</td>
+</tr>
+<tr>
+<td>Bullet / numbered list</td>
+<td><code>- item</code> / <code>1. item</code></td>
+</tr>
+<tr>
+<td>Checklist</td>
+<td><code>- [x] Venue booked</code> / <code>- [ ] Judges confirmed</code></td>
+</tr>
+<tr>
+<td>Table</td>
+<td>`</td>
+</tr>
+<tr>
+<td>Quote</td>
+<td><code>&gt; Debate is the art of…</code></td>
+</tr>
+<tr>
+<td>Code</td>
+<td><code>`inline`</code> or a block fenced with three backticks</td>
+</tr>
+<tr>
+<td>Divider</td>
+<td><code>---</code> on its own line</td>
+</tr>
+<tr>
+<td>Inline maths</td>
+<td><code>$\frac{a}{b}$</code></td>
+</tr>
+<tr>
+<td>Display maths</td>
+<td><code>$$</code> on a line, the formula, <code>$$</code> on a line</td>
+</tr>
+<tr>
+<td>A literal dollar sign</td>
+<td><code>\$500 prize</code> (a plain <code>$</code> starts maths)</td>
+</tr>
+</tbody></table></div>
+<h3 id="example">Example<a class="anchor" href="#example" aria-label="Link to this section">#</a></h3>
+<pre tabindex="0"><code class="language-markdown">## Welcome to the Dhaka Open 2026
+
+Three days of BP debating at the University of Dhaka, 14–16 November.
+Registration closes on **1 November**.
+
+@[youtube](https://youtu.be/dQw4w9WgXcQ)
+
+### Schedule
+| Day | |
+| --- | --- |
+| Friday | Rounds 1–3 |
+| Saturday | Rounds 4–5, break night |
+| Sunday | Quarters, semis, grand final |
+
+### Prizes
+- Champions: \$500
+- Best speaker: \$100
+
+Speaker scores are averaged as $\bar{s} = \frac{1}{n}\sum_{i=1}^{n} s_i$.
+
+![Campus map](https://example.org/campus-map.png)
+
+Questions? [Email the tab team](mailto:tab@example.org).</code></pre>
+<h2 id="what-is-not-allowed-and-why">What is not allowed (and why)<a class="anchor" href="#what-is-not-allowed-and-why" aria-label="Link to this section">#</a></h2>
+<p>The homepage is public, so CrabbyTab only renders safe content:</p>
+<ul>
+<li><strong>No HTML.</strong> Tags such as <code>&lt;div&gt;</code>, <code>&lt;script&gt;</code>, <code>&lt;iframe&gt;</code> or <code>&lt;style&gt;</code> are dropped, not shown. Use Markdown instead.</li>
+<li><strong>Images</strong> must use <code>https://</code> links. Upload them somewhere public first (your university site, an image host, Google Drive &quot;anyone with the link&quot; direct links, etc.). Images load lazily and without sending your page address to the image host.</li>
+<li><strong>Links</strong> may be <code>https://</code>, <code>http://</code>, <code>mailto:</code> or a path on the same site (<code>/your-slug/public?tab=draw</code>). Other kinds (for example <code>javascript:</code>) are removed and only the text remains. Links open in a new tab and are marked <code>nofollow</code>.</li>
+<li><strong>Videos</strong>: only YouTube, through its privacy-enhanced domain (<code>youtube-nocookie.com</code>), in a sandboxed frame. Other video sites are shown as ordinary links.</li>
+<li><strong>Maths</strong> is rendered by KaTeX with untrusted-input settings: commands that create links or HTML (<code>\href</code>, <code>\url</code>, <code>\htmlClass</code>…) are disabled, and very large or deeply nested formulas show an error instead of slowing the page.</li>
+</ul>
+<h2 id="tips">Tips<a class="anchor" href="#tips" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Keep the first paragraph short: it is your search-result and link-preview text.</li>
+<li>Put dates, the venue and the registration deadline near the top. The <strong>Register</strong> button appears on its own, so you do not need to add a registration link.</li>
+<li>The homepage does not change when rounds are released; update it yourself for announcements (for example &quot;Break announced: see the Break tab&quot;).</li>
+<li>Use the <strong>Search engines</strong> setting on the same page if you do not want the tournament listed by search engines.</li>
+</ul>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Stored as the <code>publicHomepage</code> tournament setting (Markdown text), included in settings export/import and validated by the REST API&#39;s preferences endpoint.</li>
+<li>Published with the tournament&#39;s public snapshot, like every other public setting; visitors never read Firestore directly. See <a href="Caching-Indexing-and-Performance.html">Caching, indexing and performance</a>.</li>
+<li>The renderer (Markdown, KaTeX and their styles) is loaded only on the Home tab and in the editor preview, so other pages stay light.</li>
+<li>Developer notes: <code>src/components/markdown/</code> (renderer), <code>src/lib/markdown/</code> (URL rules, YouTube parsing, plain-text summary), and the &quot;Public homepage&quot; section of <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/public-pages-and-notifications.md"><code>docs/public-pages-and-notifications.md</code></a>.</li>
+</ul>
+<p>See also: <a href="Public-Pages-and-Releases.html">Public pages and releases</a> · <a href="Participants-and-Imports.html">Registration</a> · <a href="Settings-Reference.html">Settings reference</a>.</p>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Public-Pages-and-Releases.html" rel="prev"><span>Previous</span>Public pages and releases</a><a class="pager-next" href="Private-URLs-and-Portals.html" rel="next"><span>Next</span>Private URLs and portals</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Public-Homepage.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#where-to-edit-it">Where to edit it</a></li><li><a href="#what-visitors-see">What visitors see</a></li><li><a href="#syntax-cheat-sheet">Syntax cheat-sheet</a></li><li><a href="#what-is-not-allowed-and-why">What is not allowed (and why)</a></li><li><a href="#tips">Tips</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

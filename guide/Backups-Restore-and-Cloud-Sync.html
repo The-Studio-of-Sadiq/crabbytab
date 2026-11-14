@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backups, restore and cloud sync · CrabbyTab guide</title>
+<meta name="description" content="Backups, restore and cloud sync: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html" aria-current="page">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="backups-restore-and-cloud-sync">Backups, restore and cloud sync<a class="anchor" href="#backups-restore-and-cloud-sync" aria-label="Link to this section">#</a></h1>
+<p>CrabbyTab is local-first: each device keeps a full working copy of the tournament, and the cloud copy in Firestore is
+shared between devices, private URLs and the public site. Some records sync live between administrator devices; the
+rest go up with <strong>Upload now</strong>. This page explains what is where, how to keep devices in step, how conflicts are
+handled, and how to back up and restore.</p>
+<p>Developer detail: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md">storage-and-scale.md</a>,
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/live-collaboration.md">live-collaboration.md</a>,
+<a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/data-import-export.md">data-import-export.md</a>.</p>
+<h2 id="the-working-copy-on-this-device">The working copy on this device<a class="anchor" href="#the-working-copy-on-this-device" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Each tournament&#39;s working copy is stored in the browser&#39;s <strong>IndexedDB</strong> (keys <code>crabbytab_t_{slug}_…</code>). Older
+copies in localStorage are moved there automatically on first use. If IndexedDB is unavailable (some
+private-browsing modes), localStorage is used with its ~5 MB limit.</li>
+<li>Draws, allocations, standings and breaks are computed in the browser from this copy, so the tab room keeps working
+offline.</li>
+<li>If the browser cannot save (for example the disk quota is full), the app shows <em>Could not save … locally</em> and
+retries with the next change.</li>
+<li>The working copy belongs to one browser profile on one device. Clearing site data deletes it. A second tab on the
+same device sees the other tab&#39;s changes after a reload.</li>
+</ul>
+<p>A tournament that has never been uploaded is <strong>local only</strong>: nothing leaves the device, and its public pages work
+only on that device.</p>
+<h2 id="what-syncs-live-and-what-needs-an-upload">What syncs live and what needs an upload<a class="anchor" href="#what-syncs-live-and-what-needs-an-upload" aria-label="Link to this section">#</a></h2>
+<p>For a tournament with a cloud copy, an administrator&#39;s device is <strong>live</strong> (status pill <strong>Live</strong>) while it is online
+and live updates are not paused:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Data</th>
+<th scope="col">How it reaches the cloud and other admin devices</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ballots, debates (draw, allocation, per-side results), teams and adjudicators (check-ins, availability, details)</td>
+<td><strong>Live</strong>, record by record, within seconds. Offline changes are queued and sent on reconnect.</td>
+</tr>
+<tr>
+<td>Tournament settings, rounds (including releases), motions, rooms, break categories, feedback, institutions, audit log</td>
+<td><strong>Upload now</strong> (other devices get them with <strong>Download and compare</strong> or a reload)</td>
+</tr>
+</tbody></table></div>
+<p>Things to know:</p>
+<ul>
+<li>Only debates and ballots of the <strong>active round</strong> are listened to. A correction to an earlier round reaches other
+devices when they reload or download.</li>
+<li>A release changes the <strong>round</strong>, so releases upload and publish in one step (see below). Another device sees a new
+draw&#39;s debates live, but the round&#39;s status only after the upload reaches it.</li>
+<li>Data-entry assistants are not live: they use their own <strong>Upload</strong> (see below).</li>
+<li>To work without live writes on one device, open the cloud status menu → <strong>Pause live updates on this device</strong>
+(<strong>Resume live updates</strong> turns them back on). While paused, every change waits for <strong>Upload now</strong>.</li>
+<li>The page warns before you close it while changes are not uploaded or live writes are still queued.</li>
+</ul>
+<p>Opening a cloud tournament merges the cloud copy into this device&#39;s copy using the same rules as a download.</p>
+<h2 id="the-cloud-status-menu">The cloud status menu<a class="anchor" href="#the-cloud-status-menu" aria-label="Link to this section">#</a></h2>
+<p>The status pill in the top bar opens the <strong>Cloud sync</strong> menu. The pill shows one of: <strong>Live</strong>, <strong>Connecting…</strong>,
+<strong>Uploaded</strong>, <strong>N changes not uploaded</strong>, <strong>Offline</strong>, <strong>Offline — N queued</strong>, <strong>Local copy</strong>, <strong>Syncing…</strong>,
+<strong>N sync conflicts</strong>, <strong>N upload conflicts</strong>, <strong>Upload incomplete</strong>, <strong>N double confirmations</strong>, <strong>Live updates
+stopped</strong> or <strong>Sync failed</strong>. The menu explains the state, lists pending changes per collection and shows the last
+result. Its actions:</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Action</th>
+<th scope="col">What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Upload now</strong></td>
+<td>Sends this device&#39;s changes to the cloud and publishes public pages.</td>
+</tr>
+<tr>
+<td><strong>Download and compare</strong></td>
+<td>Merges the cloud copy into this device.</td>
+</tr>
+<tr>
+<td><strong>Resolve sync conflicts (N)…</strong></td>
+<td>Opens the conflicts dialog (only when there are conflicts).</td>
+</tr>
+<tr>
+<td><strong>Pause / Resume live updates</strong></td>
+<td>Per device and tournament (administrators).</td>
+</tr>
+<tr>
+<td><strong>Export archived cloud versions</strong></td>
+<td>Downloads the recovery file (shown after conflicts).</td>
+</tr>
+</tbody></table></div>
+<p>Administrators also have <strong>Upload</strong> and <strong>Download</strong> buttons next to the pill. Signed-out users see <strong>Sign in to
+upload</strong>. Both ask for confirmation first.</p>
+<h3 id="upload-now">Upload now<a class="anchor" href="#upload-now" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Queued live writes are flushed first (up to 20 seconds), so the checks below see them.</li>
+<li>Only records changed since this device last synced are sent, in batches.</li>
+<li>For each record:</li>
+</ol>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Situation</th>
+<th scope="col">Result</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>New in the cloud</td>
+<td>Written at version 1.</td>
+</tr>
+<tr>
+<td>Same content</td>
+<td>Nothing written.</td>
+</tr>
+<tr>
+<td>Cloud unchanged since this device last had it</td>
+<td>Your version is written at the next version; the replaced cloud version is archived.</td>
+</tr>
+<tr>
+<td>Cloud changed by someone else since then</td>
+<td><strong>The cloud version is kept.</strong> Yours is archived as a conflict.</td>
+</tr>
+<tr>
+<td>Deleted on this device</td>
+<td>Soft-deleted in the cloud (<code>deletedAt</code>); the previous cloud version is archived as recoverable.</td>
+</tr>
+<tr>
+<td>Already deleted in the cloud</td>
+<td>Not resurrected; yours is archived.</td>
+</tr>
+<tr>
+<td>Audit events</td>
+<td>Append-only: only events the cloud does not have are added.</td>
+</tr>
+</tbody></table></div>
+<ol start="4">
+<li>If nothing conflicted, the public pages are republished. If any record conflicted, public pages are <strong>not</strong>
+updated (the message says so): download, choose versions, and upload again.</li>
+<li>Due automatic emails (draw and results notifications) are sent; see <a href="Email-and-Notifications.html">Email and notifications</a>.</li>
+</ol>
+<p>Other rules: an upload never changes the owner or administrators of a cloud tournament, and is refused if the cloud
+tournament belongs to someone else and you are not one of its administrators. The first upload reserves the
+tournament&#39;s URL; a URL already taken is refused.</p>
+<p>If an upload stops part-way, everything committed so far is kept, the pill shows <strong>Upload incomplete</strong>, and public
+pages are not updated. Upload again to finish; every write is safe to repeat. This also completes a regenerated draw
+whose cloud write was interrupted.</p>
+<h3 id="download-and-compare">Download and compare<a class="anchor" href="#download-and-compare" aria-label="Link to this section">#</a></h3>
+<p>Merges the cloud copy into this device, record by record:</p>
+<ul>
+<li>records not changed here since the last sync take the cloud version;</li>
+<li>records changed here are kept, and become <strong>sync conflicts</strong> if the cloud changed them too;</li>
+<li>records only in the cloud are added; records deleted in the cloud, or deleted here and not yet uploaded, are
+dropped; no cloud records are deleted.</li>
+</ul>
+<h3 id="resolving-conflicts">Resolving conflicts<a class="anchor" href="#resolving-conflicts" aria-label="Link to this section">#</a></h3>
+<p><strong>Resolve sync conflicts (N)…</strong> (cloud status menu or account menu) opens the <strong>Sync conflicts</strong> dialog. It lists each
+record changed both here and in the cloud, with a table of the fields that differ (<strong>This device</strong> / <strong>Cloud</strong>).
+For each record choose <strong>Keep mine</strong> or <strong>Use cloud</strong>, or use <strong>Keep all of mine</strong> / <strong>Use all cloud versions</strong> (both
+ask for confirmation). This device&#39;s version stays in use until you choose. Versions you keep go up with the next
+upload, which archives the cloud version it replaces.</p>
+<p><strong>Double confirmations</strong>: if two devices confirm different ballots for the same debate before seeing each other&#39;s,
+the pill shows <strong>N double confirmations</strong>. Nothing is resolved automatically; open the debate&#39;s ballots and discard
+the version that should not count.</p>
+<p><strong>Live updates stopped</strong> means the cloud refused a live write (for example the account lost its admin role). Those
+records count as not uploaded and show as conflicts once the cloud version arrives; nothing is silently dropped.</p>
+<h3 id="the-recovery-file">The recovery file<a class="anchor" href="#the-recovery-file" aria-label="Link to this section">#</a></h3>
+<p>Every replaced or conflicting cloud version is archived in the tournament&#39;s <code>syncConflicts</code> collection
+(append-only). Account menu → <strong>Export sync recovery</strong> (administrators, online) downloads all of them as
+<code>{slug}-sync-recovery.json</code> (<code>crabbytab-sync-recovery-v1</code>). There is no screen for browsing archived versions;
+restore anything you need by re-entering it or editing a backup.</p>
+<h2 id="what-changes-the-cloud-without-your-upload">What changes the cloud without your upload<a class="anchor" href="#what-changes-the-cloud-without-your-upload" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Live writes from other administrator devices.</li>
+<li>Ballots, feedback and self check-ins from <a href="Private-URLs-and-Portals.html">private URLs</a> and public forms.</li>
+<li>Uploads by data-entry assistants.</li>
+<li><a href="API-and-Tokens.html">API</a> writes.</li>
+</ul>
+<p>Each bumps the record&#39;s <code>syncVersion</code>, so a stale upload from another device becomes a conflict instead of
+overwriting it.</p>
+<p><strong>Data-entry assistants</strong> have a single <strong>Upload</strong> button that sends only the participant, ballot, feedback and
+result changes they are allowed to make, through a server-checked route. Settings, draws and allocations are never
+uploaded from their device. See <a href="Staff-and-Roles.html">Staff and roles</a>.</p>
+<h2 id="publishing-public-pages">Publishing public pages<a class="anchor" href="#publishing-public-pages" aria-label="Link to this section">#</a></h2>
+<p>Public pages and private URLs read a <strong>published snapshot</strong> of the cloud copy, not live data
+(see <a href="Public-Pages-and-Releases.html">Public pages and releases</a>).</p>
+<ul>
+<li><strong>Upload now</strong> publishes automatically when it had no conflicts.</li>
+<li><strong>Releases</strong> (draw, results, motions, tabs, breaks, participant lists) upload and publish as one action. They are
+refused while offline or while records conflict with the cloud.</li>
+<li><strong>Saved on this device only.</strong> After saving settings that public pages or private URLs read (tournament settings,
+public forms, staff access), a notice says the change is on this device only and offers <strong>Upload and publish</strong>.
+After it succeeds: &quot;Uploaded and published. Public pages and private URLs now use this setting.&quot;</li>
+<li>Account menu → <strong>Republish public pages</strong> rebuilds the snapshot from the <strong>cloud copy</strong>. If this device has changes
+not uploaded, it asks first (<strong>Upload and publish</strong>, or <strong>Publish cloud copy anyway</strong>). After an incomplete upload
+or conflicts it is blocked until you <strong>Upload again</strong> or <strong>Download and compare</strong>.</li>
+</ul>
+<h2 id="backups">Backups<a class="anchor" href="#backups" aria-label="Link to this section">#</a></h2>
+<p>Account menu (administrators):</p>
+<ul>
+<li><strong>Export tournament backup</strong> → <code>{slug}-backup.json</code> (<code>crabbytab-tournament-backup-v1</code>): every collection, full
+fidelity. This is the recovery format.</li>
+<li><strong>Export DebateXML archive</strong> → <code>{slug}-archive.xml</code>: the Tabbycat-compatible exchange format. It never contains
+emails, private URLs, passcodes or feedback comments, and may omit fields DebateXML cannot represent.</li>
+</ul>
+<p>Export a backup before each round and before risky operations (regenerating a draw with results, deleting rounds,
+restoring, changing format).</p>
+<h3 id="restore-tournament-backup">Restore tournament backup…<a class="anchor" href="#restore-tournament-backup" aria-label="Link to this section">#</a></h3>
+<ol>
+<li>Account menu → <strong>Restore tournament backup…</strong> and choose the file (valid JSON, at most 50 MB).</li>
+<li>The file is checked before anything changes: format version, the tournament record, required fields, duplicate
+ids, records from another tournament, and references (missing rounds, teams, debates, adjudicators or break
+categories are errors; missing venues, motions and institutions are warnings).</li>
+<li>You see, per collection, how many records are only in the backup, only on this device, different or the same.</li>
+<li>Choose:<ul>
+<li><strong>Merge</strong>: add the backup&#39;s missing records; records on this device win.</li>
+<li><strong>Replace</strong>: make the tournament match the backup, after an explicit confirmation. A
+<code>{slug}-pre-restore-backup.json</code> of the current data downloads first. The tournament&#39;s id, URL, owner and
+administrators are kept, the audit log is merged (never replaced), records not in the backup are queued as cloud
+deletions, and a <code>backup.replaced</code> audit event is recorded.</li>
+</ul>
+</li>
+</ol>
+<p>A restore changes this device only. <strong>Upload now</strong> afterwards to update the cloud copy.</p>
+<h2 id="recommended-routine">Recommended routine<a class="anchor" href="#recommended-routine" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Keep live updates on for every administrator device; check the pill says <strong>Live</strong>.</li>
+<li>After setup changes, use <strong>Upload and publish</strong> (or <strong>Upload now</strong>) so other devices and the public site get them.</li>
+<li>Other devices <strong>Download and compare</strong> before editing settings, rounds, motions, rooms, breaks or feedback.</li>
+<li>Export a tournament backup at the end of each round.</li>
+<li>If an upload reports conflicts, export the sync recovery file before doing anything else, then resolve them.</li>
+</ol>
+<h2 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h2>
+<ul>
+<li>Firestore is the source of truth for the live collections; the remaining collections move to live sync in later
+steps of the sync model adopted in the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/tabbycat-parity-plan.md">parity plan</a>.</li>
+<li>Live writes are field-level patches committed in one atomic batch per command, so two devices changing different
+fields (or different rounds&#39; availability) of the same record do not overwrite each other. An adjudicator panel is
+one unit: last write wins.</li>
+<li>Tab-room rules (locked ballots, completed rounds, double entry) are checked on the device before a live write;
+the server checks only the Firestore security rules.</li>
+<li>If the browser cannot keep the Firestore offline cache (some private-browsing modes), queued offline writes are
+lost when the tab closes.</li>
+<li>Large events: the first upload of a 1000-team tournament is about 10,000 writes, within the free plan&#39;s
+20,000 a day, but several full uploads a day are not; plan on the Blaze plan for events of that size.</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Staff-and-Roles.html" rel="prev"><span>Previous</span>Staff and roles</a><a class="pager-next" href="API-and-Tokens.html" rel="next"><span>Next</span>API and tokens</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Backups-Restore-and-Cloud-Sync.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#the-working-copy-on-this-device">The working copy on this device</a></li><li><a href="#what-syncs-live-and-what-needs-an-upload">What syncs live and what needs an upload</a></li><li><a href="#the-cloud-status-menu">The cloud status menu</a></li><li><a href="#what-changes-the-cloud-without-your-upload">What changes the cloud without your upload</a></li><li><a href="#publishing-public-pages">Publishing public pages</a></li><li><a href="#backups">Backups</a></li><li><a href="#recommended-routine">Recommended routine</a></li><li><a href="#details">Details</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

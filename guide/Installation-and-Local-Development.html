@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installation and local development · CrabbyTab guide</title>
+<meta name="description" content="Installation and local development: part of the CrabbyTab guide, a free, offline-first debate tabulation system.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../assets/crabbytab.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="guide">
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <button class="nav-toggle" type="button" aria-controls="guide-nav" aria-expanded="false" hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      <span>Menu</span>
+    </button>
+    <a class="brand" href="../index.html"><img src="../assets/crabbytab.svg" alt="" width="24" height="24"><span>CrabbyTab</span><span class="brand-sub">Guide</span></a>
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search-input">Search the guide</label>
+      <input id="search-input" type="search" placeholder="Search the guide" autocomplete="off" spellcheck="false" aria-describedby="search-status" aria-controls="search-results">
+      <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <a class="topbar-link" href="https://github.com/The-Studio-of-Sadiq/crabbytab">GitHub</a>
+  </div>
+</header>
+<div class="guide-shell">
+  <nav id="guide-nav" class="sidebar" aria-label="Guide">
+<p><strong><a href="Home.html">Home</a></strong></p>
+<p><strong>Getting started</strong></p>
+<ul>
+<li><a href="Installation-and-Local-Development.html" aria-current="page">Installation</a></li>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament</a></li>
+</ul>
+<p><strong>Organiser guide</strong></p>
+<ul>
+<li><a href="Tournament-Setup-and-Formats.html">Setup &amp; formats</a></li>
+<li><a href="Participants-and-Imports.html">Participants &amp; imports</a></li>
+<li><a href="Check-ins-and-Availability.html">Check-ins</a></li>
+<li><a href="Rounds-and-Draws.html">Rounds &amp; draws</a></li>
+<li><a href="Adjudicator-Allocation.html">Adjudicator allocation</a></li>
+<li><a href="Venues-and-Constraints.html">Venues</a></li>
+<li><a href="Ballots-and-Results.html">Ballots &amp; results</a></li>
+<li><a href="Feedback.html">Feedback</a></li>
+<li><a href="Standings-and-Metrics.html">Standings</a></li>
+<li><a href="Breaks-and-Eliminations.html">Breaks &amp; eliminations</a></li>
+<li><a href="Public-Pages-and-Releases.html">Public pages</a></li>
+<li><a href="Public-Homepage.html">Public homepage</a></li>
+<li><a href="Private-URLs-and-Portals.html">Private URLs</a></li>
+<li><a href="Email-and-Notifications.html">Email</a></li>
+<li><a href="Staff-and-Roles.html">Staff &amp; roles</a></li>
+<li><a href="Backups-Restore-and-Cloud-Sync.html">Backups &amp; sync</a></li>
+<li><a href="API-and-Tokens.html">API &amp; tokens</a></li>
+<li><a href="Printing-and-Display.html">Printing &amp; display</a></li>
+<li><a href="Audit-Log.html">Audit log</a></li>
+<li><a href="Languages-and-Translations.html">Languages</a></li>
+</ul>
+<p><strong>Reference</strong></p>
+<ul>
+<li><a href="Settings-Reference.html">Settings</a></li>
+<li><a href="CSV-Formats.html">CSV formats</a></li>
+<li><a href="Data-Model.html">Data model</a></li>
+<li><a href="Glossary.html">Glossary</a></li>
+<li><a href="Comparison-with-Tabbycat.html">vs Tabbycat</a></li>
+<li><a href="Caching-Indexing-and-Performance.html">Caching &amp; indexing</a></li>
+</ul>
+<p><strong>Developers</strong></p>
+<ul>
+<li><a href="Architecture.html">Architecture</a></li>
+<li><a href="Testing.html">Testing</a></li>
+<li><a href="Contributing.html">Contributing</a></li>
+<li><a href="Security-Model.html">Security model</a></li>
+</ul>
+<p><strong><a href="FAQ-and-Troubleshooting.html">FAQ &amp; troubleshooting</a></strong></p>
+
+  </nav>
+  <main id="content" class="content" tabindex="-1">
+    <article class="prose">
+<h1 id="installation-and-local-development">Installation and local development<a class="anchor" href="#installation-and-local-development" aria-label="Link to this section">#</a></h1>
+<p>This page gets CrabbyTab running on your own machine. To put it online for a real tournament, continue with <a href="Deploying-to-Vercel-and-Firebase.html">Deploying to Vercel and Firebase</a>.</p>
+<h2 id="requirements">Requirements<a class="anchor" href="#requirements" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Node.js 22</strong> (<code>package.json</code> pins <code>&quot;node&quot;: &quot;22.x&quot;</code>).</li>
+<li><strong>npm</strong>. <code>package-lock.json</code> is the authoritative lockfile. The repository also contains a <code>bun.lock</code>; leave it alone unless you are deliberately changing package-manager conventions.</li>
+<li>A <strong>Firebase project</strong> with Authentication (email/password) and Cloud Firestore. Tournament data lives in your browser, but creating a tournament (including a demo tournament or a DebateXML import) needs a signed-in <strong>global administrator</strong>, and that needs Firebase Authentication plus server credentials. Without Firebase the hub shows <em>Firebase is not configured</em>.</li>
+<li>Optional: an <strong>SMTP server</strong> to try the email tools, staff invitations and registration emails.</li>
+</ul>
+<h2 id="install-and-run">Install and run<a class="anchor" href="#install-and-run" aria-label="Link to this section">#</a></h2>
+<pre tabindex="0"><code class="language-sh">git clone https://github.com/The-Studio-of-Sadiq/crabbytab.git
+cd crabbytab
+npm ci
+cp .env.example .env.local
+npm run dev</code></pre>
+<p>Open <a href="http://localhost:3000">http://localhost:3000</a>. The dev server always uses port 3000.</p>
+<h2 id="environment-variables">Environment variables<a class="anchor" href="#environment-variables" aria-label="Link to this section">#</a></h2>
+<p>Copy <code>.env.example</code> to <code>.env.local</code> and fill it in. Never commit <code>.env.local</code>.</p>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Variable</th>
+<th scope="col">Where it is used</th>
+<th scope="col">Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>NEXT_PUBLIC_APP_URL</code></td>
+<td>Server (page metadata)</td>
+<td>Canonical base URL of the site. If empty it falls back to <code>https://$VERCEL_URL</code> on Vercel, otherwise <code>http://localhost:3000</code>.</td>
+</tr>
+<tr>
+<td><code>NEXT_PUBLIC_FIREBASE_API_KEY</code>, <code>_APP_ID</code>, <code>_AUTH_DOMAIN</code>, <code>_MEASUREMENT_ID</code>, <code>_MESSAGING_SENDER_ID</code>, <code>_PROJECT_ID</code>, <code>_STORAGE_BUCKET</code></td>
+<td>Browser</td>
+<td>The Firebase web-app config from <em>Project settings → Your apps</em>. These are public identifiers, not secrets.</td>
+</tr>
+<tr>
+<td><code>FIREBASE_SERVICE_ACCOUNT_JSON</code></td>
+<td>Server only</td>
+<td>The full JSON of a Firebase service-account key, on one line. Escaped <code>\n</code> in the private key are converted back to newlines. If empty, the server falls back to Application Default Credentials.</td>
+</tr>
+<tr>
+<td><code>FIREBASE_ADMIN_UIDS</code></td>
+<td>Server only</td>
+<td>Firebase Authentication UIDs of <strong>global administrators</strong>, separated by commas or whitespace. See <a href="Staff-and-Roles.html">Staff and roles</a>.</td>
+</tr>
+<tr>
+<td><code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>, <code>SMTP_FROM</code>, <code>SMTP_SECURE</code></td>
+<td>Server only</td>
+<td>Outgoing mail. <code>SMTP_HOST</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code> and <code>SMTP_FROM</code> are required for email; <code>SMTP_PORT</code> defaults to 587. <code>SMTP_SECURE</code> is <code>true</code> or <code>false</code> (TLS from the start of the connection); if empty, it is on only for port 465.</td>
+</tr>
+<tr>
+<td><code>EMAIL_WEBHOOK_SECRET</code></td>
+<td>Server only, optional</td>
+<td>Shared secret for the signed delivery-status webhook (<code>POST /api/email/webhook</code>). Without it the endpoint answers 404.</td>
+</tr>
+<tr>
+<td><code>SMS_WEBHOOK_URL</code>, <code>SMS_WEBHOOK_SECRET</code></td>
+<td>Server only, optional</td>
+<td>A generic HTTPS SMS relay you control; each SMS is POSTed and signed with the secret. No SMS provider is built in.</td>
+</tr>
+</tbody></table></div>
+<p>Details for the email and SMS variables: <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/email-notifications.md"><code>docs/email-notifications.md</code></a>.</p>
+<blockquote>
+<p><strong>Never</strong> put the service account, SMTP password or webhook secrets in a <code>NEXT_PUBLIC_</code> variable — those are compiled into the browser bundle.</p>
+</blockquote>
+<h2 id="make-yourself-a-global-administrator">Make yourself a global administrator<a class="anchor" href="#make-yourself-a-global-administrator" aria-label="Link to this section">#</a></h2>
+<p>CrabbyTab has no public account sign-up. (The <code>/register/{slug}</code> pages are tournament <em>registration</em> forms for teams and adjudicators, not account creation.) Accounts are created in Firebase Authentication by hand, or by accepting a staff invitation from a tournament administrator.</p>
+<ol>
+<li>In the Firebase console, enable <strong>Authentication → Sign-in method → Email/Password</strong> and add a user.</li>
+<li>Copy that user&#39;s UID into <code>FIREBASE_ADMIN_UIDS</code> in <code>.env.local</code>.</li>
+<li>Provide server credentials (<code>FIREBASE_SERVICE_ACCOUNT_JSON</code>). On every sign-in the server adds or removes the <code>globalAdmin</code> custom claim to match the list.</li>
+<li>Deploy the repository&#39;s <code>firestore.rules</code> to your project (see <a href="Deploying-to-Vercel-and-Firebase.html#2-deploy-the-firestore-rules">Deploying</a>).</li>
+<li>Restart <code>npm run dev</code>, sign in at <code>/login</code> and open <code>/tournaments</code>. You should now see <strong>Create a new tournament</strong>, <em>Or import a DebateXML archive</em> and <em>Or load a demo tournament for a rehearsal</em>.</li>
+</ol>
+<h2 id="trying-it-out-without-real-data">Trying it out without real data<a class="anchor" href="#trying-it-out-without-real-data" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><strong>Demo tournament:</strong> <code>/tournaments</code> → <em>Or load a demo tournament for a rehearsal</em> creates a seeded BP (24 teams) or WSDC (16 teams) practice tournament on this device. Its URL starts with <code>demo-</code>. See the <a href="First-Tournament-Walkthrough.html">First tournament walkthrough</a>.</li>
+<li><strong>Sample CSVs:</strong> the <code>testdata/</code> folder contains small files (institutions, teams, adjudicators, venues, motions) for the import pages. See <a href="CSV-Formats.html">CSV formats</a>.</li>
+</ul>
+<h2 id="useful-scripts">Useful scripts<a class="anchor" href="#useful-scripts" aria-label="Link to this section">#</a></h2>
+<div class="table-wrap" tabindex="0"><table>
+<thead>
+<tr>
+<th scope="col">Command</th>
+<th scope="col">What it does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>npm run dev</code></td>
+<td>Development server on port 3000</td>
+</tr>
+<tr>
+<td><code>npm run build</code></td>
+<td>Production build (also type-checks application code)</td>
+</tr>
+<tr>
+<td><code>npm run start</code></td>
+<td>Serve the production build on port 3000</td>
+</tr>
+<tr>
+<td><code>npm run test</code></td>
+<td>Run the Vitest suite once (no Firebase credentials needed)</td>
+</tr>
+<tr>
+<td><code>npm run lint</code></td>
+<td><code>next lint</code></td>
+</tr>
+<tr>
+<td><code>npx tsc --noEmit</code></td>
+<td>Full type check including tests</td>
+</tr>
+</tbody></table></div>
+<p>CI (<code>.github/workflows/ci.yml</code>) runs <code>npm ci</code>, <code>npm run lint</code>, <code>npx tsc --noEmit</code>, <code>npm run test</code> and <code>npm run build</code> in that order. Run the same before opening a pull request.</p>
+<h3 id="details">Details<a class="anchor" href="#details" aria-label="Link to this section">#</a></h3>
+<ul>
+<li>The 1000-team scale benchmark runs inside <code>npm run test</code> with 2 rounds per format (about 20 s). Set <code>CRABBYTAB_SCALE=full</code> to play every round, or <code>CRABBYTAB_SCALE=off</code> to skip it. See <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/storage-and-scale.md"><code>docs/storage-and-scale.md</code></a>.</li>
+<li><code>tools/tabbycat-diff</code> compares CrabbyTab&#39;s draws, standings, breaks and allocations against recorded Tabbycat v2.12.1 output; its report runs in <code>npm run test</code> without Docker or Python. Regenerating Tabbycat&#39;s golden output needs Docker (or Python 3.11 and PostgreSQL); see its README.</li>
+<li><code>tools/i18n</code> holds the translation tooling; see <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/docs/internationalization.md"><code>docs/internationalization.md</code></a>.</li>
+<li><code>site/build.mjs</code> renders these wiki pages into the static GitHub Pages site and checks every internal link and anchor (<code>--strict</code> fails on a broken link). <code>marked</code> is not a project dependency; the script header explains how to point it at a separate install.</li>
+<li>The repository has no Firestore emulator setup, so <code>firestore.rules</code> are not executed in CI. Check rule changes in the Firebase console&#39;s Rules Playground before deploying them.</li>
+</ul>
+<h2 id="next-steps">Next steps<a class="anchor" href="#next-steps" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="Deploying-to-Vercel-and-Firebase.html">Deploying to Vercel and Firebase</a></li>
+<li><a href="First-Tournament-Walkthrough.html">First tournament walkthrough</a></li>
+<li><a href="Architecture.html">Architecture</a> if you want to change the code</li>
+</ul>
+
+    </article>
+    <nav class="pager" aria-label="Previous and next page"><a class="pager-prev" href="Home.html" rel="prev"><span>Previous</span>CrabbyTab</a><a class="pager-next" href="Deploying-to-Vercel-and-Firebase.html" rel="next"><span>Next</span>Deploying to Vercel and Firebase</a></nav>
+    <p class="page-source"><a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/main/docs/wiki/Installation-and-Local-Development.md">View the source of this page on GitHub</a></p>
+  </main>
+  <aside class="toc-column" aria-label="On this page"><nav class="toc" aria-labelledby="toc-title"><p class="toc-title" id="toc-title">On this page</p><ul><li><a href="#requirements">Requirements</a></li><li><a href="#install-and-run">Install and run</a></li><li><a href="#environment-variables">Environment variables</a></li><li><a href="#make-yourself-a-global-administrator">Make yourself a global administrator</a></li><li><a href="#trying-it-out-without-real-data">Trying it out without real data</a></li><li><a href="#useful-scripts">Useful scripts</a></li><li><a href="#next-steps">Next steps</a></li></ul></nav></aside>
+</div>
+<footer class="site-footer">
+  <div class="footer-inner">
+<p>CrabbyTab is free software under the <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/blob/beta/LICENSE">GNU AGPL v3.0 or later</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab">Source on GitHub</a> · <a href="https://github.com/The-Studio-of-Sadiq/crabbytab/issues">Report an issue</a> · Not affiliated with Tabbycat.</p>
+
+  </div>
+</footer>
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>
