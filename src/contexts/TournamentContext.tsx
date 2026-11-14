@@ -107,6 +107,11 @@ import {
 import { regeneratePrivateAccessCommand } from "@/features/tournament/application/privateAccess";
 import { CLOUD_COLLECTIONS, ON_DEMAND_COLLECTIONS, OPEN_COLLECTIONS } from "@/features/tournament/collections";
 import {
+  shouldRecheckStaffAccess,
+  staffAccessKey,
+  type StaffAccessVerification,
+} from "@/features/tournament/application/staffAccessCheck";
+import {
   createTournamentBackup,
   diffTournamentBackup,
   mergeTournamentBackup,
@@ -449,6 +454,7 @@ export function TournamentProvider({
   const [cloudStaffRole, setCloudStaffRole] = useState<"admin" | "dataEntry" | "none" | null>(null);
   /** `uid|tournamentId` whose role `cloudStaffRole` holds (see the access check below). */
   const verifiedAccessKeyRef = useRef("");
+  const lastStaffAccessCheckRef = useRef<StaffAccessVerification | null>(null);
   const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [liveAdminVerified, setLiveAdminVerified] = useState(false);
   const [staffAccessError, setStaffAccessError] = useState("");
@@ -1681,16 +1687,21 @@ export function TournamentProvider({
   }, [isOwnerOrAdmin, isSharedView, loading, rounds, motions, saveRoundsLocally]);
   useEffect(() => {
     let active = true;
-    // Access is verified again on every navigation, but a role already verified for this account
-    // and tournament stays in force meanwhile: resetting it put the whole shell back on "Checking
-    // access" (unmounting the page, its dialogs and the navigation) after every link.
-    const accessKey = user && tournament ? `${user.uid}|${tournament.id}` : "";
+    // A role already verified for this account and tournament stays in force while it is re-checked:
+    // resetting it put the whole shell back on "Checking access" (unmounting the page, its dialogs
+    // and the navigation) after every link. It is re-checked on a navigation only once the last
+    // successful check is older than STAFF_ACCESS_RECHECK_MS; checking on every click cost two or
+    // three Firestore reads per click (staffAccessCheck.ts).
+    const accessKey = staffAccessKey(user?.uid, tournament?.id);
     if (verifiedAccessKeyRef.current !== accessKey) {
       verifiedAccessKeyRef.current = "";
       setCloudStaffRole(null);
       setStaffAccessError("");
     }
     if (!user || !tournament || !db) return () => { active = false; };
+    if (!shouldRecheckStaffAccess(lastStaffAccessCheckRef.current, accessKey, Date.now())) {
+      return () => { active = false; };
+    }
     const currentUser = user;
     const currentTournament = tournament;
 
@@ -1733,6 +1744,8 @@ export function TournamentProvider({
           persistLocal("verifiedRole", { uid: currentUser.uid, role: result.role ?? null, permissions });
           setLiveAdminVerified(result.role === "admin");
           verifiedAccessKeyRef.current = accessKey;
+          // Only a check the server answered counts; an offline fallback below is retried.
+          lastStaffAccessCheckRef.current = { key: accessKey, verifiedAt: Date.now() };
           setCloudStaffRole(result.role === "admin" || result.role === "dataEntry" ? result.role : "none");
           setStaffAccessError(
             result.role === "admin" || result.role === "dataEntry"
