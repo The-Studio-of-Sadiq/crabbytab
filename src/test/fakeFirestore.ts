@@ -6,6 +6,9 @@
  * `failAfterCommits` makes later commits throw, to simulate a connection dropping part-way.
  * `reads` and `writes` count documents as Firestore bills them (a query reads each returned
  * document, at least one), and audit events are append-only as in firestore.rules.
+ * `serverTimestamp()` resolves to the commit's time on a fake clock (every commit is one second
+ * after the previous one), read back as a `Timestamp` with `toMillis`, and `where(field, ">", t)`
+ * plus `getAggregateFromServer` with `count()`/`sum()` work on it.
  */
 
 type Data = Record<string, unknown>;
@@ -18,9 +21,58 @@ export interface FakeStore {
   autoId: number;
   reads: number;
   writes: number;
+  /** The fake server clock (milliseconds); the time of the latest commit. */
+  now: number;
 }
 
-export const fakeStore: FakeStore = { documents: new Map(), commits: 0, autoId: 0, reads: 0, writes: 0 };
+const CLOCK_START = Date.UTC(2026, 0, 1);
+
+export const fakeStore: FakeStore = { documents: new Map(), commits: 0, autoId: 0, reads: 0, writes: 0, now: CLOCK_START };
+
+/** A stored stamp: structuredClone drops class instances, so stamps are kept as plain markers. */
+const STAMP_KEY = "__fakeTimestampMillis";
+const SERVER_TIMESTAMP = { __fakeServerTimestamp: true } as const;
+
+export class Timestamp {
+  constructor(private readonly millis: number) {}
+  static fromMillis(millis: number): Timestamp {
+    return new Timestamp(millis);
+  }
+  toMillis(): number {
+    return this.millis;
+  }
+}
+
+export function serverTimestamp(): unknown {
+  return SERVER_TIMESTAMP;
+}
+
+function stampMillis(value: unknown): number | undefined {
+  if (value instanceof Timestamp) return value.toMillis();
+  if (value && typeof value === "object" && typeof (value as Data)[STAMP_KEY] === "number") {
+    return (value as Data)[STAMP_KEY] as number;
+  }
+  return undefined;
+}
+
+/** Server timestamps in written data become the commit's time. */
+function resolveStamps(data: Data): Data {
+  const resolved: Data = {};
+  for (const [key, value] of Object.entries(data)) {
+    resolved[key] = value === SERVER_TIMESTAMP ? { [STAMP_KEY]: fakeStore.now } : value;
+  }
+  return resolved;
+}
+
+/** Stored stamp markers come back as Timestamps, as the SDK returns them. */
+function reviveStamps(data: Data): Data {
+  const revived: Data = {};
+  for (const [key, value] of Object.entries(data)) {
+    const millis = stampMillis(value);
+    revived[key] = millis === undefined ? value : Timestamp.fromMillis(millis);
+  }
+  return revived;
+}
 
 export function resetFakeStore(): void {
   fakeStore.documents = new Map();
@@ -29,6 +81,7 @@ export function resetFakeStore(): void {
   fakeStore.autoId = 0;
   fakeStore.reads = 0;
   fakeStore.writes = 0;
+  fakeStore.now = CLOCK_START;
 }
 
 /** firestore.rules: an existing audit event can never be overwritten. */
@@ -48,14 +101,26 @@ export function collectionRecords(path: string): Array<Data & { id: string }> {
 
 interface DocRef { kind: "doc"; path: string; id: string }
 interface CollectionRef { kind: "collection"; path: string }
-interface QueryRef { kind: "query"; path: string; filters: Array<{ field: string; value: unknown }>; max?: number }
-type Constraint = { kind: "where"; field: string; value: unknown } | { kind: "limit"; max: number };
+type Operator = "==" | ">";
+interface Filter { field: string; operator: Operator; value: unknown }
+interface QueryRef { kind: "query"; path: string; filters: Filter[]; max?: number }
+type Constraint = ({ kind: "where" } & Filter) | { kind: "limit"; max: number };
+
+function matches(record: Data, filter: Filter): boolean {
+  if (filter.operator === "==") return record[filter.field] === filter.value;
+  const stored = stampMillis(record[filter.field]);
+  const bound = stampMillis(filter.value);
+  if (stored !== undefined && bound !== undefined) return stored > bound;
+  const value = record[filter.field];
+  return typeof value === "number" && typeof filter.value === "number" && value > filter.value;
+}
 
 function commit(apply: () => void, paths: string[]): void {
   if (fakeStore.failAfterCommits !== undefined && fakeStore.commits >= fakeStore.failAfterCommits) {
     throw new Error("unavailable: the connection was lost");
   }
   paths.forEach(assertWritable);
+  fakeStore.now += 1000;
   apply();
   fakeStore.commits += 1;
   fakeStore.writes += paths.length;
@@ -68,7 +133,7 @@ function snapshot(ref: DocRef) {
     id: ref.id,
     ref,
     exists: () => data !== undefined,
-    data: () => (data === undefined ? undefined : structuredClone(data)),
+    data: () => (data === undefined ? undefined : reviveStamps(structuredClone(data))),
   };
 }
 
@@ -86,8 +151,8 @@ export function collection(_db: unknown, ...segments: string[]): CollectionRef {
   return { kind: "collection", path: segments.join("/") };
 }
 
-export function where(field: string, _operator: "==", value: unknown): Constraint {
-  return { kind: "where", field, value };
+export function where(field: string, operator: Operator, value: unknown): Constraint {
+  return { kind: "where", field, operator, value };
 }
 
 export function limit(max: number): Constraint {
@@ -98,7 +163,9 @@ export function query(ref: CollectionRef, ...constraints: Constraint[]): QueryRe
   return {
     kind: "query",
     path: ref.path,
-    filters: constraints.flatMap((item) => (item.kind === "where" ? [{ field: item.field, value: item.value }] : [])),
+    filters: constraints.flatMap((item) =>
+      item.kind === "where" ? [{ field: item.field, operator: item.operator, value: item.value }] : []
+    ),
     max: constraints.find((item): item is Extract<Constraint, { kind: "limit" }> => item.kind === "limit")?.max,
   };
 }
@@ -109,23 +176,45 @@ export async function getDoc(ref: DocRef) {
 
 export async function getDocs(ref: CollectionRef | QueryRef) {
   const filters = ref.kind === "query" ? ref.filters : [];
-  const matches = collectionRecords(ref.path).filter((record) =>
-    filters.every((filter) => record[filter.field] === filter.value)
-  );
-  const limited = ref.kind === "query" && ref.max !== undefined ? matches.slice(0, ref.max) : matches;
+  const found = collectionRecords(ref.path).filter((record) => filters.every((filter) => matches(record, filter)));
+  const limited = ref.kind === "query" && ref.max !== undefined ? found.slice(0, ref.max) : found;
   fakeStore.reads += Math.max(1, limited.length);
   return {
     docs: limited.map((record) => {
       const { id, ...data } = record;
-      return { id, ref: doc(null, ...`${ref.path}/${id}`.split("/")), data: () => structuredClone(data) };
+      return { id, ref: doc(null, ...`${ref.path}/${id}`.split("/")), data: () => reviveStamps(structuredClone(data)) };
     }),
   };
+}
+
+type AggregateSpec = { kind: "count" } | { kind: "sum"; field: string };
+
+export function count(): AggregateSpec {
+  return { kind: "count" };
+}
+
+export function sum(field: string): AggregateSpec {
+  return { kind: "sum", field };
+}
+
+/** Billed as one read per 1,000 documents counted, at least one. */
+export async function getAggregateFromServer(ref: CollectionRef, spec: Record<string, AggregateSpec>) {
+  const records = collectionRecords(ref.path);
+  fakeStore.reads += Math.max(1, Math.ceil(records.length / 1000));
+  const totals = Object.fromEntries(Object.entries(spec).map(([name, item]) => [
+    name,
+    item.kind === "count"
+      ? records.length
+      : records.reduce((total, record) => total + (typeof record[item.field] === "number" ? record[item.field] as number : 0), 0),
+  ]));
+  return { data: () => totals };
 }
 
 export async function setDoc(ref: DocRef, data: Data, options?: { merge?: boolean }) {
   commit(() => {
     const current = fakeStore.documents.get(ref.path);
-    fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...data } : data));
+    const resolved = resolveStamps(data);
+    fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...resolved } : resolved));
   }, [ref.path]);
 }
 
@@ -143,12 +232,13 @@ export async function runTransaction<T>(_db: unknown, update: (transaction: {
       paths.push(ref.path);
       writes.push(() => {
         const current = fakeStore.documents.get(ref.path);
-        fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...data } : data));
+        const resolved = resolveStamps(data);
+        fakeStore.documents.set(ref.path, structuredClone(options?.merge && current ? { ...current, ...resolved } : resolved));
       });
     },
     update: (ref, data) => {
       paths.push(ref.path);
-      writes.push(() => fakeStore.documents.set(ref.path, { ...fakeStore.documents.get(ref.path), ...structuredClone(data) }));
+      writes.push(() => fakeStore.documents.set(ref.path, { ...fakeStore.documents.get(ref.path), ...structuredClone(resolveStamps(data)) }));
     },
     delete: (ref) => {
       paths.push(ref.path);
@@ -165,14 +255,14 @@ export function writeBatch(_db: unknown) {
   return {
     set: (ref: DocRef, data: Data) => {
       paths.push(ref.path);
-      writes.push(() => fakeStore.documents.set(ref.path, structuredClone(data)));
+      writes.push(() => fakeStore.documents.set(ref.path, structuredClone(resolveStamps(data))));
     },
     update: (ref: DocRef, data: Data) => {
       paths.push(ref.path);
       writes.push(() => {
         const current = fakeStore.documents.get(ref.path);
         if (current === undefined) throw new Error(`not-found: ${ref.path}`);
-        fakeStore.documents.set(ref.path, { ...current, ...structuredClone(data) });
+        fakeStore.documents.set(ref.path, { ...current, ...structuredClone(resolveStamps(data)) });
       });
     },
     delete: (ref: DocRef) => {

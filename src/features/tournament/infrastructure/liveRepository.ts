@@ -5,6 +5,8 @@ import {
   FieldPath,
   onSnapshot,
   query,
+  serverTimestamp,
+  Timestamp,
   waitForPendingWrites,
   where,
   writeBatch,
@@ -15,7 +17,8 @@ import {
 import type { CloudRecord } from "@/features/tournament/collections";
 import type { LivePort, LiveSnapshot } from "@/features/tournament/application/liveSession";
 import type { LiveScope, LiveWrite } from "@/features/tournament/application/liveSync";
-import { PARTICIPANT_IDS_FIELD, debateParticipantIds, withoutParticipantIds } from "@/lib/privateSync";
+import { PARTICIPANT_IDS_FIELD, debateParticipantIds } from "@/lib/privateSync";
+import { CLOUD_UPDATED_AT_FIELD, cloudStampMillis, withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 import { cleanUndefined } from "./firestore";
 
 /** Writes per batch; each record is one write, well inside Firestore's 500-write limit. */
@@ -23,6 +26,9 @@ const LIVE_BATCH_SIZE = 400;
 
 export function liveScopeQuery(firestoreDb: Firestore, tournamentId: string, scope: LiveScope): Query {
   const records = collection(firestoreDb, "tournaments", tournamentId, scope.collection);
+  if (scope.since !== undefined) {
+    return query(records, where(CLOUD_UPDATED_AT_FIELD, ">", Timestamp.fromMillis(scope.since)));
+  }
   return scope.roundId === undefined ? records : query(records, where("roundId", "==", scope.roundId));
 }
 
@@ -38,8 +44,16 @@ export function liveWriteData(write: LiveWrite): { data: Record<string, unknown>
       ? { [PARTICIPANT_IDS_FIELD]: debateParticipantIds(write.record as never) }
       : {};
   if (write.kind === "set") {
-    const record = cleanUndefined(withoutParticipantIds(write.record)) as unknown as Record<string, unknown>;
-    return { data: { ...record, ...derived, id: write.id, syncVersion: write.syncVersion } };
+    const record = cleanUndefined(withoutCloudOnlyFields(write.record)) as unknown as Record<string, unknown>;
+    return {
+      data: {
+        ...record,
+        ...derived,
+        id: write.id,
+        syncVersion: write.syncVersion,
+        [CLOUD_UPDATED_AT_FIELD]: serverTimestamp(),
+      },
+    };
   }
   const data: Record<string, unknown> = {};
   const mergeFields: FieldPath[] = [];
@@ -57,6 +71,8 @@ export function liveWriteData(write: LiveWrite): { data: Record<string, unknown>
   }
   data.syncVersion = write.syncVersion;
   mergeFields.push(new FieldPath("syncVersion"));
+  data[CLOUD_UPDATED_AT_FIELD] = serverTimestamp();
+  mergeFields.push(new FieldPath(CLOUD_UPDATED_AT_FIELD));
   // The index follows the debate's teams and panel, so private portals keep finding it.
   for (const [key, value] of Object.entries(derived)) {
     data[key] = value;
@@ -72,12 +88,24 @@ export function createFirestoreLivePort(firestoreDb: Firestore, tournamentId: st
         liveScopeQuery(firestoreDb, tournamentId, scope),
         { includeMetadataChanges: true },
         (snapshot) => {
+          const changes = snapshot.docChanges()
+            // In a "changed since" listener a record leaves the result only while this device's
+            // own write to it waits for its server stamp (a pending stamp matches no time
+            // filter); it comes back once the cloud has it. Records are never removed from the
+            // cloud (deletions are soft), so leaving is not a deletion here.
+            .filter((change) => scope.since === undefined || change.type !== "removed")
+            .map((change) => {
+              const data = change.doc.data();
+              const updatedAt = cloudStampMillis(data[CLOUD_UPDATED_AT_FIELD]);
+              return {
+                type: change.type,
+                // Cloud-only fields (participant index, stamp) never enter the working copy.
+                record: { ...withoutCloudOnlyFields(data), id: change.doc.id } as CloudRecord,
+                ...(updatedAt === undefined ? {} : { updatedAt }),
+              };
+            });
           const live: LiveSnapshot = {
-            changes: snapshot.docChanges().map((change) => ({
-              type: change.type,
-              // The participant index is cloud-only; the working copy never holds it.
-              record: { ...withoutParticipantIds(change.doc.data()), id: change.doc.id } as CloudRecord,
-            })),
+            changes,
             fromCache: snapshot.metadata.fromCache,
             pendingIds: snapshot.docs.filter((document) => document.metadata.hasPendingWrites).map((document) => document.id),
           };

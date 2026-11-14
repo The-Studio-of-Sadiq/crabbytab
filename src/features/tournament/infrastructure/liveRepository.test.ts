@@ -13,6 +13,8 @@ vi.mock("firebase/firestore", () => ({
   query: (source: { path: string }, ...constraints: unknown[]) => ({ path: source.path, constraints }),
   where: (field: string, op: string, value: unknown) => ({ field, op, value }),
   deleteField: () => "<delete>",
+  serverTimestamp: () => "<server time>",
+  Timestamp: { fromMillis: (millis: number) => ({ millis }) },
   FieldPath: class {
     segments: string[];
     constructor(...segments: string[]) {
@@ -90,11 +92,17 @@ describe("live Firestore port", () => {
     }]);
     const [operation] = sdk.batches[sdk.batches.length - 1];
     expect(operation.path).toBe("tournaments/tourn-1/teams/t1");
-    expect(operation.data).toEqual({ roundAvailability: { r2: true }, note: "<delete>", syncVersion: 4 });
+    expect(operation.data).toEqual({
+      roundAvailability: { r2: true },
+      note: "<delete>",
+      syncVersion: 4,
+      cloudUpdatedAt: "<server time>",
+    });
     expect(operation.options?.mergeFields?.map((field) => field.segments)).toEqual([
       ["roundAvailability", "r2"],
       ["note"],
       ["syncVersion"],
+      ["cloudUpdatedAt"],
     ]);
   });
 
@@ -106,7 +114,12 @@ describe("live Firestore port", () => {
     };
     const set = liveWriteData({ kind: "set", collection: "debates", id: "d1", record: debate, syncVersion: 1 });
     expect(set.mergeFields).toBeUndefined();
-    expect(set.data).toMatchObject({ id: "d1", syncVersion: 1, participantIds: ["a1", "a2", "t1", "t2"] });
+    expect(set.data).toMatchObject({
+      id: "d1",
+      syncVersion: 1,
+      participantIds: ["a1", "a2", "t1", "t2"],
+      cloudUpdatedAt: "<server time>",
+    });
     const patch = liveWriteData({
       kind: "patch",
       collection: "debates",
@@ -117,6 +130,33 @@ describe("live Firestore port", () => {
     });
     expect(patch.data.participantIds).toEqual(["a1", "a2", "t1", "t2"]);
     expect(patch.mergeFields?.map((field) => (field as unknown as { segments: string[] }).segments)).toContainEqual(["participantIds"]);
+  });
+
+  it("listens to the changes since a time across every round, without treating a record leaving as deleted", () => {
+    const port = createFirestoreLivePort(db, "tourn-1");
+    const next = vi.fn();
+    port.subscribe({ collection: "ballots", since: 5000 }, { next, error: () => undefined });
+    const listener = sdk.listeners[sdk.listeners.length - 1];
+    expect(listener.query).toEqual({
+      path: "tournaments/tourn-1/ballots",
+      constraints: [{ field: "cloudUpdatedAt", op: ">", value: { millis: 5000 } }],
+    });
+    const document = (id: string, stamp: number) => ({
+      id,
+      data: () => ({ id, cloudUpdatedAt: { toMillis: () => stamp } }),
+      metadata: { hasPendingWrites: false },
+    });
+    listener.next({
+      // b2 left the result only because this device's own write to it awaits its server stamp.
+      docChanges: () => [{ type: "added", doc: document("b1", 7000) }, { type: "removed", doc: document("b2", 6000) }],
+      docs: [document("b1", 7000)],
+      metadata: { fromCache: false },
+    });
+    expect(next).toHaveBeenCalledWith({
+      changes: [{ type: "added", record: { id: "b1" }, updatedAt: 7000 }],
+      fromCache: false,
+      pendingIds: [],
+    });
   });
 
   it("hands every batch to the SDK before awaiting any, so offline writes are all queued", async () => {

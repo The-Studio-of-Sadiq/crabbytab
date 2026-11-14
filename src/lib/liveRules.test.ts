@@ -26,13 +26,21 @@ describe("live collection rules", () => {
   });
 
   it("only grant fields the data-entry route also accepts", () => {
-    const checkInFields = ASSISTANT_LIVE_CHECK_IN_FIELDS.filter((field) => field !== "syncVersion");
+    // Stamped fields are set by the writer, not sent as content.
+    const checkInFields = ASSISTANT_LIVE_CHECK_IN_FIELDS.filter((field) => field !== "syncVersion" && field !== "cloudUpdatedAt");
     for (const field of checkInFields) {
       expect(DATA_ENTRY_FIELDS.teams).toContain(field);
       expect(DATA_ENTRY_FIELDS.adjudicators).toContain(field);
     }
     expect(ASSISTANT_LIVE_BALLOT_FIELDS).not.toContain("confirmedTimestamp");
     expect(ASSISTANT_LIVE_BALLOT_FIELDS).not.toContain("confirmedBy");
+  });
+
+  it("require assistants' direct writes to carry the server's change stamp", () => {
+    const ballotRule = rules.slice(rules.indexOf("function isAssistantBallot"), rules.indexOf("function isAssistantCheckIn"));
+    const checkInRule = rules.slice(rules.indexOf("function isAssistantCheckIn"), rules.indexOf("match /ballots/{ballotId}"));
+    expect(ballotRule).toContain('ballot.get("cloudUpdatedAt", null) == request.time');
+    expect(checkInRule).toContain('next.get("cloudUpdatedAt", null) == request.time');
   });
 
   it("require assistant ballots to be their own, unconfirmed, and in their debate's round", () => {
