@@ -106,7 +106,7 @@ export async function GET(
         "checkedIn", "checkedInAt", "checkInHistory",
       ])),
       motions: records.motions.filter(motionVisible).map((motion) => pickFields(motion, [
-        "id", "tournamentId", "text", "reference", "infoSlide", "rounds", "seq", "roundSeq", "released",
+        "id", "tournamentId", "text", "reference", "infoSlide", "infoSlideMedia", "rounds", "seq", "roundSeq", "released",
       ])),
       breakCategories: records.breakCategories.map((category) => pickFields(category, [
         "id", "tournamentId", "name", "slug", "seq", "breakSize", "reserveSize", "isGeneral", "priority",

@@ -8,6 +8,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ReleaseActionDialog } from "@/features/tournament/components/ReleaseActionDialog";
 import { motionsStatusOf, preparationMinutes } from "@/features/tournament/application/motionRelease";
 import { orderRoundMotions } from "@/lib/motions/roundMotions";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import type { MessageKey, MessageValues } from "@/lib/i18n";
 
@@ -53,7 +54,7 @@ export function MotionReleaseControl({ round }: { round: Round }) {
   const [pending, setPending] = useState<MotionsStatus | null>(null);
   const status = motionsStatusOf(round);
   const hasMotions = orderRoundMotions(motions, round.id).length > 0;
-  const hasInfoSlides = orderRoundMotions(motions, round.id).some((motion) => Boolean(motion.infoSlide?.trim()));
+  const hasInfoSlides = orderRoundMotions(motions, round.id).some(hasInfoSlide);
   const preparation = preparationMinutes(tournament?.preferences);
   const text = pending ? describe(t, pending, round.name, status === "motions_released" ? undefined : preparation) : null;
 

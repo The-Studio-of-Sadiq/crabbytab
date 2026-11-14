@@ -18,6 +18,12 @@ export const dataEn = {
   "setup.data.exports.adjudicatorsHelp": "Scores, trainee/independent status, adjudication core and breaking flags.",
   "setup.data.exports.institutions": "Institutions",
   "setup.data.exports.institutionsHelp": "Name, code, region and how many teams and adjudicators each has.",
+  "setup.data.exports.groupMotionsVenues": "Motions and rooms",
+  "setup.data.exports.motions": "Motions",
+  "setup.data.exports.motionsHelp":
+    "Motions with reference, info slide (text and picture or video link), rounds and release state, in the format the motions import reads.",
+  "setup.data.exports.venues": "Rooms",
+  "setup.data.exports.venuesHelp": "Rooms with priority, categories, capacity, accessibility and links, in the format the rooms import reads.",
   "setup.data.exports.availability": "Availability",
   "setup.data.exports.availabilityHelp":
     "Who is available in each round (check-ins with their expiry, round availability, venues).",

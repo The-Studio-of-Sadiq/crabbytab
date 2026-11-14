@@ -80,6 +80,8 @@ export const bnPublic: Catalogue = {
   "public.presentation.close": "উপস্থাপনা বন্ধ করুন",
   "public.presentation.assignedTo": "নির্ধারিত রাউন্ড: {rounds}",
   "public.presentation.infoSlide": "তথ্য স্লাইড",
+  "public.infoSlideMedia.imageAlt": "তথ্য স্লাইডের ছবি",
+  "public.infoSlideMedia.videoTitle": "তথ্য স্লাইডের ভিডিও",
   "public.presentation.previous": "আগের",
   "public.presentation.next": "পরের",
   "public.presentation.slide": "স্লাইড {index}",

@@ -295,7 +295,11 @@ export function formatRoundMotions(motions: Motion[], roundId: string): string {
     .map((motion, index, all) => {
       const label = all.length > 1 ? `${index + 1}. ` : "";
       const slide = motion.infoSlide?.trim() ? `\n   Info slide: ${motion.infoSlide.trim()}` : "";
-      return `${label}${motion.text}${slide}`;
+      const mediaUrl = motion.infoSlideMedia?.url?.trim();
+      const media = mediaUrl
+        ? `\n   Info slide ${motion.infoSlideMedia?.kind === "video" ? "video" : "picture"}: ${mediaUrl}`
+        : "";
+      return `${label}${motion.text}${slide}${media}`;
     })
     .join("\n");
 }

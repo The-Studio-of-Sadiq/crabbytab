@@ -169,6 +169,8 @@ with `'`) and a UTF-8 BOM for Excel.
 | Data exports → Availability | Every team, adjudicator and venue × every non-cancelled round: available yes/no | Admins only |
 | Data exports → Break eligibility | Team × break category: eligible, override, speaker-category rule and whether it is met, broke | Admins only |
 | Data exports → Conflicts | Adjudicator–team, adjudicator–adjudicator, adjudicator–institution, team–institution | Admins only |
+| Data exports → Motions | One row per motion: text, reference, info slide text and media link, rounds (by name), released; reads back through the motions import | Admins only |
+| Data exports → Rooms | One row per venue: priority, categories, capacity, accessible, online, near tab room, link; reads back through the venues import | Admins only |
 
 The **Data exports** page (admin sidebar) builds the participant, availability, break-eligibility
 and conflict files in the browser from the working copy (`src/lib/csv/participantExports.ts`).

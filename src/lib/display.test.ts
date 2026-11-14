@@ -67,6 +67,13 @@ describe("motion reveal", () => {
     ]);
   });
 
+  it("gives a motion whose info slide is only a picture or video its own info step", () => {
+    const withMedia: Motion = { ...motion("m1", 1), infoSlideMedia: { kind: "image", url: "https://example.org/a.png" } };
+    const steps = buildMotionRevealSteps([withMedia], { infoSlidesOnly: true });
+    expect(steps.map((step) => step.kind)).toEqual(["cover", "info"]);
+    expect(motionsForDisplay([{ ...withMedia, released: false }], "r1", false, "info_slides_released")).toHaveLength(1);
+  });
+
   it("moves with the keyboard and stays in range", () => {
     expect(nextRevealStep(0, "ArrowRight", 3)).toBe(1);
     expect(nextRevealStep(2, " ", 3)).toBe(2);

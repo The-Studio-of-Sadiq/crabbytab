@@ -232,14 +232,17 @@ Setup → Motions → **Upload CSV** (upload or paste). Imported directly, witho
 | `text` (`motion`, `motion_text`, `Motion Text`) | Motion text | Row skipped |
 | `reference` (`ref`, `topic`, `tag`) | Short label | `Motion N` (N = data row) |
 | `infoslide` (`info_slide`, `info`, `Info Slide`, `context`) | Info slide text | None |
-| `round` (`round_abbr`, `round_seq`, `round_name`) | One round: its id, name, abbreviation, `N`, `rN` or `round N` | Not assigned |
+| `infoslide_image` (`info_slide_image`, `image`) | Info slide picture: an https image link | None |
+| `infoslide_video` (`info_slide_video`, `video`) | Info slide video: a YouTube link, or an https link to a `.mp4`, `.webm`, `.ogg`, `.mov` or `.m4v` file | None |
+| `infoslide_media_description` (`infoslide_media_alt`) | Alt text for the picture, or a title for the video | None |
+| `round` (`round_abbr`, `round_seq`, `round_name`) | A round: its id, name, abbreviation, `N`, `rN` or `round N`; several separated by `;` | Not assigned |
 
 ```csv
-text,reference,infoslide,round
-"This House would ban algorithmic feeds.",R1: Tech,"Chronological feeds only.",Round 1
+text,reference,infoslide,infoslide_image,infoslide_video,round
+"This House would ban algorithmic feeds.",R1: Tech,"Chronological feeds only.",https://example.org/feeds.png,,Round 1
 ```
 
-Gotchas: an unmatched round is ignored silently (the motion is imported unassigned); only one round per row; motions are not checked for duplicates. Imported motions are unreleased and added after the existing ones.
+Gotchas: an unmatched round is ignored silently (the motion is imported unassigned); motions are not checked for duplicates. A row with both an image and a video, or a media link that is not https (or not a YouTube or video-file link for a video), stops the whole import with the row number. Media is linked, not uploaded: the file stays where it is hosted. Imported motions are unreleased and added after the existing ones.
 
 ## Bulk base scores
 
@@ -273,7 +276,7 @@ Several values in one cell (panellists, categories, multi-select answers) are se
 
 ### Data exports page
 
-Admin → **Data exports** (administrators only; Tabbycat's participant, availability, break-eligibility and conflict exports). File name: `{short name}_{export}.csv`. Private URL keys and passcodes are never exported; the participant files do contain email addresses.
+Admin → **Data exports** (administrators only; Tabbycat's participant, availability, break-eligibility and conflict exports, plus motions and rooms). Each part is its own file, so you can take just the teams, adjudicators or motions out of a tournament you are not continuing. File name: `{short name}_{export}.csv`. Private URL keys and passcodes are never exported; the participant files do contain email addresses.
 
 | Export | One row per | Columns |
 | --- | --- | --- |
@@ -284,8 +287,10 @@ Admin → **Data exports** (administrators only; Tabbycat's participant, availab
 | Availability | Team, adjudicator and venue | `type`, `id`, `name`, then one yes/no column per non-cancelled round. Uses the draw's rule (round availability, else check-in, with check-in expiry); venues use their general availability flag |
 | Break eligibility | Team × break category where the team is eligible, has an override or meets the speaker-category rule | `team_id`, `team`, `break_category`, `eligible`, `override`, `speaker_category_rule`, `meets_rule`, `broke` |
 | Conflicts | Declared conflict | `adjudicator`, `team`, `institution`, `other_adjudicator`, `type` |
+| Motions | Motion (in `seq` order) | `id`, `text`, `reference`, `infoslide`, `infoslide_image`, `infoslide_video`, `infoslide_media_description`, `round` (round names, `; `-separated), `released` |
+| Rooms | Room | `id`, `name`, `priority`, `categories`, `capacity`, `accessible`, `online`, `near_tab_room`, `url` |
 
-The **conflicts** export uses the conflicts import's columns, so it can be edited and imported again. Records are named by name, or by email / code name / code when the name is shared. History conflicts, an adjudicator's or team's own institution and the second copy of a mutual adjudicator conflict are left out. The same file is downloaded by **Export conflicts CSV** on Setup → Conflicts.
+The **conflicts**, **motions** and **rooms** exports use their imports' columns, so they can be edited and imported again (motions match rounds by name, so the other tournament needs rounds with the same names; imported motions start unreleased; `id` and `released` are ignored on import). Records are named by name, or by email / code name / code when the name is shared. History conflicts, an adjudicator's or team's own institution and the second copy of a mutual adjudicator conflict are left out. The same file is downloaded by **Export conflicts CSV** on Setup → Conflicts.
 
 **Gotcha:** the other participant exports are not import templates. For example `code_name` and `base_score` are not import column names (the imports use `code` and `score`), and `id`, `emoji` and `swing` are ignored on import. Team references, composite-team fields and pronouns are not in any CSV yet.
 

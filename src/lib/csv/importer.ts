@@ -4,6 +4,7 @@ import type { TeamSeedMode } from "@/types";
 import { parseTeamSeed } from "@/lib/teamSeeds";
 import { Team, Adjudicator, Institution, Venue, VenueRequirements, Motion, Round, TeamStandingRow, SpeakerStandingRow, BreakCategory, Speaker } from "@/types";
 import { parseCategoryList, resolveBreakCategoryRefs } from "@/lib/teamCategories";
+import { normalizeInfoSlideMedia } from "@/lib/motions/infoSlideMedia";
 import { csvFileStem, teamStandingsCsv } from "@/lib/csv/exporters";
 import { downloadCsv } from "@/lib/csv/download";
 
@@ -425,11 +426,20 @@ export function parseMotionsCsv(
       getField(row, "infoslide", "info_slide", "info", "Infoslide", "Info Slide", "context", "Context") ||
       undefined;
     const roundRaw = getField(row, "round", "Round", "round_abbr", "round_seq", "round_name");
+    const imageUrl = getField(row, "infoslide_image", "info_slide_image", "Infoslide Image", "image").trim();
+    const videoUrl = getField(row, "infoslide_video", "info_slide_video", "Infoslide Video", "video").trim();
+    const mediaAlt = getField(row, "infoslide_media_description", "infoslide_media_alt").trim();
+    if (imageUrl && videoUrl) {
+      throw new Error(`CSV row ${idx + 2}: an info slide has one picture or one video; fill infoslide_image or infoslide_video, not both.`);
+    }
+    const media = normalizeInfoSlideMedia(
+      imageUrl ? { kind: "image", url: imageUrl, alt: mediaAlt } : videoUrl ? { kind: "video", url: videoUrl, alt: mediaAlt } : undefined
+    );
+    if (!media.ok) throw new Error(`CSV row ${idx + 2}: ${media.error}`);
 
-    const matchedRounds: string[] = [];
-    if (roundRaw && rounds.length > 0) {
-      const q = roundRaw.trim().toLowerCase();
-      const matched = rounds.find(
+    const matchRound = (value: string) => {
+      const q = value.trim().toLowerCase();
+      return rounds.find(
         (r) =>
           r.id.toLowerCase() === q ||
           r.name.toLowerCase() === q ||
@@ -438,8 +448,14 @@ export function parseMotionsCsv(
           `${r.seq}` === q ||
           `round ${r.seq}` === q
       );
-      if (matched) {
-        matchedRounds.push(matched.id);
+    };
+    const matchedRounds: string[] = [];
+    if (roundRaw && rounds.length > 0) {
+      // One round, or several separated by ";" as the motions export writes them.
+      const whole = matchRound(roundRaw);
+      const matched = whole ? [whole] : roundRaw.split(";").map(matchRound);
+      for (const round of matched) {
+        if (round && !matchedRounds.includes(round.id)) matchedRounds.push(round.id);
       }
     }
 
@@ -449,6 +465,7 @@ export function parseMotionsCsv(
       text: text.trim(),
       reference: reference.trim(),
       infoSlide: infoSlide ? infoSlide.trim() : undefined,
+      ...(media.media ? { infoSlideMedia: media.media } : {}),
       rounds: matchedRounds,
       seq: idx + 1,
       released: false, // Don't make them public by default

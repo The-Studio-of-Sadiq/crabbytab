@@ -3,6 +3,7 @@ import { isDrawLocked, isDrawPubliclyReleased } from "@/lib/draw/drawStatus";
 import { scheduleGroupOf } from "@/features/tournament/application/schedule";
 import { sidesPending } from "@/lib/draw/manualSides";
 import { motionSeqInRound } from "@/lib/motions/roundMotions";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
 import { isPolySide } from "@/lib/debateSides";
 
 /** Pure helpers for the projector display (`/[slug]/display`). */
@@ -84,7 +85,7 @@ export function buildMotionRevealSteps(
   const ordered = [...motions].sort((left, right) => order(left) - order(right) || left.id.localeCompare(right.id));
   const steps: MotionRevealStep[] = [{ kind: "cover" }];
   ordered.forEach((motion, index) => {
-    if (motion.infoSlide?.trim()) steps.push({ kind: "info", motion, index });
+    if (hasInfoSlide(motion)) steps.push({ kind: "info", motion, index });
     if (!options.infoSlidesOnly) steps.push({ kind: "motion", motion, index });
   });
   return steps;
@@ -116,7 +117,7 @@ export function motionsForDisplay(
     motion.rounds?.includes(roundId) &&
     (includeUnreleased ||
       motion.released === true ||
-      (status === "info_slides_released" && Boolean(motion.infoSlide?.trim())))
+      (status === "info_slides_released" && hasInfoSlide(motion)))
   );
 }
 

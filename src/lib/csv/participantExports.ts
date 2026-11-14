@@ -1,6 +1,7 @@
-import type { Adjudicator, BreakCategory, Institution, Round, SpeakerCategory, Team, Venue } from "@/types";
+import type { Adjudicator, BreakCategory, Institution, Motion, Round, SpeakerCategory, Team, Venue } from "@/types";
 import { isAvailableForRound } from "@/lib/roundAvailability";
 import { describeEligibilityRule, speakerCategoryNames, speakerCategoryRefs, teamMeetsEligibilityRule } from "@/lib/speakerCategories";
+import { venueCategoryNames } from "@/lib/venues/venues";
 import { toCsv } from "./exporters";
 
 /**
@@ -243,4 +244,55 @@ export function conflictsCsv(data: { adjudicators: Adjudicator[]; teams: Team[];
     }
   }
   return toCsv(["adjudicator", "team", "institution", "other_adjudicator", "type"], rows);
+}
+
+/**
+ * One row per motion, in the columns the motions import reads (text, reference, infoslide,
+ * infoslide_image / infoslide_video, round), so the file can be imported into another tournament.
+ * A motion used in several rounds lists them separated by "; ". Release state is included for
+ * reference; the import always adds motions unreleased.
+ */
+export function motionsCsv(motions: Motion[], rounds: Round[]): string {
+  const roundById = new Map(rounds.map((round) => [round.id, round]));
+  const ordered = [...motions].sort(
+    (left, right) => (left.seq ?? Number.MAX_SAFE_INTEGER) - (right.seq ?? Number.MAX_SAFE_INTEGER) || left.id.localeCompare(right.id)
+  );
+  return toCsv(
+    ["id", "text", "reference", "infoslide", "infoslide_image", "infoslide_video", "infoslide_media_description", "round", "released"],
+    ordered.map((motion) => [
+      motion.id,
+      motion.text,
+      motion.reference,
+      motion.infoSlide,
+      motion.infoSlideMedia?.kind === "image" ? motion.infoSlideMedia.url : "",
+      motion.infoSlideMedia?.kind === "video" ? motion.infoSlideMedia.url : "",
+      motion.infoSlideMedia?.alt,
+      list(
+        (motion.rounds ?? [])
+          .map((id) => roundById.get(id))
+          .filter((round): round is Round => Boolean(round))
+          .sort((left, right) => left.seq - right.seq)
+          .map((round) => round.name)
+      ),
+      yesNo(motion.released),
+    ])
+  );
+}
+
+/** One row per room, in the columns the venues import reads. */
+export function venuesCsv(venues: Venue[]): string {
+  return toCsv(
+    ["id", "name", "priority", "categories", "capacity", "accessible", "online", "near_tab_room", "url"],
+    [...venues].sort(byName).map((venue) => [
+      venue.id,
+      venue.name,
+      venue.priority,
+      list(venueCategoryNames(venue)),
+      venue.capacity,
+      yesNo(venue.accessible),
+      yesNo(venue.online),
+      yesNo(venue.nearTabRoom),
+      venue.url,
+    ])
+  );
 }

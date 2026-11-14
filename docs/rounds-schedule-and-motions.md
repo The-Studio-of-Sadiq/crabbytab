@@ -106,6 +106,13 @@ releases motions. Modelled on Tabbycat v2.12.1 (`Round.schedule_group`, `prelim_
 
 ## Motions
 
+- An info slide is text (`Motion.infoSlide`), a picture or video (`Motion.infoSlideMedia`:
+  `{ kind, url, alt? }`), or both (`hasInfoSlide()`). There is no file storage, so media is a link:
+  images any https URL; video a YouTube link (rendered as a sandboxed youtube-nocookie embed) or an
+  https link to a video file (`<video>`, allowed by CSP `media-src https:`). Links are validated when
+  saved (`withValidInfoSlideMedia` in the entity commands, the CSV import and the API) and again
+  when rendered (`resolveInfoSlideMedia`, `src/lib/motions/infoSlideMedia.ts`). Media travels with
+  the info slide in the public projection, so an info-slides release shows it without the motion.
 - A motion can be assigned to several rounds; `Motion.roundSeq[roundId]` is its order in each round
   (Tabbycat `RoundMotion.seq`, falling back to `seq`). The draw records a debate's motion only when
   the round has exactly one motion. With several, the ballot records which one was debated: the tab
