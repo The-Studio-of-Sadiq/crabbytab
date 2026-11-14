@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Cập nhật bản chụp công khai",
   "setup.staff.audit.release": "Công bố nhật ký kiểm tra",
   "setup.staff.audit.loading": "Đang tải lịch sử kiểm tra…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Chưa có sự kiện kiểm tra nào được ghi nhận.",
   "setup.staff.audit.actorSystem": "Hệ thống",
   "setup.staff.audit.actorPublic": "Người dùng công khai",

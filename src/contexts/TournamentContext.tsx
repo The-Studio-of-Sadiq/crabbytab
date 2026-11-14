@@ -96,7 +96,7 @@ import {
   setPreliminaryRoundCountCommand,
 } from "@/features/tournament/application/roundAdministration";
 import { regeneratePrivateAccessCommand } from "@/features/tournament/application/privateAccess";
-import { CLOUD_COLLECTIONS } from "@/features/tournament/collections";
+import { CLOUD_COLLECTIONS, ON_DEMAND_COLLECTIONS, OPEN_COLLECTIONS } from "@/features/tournament/collections";
 import {
   createTournamentBackup,
   diffTournamentBackup,
@@ -206,6 +206,11 @@ export interface TournamentContextType {
   staffAccessLoading: boolean;
   staffAccessError: string;
   cloudSyncState: "idle" | "syncing" | "success" | "error";
+  /**
+   * The device's working copy is on screen and the cloud copy is still being merged into it.
+   * Uploads and downloads wait until this is false; live updates start after it.
+   */
+  cloudRefreshing: boolean;
   cloudSyncMessage: string;
   privateSyncState: "idle" | "syncing" | "error";
   privateSyncMessage: string;
@@ -241,6 +246,8 @@ export interface TournamentContextType {
   /** Debates with more than one confirmed ballot (two devices confirmed different versions). */
   ballotConfirmationConflicts: Array<{ debateId: string; ballotIds: string[] }>;
   downloadFromCloud: () => Promise<void>;
+  /** Reads the cloud audit log into this device's copy (it is not downloaded when a tournament opens). */
+  loadCloudAuditLog: () => Promise<void>;
   syncDataEntry: () => Promise<void>;
   exportSyncRecovery: () => Promise<void>;
   /** Records changed both on this device and in the cloud since they were last synced. */
@@ -369,6 +376,9 @@ export interface UploadOutcome {
 
 const toCloudRecords = (records: Array<{ id: string }>): CloudRecord[] => records as unknown as CloudRecord[];
 
+const STILL_OPENING_MESSAGE =
+  "The latest cloud copy is still being merged into this device's copy. Try again in a moment.";
+
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
 
 const AUTOMATIC_CLOUD_WRITES = false;
@@ -406,6 +416,12 @@ export function TournamentProvider({
   const [feedback, setFeedback] = useState<FeedbackSubmission[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const auditEventsRef = useRef<AuditEvent[]>([]);
+  const [cloudRefreshing, setCloudRefreshingState] = useState(false);
+  const cloudRefreshingRef = useRef(false);
+  const setCloudRefreshing = useCallback((refreshing: boolean) => {
+    cloudRefreshingRef.current = refreshing;
+    setCloudRefreshingState(refreshing);
+  }, []);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [ballotIntake, setBallotIntake] = useState<BallotIntakeRecord[]>([]);
   // Mirrors ballotIntake; recordBallotIntake also updates it at once, so back-to-back scans each
@@ -894,6 +910,7 @@ export function TournamentProvider({
     let isMounted = true;
     async function loadLocalData() {
       setLoading(true);
+      setCloudRefreshing(false);
       setCloudLoadError("");
       auditEventsRef.current = [];
       setAuditEvents([]);
@@ -995,6 +1012,42 @@ export function TournamentProvider({
           return { tournament: result.tournament, merge };
         };
 
+        const showLocalCollections = () => {
+          const localRounds = readLocal<Round[]>("rounds", []);
+          setRounds(localRounds);
+          const publicRound = isSharedView
+            ? sharedViewCurrentRound(localRounds, localTournament?.preferences?.currentRoundId)
+            : undefined;
+          setActiveRound(publicRound || localRounds.find((round) => !round.cancelled) || null);
+          setTeams(readLocal<Team[]>("teams", []));
+          setAdjudicators(readLocal<Adjudicator[]>("adjudicators", []));
+          setVenues(readLocal<Venue[]>("venues", []));
+          setMotions(readLocal<Motion[]>("motions", []));
+          setBreakCategories(readLocal<BreakCategory[]>("breaks", []));
+          setDebates(readLocal<Debate[]>("debates", []));
+          setBallots(readLocal<BallotSubmission[]>("ballots", []));
+          setFeedback(readLocal<FeedbackSubmission[]>("feedback", []));
+          const localAuditEvents = readLocal<AuditEvent[]>("auditEvents", []);
+          auditEventsRef.current = localAuditEvents;
+          setAuditEvents(localAuditEvents);
+          setInstitutions(readLocal<Institution[]>("institutions", []));
+          setBallotIntake(readLocal<BallotIntakeRecord[]>("ballotIntake", []));
+        };
+
+        // Staff devices that already hold this tournament open it at once and merge the cloud copy
+        // in behind it (docs/storage-and-scale.md, "Opening a tournament"), so a slow or missing
+        // connection never keeps the tab room waiting. The merge below reads the working copy when
+        // the download arrives, so changes made meanwhile are kept like any other local edit.
+        const showsLocalCopyFirst = Boolean(db && localTournament && !isSharedView);
+        if (showsLocalCopyFirst) {
+          setTournament(localTournament);
+          showLocalCollections();
+          setCloudRefreshing(true);
+          setLoading(false);
+        }
+        const baselineKey = `${storagePrefix}_syncBaseline`;
+        let baselineAtDownload = localStore.getItem(baselineKey);
+
         if (db) {
           try {
             if (isSharedView) {
@@ -1043,25 +1096,45 @@ export function TournamentProvider({
                 cloudMerge = projection.merge;
                 cloudCollections = cloudMerge.collections;
               } else {
+                // The audit log is not downloaded on open (ON_DEMAND_COLLECTIONS); its page reads it.
+                // An upload, download or conflict choice made while this download ran changes the
+                // synced baseline, and merging the older download against it would undo that, so
+                // such a download is repeated. (Uploads and downloads also wait for this load.)
+                let cloudData = data;
+                let downloaded = await repository.getCollections(cloudTournamentDoc.id, OPEN_COLLECTIONS);
+                for (let attempt = 1; localStore.getItem(baselineKey) !== baselineAtDownload; attempt += 1) {
+                  if (!isMounted) return;
+                  if (attempt >= 3) {
+                    throw new Error("This tournament kept changing on this device while it loaded. Reload the page.");
+                  }
+                  baselineAtDownload = localStore.getItem(baselineKey);
+                  const refreshed = await repository.getTournament(cloudTournamentDoc.id);
+                  if (refreshed) cloudData = refreshed.data;
+                  downloaded = await repository.getCollections(cloudTournamentDoc.id, OPEN_COLLECTIONS);
+                }
+                if (!isMounted) return;
                 // Uploads are manual, so the local working copy may hold changes the cloud has
                 // never seen. Merge instead of replacing: records edited here since their synced
                 // baseline are kept (as diverged records if the cloud changed them too), other
                 // records take the cloud version, cloud-only records are added, and cloud
-                // soft-deletions and pending local deletions are dropped.
-                const hasLocalCopy = localTournament?.id === cloudTournamentDoc.id;
+                // soft-deletions and pending local deletions are dropped. Everything from here on
+                // runs without awaiting, on the working copy as it is now.
+                const currentTournament = readLocal<Tournament | null>("meta", null);
+                const hasLocalCopy = currentTournament?.id === cloudTournamentDoc.id;
                 const baseline = hasLocalCopy ? readSyncBaseline() : {};
                 const settings = mergeCloudTournament({
                   cloudTournament: {
-                    ...data,
+                    ...cloudData,
                     id: cloudTournamentDoc.id,
-                    slug: typeof data.slug === "string" ? data.slug : tournamentSlug,
+                    slug: typeof cloudData.slug === "string" ? cloudData.slug : tournamentSlug,
                   } as Tournament,
-                  localTournament: hasLocalCopy ? localTournament : null,
+                  localTournament: hasLocalCopy ? currentTournament : null,
                   base: baseline.tournament,
                 });
                 localTournament = settings.tournament;
                 const recordMerge = mergeCloudIntoWorkingCopy({
-                  cloudCollections: await repository.getCollections(cloudTournamentDoc.id),
+                  cloudCollections: downloaded,
+                  keepLocal: ON_DEMAND_COLLECTIONS,
                   localCollections: hasLocalCopy
                     ? Object.fromEntries(CLOUD_COLLECTIONS.map((name) => [
                         name,
@@ -1100,8 +1173,13 @@ export function TournamentProvider({
                 : undefined;
               setRounds(loadedRounds);
               persistLocal("rounds", loadedRounds);
-              setActiveRound(
-                publicRound || loadedRounds.find((round) => !round.cancelled) || null
+              // A device that showed its working copy first keeps the round someone may have
+              // picked meanwhile, if the cloud still has it.
+              setActiveRound((current) =>
+                (showsLocalCopyFirst && current && loadedRounds.find((round) => round.id === current.id)) ||
+                publicRound ||
+                loadedRounds.find((round) => !round.cancelled) ||
+                null
               );
               storeCloudCollection<Team>("teams", setTeams);
               storeCloudCollection<Adjudicator>("adjudicators", setAdjudicators);
@@ -1232,25 +1310,8 @@ export function TournamentProvider({
           persistLocal("meta", defaultTournament);
         }
 
-        const localRounds = readLocal<Round[]>("rounds", []);
-        setRounds(localRounds);
-        const publicRound = isSharedView
-          ? sharedViewCurrentRound(localRounds, localTournament?.preferences?.currentRoundId)
-          : undefined;
-        setActiveRound(publicRound || localRounds.find((round) => !round.cancelled) || null);
-        setTeams(readLocal<Team[]>("teams", []));
-        setAdjudicators(readLocal<Adjudicator[]>("adjudicators", []));
-        setVenues(readLocal<Venue[]>("venues", []));
-        setMotions(readLocal<Motion[]>("motions", []));
-        setBreakCategories(readLocal<BreakCategory[]>("breaks", []));
-        setDebates(readLocal<Debate[]>("debates", []));
-        setBallots(readLocal<BallotSubmission[]>("ballots", []));
-        setFeedback(readLocal<FeedbackSubmission[]>("feedback", []));
-        const localAuditEvents = readLocal<AuditEvent[]>("auditEvents", []);
-        auditEventsRef.current = localAuditEvents;
-        setAuditEvents(localAuditEvents);
-        setInstitutions(readLocal<Institution[]>("institutions", []));
-        setBallotIntake(readLocal<BallotIntakeRecord[]>("ballotIntake", []));
+        // Already on screen (and possibly edited since) when the device showed it first.
+        if (!showsLocalCopyFirst) showLocalCollections();
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not read tournament data.";
         console.error("Error reading tournament data:", e);
@@ -1258,7 +1319,10 @@ export function TournamentProvider({
           setCloudLoadError(`Could not load tournament data: ${message}`);
         }
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          setCloudRefreshing(false);
+        }
       }
     }
 
@@ -1266,7 +1330,7 @@ export function TournamentProvider({
     return () => {
       isMounted = false;
     };
-  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, isPrivatePortal, user, authLoading, applyPublicProjection]);
+  }, [tournamentSlug, storagePrefix, persistLocal, isSharedView, isPrivatePortal, user, authLoading, applyPublicProjection, setCloudRefreshing]);
 
   /** Syncs a private portal; resolves with the saved items the server refused (see privateSyncQueue). */
   const runPrivatePortalSync = async (
@@ -1650,6 +1714,9 @@ export function TournamentProvider({
       (isGlobalAdmin || liveAdminVerified) &&
       !isSharedView &&
       !loading &&
+      // Listeners start from the merged copy: started earlier, the merge could replace records
+      // they had already brought in with its older download.
+      !cloudRefreshing &&
       liveSyncEnabled
   );
   // Rounds in the active round's schedule slot are listened to as well: their draws decide who
@@ -2677,6 +2744,7 @@ export function TournamentProvider({
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       throw new Error("You are offline. Your changes remain saved on this device.");
     }
+    if (cloudRefreshingRef.current) throw new Error(STILL_OPENING_MESSAGE);
 
     setCloudSyncState("syncing");
     setCloudSyncMessage("Syncing participant, ballot, feedback, and result records…");
@@ -2748,6 +2816,11 @@ export function TournamentProvider({
       setCloudSyncState("error");
       setCloudSyncMessage(message);
       throw new Error(message);
+    }
+    if (cloudRefreshingRef.current) {
+      setCloudSyncState("error");
+      setCloudSyncMessage(STILL_OPENING_MESSAGE);
+      throw new Error(STILL_OPENING_MESSAGE);
     }
 
     setCloudSyncState("syncing");
@@ -2916,6 +2989,36 @@ export function TournamentProvider({
     }
   };
 
+  const loadCloudAuditLog = async () => {
+    if (!db || !tournament || !isOwnerOrAdmin || !(Number(tournament.syncVersion) > 0)) return;
+    // Merged during the opening merge or a running upload or download, it could be undone by them;
+    // the audit page waits for those to finish before calling this.
+    if (cloudRefreshingRef.current || cloudSyncState === "syncing") return;
+    const cloud = await createFirestoreTournamentRepository().getCollections(tournament.id, ["auditEvents"]);
+    // From here on nothing awaits, so the merge sees this device's current audit log.
+    const merge = mergeCloudIntoWorkingCopy({
+      cloudCollections: cloud,
+      localCollections: Object.fromEntries(
+        CLOUD_COLLECTIONS.map((name) => [name, name === "auditEvents" ? toCloudRecords(auditEventsRef.current) : []])
+      ) as Record<(typeof CLOUD_COLLECTIONS)[number], CloudRecord[]>,
+      baseline: readSyncBaseline(),
+      deletions: readSyncTombstones(),
+      overwrites: readSyncIds("syncOverwrites"),
+      // Every other collection, with its baseline entries, stays exactly as it is.
+      keepLocal: CLOUD_COLLECTIONS.filter((name) => name !== "auditEvents"),
+    });
+    const events = merge.collections.auditEvents as unknown as AuditEvent[];
+    auditEventsRef.current = events;
+    setAuditEvents(events);
+    persistLocal("auditEvents", events);
+    saveSyncState(
+      merge.baseline,
+      merge.divergedRecords.length > 0
+        ? [...divergedRecords.filter((record) => record.collectionName !== "auditEvents"), ...merge.divergedRecords]
+        : undefined
+    );
+  };
+
   const downloadFromCloud = async () => {
     if (!db || !user || !tournament || !isOwnerOrAdmin) {
       throw new Error("Sign in as a tournament administrator to download cloud data.");
@@ -2923,6 +3026,7 @@ export function TournamentProvider({
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       throw new Error("You are offline. Connect to the internet before downloading.");
     }
+    if (cloudRefreshingRef.current) throw new Error(STILL_OPENING_MESSAGE);
 
     setCloudSyncState("syncing");
     setCloudSyncMessage("Merging Firestore records with this device's local data…");
@@ -3241,7 +3345,9 @@ export function TournamentProvider({
         liveSyncEnabled,
         setLiveSyncEnabled,
         ballotConfirmationConflicts,
+        cloudRefreshing,
         downloadFromCloud,
+        loadCloudAuditLog,
         syncDataEntry,
         exportSyncRecovery,
         divergedRecords,

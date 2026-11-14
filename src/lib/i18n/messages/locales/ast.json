@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Anovar la instantánea pública",
   "setup.staff.audit.release": "Lliberar el rexistru d'auditoría",
   "setup.staff.audit.loading": "Cargando l'historial d'auditoría…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Entá nun se rexistró nengún eventu d'auditoría.",
   "setup.staff.audit.actorSystem": "Sistema",
   "setup.staff.audit.actorPublic": "Usuariu públicu",

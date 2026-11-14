@@ -1759,6 +1759,7 @@
   "setup.staff.audit.updateSnapshot": "Aktualizovat veřejný snímek",
   "setup.staff.audit.release": "Zveřejnit protokol auditu",
   "setup.staff.audit.loading": "Načítání historie auditu…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Zatím nebyly zaznamenány žádné události auditu.",
   "setup.staff.audit.actorSystem": "Systém",
   "setup.staff.audit.actorPublic": "Veřejný uživatel",

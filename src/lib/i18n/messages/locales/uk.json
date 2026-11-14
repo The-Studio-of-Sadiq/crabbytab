@@ -1759,6 +1759,7 @@
   "setup.staff.audit.updateSnapshot": "Оновити публічний знімок",
   "setup.staff.audit.release": "Оприлюднити журнал аудиту",
   "setup.staff.audit.loading": "Завантаження історії аудиту…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Подій аудиту ще не записано.",
   "setup.staff.audit.actorSystem": "Система",
   "setup.staff.audit.actorPublic": "Публічний користувач",

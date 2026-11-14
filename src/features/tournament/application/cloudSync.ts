@@ -34,7 +34,11 @@ export interface TournamentCloudRepository {
   getTournament(id: string): Promise<{ id: string; data: Record<string, unknown> } | null>;
   findTournamentBySlug(slug: string): Promise<{ id: string; data: Record<string, unknown> } | null>;
   saveTournament(id: string, tournament: Tournament): Promise<boolean>;
-  getCollections(tournamentId: string): Promise<Record<CloudCollectionName, CloudRecord[]>>;
+  /** Every collection, or only `names` (the others come back empty). */
+  getCollections(
+    tournamentId: string,
+    names?: readonly CloudCollectionName[]
+  ): Promise<Record<CloudCollectionName, CloudRecord[]>>;
   syncCollections(
     tournamentId: string,
     collections: Record<CloudCollectionName, CloudRecord[]>,
@@ -447,7 +451,8 @@ export interface WorkingCopyMerge {
  * `cloudOmitsDeleted` is for a cloud copy that leaves deleted or hidden records out (a data-entry
  * assistant's projection): a local record missing from it that is unchanged since its baseline is
  * dropped, while one edited here is kept. With no local copy (`localCollections` null) this is the
- * cloud state minus soft-deletions.
+ * cloud state minus soft-deletions. Collections in `keepLocal` were not downloaded: they keep the
+ * local records and their baseline entries exactly as they are.
  */
 export function mergeCloudIntoWorkingCopy(input: {
   cloudCollections: Record<CloudCollectionName, CloudRecord[]>;
@@ -456,12 +461,20 @@ export function mergeCloudIntoWorkingCopy(input: {
   deletions?: CloudDeletionMap;
   overwrites?: CloudOverwriteMap;
   cloudOmitsDeleted?: boolean;
+  keepLocal?: readonly CloudCollectionName[];
 }): WorkingCopyMerge {
   const { cloudCollections, localCollections, baseline = {}, deletions = {}, overwrites = {} } = input;
+  const keepLocal = new Set(input.keepLocal || []);
   const divergedRecords: DivergedRecord[] = [];
   const nextBaseline: SyncBaseline = {};
   const collections = Object.fromEntries(
     CLOUD_COLLECTIONS.map((name) => {
+      if (keepLocal.has(name)) {
+        // Not downloaded, so nothing is known about the cloud side: an empty download must not
+        // read as "deleted in the cloud".
+        if (baseline[name]) nextBaseline[name] = baseline[name];
+        return [name, localCollections?.[name] || []];
+      }
       const cloudRecords = cloudCollections[name] || [];
       const previousBaseline = baseline[name] || {};
       const restoredIds = new Set(overwrites[name] || []);

@@ -1759,6 +1759,7 @@
   "setup.staff.audit.updateSnapshot": "Aktualizovať verejnú snímku",
   "setup.staff.audit.release": "Zverejniť záznam auditu",
   "setup.staff.audit.loading": "Načítava sa história auditu…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Zatiaľ neboli zaznamenané žiadne udalosti auditu.",
   "setup.staff.audit.actorSystem": "Systém",
   "setup.staff.audit.actorPublic": "Verejný používateľ",

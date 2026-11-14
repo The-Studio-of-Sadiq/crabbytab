@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Ενημέρωση δημόσιου στιγμιότυπου",
   "setup.staff.audit.release": "Δημοσίευση αρχείου ελέγχου",
   "setup.staff.audit.loading": "Φόρτωση ιστορικού ελέγχου…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Δεν έχουν καταγραφεί ακόμη συμβάντα ελέγχου.",
   "setup.staff.audit.actorSystem": "Σύστημα",
   "setup.staff.audit.actorPublic": "Δημόσιος χρήστης",
