@@ -83,6 +83,8 @@ export const enPublic = {
   "public.presentation.close": "Close presentation",
   "public.presentation.assignedTo": "Assigned to: {rounds}",
   "public.presentation.infoSlide": "Information slide",
+  "public.infoSlideMedia.imageAlt": "Information slide picture",
+  "public.infoSlideMedia.videoTitle": "Information slide video",
   "public.presentation.previous": "Previous",
   "public.presentation.next": "Next",
   "public.presentation.slide": "Slide {index}",

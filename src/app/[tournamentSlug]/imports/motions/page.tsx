@@ -17,11 +17,20 @@ import { Dialog } from "@/components/ui/Dialog";
 import { ConfirmActionDialog } from "@/components/ui/ConfirmActionDialog";
 import { Alert, EmptyState } from "@/components/ui/Feedback";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/Field";
+import {
+  EMPTY_INFO_SLIDE_MEDIA_DRAFT,
+  InfoSlideMediaFields,
+  draftFromInfoSlideMedia,
+  infoSlideMediaFromDraft,
+  type InfoSlideMediaDraft,
+} from "@/features/tournament/components/InfoSlideMediaFields";
+import { InfoSlideMediaView } from "@/features/tournament/components/InfoSlideMediaView";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
 
 /** CSV template shown as the placeholder; column names are parsed back, so they stay in English. */
 const CSV_EXAMPLE =
-  "text,reference,infoslide,round\n\"This House would ban algorithmic feeds.\",\"R1: Tech\",\"Chronological feeds only.\",\"Round 1\"\n\"This House regrets the glorification of work ethic.\",\"R2: Culture\",\"\",\"Round 2\"";
-const CSV_COLUMNS = "text, reference, infoslide, round";
+  "text,reference,infoslide,infoslide_image,infoslide_video,round\n\"This House would ban algorithmic feeds.\",\"R1: Tech\",\"Chronological feeds only.\",\"https://example.org/feeds.png\",\"\",\"Round 1\"\n\"This House regrets the glorification of work ethic.\",\"R2: Culture\",\"\",\"\",\"https://www.youtube.com/watch?v=aqz-KE-bpKQ\",\"Round 2\"";
+const CSV_COLUMNS = "text, reference, infoslide, infoslide_image, infoslide_video, round";
 
 const CREATE_FORM_ID = "create-motion-form";
 const EDIT_FORM_ID = "edit-motion-form";
@@ -50,6 +59,9 @@ export default function MotionsPage() {
   // New Motion Form State
   const [newText, setNewText] = useState("");
   const [newInfoSlide, setNewInfoSlide] = useState("");
+  const [newMedia, setNewMedia] = useState<InfoSlideMediaDraft>(EMPTY_INFO_SLIDE_MEDIA_DRAFT);
+  const [editMedia, setEditMedia] = useState<InfoSlideMediaDraft>(EMPTY_INFO_SLIDE_MEDIA_DRAFT);
+  const [saveError, setSaveError] = useState("");
   const [newRef, setNewRef] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState("");
   const [motionPendingRelease, setMotionPendingRelease] = useState<Motion | null>(null);
@@ -71,19 +83,30 @@ export default function MotionsPage() {
   const handleCreateMotion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newText.trim()) return;
+    // An invalid link is shown under its field; nothing is saved until it is fixed or removed.
+    const media = infoSlideMediaFromDraft(newMedia);
+    if (!media.ok) return;
 
-    await addMotion({
-      text: newText.trim(),
-      infoSlide: newInfoSlide.trim() || undefined,
-      // Saved to the record, so it stays in English for every viewer.
-      reference: newRef.trim() || `Motion ${motions.length + 1}`,
-      rounds: selectedRoundId ? [selectedRoundId] : [],
-      released: false, // Don't make them public by default!
-      seq: motions.length + 1,
-    });
+    setSaveError("");
+    try {
+      await addMotion({
+        text: newText.trim(),
+        infoSlide: newInfoSlide.trim() || undefined,
+        infoSlideMedia: media.media,
+        // Saved to the record, so it stays in English for every viewer.
+        reference: newRef.trim() || `Motion ${motions.length + 1}`,
+        rounds: selectedRoundId ? [selectedRoundId] : [],
+        released: false, // Don't make them public by default!
+        seq: motions.length + 1,
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : t("setup.importsExtra.motions.saveError"));
+      return;
+    }
 
     setNewText("");
     setNewInfoSlide("");
+    setNewMedia(EMPTY_INFO_SLIDE_MEDIA_DRAFT);
     setNewRef("");
     setSelectedRoundId("");
     setShowAddModal(false);
@@ -93,8 +116,16 @@ export default function MotionsPage() {
   const handleUpdateMotion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMotion || !editingMotion.text.trim()) return;
+    const media = infoSlideMediaFromDraft(editMedia);
+    if (!media.ok) return;
 
-    await updateMotion(editingMotion);
+    setSaveError("");
+    try {
+      await updateMotion({ ...editingMotion, infoSlideMedia: media.media });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : t("setup.importsExtra.motions.saveError"));
+      return;
+    }
     setEditingMotion(null);
   };
 
@@ -144,6 +175,7 @@ export default function MotionsPage() {
       await addMotions(parsedMotions.map((motion, idx) => ({
         text: motion.text,
         infoSlide: motion.infoSlide,
+        infoSlideMedia: motion.infoSlideMedia,
         reference: motion.reference,
         rounds: motion.rounds,
         released: false,
@@ -268,7 +300,11 @@ export default function MotionsPage() {
                     size="sm"
                     label={t("setup.importsExtra.motions.edit", { name: label })}
                     icon={<Edit2 />}
-                    onClick={() => setEditingMotion(motion)}
+                    onClick={() => {
+                      setSaveError("");
+                      setEditMedia(draftFromInfoSlideMedia(motion.infoSlideMedia));
+                      setEditingMotion(motion);
+                    }}
                   />
 
                   <IconButton
@@ -289,12 +325,13 @@ export default function MotionsPage() {
               </blockquote>
 
               {/* Info slide if present */}
-              {motion.infoSlide && (
+              {hasInfoSlide(motion) && (
                 <div className="mt-3 rounded-md border border-border bg-muted/50 p-3 text-xs text-fg">
                   <strong className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
                     {t("setup.importsExtra.motions.infoslide")}
                   </strong>
-                  <p className="whitespace-pre-line">{motion.infoSlide}</p>
+                  {motion.infoSlide?.trim() && <p className="whitespace-pre-line">{motion.infoSlide}</p>}
+                  <InfoSlideMediaView media={motion.infoSlideMedia} size="sm" className="mt-2" />
                 </div>
               )}
             </Card>
@@ -363,6 +400,7 @@ export default function MotionsPage() {
             value={newInfoSlide}
             onChange={(e) => setNewInfoSlide(e.target.value)}
           />
+          <InfoSlideMediaFields draft={newMedia} onChange={setNewMedia} />
           <Select
             label={t("setup.importsExtra.motions.roundLabel")}
             help={t("setup.common.optional")}
@@ -377,6 +415,7 @@ export default function MotionsPage() {
             ))}
           </Select>
           <Alert tone="info">{rich("setup.importsExtra.motions.privateNote", strong)}</Alert>
+          {saveError && <Alert tone="danger" role="alert">{saveError}</Alert>}
         </form>
       </Dialog>
 
@@ -419,6 +458,7 @@ export default function MotionsPage() {
               value={editingMotion.infoSlide || ""}
               onChange={(e) => setEditingMotion({ ...editingMotion, infoSlide: e.target.value })}
             />
+            <InfoSlideMediaFields draft={editMedia} onChange={setEditMedia} />
             <fieldset aria-describedby="motion-rounds-help">
               <legend className="mb-1.5 block text-xs font-medium text-fg">{t("setup.importsExtra.motions.assignedRounds")}</legend>
               <div className="grid max-h-40 grid-cols-1 gap-1.5 overflow-y-auto rounded-md border border-border p-2 sm:grid-cols-2">
@@ -441,6 +481,7 @@ export default function MotionsPage() {
                 {t("setup.importsExtra.motions.assignedRoundsHelp")}
               </p>
             </fieldset>
+            {saveError && <Alert tone="danger" role="alert">{saveError}</Alert>}
           </form>
         )}
       </Dialog>

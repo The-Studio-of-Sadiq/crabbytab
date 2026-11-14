@@ -20,6 +20,7 @@ import {
 } from "@/lib/motions/roundMotions";
 import { formatScheduleTime } from "@/lib/schedule/time";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { hasInfoSlide } from "@/lib/motions/infoSlideMedia";
 import { motionReuseEnabled } from "@/lib/ballots/ballotRules";
 
 /**
@@ -79,7 +80,7 @@ export function RoundMotionsPanel({ round }: { round: Round }) {
                     <p className="text-[13px] font-medium text-fg">{motion.text}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       {motion.reference && <Badge>{motion.reference}</Badge>}
-                      {motion.infoSlide?.trim() && <Badge tone="info">{t("tabroom.schedule.motions.infoSlide")}</Badge>}
+                      {hasInfoSlide(motion) && <Badge tone="info">{t("tabroom.schedule.motions.infoSlide")}</Badge>}
                       <Badge tone={motion.released ? "success" : "neutral"}>{motion.released ? t("tabroom.schedule.motions.public") : t("tabroom.schedule.motions.hidden")}</Badge>
                       {elsewhere.length > 0 && <span className="text-[11px] text-fg-muted">{t("tabroom.schedule.motions.alsoIn", { rounds: formatList(elsewhere as string[]) })}</span>}
                     </div>

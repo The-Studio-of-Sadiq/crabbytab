@@ -108,6 +108,11 @@ const motionShape = {
   text: text(2000),
   reference: optionalText(200),
   infoSlide: optionalText(5000),
+  infoSlideMedia: s.optional(s.object({
+    kind: s.enum(["image", "video"] as const),
+    url: s.string({ max: 2000, description: "An https image link; for video, a YouTube link or an https link to a .mp4, .webm, .ogg, .mov or .m4v file. Empty removes the media." }),
+    alt: optionalText(300, "Alt text for an image, or a title for a video."),
+  })),
   rounds: s.array(idSchema("Round id."), { max: 50, unique: true, description: "Rounds the motion is used in." }),
   seq: s.optional(s.integer({ min: 0, max: 10_000 })),
   released: s.optional(s.boolean("Release the motion (public once public motions are enabled).")),
