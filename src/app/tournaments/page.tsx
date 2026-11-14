@@ -18,6 +18,7 @@ import type { Tournament } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { db } from "@/lib/firebase";
 import { getLocalStore, readLocalTournamentMetas } from "@/lib/offline/localStore";
+import { tournamentsToList, type DeviceTournament } from "@/features/tournament/application/tournamentList";
 
 async function readDeviceTournaments() {
   try {
@@ -98,7 +99,9 @@ export default function TournamentsHubPage() {
   const [searchError, setSearchError] = useState(false);
   const searchSeq = useRef(0);
 
-  // Signed-in users only receive their authorized tournaments from the server.
+  // Tournaments that exist only on this device are always listed; signed in, the server adds the
+  // cloud tournaments this account may open. Signed out or offline, every tournament on the device
+  // is listed (tournamentList.ts).
   useEffect(() => {
     if (authLoading) return;
     let active = true;
@@ -106,68 +109,36 @@ export default function TournamentsHubPage() {
     setMineError(null);
     setLoadingMine(true);
     void (async () => {
-      if (!user) {
-        if (typeof window !== "undefined") {
-          const local: Summary[] = [];
-          for (const { key, raw } of await readDeviceTournaments()) {
-            try {
-              const value = JSON.parse(raw) as Partial<Tournament> | null;
-              if (value?.id && value.slug && value.name && value.format && value.createdAt) {
-                local.push({
-                  id: value.id,
-                  slug: value.slug,
-                  name: value.name,
-                  format: value.format,
-                  createdAt: value.createdAt,
-                });
-              }
-            } catch (error) {
-              console.warn(`Could not read local tournament at ${key}:`, error);
-            }
+      const device: DeviceTournament[] = [];
+      if (typeof window !== "undefined") {
+        for (const { key, raw } of await readDeviceTournaments()) {
+          try {
+            const value: unknown = JSON.parse(raw);
+            if (value && typeof value === "object") device.push(value as DeviceTournament);
+          } catch (error) {
+            console.warn(`Could not read local tournament at ${key}:`, error);
           }
-          if (active) setMine(local.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
         }
-        if (active) setLoadingMine(false);
-        return;
       }
-
-      try {
-        const token = await user.getIdToken();
-        const response = await fetch("/api/tournaments", {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
-        const result = await response.json() as { error?: string; tournaments?: Summary[] };
-        if (!response.ok) throw new Error(result.error || "");
-        const accessible = result.tournaments || [];
-        const merged = new Map(accessible.map((tournament) => [tournament.id, tournament]));
-        if (typeof window !== "undefined") {
-          for (const { key, raw } of await readDeviceTournaments()) {
-            try {
-              const value = JSON.parse(raw) as Partial<Tournament> | null;
-              if (
-                value?.id && value.slug && value.name && value.format && value.createdAt &&
-                isGlobalAdmin &&
-                !merged.has(value.id)
-              ) {
-                merged.set(value.id, {
-                  id: value.id,
-                  slug: value.slug,
-                  name: value.name,
-                  format: value.format,
-                  createdAt: value.createdAt,
-                });
-              }
-            } catch (error) {
-              console.warn(`Could not read local tournament at ${key}:`, error);
-            }
-          }
+      let server: Summary[] | null = null;
+      if (user) {
+        try {
+          const token = await user.getIdToken();
+          const response = await fetch("/api/tournaments", {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+          const result = await response.json() as { error?: string; tournaments?: Summary[] };
+          if (!response.ok) throw new Error(result.error || "");
+          server = result.tournaments || [];
+        } catch (error) {
+          // The tournaments on this device stay listed (and open offline).
+          if (active) setMineError({ message: error instanceof Error ? error.message : "" });
         }
-        if (active) setMine([...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-      } catch (error) {
-        if (active) setMineError({ message: error instanceof Error ? error.message : "" });
-      } finally {
-        if (active) setLoadingMine(false);
+      }
+      if (active) {
+        setMine(tournamentsToList({ server, device, isGlobalAdmin }));
+        setLoadingMine(false);
       }
     })();
     return () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isViewerTournamentAdmin,
+  isDeviceOnlyTournament,
   isDataEntryRole,
   isTournamentAdministrator,
   resolveTournamentAccessRole,
@@ -80,5 +81,26 @@ describe("isViewerTournamentAdmin", () => {
     expect(isViewerTournamentAdmin({ ...base, staffRole: "admin" })).toBe(true);
     expect(isViewerTournamentAdmin({ ...base, staffRole: "dataEntry" })).toBe(false);
     expect(isViewerTournamentAdmin({ ...base, hasTournament: false, isGlobalAdmin: true })).toBe(false);
+  });
+
+  it("lets whoever holds the device run a device-only tournament's admin pages, signed in or not", () => {
+    expect(isViewerTournamentAdmin({ ...base, signedIn: false, deviceOnly: true })).toBe(true);
+    expect(isViewerTournamentAdmin({ ...base, deviceOnly: true })).toBe(true);
+    expect(isViewerTournamentAdmin({ ...base, hasTournament: false, deviceOnly: true })).toBe(false);
+  });
+
+  it("never gives a signed-out viewer admin views on shared routes, even of a device-only tournament", () => {
+    expect(isViewerTournamentAdmin({ ...base, signedIn: false, deviceOnly: true, sharedView: true })).toBe(false);
+    // A cloud tournament still needs a verified role.
+    expect(isViewerTournamentAdmin({ ...base, signedIn: false, deviceOnly: false })).toBe(false);
+  });
+});
+
+describe("isDeviceOnlyTournament", () => {
+  it("is a tournament without a cloud version", () => {
+    expect(isDeviceOnlyTournament({})).toBe(true);
+    expect(isDeviceOnlyTournament({ syncVersion: 0 })).toBe(true);
+    expect(isDeviceOnlyTournament({ syncVersion: 3 })).toBe(false);
+    expect(isDeviceOnlyTournament(null)).toBe(false);
   });
 });

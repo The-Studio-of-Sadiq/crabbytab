@@ -77,17 +77,37 @@ export function sanitizeAssistantAdjudicator(
   return { ...safe, conflicts: permissions.includes("conflicts.view") && Array.isArray(conflicts) ? conflicts : [] };
 }
 /**
+ * A tournament that exists only on this device: it has never been uploaded, so its settings carry
+ * no cloud `syncVersion`. It needs no account and no server: whoever holds the device runs it,
+ * fully offline and without Firebase (docs/offline-and-accounts.md).
+ */
+export function isDeviceOnlyTournament(tournament: { syncVersion?: unknown } | null | undefined): boolean {
+  return Boolean(tournament) && !(Number(tournament?.syncVersion) > 0);
+}
+
+/**
  * Whether the current viewer gets administrator views of a tournament.
- * A signed-out viewer is never an administrator, even for a device-local
- * ("local"/"director") tournament: signed-out visitors only reach shared
- * routes such as /display, /public and private URLs.
+ *
+ * On admin pages, a device-only tournament is administered by whoever holds the device, signed in
+ * or not: there is no cloud copy to protect, and the data is already on the device.
+ *
+ * On shared routes (/display, /public, private URLs) a signed-out viewer is never an
+ * administrator, device-only tournament or not: a projector or a visitor at the venue must never
+ * see unrevealed panels or unreleased data there. Otherwise administrator views need a signed-in
+ * global admin or staff admin.
  */
 export function isViewerTournamentAdmin(input: {
   hasTournament: boolean;
   signedIn: boolean;
   isGlobalAdmin: boolean;
   staffRole: unknown;
+  /** The tournament has no cloud copy (`isDeviceOnlyTournament`). */
+  deviceOnly?: boolean;
+  /** The page is a shared route (/display, /public, a private URL). */
+  sharedView?: boolean;
 }): boolean {
-  if (!input.hasTournament || !input.signedIn) return false;
+  if (!input.hasTournament) return false;
+  if (input.deviceOnly && !input.sharedView) return true;
+  if (!input.signedIn) return false;
   return input.isGlobalAdmin || input.staffRole === "admin";
 }

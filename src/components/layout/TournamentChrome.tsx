@@ -60,6 +60,7 @@ export function TournamentChrome({
     staffPermissions,
     staffAccessLoading,
     staffAccessError,
+    isDeviceOnly,
   } = useTournament();
   const { t } = useI18n();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
@@ -70,12 +71,15 @@ export function TournamentChrome({
   const isPublicRoute = sharedKind !== null;
   const requirement = routeRequirement(segments);
 
+  // A tournament that exists only on this device opens without an account (offline, or without
+  // Firebase at all); one with a cloud copy needs the account that may administer it.
+  const signInRequired = !isPublicRoute && !authLoading && !user && !tournamentLoading && !(tournament && isDeviceOnly);
   React.useEffect(() => {
-    if (!isPublicRoute && !authLoading && !user) {
+    if (signInRequired) {
       const next = pathname || `/${tournamentSlug}`;
       router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
-  }, [authLoading, isPublicRoute, pathname, router, tournamentSlug, user]);
+  }, [signInRequired, pathname, router, tournamentSlug]);
 
   React.useEffect(() => {
     setMobileNavOpen(false);
@@ -91,7 +95,7 @@ export function TournamentChrome({
       : <>{children}</>;
   }
 
-  if (authLoading || !user) {
+  if (authLoading || signInRequired) {
     return (
       <ShellMessage>
         <p role="status" className="text-[13px] text-fg-muted">{t("setup.shell.redirectingToSignIn")}</p>

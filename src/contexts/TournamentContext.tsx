@@ -176,6 +176,7 @@ import type { ComputeKind, ComputeRequest, ComputeResults } from "@/features/tou
 import { summarizeDivergedRecord, type DivergedRecordSummary } from "@/features/tournament/application/syncConflicts";
 import {
   isViewerTournamentAdmin,
+  isDeviceOnlyTournament,
   sanitizeAssistantAdjudicator,
   sanitizeAssistantTeam,
 } from "@/lib/tournamentAccess";
@@ -215,6 +216,8 @@ export interface TournamentContextType {
   replyStandings: SpeakerStandingRow[];
   breakResults: BreakCategoryResult[];
   isOwnerOrAdmin: boolean;
+  /** The tournament exists only on this device (no cloud copy): no account or connection needed. */
+  isDeviceOnly: boolean;
     isDataEntryAssistant: boolean;
   /** Data-entry staff: effective permissions from the server (lib/staffPermissions.ts); empty for administrators. */
   staffPermissions: string[];
@@ -959,7 +962,17 @@ export function TournamentProvider({
       auditEventsRef.current = [];
       setAuditEvents([]);
       if (authLoading) return () => { isMounted = false; };
-      if (!user && !isSharedView) {
+      // Signed out, admin pages open only a tournament that exists just on this device
+      // (isDeviceOnlyTournament): it needs no account, server or connection. A tournament with a
+      // cloud copy needs the account that may administer it.
+      const deviceOnlyOnThisDevice = async () => {
+        if (typeof window === "undefined") return false;
+        const store = getLocalStore();
+        await store.loadPrefix(`${storagePrefix}_`);
+        return isDeviceOnlyTournament(safeJsonParse<Tournament | null>(store.getItem(`${storagePrefix}_meta`), null));
+      };
+      if (!user && !isSharedView && !(await deviceOnlyOnThisDevice())) {
+        if (!isMounted) return;
         setTournament(null);
         setRounds([]);
         setActiveRound(null);
@@ -1094,7 +1107,8 @@ export function TournamentProvider({
         // Where this open's download stopped, saved with the merged records (deltaSync.ts).
         let openCursor: SyncCursor | null = null;
 
-        if (db) {
+        // Signed out, a device-only tournament never asks the cloud for anything.
+        if (db && (user || isSharedView)) {
           try {
             if (isSharedView) {
               await loadPublicProjection();
@@ -1671,12 +1685,15 @@ export function TournamentProvider({
   };
 
   // Is the current user an owner or admin of this tournament?
+  const isDeviceOnly = isDeviceOnlyTournament(tournament);
   const isOwnerOrAdmin = useMemo(() => isViewerTournamentAdmin({
     hasTournament: Boolean(tournament),
     signedIn: Boolean(user),
     isGlobalAdmin,
     staffRole: cloudStaffRole,
-  }), [tournament, user, isGlobalAdmin, cloudStaffRole]);
+    deviceOnly: isDeviceOnly,
+    sharedView: isSharedView,
+  }), [tournament, user, isGlobalAdmin, cloudStaffRole, isDeviceOnly, isSharedView]);
   // Keep each round's motionsReleased in step with its motions' release toggles (see
   // motionRelease.ts). Only an administrator's working copy is updated; shared views receive the
   // flag through the public projection.
@@ -1699,6 +1716,8 @@ export function TournamentProvider({
       setStaffAccessError("");
     }
     if (!user || !tournament || !db) return () => { active = false; };
+    // The cloud has never seen a device-only tournament, so there is no role to check.
+    if (isDeviceOnlyTournament(tournament)) return () => { active = false; };
     if (!shouldRecheckStaffAccess(lastStaffAccessCheckRef.current, accessKey, Date.now())) {
       return () => { active = false; };
     }
@@ -1788,9 +1807,9 @@ export function TournamentProvider({
     }
     void checkStaffRole();
     return () => { active = false; };
-  }, [isGlobalAdmin, pathname, persistLocal, storagePrefix, tournament?.id, user]);
+  }, [isGlobalAdmin, isDeviceOnly, pathname, persistLocal, storagePrefix, tournament?.id, user]);
   const isDataEntryAssistant = !isGlobalAdmin && cloudStaffRole === "dataEntry";
-  const staffAccessLoading = Boolean(user && db && tournament && cloudStaffRole === null);
+  const staffAccessLoading = Boolean(user && db && tournament && !isDeviceOnly && cloudStaffRole === null);
 
   // A cloud tournament (it has a cloud version) opened by a verified administrator on an admin
   // page goes live. `liveAdminVerified` changes only when a role check finishes, so navigating
@@ -3424,6 +3443,7 @@ export function TournamentProvider({
         replyStandings,
         breakResults,
         isOwnerOrAdmin,
+        isDeviceOnly,
           isDataEntryAssistant,
         staffPermissions,
         staffAccessLoading,
