@@ -82,11 +82,12 @@ service cloud.firestore {
         return ["id", "tournamentId", "roundId", "debateId", "version", "motionId", "motionText",
           "speakerScores", "teamScores", "timestamp", "confirmed", "discarded", "submitterType",
           "submitterId", "submitterName", "chairId", "syncVersion", "sheets", "vetoes", "forfeitSide",
-          "noSpeakerScores", "selfSplit"];
+          "noSpeakerScores", "selfSplit", "cloudUpdatedAt"];
       }
 
       function assistantLiveCheckInFields() {
-        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion"];
+        return ["checkedIn", "checkedInAt", "roundAvailability", "roundAvailabilityAt", "checkInHistory", "syncVersion",
+          "cloudUpdatedAt"];
       }
 
       function isAssistantBallot(ballotId) {
@@ -105,6 +106,8 @@ service cloud.firestore {
           ballot.speakerScores is map &&
           ballot.teamScores is map &&
           ballot.get("syncVersion", 1) == 1 &&
+          // The change stamp devices download by (lib/cloudRecordFields.ts): required, server time.
+          ballot.get("cloudUpdatedAt", null) == request.time &&
           ballot.debateId is string &&
           exists(debatePath) &&
           get(debatePath).data.roundId == ballot.roundId &&
@@ -119,7 +122,8 @@ service cloud.firestore {
           next.get("roundAvailability", {}) is map &&
           next.get("roundAvailabilityAt", {}) is map &&
           next.get("checkInHistory", []) is list && next.get("checkInHistory", []).size() <= 50 &&
-          next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1;
+          next.get("syncVersion", 0) == resource.data.get("syncVersion", 0) + 1 &&
+          next.get("cloudUpdatedAt", null) == request.time;
       }
 
       match /ballots/{ballotId} {

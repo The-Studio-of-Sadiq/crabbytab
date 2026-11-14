@@ -1724,6 +1724,7 @@
   "setup.staff.audit.updateSnapshot": "Mettre à jour l’instantané public",
   "setup.staff.audit.release": "Publier le journal d’audit",
   "setup.staff.audit.loading": "Chargement de l’historique d’audit…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Aucun événement d’audit n’a encore été enregistré.",
   "setup.staff.audit.actorSystem": "Système",
   "setup.staff.audit.actorPublic": "Utilisateur public",

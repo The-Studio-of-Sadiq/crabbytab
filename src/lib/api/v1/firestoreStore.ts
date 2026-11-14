@@ -12,6 +12,7 @@ import {
   type TournamentStore,
   type TournamentTransaction,
 } from "./store";
+import { isStampedCollection, serverStamp } from "@/lib/cloudStampServer";
 
 function toRecord(snapshot: { id: string; exists: boolean; data(): Record<string, unknown> | undefined }): StoredRecord | null {
   return snapshot.exists ? { ...(snapshot.data() ?? {}), id: snapshot.id } : null;
@@ -66,7 +67,9 @@ function tournamentStore(firestore: Firestore, tournamentId: string): Tournament
         const scoped: TournamentTransaction = {
           ...reader(firestore, tournamentRef, transaction),
           set(collection, id, data) {
-            transaction.set(tournamentRef.collection(collection).doc(id), data);
+            // Record collections carry the stamp devices download changes by.
+            const stamped = isStampedCollection(collection) ? { ...data, ...serverStamp() } : data;
+            transaction.set(tournamentRef.collection(collection).doc(id), stamped);
           },
           setTournament(data) {
             const { id: _id, ...rest } = data;

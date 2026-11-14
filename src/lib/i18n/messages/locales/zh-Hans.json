@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "更新公开快照",
   "setup.staff.audit.release": "发布审计日志",
   "setup.staff.audit.loading": "正在加载审计历史…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "尚未记录任何审计事件。",
   "setup.staff.audit.actorSystem": "系统",
   "setup.staff.audit.actorPublic": "公众用户",

@@ -1724,6 +1724,7 @@
   "setup.staff.audit.updateSnapshot": "עדכון התצלום הציבורי",
   "setup.staff.audit.release": "פרסום יומן הביקורת",
   "setup.staff.audit.loading": "טוען היסטוריית ביקורת…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "עדיין לא נרשמו אירועי ביקורת.",
   "setup.staff.audit.actorSystem": "מערכת",
   "setup.staff.audit.actorPublic": "משתמש ציבורי",

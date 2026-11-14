@@ -28,6 +28,90 @@ IndexedDB is bounded only by the browser's disk quota.
 Theme, language and remembered portal passcodes stay in localStorage: they are tiny and must be
 readable synchronously before the first paint.
 
+## Opening a tournament
+
+On a signed-in staff device that already holds the tournament, the working copy is shown at once
+and the cloud copy is merged into it behind it (`TournamentContext`, the load effect). The cloud
+status shows **Syncing…** until the merge finishes. Before, the page waited for the tournament
+lookup, the access check and a full download, so a slow connection kept the tab room on a spinner.
+
+- **Edits made while the download runs are kept.** The merge reads the working copy and the synced
+  baseline only when the download has arrived, and then runs without awaiting, so a record edited
+  meanwhile counts as an edit here (kept, or listed as a sync conflict if the cloud changed it too).
+- **Uploads, downloads and data-entry syncs wait** for the merge ("still being merged … try again in
+  a moment"). If the synced baseline changes anyway while the download runs (for example a
+  conflict choice), the download is repeated, at most twice more, rather than merged against the
+  newer baseline; after that the load stops with "Reload the page".
+- **Live updates start after the merge.** Started earlier, the merge could replace records a
+  listener had already brought in with its older download.
+- A device without a local copy, a data-entry assistant's first open, public pages and private
+  portals load as before.
+- Collections the device has downloaded before are read as the changes since then (next section).
+
+**The audit log is not downloaded on open** (`ON_DEMAND_COLLECTIONS` in
+`features/tournament/collections.ts`). It grows with every command and only its own page shows it,
+so it was most of the reads of each open. The **Audit log** page reads it once per visit (after the
+opening merge and any running upload or download) and merges it like a download, leaving every
+other collection and its baseline untouched (`mergeCloudIntoWorkingCopy`'s `keepLocal`). **Download
+and compare** still reads every collection, the audit log included. Uploads are unaffected: they
+send only records changed since the baseline, and audit events created on this device are uploaded
+as before.
+
+## Downloading only what changed
+
+A device that has opened a tournament before downloads only the records that changed since, instead
+of every record of every collection (`application/deltaSync.ts`).
+
+**Stamps.** Every write of a record in the tournament's record collections (`CLOUD_COLLECTIONS`)
+sets `cloudUpdatedAt` to the server's time (`serverTimestamp()` / `FieldValue.serverTimestamp()`):
+live writes (`liveRepository.ts`), uploads, deletions and audit events (`tournamentRepository.ts`),
+and every server route that writes records: private-URL sync, public forms, data-entry sync,
+assistant ballots, API v1 writes and registration (`lib/cloudStampServer.ts`). The field is
+cloud-only, like a debate's participant index: `withoutCloudOnlyFields` (`lib/cloudRecordFields.ts`)
+removes it from every record read into a working copy, a portal, the assistant projection or the
+public view, so it never changes a record's content hash. An assistant writing directly may set it
+only to the server's time (`firestore.rules`).
+
+**Cursor.** After each open the device stores, per collection, the latest stamp it saw and the
+`syncVersion` of every cloud record it saw, soft-deleted ones included (`syncCursor` in the
+working copy). The next open asks each collection only for records stamped after that, less a
+minute (`DELTA_OVERLAP_MS`), and merges them the way a live listener event is merged
+(`applyLiveSnapshot`): records it does not bring stay as they are. Collections without a cursor are
+read in full, and the cursor is rebuilt from that read.
+
+**Checks before trusting a delta** (`collectionsNeedingFullRead`). A collection is read in full
+after all when:
+
+- the cloud's record count or `syncVersion` sum (one aggregation query, about one read per 1,000
+  records) differs from the cursor with the changes applied. This catches a write without a stamp
+  (an app version from before this change still open on some device, or a writer that forgets the
+  stamp: they all bump `syncVersion`) and a record removed outright;
+- the device's copy does not hold a cloud record the delta did not bring at the cursor's version,
+  unless it is deleted here, restored from a backup or listed as a sync conflict. This catches a
+  working copy replaced since the cursor was saved.
+
+The checks can only ask for more reading, never skip any. **Download and compare** clears the
+cursor, so the next open reads in full.
+
+**Live listeners** start from the cursor too (`live-collaboration.md`, "Listeners"), and their
+events move it on, so the next open reads only what changed after the session.
+
+**Cost.** Reopening a tournament reads the records changed since the last open or live event, the
+records stamped in the minute before the latest stamp seen (after a burst of writes, such as a
+first upload, the first reopen re-reads that minute), and one aggregation per collection. The
+first open on a device, and an open after **Download and compare** or a failed check, read in full.
+
+**Limits.**
+
+- Records written before this change have no stamp. They are in every device's next full read and
+  need no backfill; once rewritten they carry one.
+- Writers that are switched off (`AUTOMATIC_CLOUD_WRITES = false` in `TournamentContext`: the old
+  entity, round, draw and break repositories) do not stamp. Turning them back on needs stamps
+  first; the count and version checks would otherwise be the only safeguard, and two of those
+  repositories delete records outright.
+- A writer that changes a record without stamping it **and** without bumping `syncVersion` is not
+  detected. Every current writer stamps.
+
 ## Uploading to the cloud
 
 For cloud tournaments on administrator devices, ballots, debates, teams and adjudicators are also

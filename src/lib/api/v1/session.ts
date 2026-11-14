@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CloudCollectionName } from "@/features/tournament/collections";
-import { PARTICIPANT_IDS_FIELD, debateParticipantIds, withoutParticipantIds } from "@/lib/privateSync";
+import { PARTICIPANT_IDS_FIELD, debateParticipantIds } from "@/lib/privateSync";
+import { withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 import type { AuditCategory, Tournament } from "@/types";
 import { ApiError, conflict } from "./errors";
 import type { QueryFilter, StoredRecord, TournamentTransaction } from "./store";
@@ -70,7 +71,7 @@ function canonical(value: unknown): string {
 
 /** Content of a record without the cloud's stamps, for change detection. */
 function content(record: StoredRecord): string {
-  const { syncVersion: _version, updatedAt: _updatedAt, ...rest } = withoutParticipantIds(record);
+  const { syncVersion: _version, updatedAt: _updatedAt, ...rest } = withoutCloudOnlyFields(record);
   return canonical(rest);
 }
 
@@ -141,7 +142,7 @@ export class ApiCommandSession {
     const { originals, current } = this.bucket(collection);
     for (const record of records) {
       if (originals.has(record.id)) continue;
-      const clean = withoutParticipantIds(record);
+      const clean = withoutCloudOnlyFields(record);
       originals.set(record.id, clean);
       if (typeof clean.deletedAt !== "string") current.set(record.id, structuredClone(clean));
     }
@@ -301,7 +302,7 @@ export class ApiCommandSession {
       }
       this.transaction.set(change.collection, change.id, data);
       // Responses built after the commit show the stored version.
-      if (change.next) this.bucket(change.collection).current.set(change.id, withoutParticipantIds(data));
+      if (change.next) this.bucket(change.collection).current.set(change.id, withoutCloudOnlyFields(data));
     }
 
     if (tournamentChanged) {

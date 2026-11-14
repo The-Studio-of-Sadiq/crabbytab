@@ -4,8 +4,8 @@ import {
   PARTICIPANT_IDS_FIELD,
   PARTICIPANT_INDEX_DOCUMENT,
   PARTICIPANT_INDEX_VERSION,
-  withoutParticipantIds,
 } from "@/lib/privateSync";
+import { withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 
 /**
  * Participant-scoped reads for the private portals (server-side, firebase-admin). A portal load
@@ -72,7 +72,7 @@ export async function loadParticipantDebates(
   const debates = new Map<string, Debate>();
   for (const document of snapshot.docs) {
     const data = document.data();
-    if (isLive(data)) debates.set(document.id, withoutParticipantIds({ ...data, id: document.id }) as unknown as Debate);
+    if (isLive(data)) debates.set(document.id, withoutCloudOnlyFields({ ...data, id: document.id }) as unknown as Debate);
   }
   return { debates, indexed };
 }
@@ -88,7 +88,7 @@ export async function loadTeamsById(
   const teams = new Map<string, Team>();
   for (const snapshot of snapshots) {
     const data = snapshot.exists ? snapshot.data() : undefined;
-    if (isLive(data)) teams.set(snapshot.id, { ...data, id: snapshot.id } as unknown as Team);
+    if (isLive(data)) teams.set(snapshot.id, { ...withoutCloudOnlyFields(data), id: snapshot.id } as unknown as Team);
   }
   return teams;
 }
@@ -136,7 +136,7 @@ export async function loadBallotsForDebates(
   return snapshots.flatMap((snapshot) =>
     snapshot.docs.flatMap((document) => {
       const data = document.data();
-      return isLive(data) ? [{ ...data, id: document.id } as unknown as BallotSubmission] : [];
+      return isLive(data) ? [{ ...withoutCloudOnlyFields(data), id: document.id } as unknown as BallotSubmission] : [];
     })
   );
 }
@@ -159,7 +159,7 @@ export async function loadMotionsForRounds(
     for (const document of snapshot.docs) {
       const data = document.data();
       if (isLive(data) && typeof data.text === "string" && Array.isArray(data.rounds)) {
-        motions.set(document.id, { ...data, id: document.id } as unknown as Motion);
+        motions.set(document.id, { ...withoutCloudOnlyFields(data), id: document.id } as unknown as Motion);
       }
     }
   }

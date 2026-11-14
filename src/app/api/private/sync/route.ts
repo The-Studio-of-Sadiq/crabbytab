@@ -54,6 +54,8 @@ import { withoutUnreleasedMotion } from "@/lib/privatePortalBallots";
 import { parseSelfCheckInRequest, selfCheckInError, selfCheckInStatus } from "@/lib/selfCheckIn";
 import { checkInEvent } from "@/lib/checkins/history";
 import { getPublicSiteSettings } from "@/lib/publicFeatures";
+import { serverStamp } from "@/lib/cloudStampServer";
+import { CLOUD_UPDATED_AT_FIELD } from "@/lib/cloudRecordFields";
 
 export const runtime = "nodejs";
 
@@ -328,7 +330,7 @@ export async function POST(request: NextRequest) {
           rejected.push({ id: recordId, collection: collectionName, reason: "The feedback identifier is already in use." });
           continue;
         }
-        batch.set(feedbackRef, feedback);
+        batch.set(feedbackRef, { ...feedback, ...serverStamp() });
         feedbackSubmissions.push(feedback);
       }
       uploadedCount += 1;
@@ -353,9 +355,9 @@ export async function POST(request: NextRequest) {
       for (const id of supersededParticipantFeedbackIds(feedbackSubmissions, existingFeedback, tournament, roundById)) {
         const replacedInUpload = feedbackSubmissions.find((feedback) => feedback.id === id);
         if (replacedInUpload) {
-          batch.set(feedbackCollection.doc(id), { ...replacedInUpload, confirmed: false });
+          batch.set(feedbackCollection.doc(id), { ...replacedInUpload, confirmed: false, ...serverStamp() });
         } else {
-          batch.update(feedbackCollection.doc(id), supersededFeedbackUpdate(existingById.get(id) ?? {}));
+          batch.update(feedbackCollection.doc(id), { ...supersededFeedbackUpdate(existingById.get(id) ?? {}), ...serverStamp() });
         }
       }
     }
@@ -402,10 +404,10 @@ export async function POST(request: NextRequest) {
           )
         );
         for (const id of plan.discardExistingIds) {
-          transaction.update(ballotCollection.doc(id), supersededBallotUpdate(existingById.get(id) ?? {}));
+          transaction.update(ballotCollection.doc(id), { ...supersededBallotUpdate(existingById.get(id) ?? {}), ...serverStamp() });
         }
         for (const ballot of plan.writes) {
-          transaction.set(ballotCollection.doc(ballot.id), ballot);
+          transaction.set(ballotCollection.doc(ballot.id), { ...ballot, ...serverStamp() });
         }
         writtenBallots = plan.writes;
         return true;
@@ -437,6 +439,8 @@ export async function POST(request: NextRequest) {
         // Check-in history (lib/checkins/history.ts); self check-ins are rare, so not capped here.
         "checkInHistory",
         FieldValue.arrayUnion(checkInEvent({ available: checkIn.available, source: "self", roundId: checkIn.roundId, at: checkedInAt })),
+        CLOUD_UPDATED_AT_FIELD,
+        FieldValue.serverTimestamp(),
         "syncVersion",
         FieldValue.increment(1)
       );

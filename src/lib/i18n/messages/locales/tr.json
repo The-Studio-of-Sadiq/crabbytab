@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Herkese açık anlık görüntüyü güncelle",
   "setup.staff.audit.release": "Denetim günlüğünü yayınla",
   "setup.staff.audit.loading": "Denetim geçmişi yükleniyor…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Henüz denetim olayı kaydedilmedi.",
   "setup.staff.audit.actorSystem": "Sistem",
   "setup.staff.audit.actorPublic": "Herkese açık kullanıcı",

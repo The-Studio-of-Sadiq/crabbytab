@@ -91,9 +91,11 @@ function SyncStatus({
     setLiveSyncEnabled,
     ballotConfirmationConflicts,
     isOwnerOrAdmin,
+    cloudRefreshing,
   } = useTournament();
   const { t, plural } = useI18n();
-  const isSyncing = cloudSyncState === "syncing";
+  // The working copy is shown while the cloud copy is merged in behind it.
+  const isSyncing = cloudSyncState === "syncing" || cloudRefreshing;
 
   if (localSaveError) {
     return (

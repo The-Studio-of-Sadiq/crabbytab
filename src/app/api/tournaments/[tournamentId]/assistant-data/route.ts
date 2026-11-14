@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assistantMaySeeRoundResults, redactAssistantDebate, withoutDebateResults } from "@/lib/dataEntrySync";
 import { authorizeDataEntryStaff } from "@/lib/staffAccessServer";
 import { hasStaffPermission } from "@/lib/staffPermissions";
+import { withoutCloudOnlyFields } from "@/lib/cloudRecordFields";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,7 @@ export async function GET(
       name,
       snapshots[index].docs
         .filter((document) => typeof document.data().deletedAt !== "string")
-        .map((document) => ({ ...document.data(), id: document.id })),
+        .map((document) => ({ ...withoutCloudOnlyFields(document.data()), id: document.id })),
     ])) as unknown as Record<(typeof names)[number], Array<Record<string, unknown>>>;
 
     const tournament = {

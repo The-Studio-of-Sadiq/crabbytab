@@ -1829,6 +1829,7 @@
   "setup.staff.audit.updateSnapshot": "تحديث اللقطة العامة",
   "setup.staff.audit.release": "نشر سجل التدقيق",
   "setup.staff.audit.loading": "جارٍ تحميل سجل التدقيق…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "لم تُسجَّل أي أحداث تدقيق بعد.",
   "setup.staff.audit.actorSystem": "النظام",
   "setup.staff.audit.actorPublic": "مستخدم عام",

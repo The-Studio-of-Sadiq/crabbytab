@@ -1689,6 +1689,7 @@
   "setup.staff.audit.updateSnapshot": "Öffentlichen Schnappschuss aktualisieren",
   "setup.staff.audit.release": "Prüfprotokoll freigeben",
   "setup.staff.audit.loading": "Prüfverlauf wird geladen…",
+  "setup.staff.audit.cloudError": "Could not load the audit log from the cloud. Showing the events saved on this device.",
   "setup.staff.audit.empty": "Es wurden noch keine Prüfereignisse erfasst.",
   "setup.staff.audit.actorSystem": "System",
   "setup.staff.audit.actorPublic": "Öffentlicher Benutzer",
