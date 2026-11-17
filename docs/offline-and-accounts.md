@@ -11,7 +11,8 @@ A tournament that has never been uploaded exists only on this device: its settin
 
 - **No account is needed.** Whoever holds the device runs it, signed in or not, online or offline,
   and with or without Firebase configured. `TournamentChrome` does not send a signed-out visitor
-  to sign in, and the tournament loader opens the working copy without asking the cloud anything.
+  to sign in, and the tournament loader opens the working copy without asking the cloud anything,
+  signed in or not: creating and opening one costs no Firestore reads.
 - **No role check.** The server has never seen the tournament, so the staff-access check is skipped.
 - **Shared routes stay protected.** On `/display`, `/public` and private URLs a signed-out viewer is
   never an administrator, device-only tournament or not, so a projector or a visitor at the venue
@@ -36,6 +37,10 @@ way.
 - device-only tournaments are always listed;
 - signed in and online, cloud copies on the device are listed if the server lists them for this
   account (or for a global admin);
+- the server lists the tournaments the account owns, administers or is staff on, with targeted
+  queries (`src/lib/accessibleTournaments.ts`, `firestore-indexes.md`). A global admin may open
+  every tournament but is listed only their own; they find the others with search. (Listing every
+  tournament cost one read per tournament in the database on every visit.)
 - signed out, or with the server unreachable, every tournament on the device is listed, with the
   error shown above the list.
 

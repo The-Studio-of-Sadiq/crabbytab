@@ -3,7 +3,7 @@ import type { DocumentData } from "firebase-admin/firestore";
 import type { TournamentFormat } from "@/types";
 import { getAdminAuth, getAdminFirestore } from "@/lib/firebaseAdmin";
 import { isGlobalAdminUid } from "@/lib/globalAdmin";
-import { resolveTournamentAccessRole } from "@/lib/tournamentAccess";
+import { listAccessibleTournaments } from "@/lib/accessibleTournaments";
 
 export const runtime = "nodejs";
 
@@ -36,46 +36,31 @@ export async function GET(request: NextRequest) {
   }
 
   let uid: string;
+  let email: string | undefined;
   try {
-    uid = (await auth.verifyIdToken(token)).uid;
+    const decoded = await auth.verifyIdToken(token);
+    uid = decoded.uid;
+    email = decoded.email;
   } catch {
     return NextResponse.json({ error: "Your sign-in has expired. Please sign in again." }, { status: 401 });
   }
 
   try {
-    const tournamentSnapshot = await firestore.collection("tournaments").get();
-    if (isGlobalAdminUid(uid)) {
-      return NextResponse.json({
-        role: "globalAdmin",
-        tournaments: tournamentSnapshot.docs.map((document) => toSummary(document.id, document.data(), "admin")),
-      }, { headers: { "Cache-Control": "no-store" } });
-    }
-
-    const accessibleTournaments = await Promise.all(tournamentSnapshot.docs.map(async (document) => {
-      const data = document.data();
-      const assistant = await document.ref.collection("staff").doc(uid).get();
-      const role = resolveTournamentAccessRole(
-        {
-          ownerId: data.ownerId,
-          admins: data.admins && typeof data.admins === "object" ? data.admins : undefined,
-        },
-        uid,
-        assistant.data()?.role,
-        isGlobalAdminUid(uid)
-      );
-      return role ? toSummary(document.id, data, role) : null;
-    }));
-
-    const tournaments = accessibleTournaments.filter((tournament) => tournament !== null);
+    const globalAdmin = isGlobalAdminUid(uid);
+    const tournaments = (await listAccessibleTournaments({ firestore, uid, email, globalAdmin }))
+      .map(({ id, data, role }) => toSummary(id, data, role));
     return NextResponse.json({
-      role: tournaments.some((tournament) => tournament.accessRole === "admin")
-        ? "admin"
-        : tournaments.length
-          ? "assistant"
-          : "none",
+      role: globalAdmin
+        ? "globalAdmin"
+        : tournaments.some((tournament) => tournament.accessRole === "admin")
+          ? "admin"
+          : tournaments.length
+            ? "assistant"
+            : "none",
       tournaments,
     }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (error) {
+    console.error("Could not list tournaments:", error);
     return NextResponse.json({ error: "Could not load tournaments from Firestore." }, { status: 503 });
   }
 }

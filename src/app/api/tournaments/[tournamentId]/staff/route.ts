@@ -133,6 +133,8 @@ export async function POST(
       });
       for (const assignment of assignments) {
         transaction.set(tournamentRef.collection("staff").doc(assignment.uid), {
+          // Lets the tournament list find this account's staff records (lib/accessibleTournaments.ts).
+          uid: assignment.uid,
           email: assignment.email,
           displayName: assignment.displayName,
           role: assignment.role,

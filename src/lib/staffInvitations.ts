@@ -277,6 +277,8 @@ export async function acceptInvitation(input: {
     const role: StaffRole = alreadyAdministrator ? "admin" : record.role;
     const acceptedAt = new Date(input.now).toISOString();
     transaction.set(staffRef, {
+      // Lets the tournament list find this account's staff records (lib/accessibleTournaments.ts).
+      uid: input.account.uid,
       email: accountEmail,
       displayName: input.account.displayName || staffSnapshot.data()?.displayName || "",
       role,
