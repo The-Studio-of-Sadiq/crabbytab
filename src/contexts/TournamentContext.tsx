@@ -1107,8 +1107,12 @@ export function TournamentProvider({
         // Where this open's download stopped, saved with the merged records (deltaSync.ts).
         let openCursor: SyncCursor | null = null;
 
-        // Signed out, a device-only tournament never asks the cloud for anything.
-        if (db && (user || isSharedView)) {
+        // A device-only tournament (never uploaded) never asks the cloud for anything, signed in
+        // or not: the cloud has no copy of it, and looking for one cost a slug query and a
+        // document read on every open. Uploading it gives it a syncVersion, and from then on it
+        // is loaded and merged from the cloud like any other.
+        const deviceOnlyHere = !isSharedView && isDeviceOnlyTournament(localTournament);
+        if (db && (user || isSharedView) && !deviceOnlyHere) {
           try {
             if (isSharedView) {
               await loadPublicProjection();
