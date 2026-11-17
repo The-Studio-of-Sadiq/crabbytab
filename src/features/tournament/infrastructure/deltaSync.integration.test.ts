@@ -116,6 +116,20 @@ describe("downloading only what changed", () => {
     expect(again.device.collections.teams).toHaveLength(200);
   });
 
+  it("trusts a delta again after a full read, even with a record that has no syncVersion", async () => {
+    // A record from an early app version: no syncVersion and no stamp. Firestore leaves it out of
+    // the count of a query that also sums syncVersion, so the cursor must leave it out too, or
+    // every open reads the collection in full.
+    fakeStore.documents.set(path("teams", "legacy"), { id: "legacy", name: "Legacy" });
+    const device = await openedTournament(20);
+    expect(device.collections.teams.find((team) => team.id === "legacy")).toMatchObject({ name: "Legacy" });
+
+    const reopened = await open(device);
+    expect(reopened.fullReads).toEqual([]);
+    expect(reopened.reads).toBeLessThan(10);
+    expect(reopened.device.collections.teams).toHaveLength(21);
+  });
+
   it("falls back to a full read when an older app version wrote without a stamp", async () => {
     const device = await openedTournament(20);
     const stored = fakeStore.documents.get(path("teams", "t3"));

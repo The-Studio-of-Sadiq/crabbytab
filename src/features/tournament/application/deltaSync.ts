@@ -20,7 +20,10 @@ import { applyLiveSnapshot, mergeDivergedRecords, withBaselineEntries } from "./
  * - the cloud's record count and `syncVersion` sum (one aggregation query) equal the cursor's after
  *   applying the download. A write that was not stamped (an older app version, a writer that
  *   forgot) bumps `syncVersion` all the same, and a hard delete changes the count, so either one
- *   makes the collection fall back to a full download;
+ *   makes the collection fall back to a full download. A record with no `syncVersion` at all (one
+ *   written by an early app version) is not in the cloud's count: Firestore leaves a document out
+ *   of a query with several aggregations when it lacks a summed field. The cursor lists such records
+ *   (`unversioned`) so the comparison leaves them out too;
  * - the device's copy follows the cursor: every record the cloud holds is on the device (or
  *   deleted here, waiting for upload), synced at the version the cursor records. A working copy
  *   replaced since (a backup restored, a tournament re-imported) fails this and is downloaded in
@@ -43,6 +46,11 @@ export interface CollectionCursor {
   versions: Record<string, number>;
   /** Records soft-deleted in the cloud. */
   deleted: string[];
+  /**
+   * Records with no `syncVersion` field in the cloud, which the cloud's aggregate leaves out
+   * (`cursorMatchesAggregate`). Absent when there are none.
+   */
+  unversioned?: string[];
 }
 
 export interface SyncCursor {
@@ -75,14 +83,19 @@ export function advanceCursor(cursor: CollectionCursor, documents: readonly Clou
   if (documents.length === 0) return cursor;
   const versions = { ...cursor.versions };
   const deleted = new Set(cursor.deleted);
+  const unversioned = new Set(cursor.unversioned);
   let since = cursor.since;
   for (const { record, updatedAt } of documents) {
     versions[record.id] = versionOf(record);
     if (typeof record.deletedAt === "string") deleted.add(record.id);
     else deleted.delete(record.id);
+    if (record.syncVersion === undefined) unversioned.add(record.id);
+    else unversioned.delete(record.id);
     if (updatedAt !== undefined && updatedAt > since) since = updatedAt;
   }
-  return { since, versions, deleted: [...deleted].sort() };
+  const next: CollectionCursor = { since, versions, deleted: [...deleted].sort() };
+  if (unversioned.size > 0) next.unversioned = [...unversioned].sort();
+  return next;
 }
 
 /** Where a delta download starts: the latest stamp seen, minus the overlap. */
@@ -90,8 +103,15 @@ export function deltaStart(cursor: CollectionCursor): number {
   return Math.max(0, cursor.since - DELTA_OVERLAP_MS);
 }
 
+/**
+ * Whether the cloud's count and `syncVersion` sum agree with the cursor. Records without a
+ * `syncVersion` are left out of the count, as the cloud's aggregate leaves them out (see above).
+ */
 export function cursorMatchesAggregate(cursor: CollectionCursor, aggregate: CollectionAggregate): boolean {
-  const versions = Object.values(cursor.versions);
+  const unversioned = new Set(cursor.unversioned);
+  const versions = Object.entries(cursor.versions)
+    .filter(([id]) => !unversioned.has(id))
+    .map(([, version]) => version);
   const sum = versions.reduce((total, version) => total + version, 0);
   return versions.length === aggregate.count && sum === aggregate.versionSum;
 }
@@ -139,10 +159,13 @@ export function parseSyncCursor(value: unknown, tournamentId: string): SyncCurso
   for (const name of CLOUD_COLLECTIONS) {
     const entry = (stored.collections as Record<string, unknown>)[name];
     if (!entry || typeof entry !== "object") continue;
-    const { since, versions, deleted } = entry as Record<string, unknown>;
+    const { since, versions, deleted, unversioned } = entry as Record<string, unknown>;
     if (typeof since !== "number" || !Number.isFinite(since) || since < 0) continue;
     if (!versions || typeof versions !== "object" || Array.isArray(versions)) continue;
     if (!Array.isArray(deleted) || !deleted.every((id) => typeof id === "string")) continue;
+    if (unversioned !== undefined && (!Array.isArray(unversioned) || !unversioned.every((id) => typeof id === "string"))) {
+      continue;
+    }
     const parsedVersions: Record<string, number> = {};
     let valid = true;
     for (const [id, version] of Object.entries(versions)) {
@@ -152,7 +175,10 @@ export function parseSyncCursor(value: unknown, tournamentId: string): SyncCurso
       }
       parsedVersions[id] = version;
     }
-    if (valid) collections[name] = { since, versions: parsedVersions, deleted: [...deleted] };
+    if (!valid) continue;
+    const parsed: CollectionCursor = { since, versions: parsedVersions, deleted: [...deleted] };
+    if (Array.isArray(unversioned) && unversioned.length > 0) parsed.unversioned = [...unversioned];
+    collections[name] = parsed;
   }
   return { tournamentId, collections };
 }
