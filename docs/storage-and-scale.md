@@ -85,7 +85,11 @@ after all when:
 - the cloud's record count or `syncVersion` sum (one aggregation query, about one read per 1,000
   records) differs from the cursor with the changes applied. This catches a write without a stamp
   (an app version from before this change still open on some device, or a writer that forgets the
-  stamp: they all bump `syncVersion`) and a record removed outright;
+  stamp: they all bump `syncVersion`) and a record removed outright. A record with no `syncVersion`
+  field at all (written by an early app version) is left out of the cloud's count, because Firestore
+  counts only documents that hold every summed field when one query asks for several aggregations.
+  The cursor lists such records (`unversioned`) and leaves them out of its count too; without that
+  the collection was read in full on every open;
 - the device's copy does not hold a cloud record the delta did not bring at the cursor's version,
   unless it is deleted here, restored from a backup or listed as a sync conflict. This catches a
   working copy replaced since the cursor was saved.

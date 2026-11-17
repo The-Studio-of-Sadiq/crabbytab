@@ -57,6 +57,25 @@ describe("download cursor", () => {
     expect(cursorMatchesAggregate(cursor, { count: 1, versionSum: 5 })).toBe(false);
   });
 
+  it("leaves records without a syncVersion out of the count, as the cloud's aggregate does", () => {
+    const legacy = { id: "old", name: "Old" } as CloudRecord;
+    const cursor = cursorFromFullRead([stamped(team("t1", 2)), stamped(legacy)]);
+    expect(cursor.unversioned).toEqual(["old"]);
+    expect(cursorMatchesAggregate(cursor, { count: 1, versionSum: 2 })).toBe(true);
+    expect(cursorMatchesAggregate(cursor, { count: 2, versionSum: 2 })).toBe(false);
+
+    // Once written with a syncVersion, it counts.
+    const versioned = advanceCursor(cursor, [stamped(team("old", 1), 1000)]);
+    expect(versioned.unversioned).toBeUndefined();
+    expect(cursorMatchesAggregate(versioned, { count: 2, versionSum: 3 })).toBe(true);
+
+    // The list survives being saved and read back; a malformed one drops the collection.
+    const saved = { tournamentId: "t", collections: { teams: cursor } };
+    expect(parseSyncCursor(JSON.parse(JSON.stringify(saved)), "t").collections.teams).toEqual(cursor);
+    const malformed = { tournamentId: "t", collections: { teams: { ...cursor, unversioned: [1] } } };
+    expect(parseSyncCursor(malformed, "t").collections.teams).toBeUndefined();
+  });
+
   it("parses only a cursor saved for this tournament, dropping malformed collections", () => {
     const saved = {
       tournamentId: "tourn-1",

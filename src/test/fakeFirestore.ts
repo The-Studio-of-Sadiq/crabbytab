@@ -199,7 +199,12 @@ export function sum(field: string): AggregateSpec {
 
 /** Billed as one read per 1,000 documents counted, at least one. */
 export async function getAggregateFromServer(ref: CollectionRef, spec: Record<string, AggregateSpec>) {
-  const records = collectionRecords(ref.path);
+  // As Firestore does: a query with several aggregations considers only the documents holding
+  // every field summed, so count() leaves out a document without the summed field.
+  const fields = Object.values(spec).flatMap((item) => (item.kind === "sum" ? [item.field] : []));
+  const records = Object.keys(spec).length > 1
+    ? collectionRecords(ref.path).filter((record) => fields.every((field) => record[field] !== undefined))
+    : collectionRecords(ref.path);
   fakeStore.reads += Math.max(1, Math.ceil(records.length / 1000));
   const totals = Object.fromEntries(Object.entries(spec).map(([name, item]) => [
     name,
